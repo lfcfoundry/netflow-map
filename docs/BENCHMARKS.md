@@ -1002,10 +1002,15 @@ The same jobs were run in both browsers for sections 1 to 17, so the Firefox-to-
 | Module | Firefox / Chromium before | Cause | After |
 |---|---:|---|---:|
 | Force arrangement, 3,000 to 10,000 items | 1.4 to 1.7× (1.5× at 3,000, 1.7× at 10,000) | A small array made for every tree node and spring visited in the force calculation (millions per picture); Firefox pays far more for those than Chromium | 0.9 to 1.2× |
-| Normal random draws, 1,000,000 | 2.8× (60 against 21 ms) | Numeric routines (log, square root, cosine) cost more in Firefox; no change made (section 14) | unchanged |
-| CSV reading, 50,000 rows | 1.35× median, up to 2.8× for mid-size files | General string handling cost; ours is still faster than Papa Parse in Firefox in 18 of 21 shapes (section 1) | unchanged |
+| Normal random draws, 1,000,000 | 2.8× (60 against 21 ms) | See "Normal draws and CSV, looked at again" below: a cold first run plus the engine's own speed on integer and table work; no change made | unchanged |
+| CSV reading, 50,000 rows | 1.35× median, up to 2.8× for mid-size files | See below: cold-start and memory-cleanup variation in Firefox, not the method; no change made | unchanged |
 | GIF export, 4 frames | about 1× | Section 14 | already done |
 | Stress arrangement | 1.0 to 1.3× | | unchanged |
+
+**Normal draws and CSV, looked at again** (nothing changed in the code; the raw numbers are `*-drawsRun.jsonl`, `*-drawsVar.jsonl`, `*-csvVar.jsonl` and `*-csvCold.jsonl` in `bench/results`, and the jobs are `drawsRun`, `drawsVar`, `csvVar` and `csvCold` in `bench/plans.js`):
+
+- *Normal draws.* The first 1,000,000 draws in a page are slow in both browsers (73 ms in Chromium, 66 ms in Firefox) and settle after a few runs: Chromium to 13 ms, Firefox to 31 to 35 ms (it jumps between 31 and 72 ms from run to run on this two-core machine). The 2.8× in the table above mixed the cold run with the steady one; the steady ratio is about 2.5×. Six ways of writing the generator (state in a closure, inlined, in a typed array, in an object field, compare before multiply, and a batch that fills an array) were timed: the best in Firefox, the batch, saves about 20% and needs every caller to change, and the others are within 10% of what ships. Even the tightest loop costs Firefox 17 to 25 ns a draw and Chromium 4 to 10 ns, so this is the engines' own speed on this kind of integer and table work. Still faster than d3 (51 ms) and jStat (42 to 48 ms) in Chromium, level with them in Firefox, at 1,000,000 draws.
+- *CSV reading.* Timed one after another in one page with all the methods taking turns, the reader takes 11 to 34 ms in Firefox and 19 to 52 ms in Chromium for 50,000 rows (6 to 12 columns, 12 to 200 characters a field): the same, and no other way of cutting the lines (splitting the whole file first, a regular expression, one flat split) is faster by more than the run-to-run noise. The slow Firefox numbers in section 1 were measured with the reader, Papa Parse and d3-dsv taking turns in one page, where Firefox's memory cleanup runs in the middle of the timing; read cold, one reader per fresh page, the first parse takes Firefox 18 to 70 ms (middle about 45) and Chromium about 33 ms. So a person opening one file sees about 1.3× in Firefox with a wide swing, not 2.4×, and Papa Parse shows the same pattern in the same pages. Nothing to change in the reader.
 
 **The Force fix, measured** (one run each, time, in the same engine before and after; distance truth is identical to three digits and the pictures are byte for byte identical in 2D and 3D):
 
@@ -1029,6 +1034,7 @@ node run.js chromium stress
 node run.js chromium typed
 node run.js chromium compare
 node run.js chromium forceOurs                       # or: firefox; our Force arrangement alone (section 18)
+node run.js chromium drawsRun; node run.js chromium drawsVar; node run.js chromium csvVar; node run.js chromium csvCold   # or: firefox; normal draws and CSV looked at again (section 18)
 node run.js chromium closeness                      # or: firefox; the closeness arrangement in the browser (section 17)
 node run.js chromium stressBest                    # or: firefox; the best-quality arrangement next to the normal one (section 16)
 NFM_CHROME_ARGS='--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan=swiftshader --use-gl=angle --use-angle=swiftshader --ignore-gpu-blocklist' node run.js chromium gpumaj   # does a WebGPU majorization agree with the CPU one? (section 16)

@@ -51,6 +51,26 @@ var SUITES = (function () {
     return out;
   };
 
+  /* Ways to cut a quote-free table into rows, for Firefox (a: { rows, cols, len }). Median of 9 runs each. */
+  SUITES.csvvar = function (a) {
+    var r = GEN.rng(5), parts = [], R = a.rows, Cc = a.cols, d = ',', i, j, hdr = [], word = 'abcdefghijklmnopqrstuvwxyz';
+    for (j = 0; j < Cc; j++) hdr.push('c' + j); parts.push(hdr.join(d));
+    for (i = 0; i < R; i++) { var row = []; for (j = 0; j < Cc; j++) { var s = ''; if (j === 0) s = 'n' + i; else if (j % 3 === 1) s = String(Math.round(r() * 1e4) / 100); else for (var k = 0; k < a.len; k++) s += word[(k * 7 + Math.floor(r() * 26)) % 26]; row.push(s); } parts.push(row.join(d)); }
+    var text = parts.join('\n'), out = { bytes: text.length };
+    var V = {
+      current: function () { return I.parseDelimited(text, d); },
+      linesFirst: function () { var L = text.split('\n'), rows = new Array(L.length), n = 0; for (var q = 0; q < L.length; q++) { var ln = L[q]; if (ln.length === 0) continue; rows[n++] = ln.split(d); } rows.length = n; return rows; },
+      sliceSplit: function () { var rows = [], pos = 0, n = text.length; while (pos < n) { var nl = text.indexOf('\n', pos), end = nl < 0 ? n : nl; rows.push(text.slice(pos, end).split(d)); pos = end + 1; } return rows; },
+      linesOnly: function () { return text.split('\n'); },
+      flat: function () { return text.split(/,|\n/); },
+      flatStr: function () { return text.replace(/\n/g, ',').split(','); },
+      regexRows: function () { var rows = [], re = /([^\n]*)\n|([^\n]+)$/g, m; while ((m = re.exec(text)) !== null) { rows.push((m[1] !== undefined ? m[1] : m[2]).split(d)); } return rows; }
+    };
+    var names = a.only || Object.keys(V), T9 = {}, v, t0, q, m; names.forEach(function (k) { T9[k] = []; });
+    for (q = 0; q < (a.rounds || 11); q++) for (m = 0; m < names.length; m++) { var k = names[(m + q) % names.length]; t0 = now(); v = V[k](); T9[k].push(now() - t0); v = null; }
+    names.forEach(function (k) { out[k] = r1(med(T9[k].slice(a.rounds ? 0 : 2))); out[k + 'First'] = r1(T9[k][0]); out[k + 'Min'] = r1(Math.min.apply(null, T9[k])); });
+    return out;
+  };
   SUITES.csvKind = function (a) {   // the three structures through the three parsers (a: { kind, n, only })
     var c = GEN.csv(a.kind, a.n, 21); if (c.error) return { error: c.error, rows: c.rows };
     var text = c.text, out = { kind: a.kind, rows: c.rows, MB: Math.round(c.bytes / 1048576 * 10) / 10 }, want = a.only || ['ours', 'papa', 'd3', 'import'], r;
@@ -157,6 +177,29 @@ var SUITES = (function () {
     out.poisson = { ours: run(o('poisson', 7)), d3: run(d3.randomPoisson.source(mk(3))(7)), jstat: run(function () { return js.poisson.sample(7); }) };
     out.binomial = { ours: run(o('binomial', 40, 0.3)), d3: run(d3.randomBinomial.source(mk(3))(40, 0.3)) };
     out.exponential = { ours: run(o('exponential', 5)), d3: run(d3.randomExponential.source(mk(3))(1 / 5)) };
+    return out;
+  };
+  /* Normal draws, run after run, to tell a cold start from a steady cost (Firefox reads the first run slower). */
+  SUITES.drawsrun = function (a) {
+    var N = a.N || 1000000, rr = S.rngFor(1, 0), f = S.DRAW.normal, runs = [], k, sum, i, t0, v;
+    for (k = 0; k < 8; k++) { t0 = now(); sum = 0; for (i = 0; i < N; i++) { v = f(rr, 10, 3); sum += v; } runs.push(r1(now() - t0)); }
+    var direct = [], nz = rr.normal; for (k = 0; k < 8; k++) { t0 = now(); sum = 0; for (i = 0; i < N; i++) { sum += nz(); } direct.push(r1(now() - t0)); }
+    return { N: N, viaDraw: runs, direct: direct, sum: sum };
+  };
+  /* Ways to write the normal generator, steady-state time for 1,000,000 draws (min and median of 8 runs). Fast path only is compared; the rare slow path is the same text everywhere. */
+  SUITES.drawsvar = function (a) {
+    var N = a.N || 1000000, ZK = new Float64Array(128), ZW = new Float64Array(128), ZR = 3.442619855899;
+    (function () { var m1 = 2147483648, dn = ZR, tn = dn, vn = 9.91256303526217e-3, q = vn / Math.exp(-0.5 * dn * dn), i; ZK[0] = (dn / q) * m1; ZK[1] = 0; ZW[0] = q / m1; ZW[127] = dn / m1; for (i = 126; i >= 1; i--) { dn = Math.sqrt(-2 * Math.log(vn / dn + Math.exp(-0.5 * dn * dn))); ZK[i + 1] = (dn / tn) * m1; tn = dn; ZW[i] = dn / m1; } })();
+    var slow = function () { return 0; };
+    var mk = {};
+    mk.closure = function (seed) { var s = seed | 0; var next = function () { s = (s + 0x6d2b79f5) | 0; var t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return t ^ (t >>> 14); }; return function () { var hz = next(), iz = hz & 127; return Math.abs(hz) < ZK[iz] ? hz * ZW[iz] : slow(hz, iz); }; };
+    mk.inline = function (seed) { var s = seed | 0; return function () { s = (s + 0x6d2b79f5) | 0; var t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; var hz = t ^ (t >>> 14), iz = hz & 127; return Math.abs(hz) < ZK[iz] ? hz * ZW[iz] : slow(hz, iz); }; };
+    mk.typed = function (seed) { var st = new Int32Array(1); st[0] = seed | 0; return function () { var s = (st[0] + 0x6d2b79f5) | 0; st[0] = s; var t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; var hz = t ^ (t >>> 14), iz = hz & 127; return Math.abs(hz) < ZK[iz] ? hz * ZW[iz] : slow(hz, iz); }; };
+    mk.field = function (seed) { var o = { s: seed | 0 }; return function () { var s = (o.s + 0x6d2b79f5) | 0; o.s = s; var t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; var hz = t ^ (t >>> 14), iz = hz & 127; return Math.abs(hz) < ZK[iz] ? hz * ZW[iz] : slow(hz, iz); }; };
+    mk.cmp = function (seed) { var s = seed | 0; return function () { s = (s + 0x6d2b79f5) | 0; var t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; var hz = t ^ (t >>> 14), iz = hz & 127; var x = hz * ZW[iz]; return (hz < 0 ? -hz : hz) < ZK[iz] ? x : slow(hz, iz); }; };
+    var out = {}, fill = function (seed, buf, n) { var s = seed | 0, i, t, hz, iz; for (i = 0; i < n; i++) { s = (s + 0x6d2b79f5) | 0; t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; hz = t ^ (t >>> 14); iz = hz & 127; buf[i] = Math.abs(hz) < ZK[iz] ? hz * ZW[iz] : slow(hz, iz); } };
+    Object.keys(mk).forEach(function (k) { var f = mk[k](7), ts = [], j, i, sum, t0; for (j = 0; j < 8; j++) { t0 = now(); sum = 0; for (i = 0; i < N; i++) sum += f(); ts.push(now() - t0); } ts.sort(function (x, y) { return x - y; }); out[k] = { min: r1(ts[0]), med: r1((ts[3] + ts[4]) / 2), sum: sum }; });
+    var buf = new Float64Array(N), ts = [], j, t0, sum, i; for (j = 0; j < 8; j++) { t0 = now(); fill(7, buf, N); sum = 0; for (i = 0; i < N; i++) sum += buf[i]; ts.push(now() - t0); } ts.sort(function (x, y) { return x - y; }); out.batch = { min: r1(ts[0]), med: r1((ts[3] + ts[4]) / 2), sum: sum };
     return out;
   };
   SUITES.formula = function (a) {

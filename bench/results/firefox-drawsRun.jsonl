@@ -1,0 +1,1 @@
+{"key":"drawsrun:{\"N\":1000000}","suite":"drawsrun","args":{"N":1000000},"browser":"firefox/158.0","label":"","ok":{"N":1000000,"viaDraw":[66,34,33,65,59,72,45,40],"direct":[37,32,35,33,65,37,32,31],"sum":-284.65385538079664},"wallMs":769,"rssBaseMB":1098,"rssPeakMB":1231}
