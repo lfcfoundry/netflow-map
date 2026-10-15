@@ -81,7 +81,7 @@ function renderBar() {
   var fk = Object.keys(V.facets).filter(function (k) { return V.facets[k] && V.facets[k].length; }); if (fk.length) parts.push('filtered by ' + fk.map(function (k) { return k.slice(2); }).join(', '));
   if (V.widthBy) parts.push('width = ' + chLabel(V.widthBy, 'edges'));
   if (V.sizeBy) parts.push('size = ' + chLabel(V.sizeBy));
-  if (V.colorBy && V.colorBy !== 'none') parts.push('color = ' + (V.colorBy === 'group' ? 'group' : V.colorBy === 'found' ? 'found groups' : V.colorBy === 'odds' ? word('odds').toLowerCase() : chLabel(V.colorBy)));
+  if (V.colorBy && V.colorBy !== 'none') parts.push('color = ' + (V.colorBy === 'group' ? 'group' : V.colorBy === 'found' ? 'found groups' : V.colorBy === 'odds' ? word('odds').toLowerCase() : V.colorBy === 'sim' ? 'simulated visits' : chLabel(V.colorBy)));
   if (L.view === 'lanes' && !L.laneNames) parts.push('Lanes needs two or more groups; try coloring by found groups');
   el.textContent = parts.join(' · ');
   el.title = 'Click for why this view and what it hides';
