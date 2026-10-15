@@ -386,6 +386,25 @@ var SUITES = (function () {
   };
 
   /* ================= limits: one structure at one scale, every stage in turn, ours only ================= */
+  /* Cold against warm: the steps a person triggers, run three times in a fresh page on three different files of the same kind and size
+     (a: { kind, n }). The first run is what a person feels on opening a file; the later ones show what warm-up would buy. */
+  SUITES.cold = function (a) {
+    var runs = [], k, t0;
+    for (k = 0; k < 3; k++) {
+      var c = GEN.csv(a.kind, a.n, 21 + k), r = {}, imp, dg, P;
+      t0 = now(); I.parseDelimited(c.text, ','); r.parse = r1(now() - t0);
+      t0 = now(); imp = I.importAny(c.text, { name: 'bench.csv', maxNodes: 1e7, maxEdges: 5e7 }); r.import = r1(now() - t0);
+      t0 = now(); dg = C.derive(imp.graph); r.derive = r1(now() - t0);
+      t0 = now(); P = E.prepare(dg, {}); r.prepare = r1(now() - t0);
+      t0 = now(); K.run(imp.graph, {}); r.check = r1(now() - t0);
+      t0 = now(); E.build(dg, { view: 'flow', colorBy: 'group' }); r.flow = r1(now() - t0);
+      t0 = now(); E.build(dg, { view: 'network', arrange: 'stress', colorBy: 'group' }); r.stress = r1(now() - t0);
+      t0 = now(); E.build(dg, { view: 'network', arrange: 'force', colorBy: 'group' }); r.force = r1(now() - t0);
+      r.total = r1(r.parse + r.import + r.derive + r.prepare + r.check + r.flow + r.stress + r.force);
+      runs.push(r);
+    }
+    return { kind: a.kind, n: a.n, runs: runs };
+  };
   SUITES.limits = function (a) {   // a: { kind, n, via: 'csv'|'graph', stages: [names] }
     var out = { kind: a.kind, n: a.n, stages: {} }, text = null, graph = null, dg = null, P = null, st = out.stages;
     var stage = function (name, fn) { var b = heap(), t0 = now(); try { var v = fn(); st[name] = { ms: r1(now() - t0), heapMB: b === null ? null : mb(heap() - b) }; return v; } catch (e) { st[name] = { ms: r1(now() - t0), error: String(e && e.message || e).slice(0, 90) }; return null; } };

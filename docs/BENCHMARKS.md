@@ -1025,6 +1025,29 @@ The same jobs were run in both browsers for sections 1 to 17, so the Firefox-to-
 
 Chromium gains 9 to 27%, Firefox 12 to 95%. A search of the engine, simulation and scene code for the same pattern (a small array made inside a hot loop) found no other instance. Raw numbers: `bench/results/*-force-before.jsonl` and `*-force.jsonl`; the job list is `node run.js firefox forceOurs`.
 
+## 19. Cold start, and best quality on the graphics card
+
+**Cold start** (`node run.js firefox cold`; raw: `bench/results/*-cold.jsonl`). Every step a person triggers on a new file (read, import, prepare, check, flow drawing, Distances, Force), run three times in a fresh page on three different files of the same kind and size; middle of three pages.
+
+| file | Firefox first run | Firefox third run | Chromium first run | Chromium third run |
+|---|---:|---:|---:|---:|
+| moderate, 500 items | 568 ms | 349 ms | 475 ms | 344 ms |
+| moderate, 2,000 items | 2.90 s | 2.69 s | 2.61 s | 2.72 s |
+| complex, 2,000 items | 3.22 s | 2.68 s | 2.79 s | 2.94 s |
+
+The first run pays a fixed warm-up of about 130 to 220 ms in both browsers (the code is compiled the first time it runs), spread over the checker, the flow drawing, Distances and Force. At 2,000 items Chromium shows no warm-up cost any more; Firefox keeps 0.2 to 0.5 s (7 to 17%), most of it in Force (1.62 s first against 1.26 s later). A warm-up pass on a tiny network while the page is idle would save most of the fixed part, so it is a candidate for the next round, not something shipped.
+
+**Best quality on the graphics card** (research; not in the app). Majorization steps ("every item moves to the weighted mean of where each other item wants it", weights 1 / hops squared, the same quantity the truth score measures) need only the hop table and positions, and each item's update is independent, so the work fits a graphics card. In Node, with plain 64-bit math, started from a cheap 60-pivot sketch (0.14 to 0.18 s at 5,000 items) the steps reach best-quality truth in a few steps:
+
+| network, 5,000 items | sketch only | 30 steps | 80 steps | 150 steps | app's best quality |
+|---|---:|---:|---:|---:|---:|
+| moderate | 0.197 | 0.156 | 0.155 | 0.154 | 0.155 |
+| complex | 0.177 | 0.144 | 0.143 | 0.142 | 0.144 |
+
+(Started from the app's quick Distances picture instead of the sketch, the same steps need 30 to 80 to get there, 0.159 and 0.150 at 30; the sketch is both cheaper and a better start.) The prototype in `bench/gpu/gpustress.js` does all of it on the card with WebGPU: the hop table by bit-parallel breadth-first walks (32 start items per word, one byte per pair, all batches in one dispatch per level), the weights, and the steps (4 items per thread, positions shared through workgroup memory). Checked on this machine's software WebGPU stand-in (not a real card): the hop table matches the processor's in every one of 360,000 entries at 600 items, the steps match the processor's 64-bit math (0% difference in distance error), and at 5,000 items the truth after 20 / 40 / 60 steps is 0.157 / 0.155 / 0.155 (moderate) and 0.144 / 0.143 / 0.143 (complex), the same as the numbers above. Speed on a real card is unmeasured; `bench/net-flow-map-tester.html` measures it on a laptop (below).
+
+**The laptop tester.** `node tools/build-tester.mjs` writes one self-contained page, `bench/net-flow-map-tester.html`. Opened in a browser it starts by itself, runs five checks (the computer and its graphics adapter; whether the graphics-card hop table and steps match the processor's; time and truth of the processor's best quality against the graphics card at 2,000 to 20,000 items; first run against later runs; random draws, CSV reading and Force repeated), explains each in plain words, and offers a results file (`net-flow-map-tester-results.md`) to hand back. `?quick=1` makes it small enough to try anywhere; `?plan=moderate:5000` picks the sizes. `node bench/tester/run-local.js <firefox|chromium> [quick]` runs it in this machine's browsers.
+
 ## Reproduce
 
 ```
@@ -1034,6 +1057,8 @@ node run.js chromium stress
 node run.js chromium typed
 node run.js chromium compare
 node run.js chromium forceOurs                       # or: firefox; our Force arrangement alone (section 18)
+node run.js chromium cold                       # or: firefox; first run against later runs (section 19)
+node tools/build-tester.mjs                       # the laptop tester page (section 19)
 node run.js chromium drawsRun; node run.js chromium drawsVar; node run.js chromium csvVar; node run.js chromium csvCold   # or: firefox; normal draws and CSV looked at again (section 18)
 node run.js chromium closeness                      # or: firefox; the closeness arrangement in the browser (section 17)
 node run.js chromium stressBest                    # or: firefox; the best-quality arrangement next to the normal one (section 16)
