@@ -145,6 +145,7 @@ function ensureTimeline() {
     h('button', { id: 'tl-play', class: 'primary icon', 'aria-label': 'Play the states', title: 'Play or pause', onclick: function () { if (ST.playing) pauseStates(); else playStates(); } }, '▶'),
     h('div', { class: 'tl-mid' }, [h('input', { type: 'range', id: 'tl-range', min: 0, max: 1, step: 0.001, value: 0, 'aria-label': 'Position along the states', oninput: function (ev) { scrubStates(parseFloat(ev.target.value)); }, onchange: function (ev) { settleStates(); } }), h('div', { id: 'tl-ticks', class: 'tl-ticks' })]),
     h('div', { id: 'tl-name', class: 'tl-name', 'aria-live': 'polite' }, ''),
+    h('button', { class: 'icon tl-more', id: 'tl-more', title: 'More options', 'aria-label': 'More options', onclick: function () { var t = $('timeline'); t.classList.toggle('more'); $('tl-more').setAttribute('aria-pressed', String(t.classList.contains('more'))); } }, '⋯'),
     h('button', { id: 'tl-loop', class: 'icon', title: 'Play over and over', 'aria-label': 'Loop', 'aria-pressed': 'true', onclick: function () { S.V.anim.loop = !S.V.anim.loop; saveView(); renderTimeline(); } }, '⟳'),
     h('select', { id: 'tl-speed', 'aria-label': 'Seconds per state', onchange: function (ev) { S.V.anim.sec = parseFloat(ev.target.value); saveView(); } }, [[1, 'Fast'], [2.4, 'Normal'], [4, 'Slow']].map(function (o) { return h('option', { value: o[0] }, o[1]); }))
   ]);

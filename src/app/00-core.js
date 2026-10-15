@@ -55,6 +55,19 @@ var nextFrame = function () { return new Promise(function (r) { setTimeout(r, 0)
 
 var toastT;
 function toast(msg, ms) { var t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(function () { t.hidden = true; }, ms || 3600); }
+/* Narrow is not the same as touch: a half-width window on a laptop is narrow with a mouse; a tablet held sideways is wide with a finger. */
+var touchForce = null;
+function touchOnly() { return touchForce !== null ? touchForce : !!(window.matchMedia && matchMedia('(hover: none) and (pointer: coarse)').matches); }
+function phoneLayout() { return !!(window.matchMedia && matchMedia('(max-width:820px)').matches); }
+/** Words follow the device: T('Right-click', 'Press and hold'). */
+function T(computerText, touchText) { return touchOnly() ? touchText : computerText; }
+function placeChrome() { document.body.classList.toggle('touch', touchOnly()); document.body.classList.toggle('narrow', phoneLayout()); }
+/** The on-screen keyboard changes the height, not the width. --kb is how much of the page it covers; typing hides the tab bar. */
+function keyboardLift() {
+  var vv = window.visualViewport; if (!vv) return;
+  var upd = function () { var kb = Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop)); if (vv.scale > 1.01) kb = 0; document.documentElement.style.setProperty('--kb', kb + 'px'); document.body.classList.toggle('kb', kb > 80); };
+  vv.addEventListener('resize', upd); vv.addEventListener('scroll', upd); upd();
+}
 function say(msg) { var l = $('live'); l.textContent = ''; setTimeout(function () { l.textContent = msg; }, 30); }
 
 function download(name, data, type) {
@@ -89,7 +102,7 @@ function defaultView() {
     rules: [], palette: 'standard', ramp: 'warm', groupColors: {}, widthScale: 'sqrt', widthMul: 1, hulls: false, curve: 0, valueLabels: false,
     lab: { items: { show: true, scale: 1, color: 'auto', fixed: '#222222', topN: 0 }, links: { show: true, scale: 1 }, groups: { show: false, scale: 1 } },
     lens: { on: false, d: 3, r: 0.28 }, cam: { yaw: 0.6, pitch: 0.35, persp: 2.4, spin: false },
-    vocab: {}, key: { x: null, y: null, min: false, hide: false, edits: {} }, pins: {}, saved: []
+    vocab: {}, key: { x: null, y: null, min: false, hide: phoneLayout(), edits: {} }, pins: {}, saved: []
   };
 }
 var VKEY = function () { return 'nfm-v:' + (S.graph.name || 'Untitled'); };

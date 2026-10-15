@@ -2,7 +2,7 @@
 <html lang="en-US">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Net Flow Map</title>
 <meta name="description" content="Bring in a table, JSON, an outline or a folder of notes, and see how everything connects. One file, works offline.">
 <!-- Net Flow Map @@VERSION@@. Copyright (c) 2026 JNFoo. MIT License. https://github.com/JNFoo/net-flow-map -->
@@ -14,12 +14,12 @@
 <header class="top">
   <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="5" r="2.4"/><circle cx="19" cy="19" r="2.4"/><path d="M7.2 11 17 6M7.2 13 17 18"/></svg><span>Net Flow Map</span></div>
   <div class="tabs" role="tablist" aria-label="Sections">
-    <button role="tab" id="tabbtn-data" aria-selected="true" aria-controls="tab-data">Data</button>
-    <button role="tab" id="tabbtn-nodes" aria-selected="false" aria-controls="tab-nodes">Nodes</button>
-    <button role="tab" id="tabbtn-map" aria-selected="false" aria-controls="tab-map">Map</button>
-    <button role="tab" id="tabbtn-check" aria-selected="false" aria-controls="tab-check">Check <i class="badge" id="chk-badge" hidden></i></button>
-    <button role="tab" id="tabbtn-adv" aria-selected="false" aria-controls="tab-adv">Advanced</button>
-    <button role="tab" id="tabbtn-export" aria-selected="false" aria-controls="tab-export">Export</button>
+    <button role="tab" id="tabbtn-data" aria-selected="true" aria-controls="tab-data"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 10h17M3.5 15h17M9.5 4.5v15"/></svg><span class="lb">Data</span></button>
+    <button role="tab" id="tabbtn-nodes" aria-selected="false" aria-controls="tab-nodes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="7" r="2.4"/><circle cx="18" cy="7" r="2.4"/><circle cx="12" cy="17" r="2.4"/><path d="M8 8.6l3 6.4M16 8.6l-3 6.4"/></svg><span class="lb">Nodes</span></button>
+    <button role="tab" id="tabbtn-map" aria-selected="false" aria-controls="tab-map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="5" r="2.4"/><circle cx="19" cy="19" r="2.4"/><path d="M7.2 11l9.6-5M7.2 13l9.6 5"/></svg><span class="lb">Map</span></button>
+    <button role="tab" id="tabbtn-check" aria-selected="false" aria-controls="tab-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M8 12.3l2.8 2.8L16.2 9.5"/></svg><span class="lb">Check</span> <i class="badge" id="chk-badge" hidden></i></button>
+    <button role="tab" id="tabbtn-adv" aria-selected="false" aria-controls="tab-adv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/><circle cx="9" cy="6" r="2" fill="var(--panel)"/><circle cx="15" cy="12" r="2" fill="var(--panel)"/><circle cx="8" cy="18" r="2" fill="var(--panel)"/></svg><span class="lb">Advanced</span></button>
+    <button role="tab" id="tabbtn-export" aria-selected="false" aria-controls="tab-export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></svg><span class="lb">Export</span></button>
   </div>
   <div class="spacer"></div>
   <button id="btn-theme" class="quiet icon" title="Switch between light and dark" aria-label="Switch between light and dark"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>

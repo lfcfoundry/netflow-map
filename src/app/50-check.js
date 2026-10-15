@@ -27,7 +27,7 @@ function findingCard(f) {
   var acts = [];
   if (f.items && f.items.length) acts.push(h('button', { class: 'sm', onclick: function () { showTab('map'); setTimeout(function () { setSel(f.items.filter(function (id) { return S.byId.has(id); }), { center: true }); }, 60); } }, 'Show on the map'));
   if (f.items && f.items.length) acts.push(h('button', { class: 'sm', onclick: function () { S.sel = new Set(f.items.filter(function (id) { return S.byId.has(id); })); NT.filter = ''; showTab('nodes'); } }, 'See in the table'));
-  if (f.fix) acts.push(h('button', { class: 'sm primary', onclick: function () { var r = NFMCheck.applyFix(S.graph, f.fix); if (!r) { toast('Nothing to change.'); return; } setGraph(r.graph, true, true); toast('Done: ' + r.text + '. Ctrl+Z undoes it.'); } }, f.fix.label || 'Fix it'));
+  if (f.fix) acts.push(h('button', { class: 'sm primary', onclick: function () { var r = NFMCheck.applyFix(S.graph, f.fix); if (!r) { toast('Nothing to change.'); return; } setGraph(r.graph, true, true); toast('Done: ' + r.text + '. ' + T('Ctrl+Z', 'Undo on the Data tab') + ' undoes it.'); } }, f.fix.label || 'Fix it'));
   acts.push(h('button', { class: 'sm quiet', onclick: function () { CHK.ignore.add(f.id); renderCheck(); } }, 'Ignore'));
   kids.push(h('div', { class: 'row tight' }, acts));
   return h('div', { class: 'find ' + f.sev }, kids);

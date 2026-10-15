@@ -82,7 +82,7 @@ function endPtr(e) {
     else { var poly = []; inkShape.pts.forEach(function (pt) { var w = worldOf(pt[0], pt[1]); poly.push(w[0], w[1]); }); ids = NFMScene.inLasso(S.scene, poly); }
     var items = []; ids.forEach(function (k) { var n = S.scene.nodes.filter(function (x) { return x.key === k; })[0]; if (n && n.nodeId !== undefined) items.push(n.nodeId); });
     if (q.shift && S.sel.size) items = Array.from(new Set(Array.from(S.sel).concat(items)));
-    setInk(null); setSel(items); if (items.length) toast(plural(items.length, 'item') + ' selected. Right-click for what to do with them.');
+    setInk(null); setSel(items); if (items.length) toast(plural(items.length, 'item') + ' selected. ' + T('Right-click', 'Press and hold') + ' for what to do with them.');
     if (S.tool !== 'hand' && !e.shiftKey && !e.altKey) { /* keep the tool until the person changes it */ }
   } else if (q.mode === 'node') endNodeDrag();
   else if (q.mode === 'pan' && !reduceMotion && velo.length > 2) {
@@ -302,7 +302,7 @@ function edgeMenu(ei) {
     { t: 'Light up routes through it', fn: function () { routeThrough(e); } },
     { t: 'Style this link…', fn: function () { openStyleFor({ type: 'kind', value: kinds }, null, 'links', ei); } },
     kinds ? { t: 'Hide links of kind "' + kinds + '"', fn: function () { setV({ hideKinds: S.V.hideKinds.concat([kinds]) }); } } : null,
-    { t: 'Remove this link from the data', fn: function () { var os = (e.orig || []).slice(); edit(function (g) { g.edges = g.edges.filter(function (_, i) { return os.indexOf(i) < 0; }); }); setSel([]); toast('Link removed. Ctrl+Z undoes it.'); } }];
+    { t: 'Remove this link from the data', fn: function () { var os = (e.orig || []).slice(); edit(function (g) { g.edges = g.edges.filter(function (_, i) { return os.indexOf(i) < 0; }); }); setSel([]); toast('Link removed. ' + T('Ctrl+Z', 'Undo on the Data tab') + ' undoes it.'); } }];
 }
 function groupMenu(hh, ids) {
   var name = hh.type === 'group' ? (hh.group || '(none)') : (S.L.laneNames && S.L.laneNames[hh.lane]);
@@ -346,7 +346,7 @@ function makeGroup(ids) {
     if (!name) return;
     var set = new Set(ids);
     edit(function (g) { g.nodes = g.nodes.map(function (n) { return set.has(n.id) ? Object.assign({}, n, { group: name }) : n; }); });
-    toast('Grouped as "' + name + '". Ctrl+Z undoes it.');
+    toast('Grouped as "' + name + '". ' + T('Ctrl+Z', 'Undo on the Data tab') + ' undoes it.');
   });
 }
 function makeSet(ids) {

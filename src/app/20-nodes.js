@@ -30,7 +30,7 @@ function nodesShell() {
     h('div', { class: 'tablewrap', style: { maxHeight: '60vh' } }, h('table', { class: 't', id: 'table' })),
     h('div', { class: 'row', id: 'addlink' })
   ]);
-  mount(root, [tidy, tbl, h('p', { class: 'muted small' }, 'Edits are saved as you go and can be undone on the Data tab or with Ctrl+Z. Calculated columns are shown but cannot be typed over.')]);
+  mount(root, [tidy, tbl, h('p', { class: 'muted small' }, 'Edits are saved as you go and can be undone on the Data tab or with ' + T('Ctrl+Z', 'the Undo button') + '. Calculated columns are shown but cannot be typed over.')]);
   bindNodes();
 }
 function renderTidy() {
