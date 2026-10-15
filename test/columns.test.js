@@ -81,4 +81,20 @@ t('fixes are pure', function () {
 });
 t('markdown report', function () { var g = base(); g.edges.push({ from: 'A', to: 'Q' }); var md = K.toMarkdown(K.run(g), g); assert.ok(/^# Data check/.test(md)); assert.ok(/does not exist/.test(md)); });
 t('clean data stays clean of errors', function () { var r = K.run(base()); assert.strictEqual(r.counts.error, 0); });
+t('states from columns', function () {
+  var g = { name: 'x', nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }], edges: [{ from: 'A', to: 'B', weight: 1, attrs: { y1: '10', y2: '20', y3: '' } }, { from: 'B', to: 'A', weight: 1, attrs: { y1: '', y2: '5', y3: '7' } }] };
+  var r = C.buildStates(g, { mode: 'cols', keys: ['y1', 'y2', 'y3'], names: ['Now', 'Next', ''] });
+  assert.deepStrictEqual(r.states.names, ['Now', 'Next', 'y3']); assert.deepStrictEqual(r.edges[0].vals, [10, 20, null]); assert.deepStrictEqual(r.edges[1].vals, [null, 5, 7]);
+  assert.strictEqual(r.edges[0].weight, 15, 'flat weights become the average over the states'); assert.strictEqual(g.edges[0].vals, undefined, 'the original is not changed');
+  assert.throws(function () { C.buildStates(g, { mode: 'cols', keys: ['y1'] }); });
+  var back = C.clearStates(r); assert.strictEqual(back.states, undefined); assert.strictEqual(back.edges[0].vals, undefined);
+});
+t('states from rows (the same link repeated per year)', function () {
+  var g = { name: 'x', nodes: [{ id: 'A' }, { id: 'B' }, { id: 'C' }], edges: [
+    { from: 'A', to: 'B', weight: 5, attrs: { year: '2025' } }, { from: 'A', to: 'B', weight: 3, attrs: { year: '2024' } }, { from: 'A', to: 'C', weight: 2, attrs: { year: '2025' } }, { from: 'A', to: 'B', weight: 1, attrs: { year: '2024' } }] };
+  var r = C.buildStates(g, { mode: 'rows', key: 'year' });
+  assert.deepStrictEqual(r.states.names, ['2024', '2025'], 'numbers sort by value'); assert.strictEqual(r.edges.length, 2);
+  assert.deepStrictEqual(r.edges[0].vals, [4, 5], 'repeats in one state add up'); assert.deepStrictEqual(r.edges[1].vals, [null, 2]); assert.ok(!('year' in r.edges[0].attrs));
+  var r2 = C.buildStates(g, { mode: 'rows', key: 'year', order: ['2025', '2024'] }); assert.deepStrictEqual(r2.states.names, ['2025', '2024']);
+});
 console.log('columns+check:', ok, 'passed' + (process.exitCode ? ' (with failures)' : ''));

@@ -53,7 +53,7 @@ var NFMEngine = (function () {
       nodes.push(nd); no.push(i);
     }
     var n = nodes.length;
-    var f = [], t = [], w = [], eo = [], rw = [], me = opts.minEdge && opts.minEdge.ch ? opts.minEdge : null, st = opts.state;
+    var f = [], t = [], w = [], eo = [], rw = [], me = opts.minEdge && opts.minEdge.ch ? opts.minEdge : null, st = opts.state, stEdges = null;
     for (var k = 0; k < graph.edges.length; k++) {
       var e = graph.edges[k];
       if (hide.has(e.kind || '')) continue;
@@ -61,11 +61,13 @@ var NFMEngine = (function () {
       var a = index.get(e.from), b = index.get(e.to);
       if (a === undefined || b === undefined) continue;
       if (me) { var mv = C.numOf(e, me.ch); if (mv === mv && mv < me.min) continue; }
-      var wt = Number(e.weight);
+      var wt = Number(e.weight), gone = false;
       if (st !== undefined && st !== null && e.vals) {
         var sv = e.vals[st];
-        if (sv === null || sv === undefined || !(sv > 0)) { if (opts.onlyPresent) continue; sv = 0; }
+        if (sv === null || sv === undefined || !(sv > 0)) { if (opts.onlyPresent) continue; sv = 0; gone = true; }
         wt = sv;
+        if (!stEdges) stEdges = graph.edges.slice();
+        stEdges[k] = Object.assign({}, e, { weight: sv, absent: gone });
       }
       f.push(a); t.push(b); eo.push(k);
       rw.push(isFinite(wt) ? wt : 1);
@@ -76,7 +78,7 @@ var NFMEngine = (function () {
       n: n, m: m, nodes: nodes, index: index, norig: Int32Array.from(no), rw: Float64Array.from(rw),
       from: Int32Array.from(f), to: Int32Array.from(t), w: Float64Array.from(w), eorig: Int32Array.from(eo),
       outStart: new Int32Array(n + 1), outEdge: new Int32Array(m), inStart: new Int32Array(n + 1), inEdge: new Int32Array(m),
-      valence: new Int8Array(n), edges: graph.edges
+      valence: new Int8Array(n), edges: stEdges || graph.edges, stated: !!stEdges
     };
     var i2;
     for (i2 = 0; i2 < m; i2++) { P.outStart[P.from[i2] + 1]++; P.inStart[P.to[i2] + 1]++; }
@@ -1392,6 +1394,7 @@ var NFMEngine = (function () {
       if (flowing) { n.k = 1; n.w = 14; n.h = Math.max(6, n.visits * 420); }
     });
     var widthV = o.widthBy ? edgeChan(P, G, o.widthBy, how, flow, o) : null, widthR = widthV ? rangeOf(widthV) : null;
+    if (widthR && o.widthMax > widthR.max) widthR.max = o.widthMax;
     var ecT = C.split(o.edgeColorBy), ecNum = false, ecV = null, ecR = null;
     if (ecT && ecT.t === 'col' && ecT.key !== 'kind') {
       var ne = 0, an = 0; for (var ei0 = 0; ei0 < Math.min(P.m, 4000); ei0++) { var rv = (P.edges[P.eorig[ei0]].attrs || {})[ecT.key]; if (rv === undefined || rv === '') continue; an++; if (C.num(rv) === C.num(rv)) ne++; }
@@ -1415,6 +1418,7 @@ var NFMEngine = (function () {
         wsum += P.w[ei];
       });
       e.label = labels.join(' / '); e.count = e.srcs.length; e.flow = fw; e.weight = wsum; e.orig = e.srcs.map(function (q) { return P.eorig[q]; });
+      if (P.stated) e.absent = e.srcs.every(function (q) { return P.edges[P.eorig[q]].absent === true; });
       e.widthV = widthV ? widthV[gi] : NaN; e.colorV = ecV ? ecV[gi] : NaN;
       e.colorC = ecT && !ecNum ? (C.catOf(P.edges[P.eorig[e.srcs[0]]], ecT) || '(none)') : '';
       if (amountMass) { var av = widthV[gi]; e.flow = av === av && av > 0 && amountMax > 0 ? av / amountMax : 0; }

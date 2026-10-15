@@ -85,7 +85,7 @@ var S = {
 function defaultView() {
   return {
     view: 'flow', arrange: 'stress', colorBy: 'group', sizeBy: '', widthBy: '', edgeColorBy: '', linkLabels: '', labelCol: '', dir: 'LR', fold: true, merge: false, laneBy: 'group', agg: 'sum',
-    strongest: 100, facets: {}, around: null, block: [], hideKinds: [], only: null, sets: {}, marks: {},
+    state: 0, anim: { sec: 2.4, loop: true, ghost: 'faint' }, strongest: 100, facets: {}, around: null, block: [], hideKinds: [], only: null, sets: {}, marks: {},
     rules: [], palette: 'standard', ramp: 'warm', groupColors: {}, widthScale: 'sqrt', widthMul: 1, hulls: false, curve: 0, valueLabels: false,
     lab: { items: { show: true, scale: 1, color: 'auto', fixed: '#222222', topN: 0 }, links: { show: true, scale: 1 }, groups: { show: false, scale: 1 } },
     lens: { on: false, d: 3, r: 0.28 }, cam: { yaw: 0.6, pitch: 0.35, persp: 2.4, spin: false },
@@ -104,7 +104,7 @@ function mergeDeep(base, add) {
 function loadView() {
   var v = defaultView(), raw = LS.get(VKEY());
   if (raw) { try { mergeDeep(v, JSON.parse(raw)); } catch (e) { /* ignore */ } }
-  else if (S.graph.roles) { var r = S.graph.roles; ['colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels'].forEach(function (k) { if (r[k] !== undefined) v[k] = r[k]; }); }
+  else if (S.graph.roles) { var r = S.graph.roles; ['colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'view'].forEach(function (k) { if (r[k] !== undefined) v[k] = r[k]; }); }
   else if (S.prof) { var g = NFMColumns.guessRoles(S.prof, S.graph); ['colorBy', 'sizeBy', 'widthBy', 'edgeColorBy'].forEach(function (k) { if (g[k]) v[k] = g[k]; }); if (!S.story && S.graph.nodes.length && !S.graph.start) v.view = 'network'; }
   if (!S.story && v.colorBy === 'odds') v.colorBy = 'group';
   S.V = v;

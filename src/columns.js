@@ -368,6 +368,58 @@ var NFMColumns = (function () {
     return out;
   }
 
-  return { num: num, dateMs: dateMs, fmt: fmt, fmtFull: fmtFull, profile: profile, findCol: findCol, numOf: numOf, catOf: catOf, split: split, guessRoles: guessRoles, isStory: isStory, compile: compile, derive: derive, suggestStates: suggestStates, nodeSys: nodeSys, FUNCS: Object.keys(FUNCS).concat(['if']) };
+  /**
+   * Turns a table into states. spec: { mode: 'cols', keys: [edge column keys], names: [state names] }
+   *   or { mode: 'rows', key: edge column key, order?: [values in the order wanted] }.
+   * Returns a new graph with g.states = { names } and every link carrying vals (one number per state, or null when absent).
+   */
+  function buildStates(g, spec) {
+    var out = Object.assign({}, g), ns, i, e;
+    var attr = function (ed, k) { var v = ed.attrs && k in ed.attrs ? ed.attrs[k] : ed[k]; return v; };
+    if (spec.mode === 'cols') {
+      var keys = spec.keys.slice(0, 60); ns = keys.length;
+      if (ns < 2) throw new Error('Pick at least two columns.');
+      out.states = { names: keys.map(function (k, j) { var nm = spec.names && spec.names[j]; return String(nm === undefined || nm === '' ? k : nm).slice(0, 60); }) };
+      var flat = g.edges.every(function (ed) { return !(Number(ed.weight) !== 1); });
+      out.edges = g.edges.map(function (ed) {
+        var vals = keys.map(function (k) { var v = num(attr(ed, k)); return v === v ? v : null; }), c = Object.assign({}, ed, { vals: vals });
+        if (flat) { var sum = 0, cnt = 0; vals.forEach(function (v) { if (v !== null) { sum += v; cnt++; } }); if (cnt) c.weight = sum / cnt; }
+        return c;
+      });
+      return out;
+    }
+    if (spec.mode === 'rows') {
+      var key = spec.key, seen = [], vset = {};
+      g.edges.forEach(function (ed) { var v = String(attr(ed, key) === undefined || attr(ed, key) === null ? '' : attr(ed, key)); if (!(v in vset)) { vset[v] = 1; seen.push(v); } });
+      var order = spec.order && spec.order.length ? spec.order.map(String) : seen.slice();
+      if (!spec.order) {
+        var allNum = seen.every(function (v) { return v !== '' && num(v) === num(v); }), allDate = !allNum && seen.every(function (v) { return v !== '' && dateMs(v) === dateMs(v); });
+        if (allNum) order.sort(function (a, b) { return num(a) - num(b); }); else if (allDate) order.sort(function (a, b) { return dateMs(a) - dateMs(b); });
+      }
+      order = order.slice(0, 60); ns = order.length;
+      if (ns < 2) throw new Error('That column has only one value, so there is nothing to compare.');
+      out.states = { names: order.map(function (v) { return v === '' ? '(none)' : v.slice(0, 60); }) };
+      var byPair = new Map(), list = [];
+      g.edges.forEach(function (ed) {
+        var si = order.indexOf(String(attr(ed, key) === undefined || attr(ed, key) === null ? '' : attr(ed, key)));
+        if (si < 0) return;
+        var pk = ed.from + '\u0001' + ed.to + '\u0001' + (ed.kind || ''), t = byPair.get(pk);
+        if (!t) { t = Object.assign({}, ed, { vals: new Array(ns).fill(null), attrs: Object.assign({}, ed.attrs || {}) }); if (t.attrs) delete t.attrs[key]; byPair.set(pk, t); list.push(t); }
+        var w = num(ed.weight); if (!(w === w)) w = 1;
+        t.vals[si] = (t.vals[si] || 0) + w;
+      });
+      list.forEach(function (t) { var sum = 0, cnt = 0; t.vals.forEach(function (v) { if (v !== null) { sum += v; cnt++; } }); t.weight = cnt ? sum / cnt : 1; });
+      out.edges = list;
+      return out;
+    }
+    throw new Error('Unknown way of making states.');
+  }
+  function clearStates(g) {
+    var out = Object.assign({}, g); delete out.states;
+    out.edges = g.edges.map(function (e) { if (!e.vals) return e; var c = Object.assign({}, e); delete c.vals; return c; });
+    return out;
+  }
+
+  return { buildStates: buildStates, clearStates: clearStates, num: num, dateMs: dateMs, fmt: fmt, fmtFull: fmtFull, profile: profile, findCol: findCol, numOf: numOf, catOf: catOf, split: split, guessRoles: guessRoles, isStory: isStory, compile: compile, derive: derive, suggestStates: suggestStates, nodeSys: nodeSys, FUNCS: Object.keys(FUNCS).concat(['if']) };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMColumns;

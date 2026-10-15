@@ -22,7 +22,6 @@ function simReset() {
   if (S.tab === 'adv') renderAdv();
 }
 HOOKS.graph.push(simReset);
-function labelOf(id) { var n = S.byId && S.byId.get(id); return n ? (n.label || String(id)) : String(id); }
 function pct(x, d) { if (!(x === x)) return '–'; var v = x * 100; return (v >= 10 || d === 0 ? v.toFixed(d === undefined ? 1 : d) : v.toFixed(d === undefined ? 2 : d)) + '%'; }
 function svgEl(tag, attrs, kids) {
   var el = document.createElementNS('http://www.w3.org/2000/svg', tag);

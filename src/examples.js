@@ -58,11 +58,44 @@ var NFMExamples = (function () {
     return { name: 'Six communities', start: null, nodes: nodes, edges: edges };
   }
 
+  var SUPPLY = { name: 'A supply chain over four states', start: 'orders', roles: { view: 'flow', colorBy: 'group', widthBy: 'weight' }, states: { names: ['Baseline', 'Year 1', 'Year 2', 'End state'] },
+    nodes: [
+      { id: 'orders', label: 'Purchase orders', group: 'Start' }, { id: 'iron', label: 'Ironworks', group: 'Suppliers' }, { id: 'poly', label: 'Polymer Co', group: 'Suppliers' }, { id: 'chip', label: 'Chip Fab', group: 'Suppliers' },
+      { id: 'north', label: 'North Plant', group: 'Plants' }, { id: 'south', label: 'South Plant', group: 'Plants' }, { id: 'east', label: 'East Plant (opens in year 1)', group: 'Plants' },
+      { id: 'alpha', label: 'Hub Alpha', group: 'Hubs' }, { id: 'beta', label: 'Hub Beta', group: 'Hubs' }, { id: 'gamma', label: 'Hub Gamma (opens in year 2)', group: 'Hubs' },
+      { id: 'ra', label: 'Coast market', group: 'Markets' }, { id: 'rb', label: 'Inland market', group: 'Markets' }, { id: 'rc', label: 'Lakeside market', group: 'Markets' }],
+    edges: [
+      { from: 'orders', to: 'iron', weight: 120, vals: [100, 120, 120, 110] },
+      { from: 'orders', to: 'poly', weight: 95, vals: [80, 95, 95, 100] },
+      { from: 'orders', to: 'chip', weight: 75, vals: [20, 50, 75, 90] },
+      { from: 'iron', to: 'north', weight: 40, vals: [60, 55, 40, 30] },
+      { from: 'iron', to: 'south', weight: 35, vals: [40, 40, 35, 25] },
+      { from: 'iron', to: 'east', weight: 45, vals: [null, 25, 45, 55] },
+      { from: 'poly', to: 'north', weight: 25, vals: [30, 30, 25, 20] },
+      { from: 'poly', to: 'south', weight: 30, vals: [50, 45, 30, 20] },
+      { from: 'poly', to: 'east', weight: 40, vals: [null, 20, 40, 60] },
+      { from: 'chip', to: 'north', weight: 45, vals: [20, 35, 45, 40] },
+      { from: 'chip', to: 'east', weight: 30, vals: [null, 15, 30, 50] },
+      { from: 'north', to: 'alpha', weight: 60, vals: [70, 75, 60, 40] },
+      { from: 'north', to: 'beta', weight: 50, vals: [40, 45, 50, 50] },
+      { from: 'south', to: 'beta', weight: 50, vals: [80, 70, 50, 30] },
+      { from: 'south', to: 'alpha', weight: 15, vals: [10, 15, 15, 15] },
+      { from: 'east', to: 'beta', weight: 60, vals: [null, 60, 60, 70] },
+      { from: 'east', to: 'gamma', weight: 55, vals: [null, null, 55, 95] },
+      { from: 'alpha', to: 'ra', weight: 55, vals: [60, 65, 55, 45] },
+      { from: 'alpha', to: 'rb', weight: 20, vals: [20, 25, 20, 10] },
+      { from: 'beta', to: 'rb', weight: 80, vals: [70, 85, 80, 75] },
+      { from: 'beta', to: 'rc', weight: 60, vals: [30, 65, 60, 60] },
+      { from: 'beta', to: 'ra', weight: 20, vals: [20, 25, 20, 15] },
+      { from: 'gamma', to: 'rc', weight: 30, vals: [null, null, 30, 60] },
+      { from: 'gamma', to: 'rb', weight: 25, vals: [null, null, 25, 35] }] };
+
   var LIST = [
     { id: 'story', title: 'A short adventure (story)', blurb: 'Eighteen pages with choices, endings and a few loops. Try River, Choke-point spine and Story shape.', load: function () { var r = NFMImport.importJSON(JSON.stringify(STORY), 'The Old Lighthouse', {}); return r; } },
     { id: 'pipeline', title: 'How work moves through a team (table)', blurb: 'A table of handoffs with weights and groups. Try Given lanes.', load: function () { return NFMImport.importDelimited(PIPELINE, 'Release pipeline', {}); } },
     { id: 'notes', title: 'A folder of linked notes (Markdown)', blurb: 'Eight notes that link to each other with [[double brackets]], with tags and one folder.', load: function () { return NFMImport.importNotes(NOTES, 'Garden notes', {}); } },
     { id: 'outline', title: 'A bulleted outline with cross links', blurb: 'An indented list; lines with [[brackets]] add links back across the outline.', load: function () { return NFMImport.importOutline(OUTLINE, 'Weekend trip', {}); } },
+    { id: 'states', title: 'A supply chain over four states (changes over time)', blurb: 'The same chain at baseline, year 1, year 2 and an end state; plants and hubs open and flows shift. Open the Map and press play.', load: function () { return NFMImport.importJSON(JSON.stringify(SUPPLY), SUPPLY.name, {}); } },
     { id: 'network', title: 'A network with no story (600 items)', blurb: 'Six hidden communities. Try Network view and color by Found groups.', load: function () { var g = bigNetwork(600, 6, 7); return { graph: g, report: { format: 'built in', nodes: g.nodes.length, edges: g.edges.length, ghosts: 0, notes: ['Made up for the example: 600 items in six clusters with a few links between clusters. No groups are named, so try "Found groups".'], counts: {} } }; } }
   ];
   return { LIST: LIST, bigNetwork: bigNetwork, STORY: STORY, PIPELINE: PIPELINE, NOTES: NOTES, OUTLINE: OUTLINE };

@@ -67,7 +67,7 @@ function railTab(t) {
 }
 function renderMapUI() {
   if (!S.mapBuilt) return;
-  renderBar(); renderKey(); renderSelbar(); renderDetails(); renderRail(false);
+  renderBar(); renderKey(); renderSelbar(); renderDetails(); renderRail(false); renderTimeline();
 }
 function renderBar() {
   var el = $('sum'), L = S.L, V = S.V;
@@ -91,7 +91,7 @@ function renderBar() {
 var KEYDRAG = null;
 function keyPos() {
   var k = S.V.key, W = S.stageW, H = S.stageH, el = $('key'), kw = el.offsetWidth || 180, kh = el.offsetHeight || 80;
-  var x = k.x === null ? (RAIL.open && W > 760 ? 332 : 12) : k.x, y = k.y === null ? H - kh - 12 : k.y;
+  var x = k.x === null ? (RAIL.open && W > 760 ? 332 : 12) : k.x, y = k.y === null ? H - kh - 12 - (hasStates() ? 70 : 0) : k.y;
   return [clamp(x, 4, Math.max(4, W - kw - 4)), clamp(y, 4, Math.max(4, H - 40))];
 }
 function renderKeyPos() { /* the key stays where it is on the screen while the map moves */ }
