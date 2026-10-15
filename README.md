@@ -1,1 +1,61 @@
-# net-flow-map
+# Net Flow Map
+
+Copyright (c) 2026 JNFoo. MIT License.
+
+One file, `index.html`, that works offline. Bring in a table, a JSON graph, an outline, or a folder of notes, and see how everything connects. It has two tabs:
+
+- **Data**: drop in files or a folder (or paste text), see in plain words what was found, fix how a table is read, tidy up, edit items and links, undo, and save the result.
+- **Map**: nine views of the same data, with the places everyone must pass through (choke points), exact odds for where simulated players end up, groups found from the links, a details panel, a "what if this item were gone" switch, and a comparison of how well each view draws your data.
+
+Nothing is uploaded. Everything runs in the page.
+
+## What it reads
+
+| You bring | It understands |
+|---|---|
+| CSV, TSV, semicolon or bar tables | A list of links (from, to, weight, label, kind, groups), items with a column that lists their links, items with a parent column, or a grid (adjacency matrix). It guesses; you can change the guess. |
+| JSON | `nodes` + `links` or `edges`, Cytoscape.js, JSON Canvas, story projects (`passages` with `choices`), lists of links, `name: [targets]` lists |
+| Outlines | Indented or bulleted lists, Markdown headings; `[[wiki links]]` inside lines add cross links |
+| Markdown notes | Several files or a whole folder (Obsidian style): `[[links]]`, `[text](note.md)` links, aliases, tags, folders; links to notes that do not exist become placeholders |
+| Arrow lines | `A -> B : label`, and simple Graphviz DOT |
+
+Every import ends with a short report of what was kept, merged, skipped or shortened.
+
+## The nine views
+
+Flow, Top-down, Choke-point spine, Lanes (one band per group), Shape (the stretches between choke points), River (bands as wide as the number of players who take them), Arc, Matrix, and Network (for data that is not a story).
+
+## How it draws
+
+The map is drawn by WebGPU if this browser can really use it, otherwise WebGL 2, otherwise basic 2D drawing. "Can really use it" means a small test runs at startup (it does not just ask the browser what it claims). All three draw the same picture (they agree to within about 0.2 out of 255 on average). The layout work runs in a background helper so big maps do not freeze the page. The **Check this device** button runs all of this again, times a large map, and says in plain words what to expect.
+
+## Build and test
+
+```
+node tools/build.mjs                 # writes index.html (version stamp year.month.day.HHMM, US Eastern)
+node test/importers.test.js          # 17 quick checks of the readers
+node test/oracle.test.mjs            # new engine versus the older story-map package, 40 random stories
+node test/limits.test.js             # a 20,000-page chain, 1,500 stacked diamonds, a 3,000-item network
+node test/browser.test.js chromium   # real browser run (see the file header for the browser programs it needs)
+node test/browser.test.js firefox
+sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
+```
+
+## Files
+
+- `src/engine.js`: layouts, choke points, traffic, exact odds, network layout, scores (no page needed)
+- `src/importers.js`: everything that reads data
+- `src/scene.js`: turns a layout into drawing lists (also writes the SVG)
+- `src/render.js`: the three drawing backends
+- `src/probe.js`: the startup test and the one-button device check
+- `src/engine-client.js`: runs the engine in a background helper, with a fallback
+- `src/app.js`, `src/app.css`, `src/index.template.html`: the page
+- `vendor/`: `env-probes.js` and `back-close.js` from [JS-modules](https://github.com/JNFoo/JS-modules); `story-map.global.js` is only the test oracle, it is not shipped in `index.html`
+
+## Known limits
+
+- Good and bad marks apply to endings (items with no way on).
+- Link weights act as odds only when "Use link weights" is on.
+- In loops, the map shows expected visits per player, not "share of players who saw it".
+- A layered view stops above 90,000 stops and says so; use Network or Matrix instead.
+- Not yet run on a phone (test phone) or on a real graphics chip; the tests so far ran in headless Firefox 158 and ungoogled-chromium 154.
