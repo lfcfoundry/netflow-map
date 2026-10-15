@@ -17,7 +17,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1541.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1554.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
@@ -4459,7 +4459,7 @@ var NFMGpuStress = (function () {
 
   /* ------------------------------------------------------------------ GPU programs */
   var BFS_WGSL = [
-    'struct B { k: u32, S: u32, nb: u32, level: u32 };',
+    'struct B { k: u32, S: u32, b0: u32, level: u32 };',   // b0: first 32-source batch of this group of batches
     '@group(0) @binding(0) var<uniform> b: B;',
     '@group(0) @binding(1) var<storage, read> off: array<u32>;',
     '@group(0) @binding(2) var<storage, read> nbr: array<u32>;',
@@ -4471,7 +4471,7 @@ var NFMGpuStress = (function () {
     '@compute @workgroup_size(64)',
     'fn init(@builtin(global_invocation_id) gid: vec3<u32>) {',
     '  let v = gid.x; let bt = gid.y; if (v >= b.k) { return; }',
-    '  let lo = bt * 32u; var bit = 0u;',
+    '  let lo = (b.b0 + bt) * 32u; var bit = 0u;',
     '  if (v >= lo && v < lo + 32u) { bit = 1u << (v - lo); }',
     '  R[bt * b.k + v] = bit; Fout[bt * b.k + v] = bit;',
     '}',
@@ -4484,7 +4484,7 @@ var NFMGpuStress = (function () {
     '  let nw = acc & ~R[base + v];',
     '  Fout[base + v] = nw; R[base + v] = R[base + v] | nw;',
     '  if (nw != 0u) {',
-    '    let lv = b.level; let row = (v * b.S + bt * 32u) >> 2u;',
+    '    let lv = b.level; let row = (v * b.S + (b.b0 + bt) * 32u) >> 2u;',
     '    for (var w = 0u; w < 8u; w = w + 1u) {',
     '      let bits = (nw >> (w * 4u)) & 15u;',
     '      if (bits != 0u) {',
@@ -4547,6 +4547,58 @@ var NFMGpuStress = (function () {
     '  if (i0 + 3u < k) { pout[i0 + 3u] = select(x3, a3 / wsum[i0 + 3u], wsum[i0 + 3u] > 0.0); }',
     '}'].join('\n');
 
+  /* Version 2: no divisions (two small tables in workgroup memory give 1/d^2 and edge/d), one inverse square root per pair, and the j range
+     split over several workgroups (small and middle sizes would otherwise leave most of the card idle); a second pass adds the pieces up and
+     applies the over-relaxation  x <- x + omega * (target - x). */
+  var step2Code = function (tables) { return [
+    'struct P { k: u32, S: u32, edge: f32, omega: f32, jchunk: u32, pad1: u32, pad2: u32, pad3: u32 };',
+    '@group(0) @binding(0) var<uniform> prm: P;',
+    '@group(0) @binding(1) var<storage, read> dm: array<u32>;',
+    '@group(0) @binding(2) var<storage, read> pin: array<vec2<f32>>;',
+    '@group(0) @binding(3) var<storage, read_write> part: array<vec2<f32>>;',
+    '@group(0) @binding(4) var<storage, read> wsum: array<f32>;',
+    '@group(0) @binding(5) var<storage, read_write> pout: array<vec2<f32>>;',
+    'var<workgroup> tile: array<vec2<f32>, 64>;',
+    'var<workgroup> tabA: array<f32, 256>;',
+    'var<workgroup> tabB: array<f32, 256>;',
+    tables ? 'fn term(xi: vec2<f32>, xj: vec2<f32>, dq: u32) -> vec2<f32> { let dl = xi - xj; return tabA[dq] * xj + (tabB[dq] * inverseSqrt(max(dot(dl, dl), 1e-12))) * dl; }'
+           : 'fn term(xi: vec2<f32>, xj: vec2<f32>, dq: u32) -> vec2<f32> { let iv = select(0.0, 1.0 / f32(dq), dq > 0u); let dl = xi - xj; return (iv * iv) * xj + (prm.edge * iv * inverseSqrt(max(dot(dl, dl), 1e-12))) * dl; }',
+    '@compute @workgroup_size(64)',
+    'fn part4(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>) {',
+    '  let k = prm.k; let S = prm.S; let last = k - 1u; let i0 = gid.x * 4u;',
+    '  for (var t = 0u; t < 4u; t = t + 1u) { let d = lid.x * 4u + t; let fd = f32(d); tabA[d] = select(0.0, 1.0 / (fd * fd), d > 0u); tabB[d] = select(0.0, prm.edge / fd, d > 0u); }',
+    '  let x0 = pin[min(i0, last)]; let x1 = pin[min(i0 + 1u, last)]; let x2 = pin[min(i0 + 2u, last)]; let x3 = pin[min(i0 + 3u, last)];',
+    '  var a0 = vec2<f32>(0.0, 0.0); var a1 = a0; var a2 = a0; var a3 = a0;',
+    '  let jlo = wid.y * prm.jchunk; let jhi = min(k, jlo + prm.jchunk);',
+    '  for (var j0 = jlo; j0 < jhi; j0 = j0 + 64u) {',
+    '    let jj = j0 + lid.x;',
+    '    tile[lid.x] = select(vec2<f32>(0.0, 0.0), pin[min(jj, last)], jj < jhi);',
+    '    workgroupBarrier();',
+    '    let cnt = min(64u, jhi - j0);',
+    '    for (var t = 0u; t < cnt; t = t + 1u) {',
+    '      let xj = tile[t]; let word = dm[((j0 + t) * S + i0) >> 2u];',
+    '      a0 = a0 + term(x0, xj, word & 255u);',
+    '      a1 = a1 + term(x1, xj, (word >> 8u) & 255u);',
+    '      a2 = a2 + term(x2, xj, (word >> 16u) & 255u);',
+    '      a3 = a3 + term(x3, xj, word >> 24u);',
+    '    }',
+    '    workgroupBarrier();',
+    '  }',
+    '  let o = wid.y * k;',
+    '  if (i0 < k) { part[o + i0] = a0; }',
+    '  if (i0 + 1u < k) { part[o + i0 + 1u] = a1; }',
+    '  if (i0 + 2u < k) { part[o + i0 + 2u] = a2; }',
+    '  if (i0 + 3u < k) { part[o + i0 + 3u] = a3; }',
+    '}',
+    '@compute @workgroup_size(64)',
+    'fn reduce(@builtin(global_invocation_id) gid: vec3<u32>) {',
+    '  let i = gid.x; if (i >= prm.k) { return; }',
+    '  let split = (prm.k + prm.jchunk - 1u) / prm.jchunk; var sum = vec2<f32>(0.0, 0.0);',
+    '  for (var s = 0u; s < split; s = s + 1u) { sum = sum + part[s * prm.k + i]; }',
+    '  let xi = pin[i]; let tg = select(xi, sum / wsum[i], wsum[i] > 0.0);',
+    '  pout[i] = xi + prm.omega * (tg - xi);',
+    '}'].join('\n'); };
+
   /** How much memory the tables need for k items: { dBytes, workBytes }. */
   function need(k) { var S = Math.ceil(k / 4) * 4, nb = Math.ceil(k / 32); return { S: S, nb: nb, dBytes: k * S, workBytes: 3 * nb * k * 4 }; }
 
@@ -4563,73 +4615,104 @@ var NFMGpuStress = (function () {
     return { device: device, adapter: adapter, info: desc || 'unnamed adapter', software: !!adapter.isFallbackAdapter || /swiftshader|llvmpipe|software|lavapipe/i.test(desc), limits: { maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize, maxBufferSize: device.limits.maxBufferSize } };
   }
 
-  /** The whole job. opts: { steps (60), pivots (60), keepTable (false), chunk (steps per submit; 0 = by size), onProgress }.
-   *  Returns { X (Float32Array 2k), ms: { start, upload, table, weights, steps, read, total }, levels, dTable? } or { error, tooBig }. */
+  /** The whole job. opts: { steps (60), kernel ('v2' tables | 'v3' no tables | 'v1' first version), omega (1.6, v2 only), pivots (60), group (batches of 32 start items walked together, 16),
+   *  keepTable (false), snapshots ([] step counts to also read back), profile (false: wait after each phase to time it; the waits cost about 0.1 s each in Firefox) }.
+   *  Returns { X (Float32Array 2k), X0 (the sketch), ms: { start, upload, table, weights, steps, read, total }, levels, stride, dTable?, snapshots } or { error }. */
   async function layout(dev, off, nbr, k, EDGE, opts) {
-    opts = opts || {}; var device = dev.device, T0 = now(), ms = {}, steps = opts.steps || 60, nd = need(k), lim = dev.limits;
-    if (nd.dBytes > lim.maxStorageBufferBindingSize || nd.workBytes / 3 > lim.maxStorageBufferBindingSize || nd.dBytes > lim.maxBufferSize) return { error: 'The hop table (' + Math.round(nd.dBytes / 1048576) + ' MB) does not fit in this graphics card\'s largest buffer (' + Math.round(lim.maxStorageBufferBindingSize / 1048576) + ' MB).', tooBig: true };
+    opts = opts || {}; var device = dev.device, T0 = now(), ms = {}, steps = opts.steps || 60, nd = need(k), lim = dev.limits, kernel = opts.kernel || 'v2', omega = kernel !== 'v1' ? (opts.omega || 1.6) : 1, prof = !!opts.profile;
+    if (nd.dBytes > lim.maxStorageBufferBindingSize || nd.dBytes > lim.maxBufferSize) return { error: 'The hop table (' + Math.round(nd.dBytes / 1048576) + ' MB) does not fit in this graphics card\'s largest buffer (' + Math.round(lim.maxStorageBufferBindingSize / 1048576) + ' MB).', tooBig: true };
     var st = pivotStart(off, nbr, k, EDGE, opts.pivots); ms.start = st.ms;
     var L = Math.min(254, 2 * st.minEcc); if (2 * st.minEcc > 254) return { error: 'Some hop counts exceed 254, which one byte cannot hold.', tooLong: true };
-    var Sx = nd.S, nb = nd.nb, GB = GPUBufferUsage;
+    var Sx = nd.S, nb = nd.nb, GB = GPUBufferUsage, GR = Math.max(1, Math.min(nb, opts.group || 16)), ngr = Math.ceil(nb / GR);
+    device.pushErrorScope('validation'); device.pushErrorScope('out-of-memory');
     var mk = function (size, usage, data) { var bf = device.createBuffer({ size: Math.max(16, size), usage: usage, mappedAtCreation: !!data }); if (data) { new data.constructor(bf.getMappedRange()).set(data); bf.unmap(); } return bf; };
+    var wait = async function () { await device.queue.onSubmittedWorkDone(); };
     var t1 = now();
     var offB = mk(off.length * 4, GB.STORAGE, Uint32Array.from(off)), nbrB = mk(nbr.length * 4, GB.STORAGE, Uint32Array.from(nbr));
-    var RB = mk(nb * k * 4, GB.STORAGE), FA = mk(nb * k * 4, GB.STORAGE), FB = mk(nb * k * 4, GB.STORAGE), DM = mk(k * Sx, GB.STORAGE | GB.COPY_SRC), WS = mk(k * 4, GB.STORAGE | GB.COPY_SRC);
-    var ua = 256, ubuf = new Uint32Array((L + 2) * ua / 4);   // one block of parameters per level (dynamic offsets)
-    for (var lv = 0; lv <= L + 1; lv++) { ubuf[lv * ua / 4] = k; ubuf[lv * ua / 4 + 1] = Sx; ubuf[lv * ua / 4 + 2] = nb; ubuf[lv * ua / 4 + 3] = lv; }
-    var UB = mk(ubuf.byteLength, GB.UNIFORM, ubuf);
+    var RB = mk(GR * k * 4, GB.STORAGE), FA = mk(GR * k * 4, GB.STORAGE), FB = mk(GR * k * 4, GB.STORAGE), DM = mk(k * Sx, GB.STORAGE | GB.COPY_SRC), WS = mk(k * 4, GB.STORAGE | GB.COPY_SRC);
+    var ua = 256, nblk = ngr * (L + 1), ubuf = new Uint32Array(nblk * ua / 4);   // one block of parameters per (group, level): dynamic offsets
+    for (var g0 = 0; g0 < ngr; g0++) for (var lv = 0; lv <= L; lv++) { var o = (g0 * (L + 1) + lv) * ua / 4; ubuf[o] = k; ubuf[o + 1] = Sx; ubuf[o + 2] = g0 * GR; ubuf[o + 3] = lv; }
+    var UB = mk(ubuf.byteLength, GB.UNIFORM, ubuf), SV = GPUShaderStage.COMPUTE;
     var bgl = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform', hasDynamicOffset: true } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }] });
+      { binding: 0, visibility: SV, buffer: { type: 'uniform', hasDynamicOffset: true } },
+      { binding: 1, visibility: SV, buffer: { type: 'read-only-storage' } }, { binding: 2, visibility: SV, buffer: { type: 'read-only-storage' } },
+      { binding: 3, visibility: SV, buffer: { type: 'storage' } }, { binding: 4, visibility: SV, buffer: { type: 'read-only-storage' } },
+      { binding: 5, visibility: SV, buffer: { type: 'storage' } }, { binding: 6, visibility: SV, buffer: { type: 'storage' } }, { binding: 7, visibility: SV, buffer: { type: 'storage' } }] });
     var pl = device.createPipelineLayout({ bindGroupLayouts: [bgl] }), bm = device.createShaderModule({ code: BFS_WGSL });
     var pipe = function (name) { return device.createComputePipeline({ layout: pl, compute: { module: bm, entryPoint: name } }); };
     var pInit = pipe('init'), pLevel = pipe('level'), pW = pipe('weights');
     var bgFor = function (fin, fout) { return device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: UB, size: 16 } }, { binding: 1, resource: { buffer: offB } }, { binding: 2, resource: { buffer: nbrB } }, { binding: 3, resource: { buffer: RB } }, { binding: 4, resource: { buffer: fin } }, { binding: 5, resource: { buffer: fout } }, { binding: 6, resource: { buffer: DM } }, { binding: 7, resource: { buffer: WS } }] }); };
     var bgAB = bgFor(FA, FB), bgBA = bgFor(FB, FA), gx = Math.ceil(k / 64);
     ms.upload = now() - t1;
+    /* the hop table: group after group of 16 batches (512 start items), so the working arrays stay small enough for the card's caches */
     var t2 = now(), enc = device.createCommandEncoder(), pass = enc.beginComputePass();
-    pass.setPipeline(pInit); pass.setBindGroup(0, bgBA, [0]); pass.dispatchWorkgroups(gx, nb);   // writes the starting frontier into FA
-    pass.setPipeline(pLevel);
-    for (var l = 1; l <= L; l++) { pass.setBindGroup(0, l % 2 ? bgAB : bgBA, [l * ua]); pass.dispatchWorkgroups(gx, nb); }
-    pass.end(); device.queue.submit([enc.finish()]); await device.queue.onSubmittedWorkDone(); ms.table = now() - t2;
-    var t3 = now(); enc = device.createCommandEncoder(); pass = enc.beginComputePass(); pass.setPipeline(pW); pass.setBindGroup(0, bgAB, [0]); pass.dispatchWorkgroups(gx); pass.end(); device.queue.submit([enc.finish()]); await device.queue.onSubmittedWorkDone(); ms.weights = now() - t3;
+    for (var gi = 0; gi < ngr; gi++) {
+      var rows = Math.min(GR, nb - gi * GR), base = gi * (L + 1);
+      pass.setPipeline(pInit); pass.setBindGroup(0, bgBA, [base * ua]); pass.dispatchWorkgroups(gx, rows);
+      pass.setPipeline(pLevel);
+      for (var l = 1; l <= L; l++) { pass.setBindGroup(0, l % 2 ? bgAB : bgBA, [(base + l) * ua]); pass.dispatchWorkgroups(gx, rows); }
+    }
+    pass.setPipeline(pW); pass.setBindGroup(0, bgAB, [0]); pass.dispatchWorkgroups(gx);
+    pass.end(); device.queue.submit([enc.finish()]);
+    if (prof) { await wait(); ms.table = now() - t2; } else ms.table = null;   // table and weights are one job unless profiling
     RB.destroy(); FA.destroy(); FB.destroy();
-    /* the majorization steps */
-    var t4 = now(), sm = device.createShaderModule({ code: STEP_WGSL }), sp = device.createComputePipeline({ layout: 'auto', compute: { module: sm, entryPoint: 'step4' } });
-    var PB = mk(16, GB.UNIFORM, new Uint32Array([k, Sx, new Uint32Array(new Float32Array([EDGE]).buffer)[0], 0]));
-    var XA = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST, st.X), XB = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST);
-    var sbg = function (a, b2) { return device.createBindGroup({ layout: sp.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: PB } }, { binding: 1, resource: { buffer: DM } }, { binding: 2, resource: { buffer: a } }, { binding: 3, resource: { buffer: b2 } }, { binding: 4, resource: { buffer: WS } }] }); };
-    var s1 = sbg(XA, XB), s2 = sbg(XB, XA), RD = mk(8 * k, GB.COPY_DST | GB.MAP_READ), done = 0, sg = Math.ceil(k / 256);
-    var chunk = opts.chunk || Math.max(1, Math.min(steps, Math.floor(4e8 / (k * k)) || 1)), snaps = opts.snapshots || [], snapOut = {};
-    var readX = async function () { var e = device.createCommandEncoder(); e.copyBufferToBuffer(done % 2 ? XB : XA, 0, RD, 0, 8 * k); device.queue.submit([e.finish()]); await RD.mapAsync(GPUMapMode.READ); var out = new Float32Array(RD.getMappedRange().slice(0)); RD.unmap(); return out; };
+    /* the steps */
+    var t4 = now(), PBdata, sp, spReduce = null, jchunk = 0, split = 1, sg;
+    var XA = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST, st.X), XB = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST), PART = null, PB, stepBG1, stepBG2;
+    var f32bits = function (v) { return new Uint32Array(new Float32Array([v]).buffer)[0]; };
+    if (kernel === 'v1') {
+      var sm = device.createShaderModule({ code: STEP_WGSL }); sp = device.createComputePipeline({ layout: 'auto', compute: { module: sm, entryPoint: 'step4' } });
+      PB = mk(16, GB.UNIFORM, new Uint32Array([k, Sx, f32bits(EDGE), 0])); sg = Math.ceil(k / 256);
+      var sbg = function (a, b2) { return device.createBindGroup({ layout: sp.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: PB } }, { binding: 1, resource: { buffer: DM } }, { binding: 2, resource: { buffer: a } }, { binding: 3, resource: { buffer: b2 } }, { binding: 4, resource: { buffer: WS } }] }); };
+      stepBG1 = sbg(XA, XB); stepBG2 = sbg(XB, XA);
+    } else {
+      var groups = Math.ceil(k / 256); split = Math.max(1, Math.min(Math.ceil(k / 64), Math.ceil(384 / groups))); jchunk = Math.ceil(Math.ceil(k / split) / 64) * 64; split = Math.ceil(k / jchunk); sg = groups;
+      PB = mk(32, GB.UNIFORM, new Uint32Array([k, Sx, f32bits(EDGE), f32bits(omega), jchunk, 0, 0, 0])); PART = mk(split * k * 8, GB.STORAGE);
+      var m2 = device.createShaderModule({ code: step2Code(kernel !== 'v3') }), l2 = device.createBindGroupLayout({ entries: [
+        { binding: 0, visibility: SV, buffer: { type: 'uniform' } }, { binding: 1, visibility: SV, buffer: { type: 'read-only-storage' } }, { binding: 2, visibility: SV, buffer: { type: 'read-only-storage' } },
+        { binding: 3, visibility: SV, buffer: { type: 'storage' } }, { binding: 4, visibility: SV, buffer: { type: 'read-only-storage' } }, { binding: 5, visibility: SV, buffer: { type: 'storage' } }] }), pl2 = device.createPipelineLayout({ bindGroupLayouts: [l2] });
+      sp = device.createComputePipeline({ layout: pl2, compute: { module: m2, entryPoint: 'part4' } }); spReduce = device.createComputePipeline({ layout: pl2, compute: { module: m2, entryPoint: 'reduce' } });
+      var sbg2 = function (a, b2) { return device.createBindGroup({ layout: l2, entries: [{ binding: 0, resource: { buffer: PB } }, { binding: 1, resource: { buffer: DM } }, { binding: 2, resource: { buffer: a } }, { binding: 3, resource: { buffer: PART } }, { binding: 4, resource: { buffer: WS } }, { binding: 5, resource: { buffer: b2 } }] }); };
+      stepBG1 = sbg2(XA, XB); stepBG2 = sbg2(XB, XA);
+    }
+    var snaps = (opts.snapshots || []).filter(function (x) { return x < steps; }), snapBufs = {};
+    snaps.forEach(function (x) { snapBufs[x] = mk(8 * k, GB.COPY_DST | GB.MAP_READ); });
+    var perSubmit = Math.max(1, Math.floor(6e8 / (k * k))), done = 0;   // about 0.2 s of work per submission: no single job runs long enough for the system to reset the card
     while (done < steps) {
-      var upto = Math.min(steps, done + chunk), nextSnap = snaps.filter(function (s) { return s > done && s < upto; })[0]; if (nextSnap) upto = nextSnap;
-      var e2 = device.createCommandEncoder(), p2 = e2.beginComputePass(); p2.setPipeline(sp);
-      for (; done < upto; done++) { p2.setBindGroup(0, done % 2 ? s2 : s1); p2.dispatchWorkgroups(sg); }
-      p2.end(); device.queue.submit([e2.finish()]); await device.queue.onSubmittedWorkDone();
-      if (snaps.indexOf(done) >= 0 && done < steps) snapOut[done] = await readX();
+      var upto = Math.min(steps, done + perSubmit); snaps.forEach(function (x) { if (x > done && x < upto) upto = x; });
+      var e2 = device.createCommandEncoder(), p2 = e2.beginComputePass();
+      for (; done < upto; done++) {
+        var bg = done % 2 ? stepBG2 : stepBG1;
+        p2.setPipeline(sp); p2.setBindGroup(0, bg); if (kernel === 'v1') p2.dispatchWorkgroups(sg); else { p2.dispatchWorkgroups(sg, split); p2.setPipeline(spReduce); p2.setBindGroup(0, bg); p2.dispatchWorkgroups(gx); }
+      }
+      p2.end(); if (snapBufs[done]) e2.copyBufferToBuffer(done % 2 ? XB : XA, 0, snapBufs[done], 0, 8 * k);
+      device.queue.submit([e2.finish()]);
       if (opts.onProgress) opts.onProgress(done / steps);
     }
-    ms.steps = now() - t4; var t5 = now();
-    var X = await readX(); ms.read = now() - t5;
-    var dTable = null;
-    if (opts.keepTable) { var rb = mk(k * Sx, GB.COPY_DST | GB.MAP_READ), e3 = device.createCommandEncoder(); e3.copyBufferToBuffer(DM, 0, rb, 0, k * Sx); device.queue.submit([e3.finish()]); await rb.mapAsync(GPUMapMode.READ); dTable = new Uint8Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy(); }
-    [offB, nbrB, DM, WS, UB, PB, XA, XB, RD].forEach(function (bf) { bf.destroy(); });
+    var RD = mk(8 * k, GB.COPY_DST | GB.MAP_READ), e3 = device.createCommandEncoder(); e3.copyBufferToBuffer(done % 2 ? XB : XA, 0, RD, 0, 8 * k);
+    var rb = null; if (opts.keepTable) { rb = mk(k * Sx, GB.COPY_DST | GB.MAP_READ); e3.copyBufferToBuffer(DM, 0, rb, 0, k * Sx); }
+    if (prof) { await wait(); ms.steps = now() - t4; }
+    var t5 = now(); device.queue.submit([e3.finish()]);
+    await RD.mapAsync(GPUMapMode.READ); var X = new Float32Array(RD.getMappedRange().slice(0)); RD.unmap();
+    if (!prof) ms.steps = now() - t4; ms.read = now() - t5;
+    var dTable = null; if (rb) { await rb.mapAsync(GPUMapMode.READ); dTable = new Uint8Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy(); }
+    var snapOut = {}; for (var key in snapBufs) { await snapBufs[key].mapAsync(GPUMapMode.READ); snapOut[key] = new Float32Array(snapBufs[key].getMappedRange().slice(0)); snapBufs[key].unmap(); snapBufs[key].destroy(); }
+    var oom = await device.popErrorScope(), val = await device.popErrorScope();
+    [offB, nbrB, DM, WS, UB, PB, XA, XB, RD].forEach(function (bf) { bf.destroy(); }); if (PART) PART.destroy();
+    if (oom || val) return { error: 'The graphics card reported ' + (oom ? 'out of memory: ' + oom.message : 'an error: ' + val.message).slice(0, 200), oom: !!oom };
     ms.total = now() - T0; snapOut[steps] = X;
-    return { X: X, X0: st.X, ms: ms, levels: L, stride: Sx, dTable: dTable, snapshots: snapOut };
+    return { X: X, X0: st.X, ms: ms, levels: L, stride: Sx, dTable: dTable, snapshots: snapOut, split: split, kernel: kernel, omega: omega };
   }
 
   /** The same steps on the CPU in 64-bit numbers from the same start, for the correctness check (small k only). D: k*stride bytes. */
-  function majCpu(X0, D, k, stride, EDGE, steps) {
-    var cur = Float64Array.from(X0), nxt = new Float64Array(2 * k), ws = new Float64Array(k), i, j, s;
+  function majCpu(X0, D, k, stride, EDGE, steps, omega) {
+    omega = omega || 1; var cur = Float64Array.from(X0), nxt = new Float64Array(2 * k), ws = new Float64Array(k), i, j, s;
     for (i = 0; i < k; i++) for (j = 0; j < k; j++) { var d0 = D[j * stride + i]; if (d0) ws[i] += 1 / (d0 * d0); }
     for (s = 0; s < steps; s++) {
       for (i = 0; i < k; i++) {
         var ax = 0, ay = 0, xi = cur[2 * i], yi = cur[2 * i + 1];
         for (j = 0; j < k; j++) { var d = D[j * stride + i]; if (!d) continue; var dx = xi - cur[2 * j], dy = yi - cur[2 * j + 1], len = Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6), w = 1 / (d * d), f = d * EDGE / len; ax += w * (cur[2 * j] + f * dx); ay += w * (cur[2 * j + 1] + f * dy); }
-        if (ws[i] > 0) { nxt[2 * i] = ax / ws[i]; nxt[2 * i + 1] = ay / ws[i]; } else { nxt[2 * i] = xi; nxt[2 * i + 1] = yi; }
+        if (ws[i] > 0) { nxt[2 * i] = xi + omega * (ax / ws[i] - xi); nxt[2 * i + 1] = yi + omega * (ay / ws[i] - yi); } else { nxt[2 * i] = xi; nxt[2 * i + 1] = yi; }
       }
       var sw = cur; cur = nxt; nxt = sw;
     }
@@ -4648,7 +4731,7 @@ var NFMGpuStress = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.15.1541', EDGE = 130;
+  var VERSION = '2026.10.15.1554', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -4719,6 +4802,8 @@ var NFMGpuStress = (function () {
     var s = addSection('Your computer'), ua = navigator.userAgent, rows = [];
     rows.push(['Browser', ua]); rows.push(['Processor threads', String(navigator.hardwareConcurrency || '?')]); rows.push(['Memory hint (GB)', String(navigator.deviceMemory || 'not shared by this browser')]); rows.push(['Screen', screen.width + ' x ' + screen.height + ' at ' + (window.devicePixelRatio || 1) + 'x']);
     var gpuLine = '', level = 'ok', say;
+    var glName = ''; try { var cv = document.createElement('canvas'), gl = cv.getContext('webgl2') || cv.getContext('webgl'), ext = gl && gl.getExtension('WEBGL_debug_renderer_info'); glName = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : ''; } catch (e) { glName = ''; }
+    if (glName) rows.push(['Graphics (as the page sees it)', glName]);
     var dev = await G.getDevice().catch(function (e) { return { error: String(e && e.message || e) }; });
     if (dev.error) { level = 'warn'; say = 'No graphics-card computing in this browser (' + dev.error + '). The graphics-card checks will be skipped; everything else still runs. ' + (/firefox/i.test(ua) ? 'In Firefox, WebGPU is on by default in recent versions on some systems; on others it may need switching on.' : ''); rows.push(['Graphics-card computing (WebGPU)', 'not available']); }
     else {
@@ -4727,7 +4812,7 @@ var NFMGpuStress = (function () {
       else say = 'Graphics-card computing is available on: ' + dev.info + '.';
     }
     s.head = ['Item', 'Value']; s.rows = rows; s.finish(level, say);
-    ctx.info = { ua: ua, threads: navigator.hardwareConcurrency, mem: navigator.deviceMemory || null, gpu: dev.error ? null : dev.info, soft: !!dev.software, bufMB: dev.limits ? Math.round(dev.limits.maxStorageBufferBindingSize / 1048576) : null };
+    ctx.info = { ua: ua, threads: navigator.hardwareConcurrency, mem: navigator.deviceMemory || null, gpu: dev.error ? null : dev.info, gl: glName, soft: !!dev.software, bufMB: dev.limits ? Math.round(dev.limits.maxStorageBufferBindingSize / 1048576) : null };
     return { level: level, say: say };
   } });
 
@@ -4736,11 +4821,11 @@ var NFMGpuStress = (function () {
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var n = QUICK ? 600 : 1200, g = graphFor('moderate', n), P = piece(g), steps = 20;
     setStatus('Checking the graphics-card hop table and steps on ' + P.k + ' items…'); await yieldUI();
-    var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: steps, keepTable: true });
+    var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: steps, keepTable: true, omega: 1.6 });
     if (res.error) { s.finish('bad', 'The graphics-card version failed: ' + res.error); return { level: 'bad', say: res.error }; }
     var S = res.stride, D = fullTable(P), bad = 0, i, j;
     for (i = 0; i < P.k; i++) for (j = 0; j < P.k; j++) if (D[j * S + i] !== res.dTable[j * S + i]) bad++;
-    var Xc = G.majCpu(res.X0, D, P.k, S, EDGE, steps), sg = pairStress(res.X, D, P.k, S), sc = pairStress(Xc, D, P.k, S), s0 = pairStress(res.X0, D, P.k, S);
+    var Xc = G.majCpu(res.X0, D, P.k, S, EDGE, steps, 1.6), sg = pairStress(res.X, D, P.k, S), sc = pairStress(Xc, D, P.k, S), s0 = pairStress(res.X0, D, P.k, S);
     var diff = Math.abs(sg - sc) / sc * 100, move = 0; for (i = 0; i < P.k; i++) move += Math.hypot(res.X[2 * i] - Xc[2 * i], res.X[2 * i + 1] - Xc[2 * i + 1]); move = move / P.k / EDGE;
     var okTable = bad === 0, okSteps = diff < 1 && move < 0.05;
     s.head = ['Check', 'Result']; s.rows = [['Items', String(P.k)], ['Hop table: entries that differ from the CPU table', bad + ' of ' + (P.k * P.k)], ['Distance error at the start (sketch)', r3(s0)], ['After ' + steps + ' steps, CPU math', r3(sc)], ['After ' + steps + ' steps, graphics card', r3(sg)], ['Difference', r1(diff) + '%'], ['Average item difference (share of one link)', r3(move)]];
@@ -4753,7 +4838,7 @@ var NFMGpuStress = (function () {
   STEPS.push({ name: 'How fast and how true?', run: async function () {
     var s = addSection('How fast and how true is the graphics-card version?');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
-    var plan = QUICK ? [['moderate', 800], ['complex', 800]] : [['moderate', 2000], ['moderate', 5000], ['moderate', 10000], ['complex', 5000], ['complex', 10000], ['moderate', 20000]];
+    var plan = QUICK ? [['moderate', 800], ['complex', 800]] : [['moderate', 2000], ['moderate', 5000], ['moderate', 10000], ['complex', 5000], ['complex', 10000], ['moderate', 20000], ['moderate', 30000]];
     if (params.get('plan')) plan = params.get('plan').split(',').map(function (x) { var a = x.split(':'); return [a[0], +a[1]]; });
     s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Graphics-card time', 'Graphics-card truth', 'Faster by', 'Truth at 20 / 40 steps']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
     for (var pi = 0; pi < plan.length; pi++) {
@@ -4765,7 +4850,7 @@ var NFMGpuStress = (function () {
       if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', '-']); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
       var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t40 = truth(P, res.snapshots[40]), ratio = cb.ms / res.ms.total; tried++; ratios.push(ratio); if (ratio > 1) wins++; if (tg <= tc * 1.03) truthOk++;
       s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), r1(ratio) + '×', r3(t20) + ' / ' + r3(t40)]);
-      summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), parts: { sketch: r1(res.ms.start), upload: r1(res.ms.upload), table: r1(res.ms.table), weights: r1(res.ms.weights), steps: r1(res.ms.steps), read: r1(res.ms.read) }, levels: res.levels, t20: r3(t20), t40: r3(t40) });
+      summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), parts: { sketch: r1(res.ms.start), setup: r1(res.ms.upload), stepsAndTable: r1(res.ms.steps), read: r1(res.ms.read) }, split: res.split, levels: res.levels, t20: r3(t20), t40: r3(t40) });
       doneSteps += 0.1; setBar();
     }
     ctx.ladder = summary;
@@ -4776,8 +4861,40 @@ var NFMGpuStress = (function () {
       level = ctx.softGpu ? 'warn' : (wins === tried && truthOk === tried ? 'ok' : wins ? 'warn' : 'bad');
       say = 'Graphics card faster in ' + wins + ' of ' + tried + ' runs (middle ' + r1(med) + '×), and as true or truer (within 3%) in ' + truthOk + ' of ' + tried + '. Truth: lower is truer.' + (ctx.softGpu ? ' (Software stand-in, not a real graphics card.)' : '');
     }
+    s.notes.push('Above 20,000 items the app\'s best quality falls back to the quick sample, so the processor truth there is the quick one.');
     s.notes.push('Graphics-card time covers everything: the 60-point sketch, the upload, the hop table, 60 steps and reading the picture back. The processor time is the app\'s best-quality arrangement, which also includes the overlap clean-up that the graphics-card picture has not had yet, so the graphics-card truth is slightly flattering.');
     s.finish(level, say); return { level: level, say: say };
+  } });
+
+  STEPS.push({ name: 'Old kernel against new', run: async function () {
+    var s = addSection('Old graphics-card program against the new one');
+    if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
+    var n = QUICK ? 800 : 10000, variants = [
+      ['moderate', 'old program, 60 steps', { kernel: 'v1', steps: 60, snapshots: [20, 40] }],
+      ['moderate', 'new program, plain steps, 60', { kernel: 'v2', omega: 1, steps: 60, snapshots: [20, 40] }],
+      ['moderate', 'new program, over-relaxed, 60', { kernel: 'v2', omega: 1.6, steps: 60, snapshots: [20, 40] }],
+      ['moderate', 'new program without tables, over-relaxed, 60', { kernel: 'v3', omega: 1.6, steps: 60, snapshots: [20, 40] }],
+      ['moderate', 'new program, over-relaxed, 30', { kernel: 'v2', omega: 1.6, steps: 30, snapshots: [10, 20] }],
+      ['complex', 'new program, over-relaxed, 60', { kernel: 'v2', omega: 1.6, steps: 60, snapshots: [20, 40] }],
+      ['complex', 'new program, over-relaxed, 150', { kernel: 'v2', omega: 1.6, steps: 150, snapshots: [60, 100] }]];
+    s.head = ['Network', 'Variant', 'Total time', 'Truth at 1/3 of the steps', 'at 2/3', 'at the end']; var cache = {}, out = [];
+    for (var vi = 0; vi < variants.length; vi++) {
+      var kind = variants[vi][0], name = variants[vi][1], o = variants[vi][2]; setStatus('Program comparison: ' + kind + ' ' + name + '…'); await yieldUI();
+      var P = cache[kind] || (cache[kind] = piece(graphFor(kind, n))), res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, o);
+      if (res.error) { s.rows.push([kind, name, 'failed: ' + res.error.slice(0, 40), '', '', '']); continue; }
+      var sn = Object.keys(res.snapshots).map(Number).sort(function (a, b) { return a - b; }), tt = sn.map(function (k2) { return truth(P, res.snapshots[k2]); });
+      s.rows.push([kind + ' ' + P.k.toLocaleString(), name, fmtMs(res.ms.total), r3(tt[0]), r3(tt[1]), r3(tt[2])]);
+      out.push({ kind: kind, n: P.k, variant: name, totalMs: r1(res.ms.total), truths: tt.map(r3), split: res.split });
+    }
+    var prof = null;
+    if (out.length) {
+      var Pm = cache.moderate; setStatus('Program comparison: timing each part…'); await yieldUI();
+      var rp = await G.layout(ctx.dev, Pm.off, Pm.nbr, Pm.k, EDGE, { kernel: 'v2', omega: 1.6, steps: 60, profile: true });
+      if (!rp.error) { prof = { sketch: r1(rp.ms.start), setup: r1(rp.ms.upload), tableAndWeights: r1(rp.ms.table), steps60: r1(rp.ms.steps), read: r1(rp.ms.read), levels: rp.levels }; s.rows.push(['moderate ' + Pm.k.toLocaleString(), 'parts (new program): sketch / setup / table+weights / 60 steps / read-back', prof.sketch + ' / ' + prof.setup + ' / ' + prof.tableAndWeights + ' / ' + prof.steps60 + ' / ' + prof.read + ' ms', '', '', '']); }
+    }
+    ctx.kernels = { n: n, variants: out, parts: prof };
+    var oldT = out[0], newT = out[3 - 1], say = out.length >= 3 ? 'At ' + n.toLocaleString() + ' items the new program takes ' + fmtMs(newT.totalMs) + ' against ' + fmtMs(oldT.totalMs) + ' for the old one (' + r1(oldT.totalMs / newT.totalMs) + '× as fast).' : 'Not enough runs finished to compare.';
+    s.finish('ok', say); return { level: 'ok', say: say };
   } });
 
   STEPS.push({ name: 'Cold start', run: async function () {
@@ -4822,7 +4939,7 @@ var NFMGpuStress = (function () {
   function buildMd(elapsed) {
     var L = ['# Net Flow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
-    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, cold: ctx.cold || null, small: ctx.small || null }, null, 1), '```', '');
+    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, cold: ctx.cold || null, small: ctx.small || null }, null, 1), '```', '');
     return L.join('\n');
   }
   function offerResults(md, elapsed) {

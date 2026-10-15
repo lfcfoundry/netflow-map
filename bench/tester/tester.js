@@ -78,6 +78,8 @@
     var s = addSection('Your computer'), ua = navigator.userAgent, rows = [];
     rows.push(['Browser', ua]); rows.push(['Processor threads', String(navigator.hardwareConcurrency || '?')]); rows.push(['Memory hint (GB)', String(navigator.deviceMemory || 'not shared by this browser')]); rows.push(['Screen', screen.width + ' x ' + screen.height + ' at ' + (window.devicePixelRatio || 1) + 'x']);
     var gpuLine = '', level = 'ok', say;
+    var glName = ''; try { var cv = document.createElement('canvas'), gl = cv.getContext('webgl2') || cv.getContext('webgl'), ext = gl && gl.getExtension('WEBGL_debug_renderer_info'); glName = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : ''; } catch (e) { glName = ''; }
+    if (glName) rows.push(['Graphics (as the page sees it)', glName]);
     var dev = await G.getDevice().catch(function (e) { return { error: String(e && e.message || e) }; });
     if (dev.error) { level = 'warn'; say = 'No graphics-card computing in this browser (' + dev.error + '). The graphics-card checks will be skipped; everything else still runs. ' + (/firefox/i.test(ua) ? 'In Firefox, WebGPU is on by default in recent versions on some systems; on others it may need switching on.' : ''); rows.push(['Graphics-card computing (WebGPU)', 'not available']); }
     else {
@@ -86,7 +88,7 @@
       else say = 'Graphics-card computing is available on: ' + dev.info + '.';
     }
     s.head = ['Item', 'Value']; s.rows = rows; s.finish(level, say);
-    ctx.info = { ua: ua, threads: navigator.hardwareConcurrency, mem: navigator.deviceMemory || null, gpu: dev.error ? null : dev.info, soft: !!dev.software, bufMB: dev.limits ? Math.round(dev.limits.maxStorageBufferBindingSize / 1048576) : null };
+    ctx.info = { ua: ua, threads: navigator.hardwareConcurrency, mem: navigator.deviceMemory || null, gpu: dev.error ? null : dev.info, gl: glName, soft: !!dev.software, bufMB: dev.limits ? Math.round(dev.limits.maxStorageBufferBindingSize / 1048576) : null };
     return { level: level, say: say };
   } });
 
@@ -95,11 +97,11 @@
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var n = QUICK ? 600 : 1200, g = graphFor('moderate', n), P = piece(g), steps = 20;
     setStatus('Checking the graphics-card hop table and steps on ' + P.k + ' items…'); await yieldUI();
-    var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: steps, keepTable: true });
+    var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: steps, keepTable: true, omega: 1.6 });
     if (res.error) { s.finish('bad', 'The graphics-card version failed: ' + res.error); return { level: 'bad', say: res.error }; }
     var S = res.stride, D = fullTable(P), bad = 0, i, j;
     for (i = 0; i < P.k; i++) for (j = 0; j < P.k; j++) if (D[j * S + i] !== res.dTable[j * S + i]) bad++;
-    var Xc = G.majCpu(res.X0, D, P.k, S, EDGE, steps), sg = pairStress(res.X, D, P.k, S), sc = pairStress(Xc, D, P.k, S), s0 = pairStress(res.X0, D, P.k, S);
+    var Xc = G.majCpu(res.X0, D, P.k, S, EDGE, steps, 1.6), sg = pairStress(res.X, D, P.k, S), sc = pairStress(Xc, D, P.k, S), s0 = pairStress(res.X0, D, P.k, S);
     var diff = Math.abs(sg - sc) / sc * 100, move = 0; for (i = 0; i < P.k; i++) move += Math.hypot(res.X[2 * i] - Xc[2 * i], res.X[2 * i + 1] - Xc[2 * i + 1]); move = move / P.k / EDGE;
     var okTable = bad === 0, okSteps = diff < 1 && move < 0.05;
     s.head = ['Check', 'Result']; s.rows = [['Items', String(P.k)], ['Hop table: entries that differ from the CPU table', bad + ' of ' + (P.k * P.k)], ['Distance error at the start (sketch)', r3(s0)], ['After ' + steps + ' steps, CPU math', r3(sc)], ['After ' + steps + ' steps, graphics card', r3(sg)], ['Difference', r1(diff) + '%'], ['Average item difference (share of one link)', r3(move)]];
@@ -112,7 +114,7 @@
   STEPS.push({ name: 'How fast and how true?', run: async function () {
     var s = addSection('How fast and how true is the graphics-card version?');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
-    var plan = QUICK ? [['moderate', 800], ['complex', 800]] : [['moderate', 2000], ['moderate', 5000], ['moderate', 10000], ['complex', 5000], ['complex', 10000], ['moderate', 20000]];
+    var plan = QUICK ? [['moderate', 800], ['complex', 800]] : [['moderate', 2000], ['moderate', 5000], ['moderate', 10000], ['complex', 5000], ['complex', 10000], ['moderate', 20000], ['moderate', 30000]];
     if (params.get('plan')) plan = params.get('plan').split(',').map(function (x) { var a = x.split(':'); return [a[0], +a[1]]; });
     s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Graphics-card time', 'Graphics-card truth', 'Faster by', 'Truth at 20 / 40 steps']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
     for (var pi = 0; pi < plan.length; pi++) {
@@ -124,7 +126,7 @@
       if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', '-']); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
       var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t40 = truth(P, res.snapshots[40]), ratio = cb.ms / res.ms.total; tried++; ratios.push(ratio); if (ratio > 1) wins++; if (tg <= tc * 1.03) truthOk++;
       s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), r1(ratio) + '×', r3(t20) + ' / ' + r3(t40)]);
-      summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), parts: { sketch: r1(res.ms.start), upload: r1(res.ms.upload), table: r1(res.ms.table), weights: r1(res.ms.weights), steps: r1(res.ms.steps), read: r1(res.ms.read) }, levels: res.levels, t20: r3(t20), t40: r3(t40) });
+      summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), parts: { sketch: r1(res.ms.start), setup: r1(res.ms.upload), stepsAndTable: r1(res.ms.steps), read: r1(res.ms.read) }, split: res.split, levels: res.levels, t20: r3(t20), t40: r3(t40) });
       doneSteps += 0.1; setBar();
     }
     ctx.ladder = summary;
@@ -135,8 +137,40 @@
       level = ctx.softGpu ? 'warn' : (wins === tried && truthOk === tried ? 'ok' : wins ? 'warn' : 'bad');
       say = 'Graphics card faster in ' + wins + ' of ' + tried + ' runs (middle ' + r1(med) + '×), and as true or truer (within 3%) in ' + truthOk + ' of ' + tried + '. Truth: lower is truer.' + (ctx.softGpu ? ' (Software stand-in, not a real graphics card.)' : '');
     }
+    s.notes.push('Above 20,000 items the app\'s best quality falls back to the quick sample, so the processor truth there is the quick one.');
     s.notes.push('Graphics-card time covers everything: the 60-point sketch, the upload, the hop table, 60 steps and reading the picture back. The processor time is the app\'s best-quality arrangement, which also includes the overlap clean-up that the graphics-card picture has not had yet, so the graphics-card truth is slightly flattering.');
     s.finish(level, say); return { level: level, say: say };
+  } });
+
+  STEPS.push({ name: 'Old kernel against new', run: async function () {
+    var s = addSection('Old graphics-card program against the new one');
+    if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
+    var n = QUICK ? 800 : 10000, variants = [
+      ['moderate', 'old program, 60 steps', { kernel: 'v1', steps: 60, snapshots: [20, 40] }],
+      ['moderate', 'new program, plain steps, 60', { kernel: 'v2', omega: 1, steps: 60, snapshots: [20, 40] }],
+      ['moderate', 'new program, over-relaxed, 60', { kernel: 'v2', omega: 1.6, steps: 60, snapshots: [20, 40] }],
+      ['moderate', 'new program without tables, over-relaxed, 60', { kernel: 'v3', omega: 1.6, steps: 60, snapshots: [20, 40] }],
+      ['moderate', 'new program, over-relaxed, 30', { kernel: 'v2', omega: 1.6, steps: 30, snapshots: [10, 20] }],
+      ['complex', 'new program, over-relaxed, 60', { kernel: 'v2', omega: 1.6, steps: 60, snapshots: [20, 40] }],
+      ['complex', 'new program, over-relaxed, 150', { kernel: 'v2', omega: 1.6, steps: 150, snapshots: [60, 100] }]];
+    s.head = ['Network', 'Variant', 'Total time', 'Truth at 1/3 of the steps', 'at 2/3', 'at the end']; var cache = {}, out = [];
+    for (var vi = 0; vi < variants.length; vi++) {
+      var kind = variants[vi][0], name = variants[vi][1], o = variants[vi][2]; setStatus('Program comparison: ' + kind + ' ' + name + '…'); await yieldUI();
+      var P = cache[kind] || (cache[kind] = piece(graphFor(kind, n))), res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, o);
+      if (res.error) { s.rows.push([kind, name, 'failed: ' + res.error.slice(0, 40), '', '', '']); continue; }
+      var sn = Object.keys(res.snapshots).map(Number).sort(function (a, b) { return a - b; }), tt = sn.map(function (k2) { return truth(P, res.snapshots[k2]); });
+      s.rows.push([kind + ' ' + P.k.toLocaleString(), name, fmtMs(res.ms.total), r3(tt[0]), r3(tt[1]), r3(tt[2])]);
+      out.push({ kind: kind, n: P.k, variant: name, totalMs: r1(res.ms.total), truths: tt.map(r3), split: res.split });
+    }
+    var prof = null;
+    if (out.length) {
+      var Pm = cache.moderate; setStatus('Program comparison: timing each part…'); await yieldUI();
+      var rp = await G.layout(ctx.dev, Pm.off, Pm.nbr, Pm.k, EDGE, { kernel: 'v2', omega: 1.6, steps: 60, profile: true });
+      if (!rp.error) { prof = { sketch: r1(rp.ms.start), setup: r1(rp.ms.upload), tableAndWeights: r1(rp.ms.table), steps60: r1(rp.ms.steps), read: r1(rp.ms.read), levels: rp.levels }; s.rows.push(['moderate ' + Pm.k.toLocaleString(), 'parts (new program): sketch / setup / table+weights / 60 steps / read-back', prof.sketch + ' / ' + prof.setup + ' / ' + prof.tableAndWeights + ' / ' + prof.steps60 + ' / ' + prof.read + ' ms', '', '', '']); }
+    }
+    ctx.kernels = { n: n, variants: out, parts: prof };
+    var oldT = out[0], newT = out[3 - 1], say = out.length >= 3 ? 'At ' + n.toLocaleString() + ' items the new program takes ' + fmtMs(newT.totalMs) + ' against ' + fmtMs(oldT.totalMs) + ' for the old one (' + r1(oldT.totalMs / newT.totalMs) + '× as fast).' : 'Not enough runs finished to compare.';
+    s.finish('ok', say); return { level: 'ok', say: say };
   } });
 
   STEPS.push({ name: 'Cold start', run: async function () {
@@ -181,7 +215,7 @@
   function buildMd(elapsed) {
     var L = ['# Net Flow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
-    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, cold: ctx.cold || null, small: ctx.small || null }, null, 1), '```', '');
+    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, cold: ctx.cold || null, small: ctx.small || null }, null, 1), '```', '');
     return L.join('\n');
   }
   function offerResults(md, elapsed) {
