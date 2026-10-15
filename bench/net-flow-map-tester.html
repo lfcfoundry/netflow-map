@@ -3,7 +3,9 @@
 <title>Net Flow Map Tester</title>
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--ink:#1f2430;--mut:#667;--line:#dcd9d0;--ok:#2f7d4f;--warn:#b26a00;--bad:#b3362f;--acc:#3b6ea5}
-@media (prefers-color-scheme:dark){:root{--bg:#16181d;--card:#1f232a;--ink:#e8e8ea;--mut:#9aa0ab;--line:#343a44;--ok:#5fc08a;--warn:#e0a34a;--bad:#ef7b73;--acc:#7fb0e8}}
+
+.e1,.e2,.e3,.e4,.e5{font-weight:600}.e1{color:#14803f}.e2{color:#6fa615}.e3{color:#a98600}.e4{color:#d9690a}.e5{color:#cf2a3a}
+@media (prefers-color-scheme:dark){:root{--bg:#16181d;--card:#1f232a;--ink:#e8e8ea;--mut:#9aa0ab;--line:#343a44;--ok:#5fc08a;--warn:#e0a34a;--bad:#ef7b73;--acc:#7fb0e8}.e1{color:#3fcf7b}.e2{color:#a6dd4a}.e3{color:#f2cf3a}.e4{color:#ff9a3d}.e5{color:#ff6b7a}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 main{max-width:860px;margin:0 auto;padding:20px 16px 60px}
 h1{font-size:1.5rem;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 16px}
@@ -17,7 +19,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1711.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1812.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
@@ -4894,6 +4896,1502 @@ var NFMGpuStress = (function () {
   return { pivotStart: pivotStart, getDevice: getDevice, layout: layout, majCpu: majCpu, sgdCpu: sgdCpu, recommend: recommend, probe: probe, sane: sane, stress: stress, settings: settings, sgdSchedule: sgdSchedule, permFor: permFor, need: need };
 })();
 
+/* ---- src/scene.js ---- */
+/*!
+ * Net Flow Map scene: turns an engine layout into plain drawing lists that every drawing backend (Canvas2D, WebGL2, WebGPU)
+ * and the SVG export read the same way. No DOM. Copyright (c) 2026 LFC Foundry. MIT License.
+ *
+ * World units are the engine's. Colors are [r, g, b, a] with 0..1 numbers.
+ * scene = { x0, y0, w, h, rects, dots, curves, ribbons, polys, icons, labels, nodes, legend, grid }
+ *
+ * Options (all optional) the page can pass to make(L, o):
+ *   theme, colorBy, palette, ramp, groupColors {group: '#hex'}, story (bool),
+ *   nodeStyle(n) -> { fill, stroke, sw, shape, scale, opacity, icon, image, iconMode, hide, labelShow, labelColor, labelSize, labelBold, labelText }
+ *   linkStyle(e) -> { color, w, wmul, opacity, dash, hide, arrow, label, bend }
+ *   labelFn(n) -> text,  linkLabelFn(e) -> text,  chName(channel) -> words
+ *   lab { items: {show, scale, color, fixed, topN}, links: {show, scale}, groups: {show} }
+ *   widthScale 'sqrt' | 'linear' | 'log', widthMul, hulls (bool), cam {yaw, pitch, persp}, lens {x, y, r, d}, curve (0..1 bend for network links)
+ */
+var NFMScene = (function () {
+  'use strict';
+  var HEAD = 9;
+
+  /* ---------------------------------------------------------------- colors */
+  function hex(h, a) {
+    h = String(h || '#888888').replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    if (r !== r || g !== g || b !== b) { r = g = b = 136; }
+    return [r / 255, g / 255, b / 255, a === undefined ? 1 : a];
+  }
+  function toHex(c) { var f = function (v) { var s = Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16); return s.length < 2 ? '0' + s : s; }; return '#' + f(c[0]) + f(c[1]) + f(c[2]); }
+  function mix(a, b, t) { t = Math.max(0, Math.min(1, t)); return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t]; }
+  function alpha(c, a) { return [c[0], c[1], c[2], a]; }
+  function css(c) { return 'rgba(' + Math.round(c[0] * 255) + ',' + Math.round(c[1] * 255) + ',' + Math.round(c[2] * 255) + ',' + (+c[3].toFixed(3)) + ')'; }
+  var THEMES = {
+    light: { bg: '#f6f5f1', box: '#ffffff', boxLine: '#aeb4c2', fg: '#1d2330', muted: '#7b8294', line: '#6f778a', good: '#2c9a69', bad: '#d1495b', neutral: '#8590a8', accent: '#2563d6', gold: '#d99a00', lane0: '#ecebe5', lane1: '#f6f5f1',
+      groups: ['#4e79a7', '#f28e2b', '#59a14f', '#e15759', '#76b7b2', '#b07aa1', '#edc948', '#9c755f', '#ff9da7', '#86bc86', '#8c6bb1', '#5fa2ce'] },
+    dark: { bg: '#14171f', box: '#222735', boxLine: '#4a5266', fg: '#e8ebf2', muted: '#8d95a8', line: '#8a93a8', good: '#4cc38a', bad: '#f06a7b', neutral: '#8f9ab3', accent: '#6ea0ff', gold: '#f2b632', lane0: '#1b1f2a', lane1: '#14171f',
+      groups: ['#6a9fd1', '#f6a04d', '#74c06b', '#f0787a', '#8bd0cb', '#c797bb', '#f0d36a', '#b8917a', '#ffb3bb', '#a3d6a3', '#a58bcc', '#7bbbe6'] }
+  };
+  /** Color sets the person can choose between for groups and categories. */
+  var PALETTES = {
+    standard: null,
+    colorblind: ['#0072B2', '#E69F00', '#009E73', '#D55E00', '#56B4E9', '#CC79A7', '#F0E442', '#999999', '#332288', '#88CCEE', '#117733', '#AA4499'],
+    vivid: ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#9a6324', '#469990', '#800000', '#808000'],
+    soft: ['#a6cee3', '#b2df8a', '#fb9a99', '#fdbf6f', '#cab2d6', '#ffff99', '#8dd3c7', '#fccde5', '#bebada', '#80b1d3', '#d9d9d9', '#bc80bd'],
+    earth: ['#6b705c', '#a5a58d', '#b7b7a4', '#cb997e', '#ddbea9', '#ffe8d6', '#3f4238', '#8f5d43', '#c9ada7', '#9a8c98', '#4a4e69', '#22223b'],
+    mono: ['#2b3a55', '#4d5f82', '#6f82a8', '#92a3c7', '#b5c3e0', '#d4dcee', '#1b2438', '#3a4a6b', '#5c6e94', '#7f90b5', '#a3b3d3', '#c6d1e6']
+  };
+  var RAMPS = {
+    warm: ['#fbe9a8', '#f4a259', '#d1495b', '#5b1a3a'], cool: ['#eaf3fb', '#8fb8de', '#3b7bbf', '#14406e'], green: ['#f0f7e6', '#a8d08d', '#4a9d5b', '#14532d'],
+    viridis: ['#fde725', '#5ec962', '#21918c', '#3b528b', '#440154'], plasma: ['#f0f921', '#f89540', '#cc4778', '#7e03a8', '#0d0887'],
+    diverging: ['#2c7bb6', '#abd9e9', '#f7f7f7', '#fdae61', '#d7191c'], gray: ['#f2f2f2', '#bdbdbd', '#737373', '#252525']
+  };
+  var RAMP_NAMES = { warm: 'Warm', cool: 'Cool', green: 'Green', viridis: 'Viridis', plasma: 'Plasma', diverging: 'Blue to red', gray: 'Gray' };
+  function rampAt(name, t) {
+    var stops = (RAMPS[name] || RAMPS.warm).map(function (h) { return hex(h); });
+    t = Math.max(0, Math.min(1, t === t ? t : 0));
+    var x = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(x));
+    return mix(stops[i], stops[i + 1], x - i);
+  }
+  function palette(name, pal) {
+    var T = THEMES[name] || THEMES.light, P = { name: name };
+    Object.keys(T).forEach(function (k) { if (k !== 'groups') P[k] = hex(T[k]); });
+    var list = pal && PALETTES[pal] ? PALETTES[pal] : T.groups;
+    P.hex = T; P.groups = list.map(function (g) { return hex(g); });
+    return P;
+  }
+
+  /* ---------------------------------------------------------------- icons: small outline pictures in a 24 x 24 box */
+  var ICONS = {
+    person: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 3.6-7 8-7s8 3 8 7',
+    people: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20c0-3.6 3-6 6.5-6s6.5 2.4 6.5 6M16 4.5a3.5 3.5 0 0 1 0 6.5M18 14c2.2.7 3.5 2.6 3.5 5',
+    building: 'M5 21V4h9v17M14 9h5v12M2 21h20M8 8h3M8 12h3M8 16h3',
+    house: 'M3 11l9-8 9 8M5 9.5V21h14V9.5M10 21v-6h4v6',
+    factory: 'M2 21V10l6 4V10l6 4V6h4v15zM2 21h20',
+    database: 'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
+    server: 'M3 4h18v6H3zM3 14h18v6H3zM7 7h.01M7 17h.01',
+    cloud: 'M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5 4 4 0 0 1 17.5 18z',
+    gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1.2-2-3.4-2.2.8-1.8-1L14.6 4h-4l-.4 3.2-1.8 1-2.2-.8-2 3.4L5 12l-2 1.2 2 3.4 2.2-.8 1.8 1 .4 3.2h4l.4-3.2 1.8-1 2.2.8 2-3.4z',
+    document: 'M6 3h8l5 5v13H6zM14 3v5h5M9 13h7M9 17h7',
+    mail: 'M3 5h18v14H3zM3 6l9 7 9-7',
+    flag: 'M5 21V4M5 4h12l-2 4 2 4H5',
+    star: 'M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.2 6.5 20.2l1-6.2L3 9.6l6.2-.9z',
+    heart: 'M12 20s-8-4.7-8-10.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 8 2.5C20 15.3 12 20 12 20z',
+    cart: 'M3 4h2l2.4 11h11l2-8H6M9 20h.01M17 20h.01',
+    truck: 'M2 6h12v10H2zM14 9h4l3 3v4h-7M6 19h.01M17 19h.01',
+    money: 'M12 2v20M17 6.5c-1-1.5-3-2-5-2-2.5 0-4 1.2-4 3s1.5 2.4 4 3 4 1.2 4 3-1.5 3-4 3c-2.2 0-4-.6-5-2',
+    chart: 'M4 20V4M4 20h16M8 16v-5M12 16V8M16 16v-8',
+    lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
+    globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18',
+    bolt: 'M13 2L4 14h7l-1 8 9-12h-7z',
+    box: 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10',
+    book: 'M4 4h7a3 3 0 0 1 3 3v14a2 2 0 0 0-2-2H4zM20 4h-6M20 4v15h-6',
+    key: 'M8 14a4 4 0 1 1 3.9-5H21v3h-3v3h-3v-3h-3.1A4 4 0 0 1 8 14z',
+    skull: 'M12 3a8 8 0 0 0-5 14v3h10v-3a8 8 0 0 0-5-14zM9 12h.01M15 12h.01M11 16h2',
+    door: 'M6 21V3h12v18M3 21h18M14 12h.01'
+  };
+  var SHAPE_KIND = { square: 0, rounded: 0, dot: 1, circle: 1, diamond: 2, hexagon: 3, triangle: 4 };
+  var SHAPE_NAMES = { dot: 'Circle', square: 'Square', rounded: 'Rounded box', diamond: 'Diamond', hexagon: 'Hexagon', triangle: 'Triangle' };
+  /** Points (flat) of a diamond, hexagon or triangle inside a circle of radius r. */
+  function shapePts(kind, cx, cy, r) {
+    if (kind === 2) return [cx, cy - r, cx + r, cy, cx, cy + r, cx - r, cy];
+    if (kind === 3) { var p = []; for (var i = 0; i < 6; i++) { var a = i * Math.PI / 3; p.push(cx + r * Math.cos(a), cy + r * Math.sin(a)); } return p; }
+    if (kind === 4) return [cx, cy - r, cx + r * 0.866, cy + r * 0.5, cx - r * 0.866, cy + r * 0.5];
+    return [];
+  }
+
+  /* ---------------------------------------------------------------- small helpers */
+  function wrap(text, maxChars, maxLines) {
+    text = String(text || '');
+    if (text.length <= maxChars) return [text];
+    var words = text.split(/\s+/), lines = [], cur = '';
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i];
+      while (w.length > maxChars) { if (cur) { lines.push(cur); cur = ''; } lines.push(w.slice(0, maxChars - 1) + '…'); w = ''; if (lines.length >= maxLines) break; }
+      if (!w) continue;
+      if ((cur + ' ' + w).trim().length <= maxChars) cur = (cur + ' ' + w).trim();
+      else { lines.push(cur); cur = w; }
+      if (lines.length >= maxLines) break;
+    }
+    if (cur && lines.length < maxLines) lines.push(cur);
+    if (lines.length > maxLines) lines.length = maxLines;
+    var joined = lines.join(' ');
+    if (joined.length < text.length - 1 && lines.length) { var l = lines[lines.length - 1]; if (l.slice(-1) !== '…') lines[lines.length - 1] = (l.length >= maxChars ? l.slice(0, maxChars - 1) : l) + '…'; }
+    return lines;
+  }
+  function bez(P, t) { /* point on a flat control list at t in 0..1 (start, then c1 c2 p per segment) */
+    var segs = (P.length - 2) / 6, s = Math.min(segs - 1, Math.floor(t * segs)), u = t * segs - s, o = s * 6;
+    var x0 = P[o], y0 = P[o + 1], x1 = P[o + 2], y1 = P[o + 3], x2 = P[o + 4], y2 = P[o + 5], x3 = P[o + 6], y3 = P[o + 7], m = 1 - u;
+    return [m * m * m * x0 + 3 * m * m * u * x1 + 3 * m * u * u * x2 + u * u * u * x3, m * m * m * y0 + 3 * m * m * u * y1 + 3 * m * u * u * y2 + u * u * u * y3];
+  }
+  function fmtNum(v) {
+    if (typeof NFMColumns !== 'undefined') return NFMColumns.fmt(v);
+    return String(Math.round(v * 100) / 100);
+  }
+  function clip(s, n) { s = String(s === undefined || s === null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  function hull(pts) { /* convex hull of flat [x, y, ...] (monotone chain) */
+    var p = []; for (var i = 0; i < pts.length; i += 2) p.push([pts[i], pts[i + 1]]);
+    if (p.length < 3) return pts.slice();
+    p.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+    var cross = function (o, a, b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); }, lo = [], up = [];
+    p.forEach(function (q) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); });
+    for (var j = p.length - 1; j >= 0; j--) { var q2 = p[j]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], q2) <= 0) up.pop(); up.push(q2); }
+    lo.pop(); up.pop();
+    var h = lo.concat(up), out = []; h.forEach(function (q3) { out.push(q3[0], q3[1]); });
+    return out;
+  }
+
+  /* ---------------------------------------------------------------- the scene */
+  function make(L, o) {
+    o = o || {};
+    var T = palette(o.theme || 'light', o.palette), view = L.view || 'flow', colorBy = o.colorBy || 'group', CH = L.ch || {};
+    var S = { rects: [], dots: [], curves: [], ribbons: [], polys: [], icons: [], labels: [], nodes: [], legend: [], legendTitle: '', theme: T, view: view, x0: 0, y0: 0, w: 100, h: 100, kind: L.kind, is3d: !!L.is3d, widthCh: CH.width ? CH.width.ch : '', story: !!o.story };
+    var story = !!o.story, chName = o.chName || function (c) { return String(c || '').replace(/^(col|sys):/, ''); };
+    var groupIdx = new Map(), gOver = o.groupColors || {};
+    if (L.nodes) {
+      var gs = Array.from(new Set(L.nodes.map(function (n) { return n.group || ''; }))).sort();
+      gs.forEach(function (g, i) { groupIdx.set(g, i); });
+    }
+    var gcol = function (g) {
+      if (g !== undefined && gOver[g]) return hex(gOver[g]);
+      var i = groupIdx.get(g || '') || 0; return g === '(none)' ? T.neutral : T.groups[i % T.groups.length];
+    };
+    var maxVisits = 0, maxTraffic = 0.0001;
+    (L.nodes || []).forEach(function (n) { if (n.visits > maxVisits) maxVisits = n.visits; if (n.traffic > maxTraffic) maxTraffic = n.traffic; });
+    maxVisits = maxVisits || 1;
+    var rampName = o.ramp || 'warm', HEAT = 'warm';
+    var heat = function (t) { return rampAt(HEAT, t); };
+    var valCol = function (v) { return v === 'good' ? T.good : v === 'bad' ? T.bad : T.neutral; };
+    var colRange = CH.color && CH.color.kind === 'num' ? CH.color : null, numMode = !!colRange || colorBy === 'sim' || /^sys:/.test(colorBy);
+    var diverging = colRange && colRange.min < 0 && colRange.max > 0;
+    var colT = function (v) {
+      if (v !== v) return NaN;
+      if (diverging) { var m = Math.max(Math.abs(colRange.min), Math.abs(colRange.max)); return 0.5 + 0.5 * v / m; }
+      var lo = colRange ? colRange.min : 0, hi = colRange ? colRange.max : 1; return hi > lo ? (v - lo) / (hi - lo) : 0.5;
+    };
+    var nodeRamp = diverging ? 'diverging' : rampName;
+    var classes = L.flow && L.flow.classes, nonStoryOdds = colorBy === 'odds' && !story && classes && classes.length;
+    var classCol = function (k) { return k >= 0 ? T.groups[k % T.groups.length] : T.neutral; };
+    var endCol = function (n) { /* color a box by where flow ends up */
+      if (nonStoryOdds) return n.dom >= 0 ? mix(T.box, classCol(n.dom), 0.3 + 0.65 * Math.min(1, n.domP)) : null;
+      var s = n.pGood + n.pBad; return s > 0.001 ? mix(T.bad, T.good, n.pGood / s) : null;
+    };
+    var fillOf = function (n) {
+      var f, st = n._st;
+      if (st && st.fill) f = hex(st.fill);
+      else if (colorBy === 'choke') f = n.choke ? alpha(T.gold, 0.55) : T.box;
+      else if (colorBy === 'traffic') f = mix(T.box, T.accent, 0.12 + 0.8 * Math.sqrt(n.traffic / maxTraffic));
+      else if (colorBy === 'heat') f = n.visits > 0 ? heat(Math.sqrt(n.visits / maxVisits)) : T.box;
+      else if (colorBy === 'odds') { var c = endCol(n); if (c) { var s = nonStoryOdds ? 1 : n.pGood + n.pBad; f = nonStoryOdds ? c : mix(T.box, c, 0.25 + 0.7 * Math.min(1, s)); } else f = T.box; }
+      else if (numMode) { var t = colT(n.colorV); f = t === t ? rampAt(nodeRamp, t) : alpha(T.neutral, 0.35); }
+      else if (colorBy === 'none') f = T.box;
+      else f = mix(T.box, gcol(n.group), n.group && n.group !== '(none)' ? 0.55 : 0);
+      if (n.ghost) f = alpha(f, 0.35);
+      if (n.unreached) f = alpha(f, Math.min(f[3], 0.5));
+      if (st && st.opacity !== undefined) f = alpha(f, Math.min(f[3], st.opacity));
+      return f;
+    };
+    var legendSet = {};
+    var legend = function (c, t, key) { if (!legendSet[t]) { legendSet[t] = 1; S.legend.push({ k: 'swatch', c: c, t: t, key: key || t }); } };
+
+    /* per-item looks the person asked for */
+    (L.nodes || []).forEach(function (n) { n._st = o.nodeStyle ? o.nodeStyle(n) : null; });
+    var edgeCats = null, ecR = CH.ecolor && CH.ecolor.kind === 'num' ? CH.ecolor : null, widthR = CH.width && CH.width.n ? CH.width : null;
+    if (CH.ecolor && CH.ecolor.kind === 'cat') {
+      var cnt = new Map(); (L.edges || []).forEach(function (e) { if (e.colorC) cnt.set(e.colorC, (cnt.get(e.colorC) || 0) + 1); });
+      edgeCats = Array.from(cnt.keys()).sort(function (a, b) { return cnt.get(b) - cnt.get(a) || (a < b ? -1 : 1); });
+    }
+    var wmul = o.widthMul || 1, wscale = o.widthScale || 'sqrt';
+    var m0 = (L.edges || []).length;
+    var autoA = Math.max(0.1, Math.min(0.65, 1.1 - Math.log10(Math.max(10, m0)) * 0.28));
+    /** How to draw one link: width, color, dash, arrow, hide, label. */
+    var look = function (e, ei, def) {
+      var w = def.w, c = def.color, r = { w: w, color: c, dash: 0, arrow: def.arrow, hide: false, label: null, bend: o.curve || 0 };
+      if (widthR) {
+        var v = e.widthV, t = v === v && widthR.max > 0 ? Math.max(0, v) / widthR.max : 0;
+        if (wscale === 'linear') t = t; else if (wscale === 'log') t = widthR.max > 0 && v === v ? Math.log1p(Math.max(0, v) / Math.max(1e-12, widthR.max) * 100) / Math.log1p(100) : 0; else t = Math.pow(t, 0.55);
+        r.w = v === v ? 0.9 + 9.5 * t : 0.9;
+        if (v !== v) r.color = alpha(c, c[3] * 0.4);
+      }
+      if (ecR) { var te = e.colorV === e.colorV ? (ecR.max > ecR.min ? (e.colorV - ecR.min) / (ecR.max - ecR.min) : 0.5) : NaN; r.color = te === te ? alpha(rampAt('plasma', 1 - te), Math.max(0.45, c[3])) : alpha(T.neutral, 0.3); }
+      else if (edgeCats && e.colorC) { var ix = edgeCats.indexOf(e.colorC); r.color = alpha(ix >= 0 ? T.groups[(ix + 3) % T.groups.length] : T.neutral, Math.max(0.55, c[3])); }
+      var ls = o.linkStyle ? o.linkStyle(e, ei) : null;
+      if (ls) {
+        if (ls.hide) r.hide = true;
+        if (ls.color) r.color = alpha(hex(ls.color), ls.opacity !== undefined ? ls.opacity : Math.max(0.6, r.color[3]));
+        else if (ls.opacity !== undefined) r.color = alpha(r.color, ls.opacity);
+        if (ls.w) r.w = ls.w; if (ls.wmul) r.w *= ls.wmul;
+        if (ls.dash) r.dash = ls.dash === 'dot' ? 1 : ls.dash === 'long' ? 3 : 2;
+        if (ls.arrow !== undefined) r.arrow = !!ls.arrow;
+        if (ls.label !== undefined) r.label = ls.label;
+        if (ls.bend !== undefined) r.bend = ls.bend;
+      }
+      r.w = Math.min(60, r.w * wmul);
+      return r;
+    };
+    /* labels */
+    var LC = { items: { show: true, scale: 1, color: 'auto', fixed: '#222222', topN: 0 }, links: { show: true, scale: 1 }, groups: { show: false, scale: 1 } };
+    if (o.lab) ['items', 'links', 'groups'].forEach(function (k) { if (o.lab[k]) Object.assign(LC[k], o.lab[k]); });
+    var tx = function (n) { var st = n._st; if (st && st.labelText) return st.labelText; return o.labelFn ? o.labelFn(n) : n.label; };
+    var labColor = function (n, fill) {
+      var st = n._st; if (st && st.labelColor) return hex(st.labelColor);
+      var m = LC.items.color;
+      if (m === 'group') return mix(T.fg, gcol(n.group), 0.65);
+      if (m === 'fill' && fill) return mix(T.fg, fill, 0.7);
+      if (m === 'value' && numMode) { var t = colT(n.colorV); return t === t ? mix(T.fg, rampAt(nodeRamp, t), 0.6) : T.fg; }
+      if (m === 'fixed') return hex(LC.items.fixed);
+      return T.fg;
+    };
+    var addNode = function (n, x, y, w, h, extra) {
+      var rec = { i: S.nodes.length, key: n.id, nodeId: n.nodeId, x: x, y: y, w: w, h: h, deg: n.deg || 0, label: n.label, n: n };
+      if (extra) for (var k in extra) rec[k] = extra[k];
+      S.nodes.push(rec);
+      return rec;
+    };
+    var lab = function (x, y, t, size, c, op) {
+      var item = op && op.node >= 0 && !op.sub, st = item && S.nodes[op.node] && S.nodes[op.node].n ? S.nodes[op.node].n._st : null;
+      if (item) {
+        if (!LC.items.show && !(st && st.labelShow)) return null;
+        if (st && st.labelShow === false) return null;
+        size = size * LC.items.scale * (st && st.labelSize ? st.labelSize : 1);
+      }
+      var l = { x: x, y: y, t: t, size: size, color: c, align: 'c', bold: !!(st && st.labelBold), rot: 0, minK: 0, node: -1 };
+      if (op) for (var k in op) l[k] = op[k];
+      if (item && LC.items.fixedMin !== undefined) l.minK = Math.min(l.minK, LC.items.fixedMin);
+      S.labels.push(l);
+      return l;
+    };
+    var pad = 30;
+    var nodeLabel = function (n, rec, size) {
+      var maxChars = Math.max(6, Math.floor((n.w - 16) / (size * 0.56))), lines = wrap(tx(n), maxChars, n.sub ? 1 : 2);
+      var total = lines.length * (size + 3) + (n.sub ? 12 : 0), y0 = n.y + n.h / 2 - total / 2 + size, col = labColor(n, fillOf(n));
+      lines.forEach(function (ln, i) { lab(n.x + n.w / 2, y0 + i * (size + 3) - 2, ln, size, col, { bold: true, node: rec.i, minK: 0.18 }); });
+      if (n.sub) lab(n.x + n.w / 2, y0 + lines.length * (size + 3), wrap(n.sub, maxChars + 4, 1)[0], 10, T.muted, { node: rec.i, minK: 0.5, sub: true });
+    };
+    /** Icon or picture in place of (or inside) a node. */
+    var addIcon = function (n, rec, cx, cy, r) {
+      var st = n._st; if (!st || (!st.icon && !st.image)) return;
+      var inside = st.iconMode === 'inside';
+      S.icons.push({ cx: cx, cy: cy, r: inside ? r * 0.58 : r * 0.92, icon: st.image ? null : st.icon, img: st.image || null, color: st.iconColor ? hex(st.iconColor) : (inside ? mix(T.fg, T.box, 0.1) : T.fg), node: rec.i, key: n.id, a: 1, replace: !inside, minK: 0.12 });
+    };
+    var X = { S: S, L: L, T: T, o: o, lab: lab, addNode: addNode, fillOf: fillOf, valCol: valCol, gcol: gcol, nodeLabel: nodeLabel, look: look, tx: tx, labColor: labColor, LC: LC, addIcon: addIcon, autoA: autoA, endCol: endCol, nonStoryOdds: nonStoryOdds, classCol: classCol, colT: colT, nodeRamp: nodeRamp, numMode: numMode, story: story, linkText: function (e, r) { return r && r.label !== null && r.label !== undefined ? r.label : (o.linkLabelFn ? o.linkLabelFn(e) : e.label); } };
+
+    if (L.kind === 'shape') shapeScene(X);
+    else if (view === 'matrix') matrixScene(X);
+    else if (view === 'arc') arcScene(X);
+    else if (view === 'network') networkScene(X);
+    else layeredScene(X, view);
+
+    /* legend by color mode */
+    S.legendTitle = '';
+    if (view !== 'matrix' && L.kind !== 'shape') {
+      var nm = chName(colorBy);
+      if (colorBy === 'group' || colorBy === 'found' || (CH.color && CH.color.kind === 'cat')) {
+        S.legendTitle = colorBy === 'found' ? 'Found groups' : colorBy === 'group' ? 'Groups' : nm;
+        var sh = 0, rest = 0; groupIdx.forEach(function (i, g) { if (sh++ < 14) legend(gcol(g), g || '(no group)', 'g:' + g); else rest++; });
+        if (rest) S.legend.push({ k: 'text', t: '+ ' + rest + ' more' });
+      } else if (colorBy === 'choke') { S.legendTitle = 'Choke points'; legend(alpha(T.gold, 0.7), 'every route passes here', 'choke'); }
+      else if (colorBy === 'traffic') { S.legendTitle = 'Routes through'; S.legend.push({ k: 'ramp', a: mix(T.box, T.accent, 0.2), b: mix(T.box, T.accent, 0.9), lo: 'few', hi: 'many', t: '' }); }
+      else if (colorBy === 'odds') {
+        if (nonStoryOdds) { S.legendTitle = 'Where it ends'; classes.forEach(function (c, k) { if (k < 9) legend(classCol(k), c.label, 'class:' + k); }); }
+        else { S.legendTitle = 'Where it ends up'; legend(T.good, story ? 'mostly good endings' : 'mostly the good class', 'good'); legend(T.bad, story ? 'mostly bad endings' : 'mostly the bad class', 'bad'); }
+      } else if (colorBy === 'heat') { S.legendTitle = 'Traffic'; S.legend.push({ k: 'ramp', a: rampAt(HEAT, 0), b: rampAt(HEAT, 1), lo: 'rarely', hi: 'busy', t: '', ramp: HEAT }); }
+      else if (numMode && colRange) { S.legendTitle = colorBy === 'sim' || colorBy === 'sys:sim' ? 'Simulated visits' : nm; S.legend.push({ k: 'ramp', ramp: nodeRamp, a: rampAt(nodeRamp, 0), b: rampAt(nodeRamp, 1), lo: fmtNum(colRange.min), hi: fmtNum(colRange.max), t: '' }); }
+      if (CH.size && CH.size.n) S.legend.push({ k: 'size', t: 'Size: ' + chName(CH.size.ch), lo: fmtNum(CH.size.min), hi: fmtNum(CH.size.max) });
+      if (widthR) S.legend.push({ k: 'width', t: 'Line width: ' + (widthR.ch === 'sys:sim' ? 'Simulated traffic' : chName(widthR.ch)), lo: fmtNum(widthR.min), hi: fmtNum(widthR.max) });
+      if (ecR) S.legend.push({ k: 'ramp', ramp: 'plasma', a: rampAt('plasma', 1), b: rampAt('plasma', 0), lo: fmtNum(ecR.min), hi: fmtNum(ecR.max), t: 'Line color: ' + chName(CH.ecolor.ch) });
+      else if (edgeCats) { S.legend.push({ k: 'text', t: 'Line color: ' + chName(CH.ecolor.ch), head: true }); edgeCats.slice(0, 8).forEach(function (c, i) { legend(T.groups[(i + 3) % T.groups.length], c, 'e:' + c); }); }
+      if (story && view !== 'river') { legend(T.good, 'good ending', 'endgood'); legend(T.bad, 'bad ending', 'endbad'); }
+      if (S.nodes.some(function (n) { return n.n && n.n.start; })) S.legend.push({ k: 'mark', c: T.accent, t: 'start', key: 'start' });
+      if (colorBy !== 'choke' && (L.nodes || []).some(function (n) { return n.choke; })) S.legend.push({ k: 'mark', c: T.gold, t: 'choke point', key: 'chokemark', dot: true });
+    }
+
+    /* bounds, then a grid for picking */
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    S.nodes.forEach(function (n) { if (n.x < x0) x0 = n.x; if (n.y < y0) y0 = n.y; if (n.x + n.w > x1) x1 = n.x + n.w; if (n.y + n.h > y1) y1 = n.y + n.h; });
+    S.rects.forEach(function (r) { if (r.x < x0) x0 = r.x; if (r.y < y0) y0 = r.y; if (r.x + r.w > x1) x1 = r.x + r.w; if (r.y + r.h > y1) y1 = r.y + r.h; });
+    S.dots.forEach(function (d) { if (d.cx - d.r < x0) x0 = d.cx - d.r; if (d.cy - d.r < y0) y0 = d.cy - d.r; if (d.cx + d.r > x1) x1 = d.cx + d.r; if (d.cy + d.r > y1) y1 = d.cy + d.r; });
+    S.polys.forEach(function (p) { for (var i = 0; i < p.pts.length; i += 2) { if (p.pts[i] < x0) x0 = p.pts[i]; if (p.pts[i] > x1) x1 = p.pts[i]; if (p.pts[i + 1] < y0) y0 = p.pts[i + 1]; if (p.pts[i + 1] > y1) y1 = p.pts[i + 1]; } });
+    if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 100; y1 = 100; }
+    if (L.is3d && L.c3) { var R3 = (L.radius3 || 300) * 1.18; x0 = L.c3[0] - R3; x1 = L.c3[0] + R3; y0 = L.c3[1] - R3; y1 = L.c3[1] + R3; }
+    S.x0 = x0 - pad; S.y0 = y0 - pad; S.w = x1 - x0 + 2 * pad; S.h = y1 - y0 + 2 * pad + (view === 'arc' ? 110 : 0);
+    buildGrid(S);
+    return S;
+  }
+
+  function buildGrid(S) {
+    var cell = Math.max(40, Math.max(S.w, S.h) / 80), cols = Math.ceil(S.w / cell) + 1, rows = Math.ceil(S.h / cell) + 1, g = new Map();
+    S.nodes.forEach(function (n) {
+      var c0 = Math.floor((n.x - S.x0) / cell), c1 = Math.floor((n.x + n.w - S.x0) / cell), r0 = Math.floor((n.y - S.y0) / cell), r1 = Math.floor((n.y + n.h - S.y0) / cell);
+      for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) { var k = r * cols + c; var a = g.get(k); if (a) a.push(n.i); else g.set(k, [n.i]); }
+    });
+    S.grid = { cell: cell, cols: cols, rows: rows, map: g };
+  }
+  /** Which node box is under this world point (topmost = last drawn); slop is in world units. */
+  function pick(S, wx, wy, slop) {
+    slop = slop || 0;
+    var G = S.grid, best = null, cs = G.cell;
+    var c0 = Math.floor((wx - slop - S.x0) / cs), c1 = Math.floor((wx + slop - S.x0) / cs), r0 = Math.floor((wy - slop - S.y0) / cs), r1 = Math.floor((wy + slop - S.y0) / cs);
+    for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) {
+      var a = G.map.get(r * G.cols + c);
+      if (!a) continue;
+      for (var j = 0; j < a.length; j++) {
+        var n = S.nodes[a[j]];
+        if (n.hidden) continue;
+        if (wx >= n.x - slop && wx <= n.x + n.w + slop && wy >= n.y - slop && wy <= n.y + n.h + slop) { if (!best || n.i > best.i) best = n; }
+      }
+    }
+    return best;
+  }
+  /** Node ids whose centers are inside a rectangle (world units). */
+  function inRect(S, ax, ay, bx, by) {
+    var x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), y0 = Math.min(ay, by), y1 = Math.max(ay, by), out = [];
+    S.nodes.forEach(function (n) { if (n.hidden || n.key.indexOf('shape:') === 0) return; var cx = n.x + n.w / 2, cy = n.y + n.h / 2; if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) out.push(n.key); });
+    return out;
+  }
+  /** Node ids inside a free-hand outline (flat [x, y, ...] in world units). */
+  function inLasso(S, poly) {
+    var out = [], n = poly.length / 2;
+    if (n < 3) return out;
+    S.nodes.forEach(function (nd) {
+      if (nd.hidden || nd.key.indexOf('shape:') === 0) return;
+      var x = nd.x + nd.w / 2, y = nd.y + nd.h / 2, inside = false;
+      for (var i = 0, j = n - 1; i < n; j = i++) { var xi = poly[i * 2], yi = poly[i * 2 + 1], xj = poly[j * 2], yj = poly[j * 2 + 1]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside; }
+      if (inside) out.push(nd.key);
+    });
+    return out;
+  }
+  /* ---- edge picking: sample each curve into a coarse grid once, then test the nearest segments */
+  function edgeIndex(S) {
+    if (S.eidx) return S.eidx;
+    var cell = Math.max(30, Math.max(S.w, S.h) / 120), map = new Map(), segs = [];
+    var put = function (ref, ax, ay, bx, by) {
+      var id = segs.length; segs.push([ax, ay, bx, by, ref]);
+      var c0 = Math.floor((Math.min(ax, bx) - S.x0) / cell), c1 = Math.floor((Math.max(ax, bx) - S.x0) / cell), r0 = Math.floor((Math.min(ay, by) - S.y0) / cell), r1 = Math.floor((Math.max(ay, by) - S.y0) / cell);
+      if ((c1 - c0 + 1) * (r1 - r0 + 1) > 400) return;
+      for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) { var k = r * 100003 + c, a = map.get(k); if (a) a.push(id); else map.set(k, [id]); }
+    };
+    S.curves.forEach(function (cv, ci) {
+      if (cv.edge === undefined || cv.edge < 0 || cv.dead) return;
+      var P = cv.P, n = (P.length - 2) / 6, prev = [P[0], P[1]];
+      for (var s = 0; s < n; s++) {
+        var steps = cv.line ? 1 : 10;
+        for (var i = 1; i <= steps; i++) { var pt = bez(P.slice(s * 6, s * 6 + 8), i / steps); put({ t: 'c', i: ci }, prev[0], prev[1], pt[0], pt[1]); prev = pt; }
+      }
+    });
+    S.eidx = { cell: cell, map: map, segs: segs };
+    return S.eidx;
+  }
+  function pickEdge(S, wx, wy, tol) {
+    var I = edgeIndex(S), cs = I.cell, best = null, bd = tol * tol;
+    var c0 = Math.floor((wx - tol - S.x0) / cs), c1 = Math.floor((wx + tol - S.x0) / cs), r0 = Math.floor((wy - tol - S.y0) / cs), r1 = Math.floor((wy + tol - S.y0) / cs), seen = new Set();
+    for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) {
+      var a = I.map.get(r * 100003 + c); if (!a) continue;
+      for (var j = 0; j < a.length; j++) {
+        if (seen.has(a[j])) continue; seen.add(a[j]);
+        var sg = I.segs[a[j]], dx = sg[2] - sg[0], dy = sg[3] - sg[1], l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, ((wx - sg[0]) * dx + (wy - sg[1]) * dy) / l2)) : 0, px = sg[0] + t * dx - wx, py = sg[1] + t * dy - wy, d = px * px + py * py;
+        if (d <= bd) { bd = d; best = sg[4]; }
+      }
+    }
+    if (best) { var cv = S.curves[best.i]; return { edge: cv.edge, from: cv.from, to: cv.to, curve: best.i }; }
+    for (var q = 0; q < S.ribbons.length; q++) { /* river ribbons */
+      var rb = S.ribbons[q]; if (wx < rb.x0 || wx > rb.x1) continue;
+      var u = (wx - rb.x0) / (rb.x1 - rb.x0 || 1), sm = u * u * (3 - 2 * u), ya = rb.y0a + (rb.y1a - rb.y0a) * sm, yb = rb.y0b + (rb.y1b - rb.y0b) * sm;
+      if (wy >= Math.min(ya, yb) - tol && wy <= Math.max(ya, yb) + tol) return { edge: rb.edge, from: rb.from, to: rb.to, ribbon: q };
+    }
+    if (S.matrix) {
+      var M = S.matrix, jx = Math.floor((wx - M.head) / M.cell), iy = Math.floor((wy - M.head) / M.cell);
+      if (jx >= 0 && iy >= 0 && jx < M.n && iy < M.n) { var ee = M.at.get(iy * M.n + jx); if (ee !== undefined) return { edge: ee, from: M.ids[iy], to: M.ids[jx], cell: true }; }
+    }
+    return null;
+  }
+  /** Rough box of a label in world units (for clicking labels). */
+  function labelBox(l) {
+    var w = l.t.length * l.size * 0.55, h = l.size * 1.1;
+    if (l.rot) return null;
+    var x = l.align === 'l' ? l.x : l.align === 'r' ? l.x - w : l.x - w / 2;
+    return [x, l.y - h * 0.85, x + w, l.y + h * 0.25];
+  }
+  /** Which label is under a world point; k is the current zoom (labels hidden at this zoom are skipped). */
+  function pickLabel(S, wx, wy, k) {
+    for (var i = S.labels.length - 1; i >= 0; i--) {
+      var l = S.labels[i]; if (k < l.minK || l.size * k < 6.5 || (l.a !== undefined && l.a < 0.05)) continue;
+      var b = labelBox(l); if (b && wx >= b[0] && wx <= b[2] && wy >= b[1] && wy <= b[3]) return l;
+    }
+    return null;
+  }
+  function inPoly(pts, x, y) {
+    var n = pts.length / 2, inside = false;
+    for (var i = 0, j = n - 1; i < n; j = i++) { var xi = pts[i * 2], yi = pts[i * 2 + 1], xj = pts[j * 2], yj = pts[j * 2 + 1]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside; }
+    return inside;
+  }
+  /**
+   * What is under a point, in the order a person expects: a node, a label, a line, a group blob, a lane.
+   * Returns { type: 'node'|'label'|'edge'|'group'|'lane'|'bg', ... }.
+   */
+  function hit(S, wx, wy, k, opt) {
+    opt = opt || {};
+    var slop = (opt.slop || 6) / k, n = pick(S, wx, wy, slop);
+    if (n) return { type: 'node', node: n, key: n.key };
+    var l = pickLabel(S, wx, wy, k);
+    if (l) { if (l.group !== undefined) return { type: 'group', group: l.group }; if (l.node >= 0 && S.nodes[l.node]) return { type: 'label', node: S.nodes[l.node], key: S.nodes[l.node].key, label: l }; if (l.edge !== undefined && l.edge >= 0) { var cv = S.curves.filter(function (c) { return c.edge === l.edge; })[0]; return { type: 'edge', edge: l.edge, from: cv && cv.from, to: cv && cv.to }; } }
+    var e = pickEdge(S, wx, wy, (opt.edgeTol || 7) / k);
+    if (e) return { type: 'edge', edge: e.edge, from: e.from, to: e.to, cell: e.cell };
+    for (var i = S.polys.length - 1; i >= 0; i--) { var p = S.polys[i]; if (p.group !== undefined && inPoly(p.pts, wx, wy)) return { type: 'group', group: p.group }; }
+    for (var j = 0; j < S.rects.length; j++) { var r = S.rects[j]; if (r.lane !== undefined && wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h) return { type: 'lane', lane: r.lane }; }
+    return { type: 'bg' };
+  }
+
+  /* ---------------------------------------------------------------- layered views (flow, top-down, spine, lanes, river) */
+  function layeredScene(X, view) {
+    var S = X.S, L = X.L, T = X.T, lab = X.lab, addNode = X.addNode, fillOf = X.fillOf, valCol = X.valCol, nodeLabel = X.nodeLabel;
+    var LR = L.dir !== 'TB', river = view === 'river', W = L.width || 0, H = L.height || 0;
+    (L.lanes || []).forEach(function (ln, i) {
+      var name = (L.laneNames || [])[ln.lane] || '';
+      var r = LR ? { x: -10, y: ln.from, w: W + 20, h: ln.to - ln.from } : { x: ln.from, y: -10, w: ln.to - ln.from, h: H + 20 };
+      S.rects.push({ x: r.x, y: r.y, w: r.w, h: r.h, r: 0, fill: i % 2 ? alpha(T.lane1, 0.55) : alpha(T.lane0, 0.8), stroke: [0, 0, 0, 0], sw: 0, layer: 0, node: -1, lane: name });
+      lab(LR ? r.x + 12 : r.x + 8, LR ? r.y + 16 : r.y + 16, name, 12, T.muted, { align: 'l', bold: true, minK: 0.12, fixed: true, group: name });
+    });
+    if (view === 'spine') {
+      var ch = L.nodes.filter(function (n) { return n.choke; }).sort(function (a, b) { return a.x - b.x; });
+      if (ch.length > 1) { var P = [ch[0].x + ch[0].w / 2, ch[0].y + ch[0].h / 2]; for (var i = 1; i < ch.length; i++) { var a = ch[i - 1], b = ch[i]; var ax = a.x + a.w / 2, ay = a.y + a.h / 2, bx = b.x + b.w / 2, by = b.y + b.h / 2; P.push(ax + (bx - ax) / 3, ay, ax + 2 * (bx - ax) / 3, by, bx, by); } S.curves.push({ P: P, w: 9, color: alpha(T.gold, 0.28), arrow: false, edge: -1, from: null, to: null }); }
+    }
+    var order = L.nodes.slice().sort(function (a, b) { return a.layer - b.layer || (LR ? a.y - b.y : a.x - b.x); });
+    var slots = {};
+    var sideOf = function (e, end) {
+      if (e.kind === 'self') return 'R';
+      if (e.kind === 'flat') return LR ? 'R' : 'B';
+      if (LR) return (e.kind === 'fwd') === (end === 'out') ? 'R' : 'L';
+      return (e.kind === 'fwd') === (end === 'out') ? 'B' : 'T';
+    };
+    if (!river) {
+      L.edges.forEach(function (e) {
+        var a = L.pos[e.from], b = L.pos[e.to];
+        if (!a || !b) return;
+        var nextOut = e.pts.length ? e.pts[0] : [b.x + b.w / 2, b.y + b.h / 2], nextIn = e.pts.length ? e.pts[e.pts.length - 1] : [a.x + a.w / 2, a.y + a.h / 2];
+        e.so = sideOf(e, 'out'); e.si = sideOf(e, 'in');
+        (slots[e.from + '|' + e.so] = slots[e.from + '|' + e.so] || []).push({ e: e, end: 'out', k: LR || e.so === 'R' ? nextOut[1] : nextOut[0] });
+        (slots[e.to + '|' + e.si] = slots[e.to + '|' + e.si] || []).push({ e: e, end: 'in', k: LR || e.si === 'R' ? nextIn[1] : nextIn[0] });
+      });
+      Object.keys(slots).forEach(function (key) {
+        var parts = key.split('|'), n = L.pos[parts[0]], side = parts[1], list = slots[key].sort(function (p, q) { return p.k - q.k; });
+        list.forEach(function (it, i) {
+          var f = (i + 1) / (list.length + 1);
+          it.e[it.end === 'out' ? 'p0' : 'p1'] = side === 'R' ? [n.x + n.w, n.y + n.h * f] : side === 'L' ? [n.x, n.y + n.h * f] : side === 'B' ? [n.x + n.w * f, n.y + n.h] : [n.x + n.w * f, n.y];
+        });
+      });
+      var off = function (side) { return side === 'R' ? [HEAD, 0] : side === 'L' ? [-HEAD, 0] : side === 'B' ? [0, HEAD] : [0, -HEAD]; };
+      var many = L.edges.length > 3000;
+      L.edges.forEach(function (e, ei) {
+        if (!e.p0 || !e.p1) return;
+        var a0 = L.pos[e.from], b0 = L.pos[e.to];
+        if ((a0 && a0._st && a0._st.hide) || (b0 && b0._st && b0._st.hide)) return;
+        var oo = off(e.si), end = [e.p1[0] + oo[0], e.p1[1] + oo[1]], P;
+        if (e.kind === 'self' || e.kind === 'flat') {
+          var out = 34 + (ei % 4) * 8;
+          if (e.so === 'R') { var x = Math.max(e.p0[0], end[0]) + out; P = [e.p0[0], e.p0[1], x, e.p0[1], x, end[1], end[0], end[1]]; }
+          else { var y = Math.max(e.p0[1], end[1]) + out; P = [e.p0[0], e.p0[1], e.p0[0], y, end[0], y, end[0], end[1]]; }
+        } else {
+          var pts = [e.p0].concat(e.pts, [end]);
+          P = [pts[0][0], pts[0][1]];
+          for (var i = 0; i + 1 < pts.length; i++) {
+            var x0 = pts[i][0], y0 = pts[i][1], x1 = pts[i + 1][0], y1 = pts[i + 1][1];
+            if (LR) { var m = (x1 - x0) / 2; P.push(x0 + m, y0, x1 - m, y1, x1, y1); } else { var mm = (y1 - y0) / 2; P.push(x0, y0 + mm, x1, y1 - mm, x1, y1); }
+          }
+        }
+        var back = e.kind === 'back' || e.kind === 'self' || e.kind === 'flat';
+        var lk = X.look(e, ei, { w: Math.min(1.5 + Math.log2(e.count) * 0.9, 4.5), color: back ? alpha(T.gold, 0.8) : alpha(T.line, 0.78), arrow: !many });
+        if (lk.hide) return;
+        S.curves.push({ P: P, w: lk.w, color: lk.color, arrow: lk.arrow, tip: e.p1, edge: ei, from: e.from, to: e.to, back: back, dash: lk.dash });
+        var txt = X.linkText(e, lk);
+        if (txt && X.LC.links.show && !many && L.edges.length < 400) { var mid = bez(P, 0.5); lab(mid[0], mid[1] - 4, clip(txt, 28), 10 * X.LC.links.scale, T.muted, { minK: 0.9, edge: ei, bg: true }); }
+        else if (!txt && X.o.edgeValueLabels && e.widthV === e.widthV && L.edges.length < 400) { var mid2 = bez(P, 0.5); lab(mid2[0], mid2[1] - 4, fmtNum(e.widthV), 10 * X.LC.links.scale, T.muted, { minK: 0.7, edge: ei, bg: true }); }
+      });
+    } else riverRibbons(X);
+
+    order.forEach(function (n) {
+      var st = n._st, f = fillOf(n), vc = n.end ? valCol(n.valence) : null;
+      if (st && st.hide) return;
+      var sc = st && st.scale ? st.scale : 1, nx = n.x - (n.w * (sc - 1)) / 2, ny = n.y - (n.h * (sc - 1)) / 2, nw = n.w * sc, nh = n.h * sc, rr = st && (st.shape === 'dot' || st.shape === 'circle') ? Math.min(nw, nh) / 2 : st && st.shape === 'square' ? 2 : 10;
+      if (river) {
+        var rec0 = addNode(n, n.x, n.y, n.w, n.h);
+        var bc = (X.endCol(n) || (n.end ? valCol(n.valence) : T.neutral));
+        if (st && st.fill) bc = hex(st.fill);
+        S.rects.push({ x: n.x, y: n.y, w: n.w, h: n.h, r: 3, fill: bc, stroke: n.start ? T.accent : [0, 0, 0, 0], sw: n.start ? 2 : 0, layer: 1, node: rec0.i });
+        if (n.h > 14 || n.start || n.end) lab(n.x + n.w + 6, n.y + Math.min(n.h, 28) / 2 + 4, clip(X.tx(n), 24), 11, X.labColor(n, bc), { align: 'l', node: rec0.i, minK: 0.3, bold: n.start });
+        return;
+      }
+      var rec = addNode(n, nx, ny, nw, nh);
+      if (n.run) S.rects.push({ x: nx + 5, y: ny + 5, w: nw, h: nh, r: 10, fill: alpha(T.box, 0.7), stroke: alpha(T.boxLine, 0.8), sw: 1, layer: 1, node: rec.i });
+      var stroke = st && st.stroke ? hex(st.stroke) : n.start ? T.accent : vc ? vc : T.boxLine, sw = st && st.sw !== undefined ? st.sw : n.start ? 3 : vc ? 3 : 1.2;
+      S.rects.push({ x: nx, y: ny, w: nw, h: nh, r: rr, fill: f, stroke: n.ghost ? alpha(T.muted, 0.8) : stroke, sw: n.ghost ? 1.2 : sw, layer: 1, node: rec.i });
+      if (n.choke) S.dots.push({ cx: nx + 11, cy: ny + 11, r: 5, fill: T.gold, stroke: alpha(T.box, 0.9), sw: 1.5, layer: 1, node: rec.i });
+      if (n.start) lab(nx + nw - 8, ny + 14, 'START', 9, T.accent, { align: 'r', bold: true, node: rec.i, minK: 0.7, sub: true });
+      var ic = st && (st.icon || st.image) && st.iconMode !== 'inside';
+      X.addIcon(n, rec, nx + nw / 2, ny + nh / 2 - (ic ? 0 : nh * 0.12), Math.min(nw, nh) / 2 * (ic ? 0.95 : 1));
+      if (ic) { var rr2 = S.rects[S.rects.length - 1]; rr2.fill = alpha(rr2.fill, 0.25); }
+      nodeLabel(n, rec, 13);
+    });
+  }
+
+  function riverRibbons(X) {
+    var S = X.S, L = X.L, T = X.T;
+    var K = 420, outs = {}, ins = {};
+    L.edges.forEach(function (e, ei) { if (e.kind === 'fwd' && e.flow > 1e-6) { (outs[e.from] = outs[e.from] || []).push(ei); (ins[e.to] = ins[e.to] || []).push(ei); } });
+    var y0 = {}, y1 = {}, th = {};
+    Object.keys(outs).forEach(function (id) {
+      var a = L.pos[id], list = outs[id].sort(function (p, q) { var bp = L.pos[L.edges[p].to], bq = L.pos[L.edges[q].to]; return bp.y + bp.h / 2 - (bq.y + bq.h / 2); }), tot = 0;
+      list.forEach(function (ei) { tot += L.edges[ei].flow; });
+      var sc = Math.min(K, a.h / Math.max(tot, 1e-9)), y = a.y;
+      list.forEach(function (ei) { var t = L.edges[ei].flow * sc; y0[ei] = y; th[ei] = Math.min(th[ei] === undefined ? t : th[ei], t); y += t; });
+    });
+    Object.keys(ins).forEach(function (id) {
+      var b = L.pos[id], list = ins[id].sort(function (p, q) { var ap = L.pos[L.edges[p].from], aq = L.pos[L.edges[q].from]; return ap.y + ap.h / 2 - (aq.y + aq.h / 2); }), tot = 0;
+      list.forEach(function (ei) { tot += L.edges[ei].flow; });
+      var sc = Math.min(K, b.h / Math.max(tot, 1e-9)), y = b.y;
+      list.forEach(function (ei) { var t = L.edges[ei].flow * sc; y1[ei] = y; th[ei] = Math.min(th[ei] === undefined ? t : th[ei], t); y += t; });
+    });
+    L.edges.forEach(function (e, ei) {
+      var a = L.pos[e.from], b = L.pos[e.to];
+      if (!a || !b) return;
+      if (e.kind !== 'fwd' || y0[ei] === undefined || y1[ei] === undefined) {
+        if (e.kind === 'self' || e.flow <= 1e-6) return;
+        var ax = a.x + a.w, ay = a.y + a.h / 2, bx = b.x, by = b.y + b.h / 2;
+        S.curves.push({ P: [ax, ay, ax + 60, ay - 70, bx - 60, by - 70, bx, by], w: 1.5, color: alpha(T.gold, 0.55), arrow: false, edge: ei, from: e.from, to: e.to, back: true });
+        return;
+      }
+      var lk = X.look(e, ei, { w: 1, color: [0, 0, 0, 0.42], arrow: false });
+      if (lk.hide) return;
+      var t = Math.max(0.8, th[ei]), xa = a.x + a.w, xb = b.x, xm = (xa + xb) / 2;
+      var c = X.endCol(b) || (b.end ? (b.valence === 'good' ? T.good : b.valence === 'bad' ? T.bad : T.neutral) : T.neutral);
+      if (X.o.linkStyle || X.S.widthCh === '' && false) c = c;
+      var ls = X.o.linkStyle ? X.o.linkStyle(e, ei) : null;
+      if (ls && ls.color) c = hex(ls.color);
+      else if (X.L.ch && X.L.ch.ecolor) c = lk.color;
+      S.ribbons.push({ x0: xa, y0a: y0[ei], y0b: y0[ei] + t, x1: xb, y1a: y1[ei], y1b: y1[ei] + t, xm: xm, color: alpha(c, ls && ls.opacity !== undefined ? ls.opacity : 0.42), edge: ei, from: e.from, to: e.to });
+    });
+  }
+
+  /* ---------------------------------------------------------------- arc view */
+  function arcScene(X) {
+    var S = X.S, L = X.L, T = X.T, lab = X.lab, addNode = X.addNode, fillOf = X.fillOf, valCol = X.valCol;
+    var y0 = L.baseline, maxX = 0;
+    L.nodes.forEach(function (n) { maxX = Math.max(maxX, n.cx); });
+    S.curves.push({ P: [0, y0, (maxX + 30) / 3, y0, 2 * (maxX + 30) / 3, y0, maxX + 30, y0], w: 1, color: alpha(T.boxLine, 0.6), arrow: false, edge: -1, from: null, to: null });
+    L.edges.forEach(function (e, ei) {
+      var a = L.pos[e.from], b = L.pos[e.to];
+      if (!a || !b || a === b) return;
+      if ((a._st && a._st.hide) || (b._st && b._st.hide)) return;
+      var xa = a.cx, xb = b.cx, dx = Math.abs(xb - xa), h = Math.min(dx * 0.5, y0 - 16), back = xb < xa;
+      var k = h * 4 / 3, lk = X.look(e, ei, { w: Math.min(1.2 + Math.log2(e.count), 4), color: back ? alpha(T.gold, 0.55) : alpha(T.line, 0.45), arrow: false });
+      if (lk.hide) return;
+      S.curves.push({ P: [xa, y0, xa, y0 - k, xb, y0 - k, xb, y0], w: lk.w, color: lk.color, arrow: false, edge: ei, from: e.from, to: e.to, back: back, dash: lk.dash });
+      var txt = X.linkText(e, lk);
+      if (txt && X.LC.links.show && L.edges.length < 300) lab((xa + xb) / 2, y0 - h * 0.75 - 4, clip(txt, 24), 10 * X.LC.links.scale, T.muted, { minK: 0.9, edge: ei, bg: true });
+    });
+    L.nodes.forEach(function (n) {
+      var st = n._st; if (st && st.hide) return;
+      var sc = st && st.scale ? st.scale : 1, r = (5 + 6 * Math.sqrt(n.sizeK !== undefined ? n.sizeK : (n.traffic || 0))) * sc, rec = addNode(n, n.cx - r, y0 - r, 2 * r, 2 * r);
+      var vc = n.end ? valCol(n.valence) : null, fill = n.start ? T.accent : fillOf(n).map(function (v, i) { return i < 3 ? v : Math.max(v, 0.9); });
+      S.dots.push({ cx: n.cx, cy: y0, r: r, fill: fill, stroke: st && st.stroke ? hex(st.stroke) : vc || T.box, sw: st && st.sw !== undefined ? st.sw : vc ? 2.5 : 1.5, layer: 1, node: rec.i, kind: SHAPE_KIND[st && st.shape] === undefined ? 1 : SHAPE_KIND[st.shape] });
+      X.addIcon(n, rec, n.cx, y0, r);
+      lab(n.cx + 4, y0 + r + 10, clip(X.tx(n), 26), 11, X.labColor(n, fill), { align: 'l', rot: 60, node: rec.i, minK: 0.3 });
+    });
+  }
+
+  /* ---------------------------------------------------------------- matrix view */
+  function matrixScene(X) {
+    var S = X.S, L = X.L, T = X.T, lab = X.lab, addNode = X.addNode, gcol = X.gcol;
+    var cell = L.cell, head = L.head, n = L.nodes.length, big = n > 300, widthR = L.ch && L.ch.width && L.ch.width.n ? L.ch.width : null;
+    S.matrix = { head: head, cell: cell, n: n, ids: [], at: new Map() };
+    L.nodes.forEach(function (nd) { S.matrix.ids[nd.mi] = nd.id; });
+    S.rects.push({ x: head, y: head, w: n * cell, h: n * cell, r: 0, fill: alpha(T.box, 0.6), stroke: alpha(T.boxLine, 0.8), sw: 1, layer: 0, node: -1 });
+    L.nodes.forEach(function (nd) {
+      var rec = addNode(nd, 0, head + nd.mi * cell, head + (nd.mi + 1) * cell, cell);
+      S.rects.push({ x: head + nd.mi * cell, y: head + nd.mi * cell, w: cell, h: cell, r: 0, fill: alpha(T.muted, 0.18), stroke: [0, 0, 0, 0], sw: 0, layer: 0, node: -1 });
+      var sz = Math.min(11, cell - 3), col = X.labColor(nd, null);
+      lab(head - 6, head + nd.mi * cell + cell / 2 + sz / 3, clip(X.tx(nd), 26), sz, col, { align: 'r', node: rec.i, minK: big ? 0.9 : 0.25 });
+      lab(head + nd.mi * cell + cell / 2 + sz / 3, head - 6, clip(X.tx(nd), 26), sz, col, { align: 'l', rot: -90, node: rec.i, minK: big ? 0.9 : 0.25 });
+    });
+    L.edges.forEach(function (e, ei) {
+      var a = L.pos[e.from], b = L.pos[e.to];
+      if (!a || !b) return;
+      var back = e.kind === 'back' || e.kind === 'self', lk = X.look(e, ei, { w: 1, color: back ? alpha(T.gold, 0.9) : alpha(gcol(a.group), 0.95), arrow: false });
+      if (lk.hide) return;
+      var col = lk.color;
+      if (widthR && e.widthV === e.widthV) col = alpha(col, 0.25 + 0.75 * Math.pow(Math.max(0, e.widthV) / (widthR.max || 1), 0.6));
+      S.matrix.at.set(a.mi * L.nodes.length + b.mi, ei);
+      S.rects.push({ x: head + b.mi * cell + 1, y: head + a.mi * cell + 1, w: cell - 2, h: cell - 2, r: Math.min(3, cell / 4), fill: col, stroke: [0, 0, 0, 0], sw: 0, layer: 1, node: -1, edge: ei, from: e.from, to: e.to });
+    });
+    lab(head + n * cell + 10, head + 12, 'rows are where a link starts, columns are where it goes', 10, T.muted, { align: 'l', minK: 0.3 });
+  }
+
+  /* ---------------------------------------------------------------- network view (2D with a fisheye lens, or 3D with a camera) */
+  function networkScene(X) {
+    var S = X.S, L = X.L, T = X.T, o = X.o, lab = X.lab, addNode = X.addNode, fillOf = X.fillOf, valCol = X.valCol, gcol = X.gcol;
+    var m = L.edges.length, arrows = m <= 500, a = X.autoA, n3 = !!L.is3d, cam = o.cam || { yaw: 0.6, pitch: 0.35, persp: 2.4 }, lens = !n3 && o.lens && o.lens.r > 0 ? o.lens : null;
+    var PN = new Map(), list = [], i;
+    var cy3 = Math.cos(cam.yaw), sy3 = Math.sin(cam.yaw), cp3 = Math.cos(cam.pitch), sp3 = Math.sin(cam.pitch), R3 = L.radius3 || 300, D3 = R3 * (cam.persp || 2.4);
+    L.nodes.forEach(function (n) {
+      var st = n._st, r = n.w / 2 * (st && st.scale ? st.scale : 1), px = n.cx, py = n.cy, depth = 0, f = 1;
+      if (n3) {
+        var x = n.cx - L.c3[0], y = n.cy - L.c3[1], z = n.z || 0, x1 = x * cy3 + z * sy3, z1 = -x * sy3 + z * cy3, y2 = y * cp3 - z1 * sp3, z2 = y * sp3 + z1 * cp3;
+        f = D3 / (D3 + z2); px = L.c3[0] + x1 * f; py = L.c3[1] + y2 * f; r *= f; depth = z2;
+      } else if (lens) {
+        var dx = px - lens.x, dy = py - lens.y, d = Math.hypot(dx, dy);
+        if (d < lens.r && d > 1e-6) { var u = d / lens.r, g = ((lens.d + 1) * u) / (lens.d * u + 1), nd2 = g * lens.r; px = lens.x + dx / d * nd2; py = lens.y + dy / d * nd2; r *= Math.min(2.6, Math.max(1, nd2 / d) * 0.85 + 0.15); }
+      }
+      var rec = { n: n, px: px, py: py, r: r, depth: depth, f: f, hide: !!(st && st.hide) };
+      PN.set(n.id, rec); list.push(rec);
+    });
+    if (n3) list.sort(function (p, q) { return q.depth - p.depth; });
+    var dmin = Infinity, dmax = -Infinity; list.forEach(function (p) { if (p.depth < dmin) dmin = p.depth; if (p.depth > dmax) dmax = p.depth; });
+    var fade = function (p) { return n3 && dmax > dmin ? 0.42 + 0.58 * (1 - (p.depth - dmin) / (dmax - dmin)) : 1; };
+    /* group blobs */
+    if (o.hulls && !n3) {
+      var byG = new Map(); list.forEach(function (p) { if (p.hide) return; var g = p.n.group || ''; if (!byG.has(g)) byG.set(g, []); byG.get(g).push(p); });
+      byG.forEach(function (ps, g) {
+        if (ps.length < 3 || byG.size > 40) return;
+        var pts = []; ps.forEach(function (p) { var rr = p.r + 16; for (var q = 0; q < 8; q++) { var an = q * Math.PI / 4; pts.push(p.px + rr * Math.cos(an), p.py + rr * Math.sin(an)); } });
+        var h = hull(pts), cx = 0, cy = 0; for (var k2 = 0; k2 < h.length; k2 += 2) { cx += h[k2]; cy += h[k2 + 1]; } cx /= h.length / 2; cy /= h.length / 2;
+        var c = gcol(g); S.polys.push({ pts: h, c: [cx, cy], fill: alpha(c, 0.13), stroke: alpha(c, 0.55), group: g });
+        if (X.LC.groups.show) lab(cx, cy - 6, g || '(no group)', 18 * X.LC.groups.scale, mix(T.fg, c, 0.5), { bold: true, minK: 0.05, group: g, fixed: true });
+      });
+    } else if (X.LC.groups.show && !n3) {
+      var cg = new Map(); list.forEach(function (p) { if (p.hide) return; var g = p.n.group || '', c = cg.get(g) || { x: 0, y: 0, k: 0 }; c.x += p.px; c.y += p.py; c.k++; cg.set(g, c); });
+      cg.forEach(function (c, g) { if (c.k > 1 && cg.size <= 40) lab(c.x / c.k, c.y / c.k, g || '(no group)', 18 * X.LC.groups.scale, mix(T.fg, gcol(g), 0.5), { bold: true, minK: 0.05, group: g, fixed: true }); });
+    }
+    L.edges.forEach(function (e, ei) {
+      var s = PN.get(e.from), t = PN.get(e.to);
+      if (!s || !t || s === t || s.hide || t.hide) return;
+      var dx = t.px - s.px, dy = t.py - s.py, d = Math.hypot(dx, dy) || 1, r = t.r + (arrows ? HEAD * (n3 ? t.f : 1) : 0), ex = t.px - dx / d * r, ey = t.py - dy / d * r;
+      var sx = s.px + dx / d * s.r, sy = s.py + dy / d * s.r, same = s.n.group && s.n.group === t.n.group, fd = n3 ? (fade(s) + fade(t)) / 2 : 1;
+      var lk = X.look(e, ei, { w: Math.min(1 + Math.log2(e.count) * 0.4, 2.5), color: same ? alpha(gcol(s.n.group), a + 0.1) : alpha(T.line, a), arrow: arrows });
+      if (lk.hide) return;
+      var bend = lk.bend || 0, nx = -dy / d * bend * d * 0.5, ny = dx / d * bend * d * 0.5;
+      var c1x = sx + (ex - sx) / 3 + nx, c1y = sy + (ey - sy) / 3 + ny, c2x = sx + 2 * (ex - sx) / 3 + nx, c2y = sy + 2 * (ey - sy) / 3 + ny;
+      S.curves.push({ P: [sx, sy, c1x, c1y, c2x, c2y, ex, ey], w: n3 ? lk.w * ((s.f + t.f) / 2) : lk.w, color: n3 ? alpha(lk.color, lk.color[3] * fd) : lk.color, arrow: lk.arrow, line: !bend, tip: [t.px - dx / d * t.r, t.py - dy / d * t.r], edge: ei, from: e.from, to: e.to, dash: lk.dash });
+      var txt = X.linkText(e, lk);
+      if (txt && X.LC.links.show && m < 600) lab((sx + ex) / 2, (sy + ey) / 2 - 4, clip(txt, 24), 10 * X.LC.links.scale, T.muted, { minK: 0.9, edge: ei, bg: true });
+      else if (!txt && o.edgeValueLabels && e.widthV === e.widthV && m < 600) lab((sx + ex) / 2, (sy + ey) / 2 - 4, fmtNum(e.widthV), 10 * X.LC.links.scale, T.muted, { minK: 0.7, edge: ei, bg: true });
+    });
+    var rank = L.nodes.map(function (n, q) { return q; }).sort(function (p, q) { return L.nodes[q].deg - L.nodes[p].deg; }), rk = new Array(L.nodes.length);
+    rank.forEach(function (q, r) { rk[q] = r; });
+    var idxOf = new Map(); L.nodes.forEach(function (n, q) { idxOf.set(n.id, q); });
+    var topN = X.LC.items.topN;
+    list.forEach(function (p) {
+      var n = p.n, st = n._st, r = p.r; if (p.hide) return;
+      var rec = addNode(n, p.px - r, p.py - r, 2 * r, 2 * r), vc = n.end ? valCol(n.valence) : null, q = idxOf.get(n.id), fd = fade(p);
+      var fill = n.start ? mix(fillOf(n), T.accent, 0.7) : fillOf(n).map(function (v, k) { return k < 3 ? v : Math.max(v, 0.92); });
+      if (n3) fill = alpha(fill, fill[3] * fd);
+      var kind = SHAPE_KIND[st && st.shape]; if (kind === undefined) kind = 1;
+      var replace = st && (st.icon || st.image) && st.iconMode !== 'inside';
+      S.dots.push({ cx: p.px, cy: p.py, r: r, fill: replace ? alpha(fill, 0.15) : fill, stroke: st && st.stroke ? hex(st.stroke) : n.start ? T.accent : vc || alpha(T.box, 0.9), sw: st && st.sw !== undefined ? st.sw : n.start ? 3 : vc ? 2.5 : 1.2, layer: 1, node: rec.i, kind: kind });
+      if (n.choke) S.dots.push({ cx: p.px + r * 0.72, cy: p.py - r * 0.72, r: Math.max(2.5, r * 0.3), fill: T.gold, stroke: alpha(T.box, 0.9), sw: 1, layer: 1, node: rec.i });
+      X.addIcon(n, rec, p.px, p.py, r);
+      var rnk = rk[q], showTop = topN && rnk < topN;
+      lab(p.px, p.py + r + 11 * (n3 ? p.f : 1), clip(X.tx(n), 24), 11 * (n3 ? Math.max(0.7, p.f) : 1), X.labColor(n, fill), { node: rec.i, minK: showTop ? 0.05 : 0.22 * (1 + rnk / 35), bold: rnk < 8 });
+    });
+  }
+
+  /* ---------------------------------------------------------------- story shape */
+  function shapeScene(X) {
+    var S = X.S, L = X.L, T = X.T, lab = X.lab, addNode = X.addNode;
+    var segs = L.segs, y = 0, W = 340;
+    var box = function (id, label) {
+      var rec = addNode({ id: 'shape:' + id, nodeId: id, label: label, deg: 0 }, 0, y, W, 46);
+      S.rects.push({ x: 0, y: y, w: W, h: 46, r: 12, fill: alpha(T.gold, 0.22), stroke: T.gold, sw: 2.5, layer: 1, node: rec.i });
+      lab(W / 2, y + 28, clip(label, 38), 14, T.fg, { bold: true, node: rec.i });
+      y += 46;
+    };
+    var join = function (h) { S.curves.push({ P: [W / 2, y, W / 2, y + h / 3, W / 2, y + 2 * h / 3, W / 2, y + h], w: 2.5, color: alpha(T.line, 0.7), arrow: false, edge: -1, from: null, to: null }); y += h; };
+    if (!segs.length) { lab(W / 2, 30, 'This map has no choke points yet, so there is no shape to show.', 13, T.muted, {}); return; }
+    segs.forEach(function (s, i) {
+      if (i === 0) { box(s.fromId, s.fromLabel); }
+      join(16);
+      var e = s.endings, lines = [s.pattern, s.routes > 1 ? s.routes.toLocaleString('en-US') + ' different routes' : s.pages.length ? 'one route' : 'a direct step', s.pages.length + ' page' + (s.pages.length === 1 ? '' : 's') + ' in between' + (e.good + e.bad + e.neutral ? ' · endings: ' + e.good + ' good, ' + e.bad + ' bad, ' + e.neutral + ' other' : '')];
+      var h = 80;
+      S.rects.push({ x: 24, y: y, w: W - 48, h: h, r: 10, fill: alpha(T.box, 0.95), stroke: T.boxLine, sw: 1.2, layer: 1, node: -1 });
+      lab(W / 2, y + 24, clip(lines[0], 52), 13, T.fg, { bold: true });
+      lab(W / 2, y + 45, lines[1], 12, T.muted, {});
+      lab(W / 2, y + 64, clip(lines[2], 60), 11, T.muted, {});
+      y += h; join(16);
+      if (s.toId) box(s.toId, s.toLabel); else { lab(W / 2, y + 22, 'the story branches out to its endings from here', 12, T.muted, {}); y += 36; }
+    });
+  }
+
+  /* ---------------------------------------------------------------- drawing state: selection, neighbors, marks, pins */
+  /**
+   * st: { focus: Set of node ids kept bright (null = all), edges: Set of edge indices kept bright (null = derived from focus),
+   *       sel: Set of selected node ids, selEdges: Set of selected edge indices, marks: Map id -> '#hex' (highlight color), dimTo: 0.22 }
+   */
+  function style(S, st) {
+    st = st || {};
+    var focus = st.focus && st.focus.size ? st.focus : null, sel = st.sel || null, selE = st.selEdges || null, marks = st.marks || null, dimTo = st.dimTo === undefined ? 0.22 : st.dimTo;
+    var edgeBright = function (c) {
+      if (c.from === null || c.from === undefined || c.edge === undefined || c.edge < 0) return true;
+      if (st.edges) return st.edges.has(c.edge);
+      if (!focus) return true;
+      return focus.has(c.from) && focus.has(c.to);
+    };
+    S.nodes.forEach(function (n) { n.a = !focus || focus.has(n.key) ? 1 : dimTo; });
+    var remember = function (o, keys) { if (!o.base) { o.base = {}; keys.forEach(function (k) { o.base[k] = o[k]; }); } };
+    var ring = function (o, node) {
+      remember(o, ['stroke', 'sw']);
+      var id = S.nodes[node] && S.nodes[node].key, mk = marks && marks.get(id);
+      if (sel && sel.has(id)) { o.stroke = S.theme.accent; o.sw = Math.max(o.base.sw, 4); }
+      else if (mk) { o.stroke = hex(mk); o.sw = Math.max(o.base.sw, 4); }
+      else { o.stroke = o.base.stroke; o.sw = o.base.sw; }
+    };
+    S.rects.forEach(function (r) {
+      if (r.node >= 0 && S.nodes[r.node] && r.layer === 1) ring(r, r.node);
+      r.a = r.node >= 0 && S.nodes[r.node] ? S.nodes[r.node].a : r.from !== undefined ? (edgeBright(r) ? 1 : 0.08) : 1;
+    });
+    S.dots.forEach(function (d) { if (d.node >= 0 && S.nodes[d.node] && d.r > 4 && d.fill[3] > 0.1 && !d.isMark) ring(d, d.node); d.a = d.node >= 0 && S.nodes[d.node] ? S.nodes[d.node].a : 1; });
+    S.icons.forEach(function (ic) { ic.a = ic.node >= 0 && S.nodes[ic.node] ? S.nodes[ic.node].a : 1; });
+    S.labels.forEach(function (l) { l.a = l.node >= 0 && S.nodes[l.node] ? S.nodes[l.node].a : (l.edge !== undefined && S.curves.length ? 1 : 1); });
+    S.curves.forEach(function (c) {
+      remember(c, ['w', 'color']);
+      var on = selE && c.edge >= 0 && selE.has(c.edge);
+      c.w = on ? Math.max(c.base.w * 1.8, c.base.w + 2) : c.base.w;
+      c.color = on ? S.theme.accent : c.base.color;
+      c.a = on ? 1 : (edgeBright(c) ? 1 : 0.08);
+    });
+    S.ribbons.forEach(function (c) { var on = selE && c.edge >= 0 && selE.has(c.edge); c.a = on ? 1 : (edgeBright(c) ? 1 : 0.08); });
+    S.polys.forEach(function (p) { p.a = focus && p.group !== undefined ? 0.5 : 1; });
+    return S;
+  }
+  function restyle(S, sel, hot) {
+    var on = !!(sel && sel.size), focus = on ? sel : null, edges = null;
+    if (on && hot) { edges = new Set(); S.curves.forEach(function (c) { if (c.edge >= 0 && (c.from === hot || c.to === hot)) edges.add(c.edge); }); S.ribbons.forEach(function (c) { if (c.from === hot || c.to === hot) edges.add(c.edge); }); }
+    return style(S, { focus: focus, edges: edges });
+  }
+
+  /* ---------------------------------------------------------------- SVG export (same lists) */
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function toSvg(S, title) {
+    var T = S.theme, f = function (n) { return +n.toFixed(2); }, out = [];
+    out.push('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="' + f(S.x0) + ' ' + f(S.y0) + ' ' + f(S.w) + ' ' + f(S.h) + '" width="' + Math.round(Math.min(S.w, 3000)) + '" height="' + Math.round(Math.min(S.w, 3000) * S.h / S.w) + '" font-family="system-ui, sans-serif">');
+    if (title) out.push('<title>' + esc(title) + '</title>');
+    out.push('<rect x="' + f(S.x0) + '" y="' + f(S.y0) + '" width="' + f(S.w) + '" height="' + f(S.h) + '" fill="' + css(T.bg) + '"/>');
+    S.rects.filter(function (r) { return r.layer === 0; }).forEach(function (r) { out.push(rectSvg(r, css, f)); });
+    S.polys.forEach(function (p) { var d = 'M'; for (var i = 0; i < p.pts.length; i += 2) d += (i ? 'L' : '') + f(p.pts[i]) + ' ' + f(p.pts[i + 1]); out.push('<path d="' + d + 'Z" fill="' + css(p.fill) + '" stroke="' + css(p.stroke) + '" stroke-width="1.5"/>'); });
+    S.ribbons.forEach(function (r) { out.push('<path d="M' + f(r.x0) + ' ' + f(r.y0a) + 'C' + f(r.xm) + ' ' + f(r.y0a) + ' ' + f(r.xm) + ' ' + f(r.y1a) + ' ' + f(r.x1) + ' ' + f(r.y1a) + 'L' + f(r.x1) + ' ' + f(r.y1b) + 'C' + f(r.xm) + ' ' + f(r.y1b) + ' ' + f(r.xm) + ' ' + f(r.y0b) + ' ' + f(r.x0) + ' ' + f(r.y0b) + 'Z" fill="' + css(r.color) + '"/>'); });
+    S.curves.forEach(function (c) {
+      var d = 'M' + f(c.P[0]) + ' ' + f(c.P[1]);
+      for (var i = 2; i < c.P.length; i += 6) d += 'C' + f(c.P[i]) + ' ' + f(c.P[i + 1]) + ' ' + f(c.P[i + 2]) + ' ' + f(c.P[i + 3]) + ' ' + f(c.P[i + 4]) + ' ' + f(c.P[i + 5]);
+      out.push('<path d="' + d + '" fill="none" stroke="' + css(c.color) + '" stroke-width="' + f(c.w) + '"' + (c.dash ? ' stroke-dasharray="' + (c.dash === 1 ? '1 ' + f(c.w * 2.2) + '" stroke-linecap="round' : c.dash === 3 ? f(c.w * 6) + ' ' + f(c.w * 3) : f(c.w * 3) + ' ' + f(c.w * 2)) + '"' : '') + '/>');
+      if (c.arrow) { var tri = arrowTri(c); out.push('<path d="M' + tri.map(f).join(' ').replace(/(\S+ \S+) /g, '$1L') + 'Z" fill="' + css(c.color) + '"/>'); }
+    });
+    S.rects.filter(function (r) { return r.layer === 1; }).forEach(function (r) { out.push(rectSvg(r, css, f)); });
+    S.dots.forEach(function (d) {
+      var k = d.kind === undefined ? 1 : d.kind, attrs = 'fill="' + css(d.fill) + '" stroke="' + css(d.stroke) + '" stroke-width="' + f(d.sw) + '"';
+      if (k === 1) out.push('<circle cx="' + f(d.cx) + '" cy="' + f(d.cy) + '" r="' + f(d.r) + '" ' + attrs + '/>');
+      else if (k === 0) out.push('<rect x="' + f(d.cx - d.r) + '" y="' + f(d.cy - d.r) + '" width="' + f(2 * d.r) + '" height="' + f(2 * d.r) + '" rx="3" ' + attrs + '/>');
+      else { var p = shapePts(k, d.cx, d.cy, d.r), dd = 'M'; for (var i = 0; i < p.length; i += 2) dd += (i ? 'L' : '') + f(p[i]) + ' ' + f(p[i + 1]); out.push('<path d="' + dd + 'Z" ' + attrs + ' stroke-linejoin="round"/>'); }
+    });
+    S.icons.forEach(function (ic) {
+      if (ic.img) out.push('<image x="' + f(ic.cx - ic.r) + '" y="' + f(ic.cy - ic.r) + '" width="' + f(2 * ic.r) + '" height="' + f(2 * ic.r) + '" xlink:href="' + esc(ic.img) + '" preserveAspectRatio="xMidYMid meet"/>');
+      else if (ICONS[ic.icon]) { var sc = ic.r * 2 / 24; out.push('<path transform="translate(' + f(ic.cx - ic.r) + ' ' + f(ic.cy - ic.r) + ') scale(' + f(sc) + ')" d="' + ICONS[ic.icon] + '" fill="none" stroke="' + css(ic.color) + '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'); }
+      else if (ic.icon) out.push('<text x="' + f(ic.cx) + '" y="' + f(ic.cy + ic.r * 0.35) + '" font-size="' + f(ic.r * 1.2) + '" text-anchor="middle" fill="' + css(ic.color) + '">' + esc(ic.icon) + '</text>');
+    });
+    S.labels.forEach(function (l) {
+      if (S.labels.length > 1500 && l.minK > 0.6) return;
+      var anchor = l.align === 'l' ? 'start' : l.align === 'r' ? 'end' : 'middle';
+      out.push('<text x="' + f(l.x) + '" y="' + f(l.y) + '" font-size="' + f(l.size) + '" text-anchor="' + anchor + '" fill="' + css(l.color) + '"' + (l.bold ? ' font-weight="700"' : '') + (l.rot ? ' transform="rotate(' + l.rot + ' ' + f(l.x) + ' ' + f(l.y) + ')"' : '') + '>' + esc(l.t) + '</text>');
+    });
+    out.push('</svg>');
+    return out.join('\n');
+  }
+  function rectSvg(r, css, f) { return '<rect x="' + f(r.x) + '" y="' + f(r.y) + '" width="' + f(r.w) + '" height="' + f(r.h) + '" rx="' + f(Math.min(r.r, r.w / 2, r.h / 2)) + '" fill="' + css(r.fill) + '" stroke="' + (r.sw ? css(r.stroke) : 'none') + '" stroke-width="' + f(r.sw) + '"/>'; }
+  /** Arrow triangle for a curve: tip at c.tip (or the curve end), base at the curve end. Returns [x1,y1,x2,y2,x3,y3]. */
+  function arrowTri(c) {
+    var P = c.P, ex = P[P.length - 2], ey = P[P.length - 1], tip = c.tip || [ex, ey], dx = tip[0] - ex, dy = tip[1] - ey, d = Math.hypot(dx, dy), half = Math.max(4.2, (c.w || 1) * 1.3);
+    if (d < 1e-6) { dx = ex - P[P.length - 4]; dy = ey - P[P.length - 3]; d = Math.hypot(dx, dy) || 1; tip = [ex + dx / d * HEAD, ey + dy / d * HEAD]; dx = tip[0] - ex; dy = tip[1] - ey; d = Math.hypot(dx, dy); }
+    var nx = -dy / d * half, ny = dx / d * half;
+    return [tip[0], tip[1], ex + nx, ey + ny, ex - nx, ey - ny];
+  }
+
+  return {
+    make: make, pick: pick, hit: hit, pickEdge: pickEdge, pickLabel: pickLabel, inRect: inRect, inLasso: inLasso, restyle: restyle, style: style, toSvg: toSvg, palette: palette, THEMES: THEMES,
+    PALETTES: PALETTES, RAMPS: RAMPS, RAMP_NAMES: RAMP_NAMES, rampAt: rampAt, ICONS: ICONS, SHAPE_KIND: SHAPE_KIND, SHAPE_NAMES: SHAPE_NAMES, shapePts: shapePts,
+    css: css, hex: hex, toHex: toHex, mix: mix, alpha: alpha, arrowTri: arrowTri, bez: bez, HEAD: HEAD, labelBox: labelBox
+  };
+})();
+
+/* ---- src/render.js ---- */
+/*!
+ * Net Flow Map drawing backends: WebGPU, WebGL2 and Canvas2D draw the same scene (see scene.js) and look the same.
+ * Shapes are drawn as signed-distance quads (a 1-pixel soft edge instead of MSAA); lines and ribbons are triangle strips
+ * with the same soft edge. Labels always go on a 2D overlay canvas. Picking is done on the CPU (scene.js).
+ * Copyright (c) 2026 LFC Foundry. MIT License.
+ */
+var NFMRender = (function () {
+  'use strict';
+  var css = NFMScene.css, SHAPE_STRIDE = 16, MESH_STRIDE = 10;
+
+  /* ---------------------------------------------------------------- shared: geometry lists for the GPU */
+  function bezPts(P, line) {
+    var out = [], segs = (P.length - 2) / 6;
+    out.push(P[0], P[1]);
+    for (var s = 0; s < segs; s++) {
+      var o = s * 6, x0 = P[o], y0 = P[o + 1], x1 = P[o + 2], y1 = P[o + 3], x2 = P[o + 4], y2 = P[o + 5], x3 = P[o + 6], y3 = P[o + 7];
+      var len = Math.hypot(x1 - x0, y1 - y0) + Math.hypot(x2 - x1, y2 - y1) + Math.hypot(x3 - x2, y3 - y2);
+      var n = line ? 1 : Math.max(8, Math.min(48, Math.ceil(len / 9)));
+      for (var i = 1; i <= n; i++) {
+        var u = i / n, m = 1 - u;
+        out.push(m * m * m * x0 + 3 * m * m * u * x1 + 3 * m * u * u * x2 + u * u * u * x3, m * m * m * y0 + 3 * m * m * u * y1 + 3 * m * u * u * y2 + u * u * u * y3);
+      }
+    }
+    return out;
+  }
+  /** Turns a scene into flat arrays: back shapes, mesh (lines, arrows, ribbons), front shapes. a = item alpha from restyle. */
+  function tessellate(S) {
+    var back = [], front = [], i;
+    var shape = function (list, cx, cy, hw, hh, rad, kind, sw, fill, stroke, a) {
+      list.push(cx, cy, hw, hh, rad, kind, sw, 0, fill[0], fill[1], fill[2], fill[3] * a, stroke[0], stroke[1], stroke[2], stroke[3] * a);
+    };
+    S.rects.forEach(function (r) { shape(r.layer === 0 ? back : front, r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, Math.min(r.r, r.w / 2, r.h / 2), 0, r.sw, r.fill, r.stroke, r.a === undefined ? 1 : r.a); });
+    S.dots.forEach(function (d) { var k = d.kind === undefined ? 1 : d.kind; shape(front, d.cx, d.cy, d.r, d.r, k === 0 ? Math.min(3, d.r) : d.r, k, d.sw, d.fill, d.stroke, d.a === undefined ? 1 : d.a); });
+    /* mesh */
+    var verts = 0, plan = [];
+    S.ribbons.forEach(function (r) { var n = Math.max(10, Math.min(40, Math.ceil(Math.abs(r.x1 - r.x0) / 10))); plan.push(r); verts += n * 6; });
+    var polyTris = 0;
+    (S.polys || []).forEach(function (p) { polyTris += p.pts.length / 2; });
+    verts += polyTris * 3;
+    S.curves.forEach(function (c) {
+      var pts = c.pts || (c.pts = bezPts(c.P, c.line));
+      c.dashed = c.dash ? dashPieces(pts, c.w, c.dash) : null;
+      var n = c.dashed ? c.dashed.reduce(function (a, q) { return a + q.length / 2 - 1; }, 0) : pts.length / 2 - 1;
+      verts += n * 6 + (c.arrow ? 3 : 0);
+    });
+    var mesh = new Float32Array(verts * MESH_STRIDE), o = 0;
+    var put = function (x, y, nx, ny, hw, side, c, a) { mesh[o++] = x; mesh[o++] = y; mesh[o++] = nx; mesh[o++] = ny; mesh[o++] = hw; mesh[o++] = side; mesh[o++] = c[0]; mesh[o++] = c[1]; mesh[o++] = c[2]; mesh[o++] = c[3] * a; };
+    S.ribbons.forEach(function (r) {
+      var a = r.a === undefined ? 1 : r.a, n = Math.max(10, Math.min(40, Math.ceil(Math.abs(r.x1 - r.x0) / 10))), c = r.color;
+      var ptsAt = function (ya0, ya1, u) { var m = 1 - u, y = m * m * m * ya0 + 3 * m * m * u * ya0 + 3 * m * u * u * ya1 + u * u * u * ya1, x = m * m * m * r.x0 + 3 * m * m * u * r.xm + 3 * m * u * u * r.xm + u * u * u * r.x1; return [x, y]; };
+      for (var k = 0; k < n; k++) {
+        var u0 = k / n, u1 = (k + 1) / n, t0 = ptsAt(r.y0a, r.y1a, u0), t1 = ptsAt(r.y0a, r.y1a, u1), b0 = ptsAt(r.y0b, r.y1b, u0), b1 = ptsAt(r.y0b, r.y1b, u1);
+        put(t0[0], t0[1], 0, 0, -1, 0, c, a); put(b0[0], b0[1], 0, 0, -1, 0, c, a); put(t1[0], t1[1], 0, 0, -1, 0, c, a);
+        put(t1[0], t1[1], 0, 0, -1, 0, c, a); put(b0[0], b0[1], 0, 0, -1, 0, c, a); put(b1[0], b1[1], 0, 0, -1, 0, c, a);
+      }
+    });
+    (S.polys || []).forEach(function (p) {
+      var a = (p.a === undefined ? 1 : p.a), n = p.pts.length / 2, cx = p.c[0], cy = p.c[1];
+      for (var q = 0; q < n; q++) { var q2 = (q + 1) % n; put(cx, cy, 0, 0, -1, 0, p.fill, a); put(p.pts[q * 2], p.pts[q * 2 + 1], 0, 0, -1, 0, p.fill, a); put(p.pts[q2 * 2], p.pts[q2 * 2 + 1], 0, 0, -1, 0, p.fill, a); }
+    });
+    var strip = function (pts, hw, col, a) {
+      var n = pts.length / 2, nr = new Array(n * 2), i;
+      for (i = 0; i < n; i++) {
+        var p0 = Math.max(0, i - 1), p1 = Math.min(n - 1, i + 1), tx = pts[p1 * 2] - pts[p0 * 2], ty = pts[p1 * 2 + 1] - pts[p0 * 2 + 1], d = Math.hypot(tx, ty) || 1;
+        nr[i * 2] = -ty / d; nr[i * 2 + 1] = tx / d;
+      }
+      for (i = 0; i + 1 < n; i++) {
+        var xa = pts[i * 2], ya = pts[i * 2 + 1], xb = pts[i * 2 + 2], yb = pts[i * 2 + 3];
+        put(xa, ya, nr[i * 2], nr[i * 2 + 1], hw, -1, col, a); put(xa, ya, nr[i * 2], nr[i * 2 + 1], hw, 1, col, a); put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hw, -1, col, a);
+        put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hw, -1, col, a); put(xa, ya, nr[i * 2], nr[i * 2 + 1], hw, 1, col, a); put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hw, 1, col, a);
+      }
+    };
+    S.curves.forEach(function (c) {
+      var a = c.a === undefined ? 1 : c.a, hw = c.w / 2, col = c.color;
+      if (c.dashed) c.dashed.forEach(function (q) { strip(q, hw, col, a); }); else strip(c.pts, hw, col, a);
+      if (c.arrow) { var t = NFMScene.arrowTri(c); for (i = 0; i < 3; i++) put(t[i * 2], t[i * 2 + 1], 0, 0, -1, 0, col, a); }
+    });
+    return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE };
+  }
+  /** Cuts a polyline into dashes: kind 1 = dots, 2 = short dashes, 3 = long dashes. Returns a list of flat polylines. */
+  function dashPieces(pts, w, kind) {
+    var on = kind === 1 ? Math.max(0.6, w * 0.5) : kind === 3 ? w * 6 + 6 : w * 3 + 4, off = kind === 1 ? Math.max(3, w * 2.2) : kind === 3 ? w * 3 + 5 : w * 2 + 4, out = [], cur = [], draw = true, left = on;
+    cur.push(pts[0], pts[1]);
+    for (var i = 2; i < pts.length; i += 2) {
+      var x0 = pts[i - 2], y0 = pts[i - 1], dx = pts[i] - x0, dy = pts[i + 1] - y0, len = Math.hypot(dx, dy), pos = 0;
+      while (len - pos > left) {
+        pos += left; var px = x0 + dx * pos / len, py = y0 + dy * pos / len;
+        if (draw) { cur.push(px, py); out.push(cur); cur = []; } else { cur = [px, py]; }
+        draw = !draw; left = draw ? on : off;
+      }
+      left -= len - pos;
+      if (draw) cur.push(pts[i], pts[i + 1]);
+    }
+    if (draw && cur.length >= 4) out.push(cur);
+    return out;
+  }
+
+  /* ---------------------------------------------------------------- labels (2D overlay, used by every backend) */
+  function drawLabels(ctx, S, view, w, h, dpr) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    var k = view.k, T = S.theme, drawn = 0, lastFont = '', bg = css(NFMScene.alpha(T.bg, 0.82));
+    ctx.textBaseline = 'alphabetic';
+    drawIcons(ctx, S, view);
+    for (var i = 0; i < S.labels.length && drawn < 2500; i++) {
+      var l = S.labels[i], px = l.size * k;
+      if (k < l.minK || px < 6.5) continue;
+      var x = l.x * k + view.tx, y = l.y * k + view.ty;
+      if (!l.rot && (x < -300 || x > w + 300 || y < -40 || y > h + 40)) continue;
+      if (l.rot && (x < -400 || x > w + 400 || y < -400 || y > h + 400)) continue;
+      var font = (l.bold ? '700 ' : '500 ') + Math.min(px, 60).toFixed(1) + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      if (font !== lastFont) { ctx.font = font; lastFont = font; }
+      ctx.globalAlpha = l.a === undefined ? 1 : l.a;
+      ctx.textAlign = l.align === 'l' ? 'left' : l.align === 'r' ? 'right' : 'center';
+      if (l.rot) { ctx.save(); ctx.translate(x, y); ctx.rotate(l.rot * Math.PI / 180); x = 0; y = 0; }
+      if (l.bg) { var tw = ctx.measureText(l.t).width; ctx.fillStyle = bg; ctx.fillRect(x - tw / 2 - 2, y - px, tw + 4, px + 3); }
+      ctx.fillStyle = css(l.color);
+      ctx.fillText(l.t, x, y);
+      if (l.rot) ctx.restore();
+      drawn++;
+    }
+    ctx.globalAlpha = 1;
+    if (S.overlayDraw) { ctx.save(); S.overlayDraw(ctx, view); ctx.restore(); }
+  }
+  /* pictures and icons on the node positions; drawn on the 2D overlay with the labels */
+  var IMG_CACHE = new Map(), PATH_CACHE = {};
+  function imageFor(url, invalidate) {
+    var im = IMG_CACHE.get(url);
+    if (!im) { im = new Image(); im.decoding = 'async'; im.onload = function () { im._ok = true; if (invalidate) invalidate(); }; im.onerror = function () { im._bad = true; }; im.src = url; IMG_CACHE.set(url, im); if (IMG_CACHE.size > 200) IMG_CACHE.delete(IMG_CACHE.keys().next().value); }
+    return im;
+  }
+  function drawIcons(ctx, S, view) {
+    if (!S.icons || !S.icons.length) return;
+    var k = view.k, w = view.w || 99999, h = view.h || 99999;
+    for (var i = 0; i < S.icons.length; i++) {
+      var ic = S.icons[i], px = ic.cx * k + view.tx, py = ic.cy * k + view.ty, r = ic.r * k;
+      if (k < (ic.minK || 0) || r < 4 || px < -r || py < -r || px > w + r || py > h + r) continue;
+      ctx.globalAlpha = ic.a === undefined ? 1 : ic.a;
+      if (ic.img) {
+        var im = imageFor(ic.img, view.invalidate);
+        if (im._ok) { var iw = im.naturalWidth || 1, ih = im.naturalHeight || 1, sc = Math.min(2 * r / iw, 2 * r / ih); ctx.drawImage(im, px - iw * sc / 2, py - ih * sc / 2, iw * sc, ih * sc); }
+      } else if (NFMScene.ICONS[ic.icon]) {
+        var path = PATH_CACHE[ic.icon] || (PATH_CACHE[ic.icon] = new Path2D(NFMScene.ICONS[ic.icon]));
+        ctx.save(); ctx.translate(px - r, py - r); ctx.scale(r * 2 / 24, r * 2 / 24); ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = css([ic.color[0], ic.color[1], ic.color[2], 1]); ctx.stroke(path); ctx.restore();
+      } else if (ic.icon) {
+        ctx.font = Math.round(r * 1.25) + 'px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = css([ic.color[0], ic.color[1], ic.color[2], 1]); ctx.fillText(ic.icon, px, py + r * 0.05); ctx.textBaseline = 'alphabetic';
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------------------------------------------------------------- host: two stacked canvases */
+  function makeHost(host) {
+    host.textContent = '';
+    var a = document.createElement('canvas'), b = document.createElement('canvas');
+    [a, b].forEach(function (c) { c.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;display:block;touch-action:none'; });
+    a.setAttribute('aria-hidden', 'true'); b.setAttribute('aria-hidden', 'true'); b.style.pointerEvents = 'none';
+    host.appendChild(a); host.appendChild(b);
+    return { main: a, over: b, ctx2: b.getContext('2d') };
+  }
+  function sizeCanvases(H, w, h, dpr) {
+    var pw = Math.max(1, Math.round(w * dpr)), ph = Math.max(1, Math.round(h * dpr));
+    if (H.main.width !== pw || H.main.height !== ph) { H.main.width = pw; H.main.height = ph; }
+    if (H.over.width !== pw || H.over.height !== ph) { H.over.width = pw; H.over.height = ph; }
+  }
+
+  /* ---------------------------------------------------------------- Canvas2D */
+  function rrect(ctx, x, y, w, h, r) {
+    if (r <= 0.01) { ctx.rect(x, y, w, h); return; }
+    if (ctx.roundRect) { ctx.roundRect(x, y, w, h, r); return; }
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function createCanvas2D(host, hooks) {
+    var H = makeHost(host), ctx = H.main.getContext('2d', { alpha: false }), S = null, W = 1, Hh = 1, dpr = 1;
+    if (!ctx) throw new Error('no 2D canvas');
+    var out = {
+      name: 'canvas2d', label: 'Canvas 2D',
+      setScene: function (s) { S = s; if (S) S.curves.forEach(function (c) { if (c.bb === undefined) { var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (var i = 0; i < c.P.length; i += 2) { x0 = Math.min(x0, c.P[i]); x1 = Math.max(x1, c.P[i]); y0 = Math.min(y0, c.P[i + 1]); y1 = Math.max(y1, c.P[i + 1]); } c.bb = [x0 - 12, y0 - 12, x1 + 12, y1 + 12]; } }); },
+      resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
+      draw: function (view) {
+        if (!S) return;
+        var k = view.k, vx0 = -view.tx / k, vy0 = -view.ty / k, vx1 = (W - view.tx) / k, vy1 = (Hh - view.ty) / k;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = css(S.theme.bg); ctx.fillRect(0, 0, H.main.width, H.main.height);
+        ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * view.tx, dpr * view.ty);
+        var rect = function (r) {
+          if (r.x > vx1 || r.y > vy1 || r.x + r.w < vx0 || r.y + r.h < vy0) return;
+          var a = r.a === undefined ? 1 : r.a;
+          ctx.beginPath(); rrect(ctx, r.x, r.y, r.w, r.h, Math.min(r.r, r.w / 2, r.h / 2));
+          ctx.globalAlpha = a * r.fill[3]; ctx.fillStyle = css([r.fill[0], r.fill[1], r.fill[2], 1]); ctx.fill();
+          if (r.sw > 0 && r.stroke[3] > 0) { ctx.globalAlpha = a * r.stroke[3]; ctx.lineWidth = r.sw; ctx.strokeStyle = css([r.stroke[0], r.stroke[1], r.stroke[2], 1]); ctx.stroke(); }
+        };
+        S.rects.forEach(function (r) { if (r.layer === 0) rect(r); });
+        (S.polys || []).forEach(function (p) {
+          ctx.beginPath(); for (var q = 0; q < p.pts.length; q += 2) { if (q) ctx.lineTo(p.pts[q], p.pts[q + 1]); else ctx.moveTo(p.pts[q], p.pts[q + 1]); } ctx.closePath();
+          var pa = p.a === undefined ? 1 : p.a; ctx.globalAlpha = pa * p.fill[3]; ctx.fillStyle = css([p.fill[0], p.fill[1], p.fill[2], 1]); ctx.fill();
+          ctx.globalAlpha = pa * p.stroke[3]; ctx.lineWidth = 1.5 / k; ctx.strokeStyle = css([p.stroke[0], p.stroke[1], p.stroke[2], 1]); ctx.stroke();
+        });
+        ctx.globalAlpha = 1;
+        S.ribbons.forEach(function (r) {
+          if (Math.max(r.x0, r.x1) < vx0 || Math.min(r.x0, r.x1) > vx1) return;
+          ctx.globalAlpha = (r.a === undefined ? 1 : r.a) * r.color[3]; ctx.fillStyle = css([r.color[0], r.color[1], r.color[2], 1]);
+          ctx.beginPath(); ctx.moveTo(r.x0, r.y0a); ctx.bezierCurveTo(r.xm, r.y0a, r.xm, r.y1a, r.x1, r.y1a); ctx.lineTo(r.x1, r.y1b); ctx.bezierCurveTo(r.xm, r.y1b, r.xm, r.y0b, r.x0, r.y0b); ctx.closePath(); ctx.fill();
+        });
+        ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
+        S.curves.forEach(function (c) {
+          var bb = c.bb; if (bb[0] > vx1 || bb[2] < vx0 || bb[1] > vy1 || bb[3] < vy0) return;
+          var P = c.P, a = (c.a === undefined ? 1 : c.a) * c.color[3], col = css([c.color[0], c.color[1], c.color[2], 1]);
+          ctx.globalAlpha = a; ctx.strokeStyle = col; ctx.lineWidth = Math.max(c.w, 1.4 / k);
+          if (c.dash) { var lw = ctx.lineWidth; ctx.setLineDash(c.dash === 1 ? [0.01, lw * 2.2 + 2] : c.dash === 3 ? [lw * 6 + 6, lw * 3 + 5] : [lw * 3 + 4, lw * 2 + 4]); ctx.lineCap = c.dash === 1 ? 'round' : 'butt'; }
+          ctx.beginPath(); ctx.moveTo(P[0], P[1]);
+          for (var i = 2; i < P.length; i += 6) ctx.bezierCurveTo(P[i], P[i + 1], P[i + 2], P[i + 3], P[i + 4], P[i + 5]);
+          ctx.stroke();
+          if (c.dash) { ctx.setLineDash([]); ctx.lineCap = 'butt'; }
+          if (c.arrow) { var t = NFMScene.arrowTri(c); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(t[0], t[1]); ctx.lineTo(t[2], t[3]); ctx.lineTo(t[4], t[5]); ctx.closePath(); ctx.fill(); }
+        });
+        S.rects.forEach(function (r) { if (r.layer === 1) rect(r); });
+        S.dots.forEach(function (d) {
+          if (d.cx + d.r < vx0 || d.cx - d.r > vx1 || d.cy + d.r < vy0 || d.cy - d.r > vy1) return;
+          var a = d.a === undefined ? 1 : d.a;
+          ctx.beginPath(); var kd = d.kind === undefined ? 1 : d.kind;
+          if (kd === 1) ctx.arc(d.cx, d.cy, d.r, 0, 6.2832); else if (kd === 0) rrect(ctx, d.cx - d.r, d.cy - d.r, 2 * d.r, 2 * d.r, Math.min(3, d.r)); else { var sp = NFMScene.shapePts(kd, d.cx, d.cy, d.r); ctx.moveTo(sp[0], sp[1]); for (var q = 2; q < sp.length; q += 2) ctx.lineTo(sp[q], sp[q + 1]); ctx.closePath(); }
+          ctx.globalAlpha = a * d.fill[3]; ctx.fillStyle = css([d.fill[0], d.fill[1], d.fill[2], 1]); ctx.fill();
+          if (d.sw > 0 && d.stroke[3] > 0) { ctx.globalAlpha = a * d.stroke[3]; ctx.lineWidth = d.sw; ctx.strokeStyle = css([d.stroke[0], d.stroke[1], d.stroke[2], 1]); ctx.stroke(); }
+        });
+        ctx.globalAlpha = 1;
+        drawLabels(H.ctx2, S, view, W, Hh, dpr);
+      },
+      flush: function () { return Promise.resolve(); },
+      snapshot: function () { return ctx.getImageData(0, 0, H.main.width, H.main.height); },
+      destroy: function () { host.textContent = ''; }
+    };
+    return Promise.resolve(out);
+  }
+
+  /* ---------------------------------------------------------------- WebGL2 */
+  var GL_SHAPE_VS = '#version 300 es\nprecision highp float;\nlayout(location=0) in vec4 iA;layout(location=1) in vec4 iB;layout(location=2) in vec4 iFill;layout(location=3) in vec4 iStroke;\n' +
+    'uniform vec4 uV;uniform vec2 uRes;out vec2 vL;flat out vec4 vA;flat out vec4 vB;flat out vec4 vF;flat out vec4 vS;\n' +
+    'void main(){vec2 c=vec2(0.,0.);int id=gl_VertexID;if(id==1||id==3)c=vec2(1.,0.);else if(id==2||id==5)c=vec2(0.,1.);else if(id==4)c=vec2(1.,1.);\n' +
+    'vec2 q=c*2.-1.;float pad=iB.z*.5+2./uV.x;vec2 loc=q*(iA.zw+pad);vec2 w=iA.xy+loc;vec2 px=w*uV.x+uV.yz;\n' +
+    'gl_Position=vec4(px.x/uRes.x*2.-1.,1.-px.y/uRes.y*2.,0.,1.);vL=loc;vA=iA;vB=iB;vF=iFill;vS=iStroke;}';
+  var GL_SHAPE_FS = '#version 300 es\nprecision highp float;in vec2 vL;flat in vec4 vA;flat in vec4 vB;flat in vec4 vF;flat in vec4 vS;uniform vec4 uV;out vec4 o;\n' +
+    'void main(){float d;int kd=int(vB.y+.5);float r=vA.z;if(kd==1){d=length(vL)-r;}else if(kd==2){d=(abs(vL.x)+abs(vL.y)-r)*.70710678;}\n' +
+    'else if(kd==3){vec2 p=abs(vL);const vec3 k=vec3(-.866025404,.5,.577350269);float ri=r*.866025404;p-=2.*min(dot(k.xy,p),0.)*k.xy;p-=vec2(clamp(p.x,-k.z*ri,k.z*ri),ri);d=length(p)*sign(p.y);}\n' +
+    'else if(kd==4){float kk=1.7320508;float ri=r*.866025404;vec2 p=vec2(vL.x,-vL.y);p.x=abs(p.x)-ri;p.y=p.y+ri/kk;if(p.x+kk*p.y>0.)p=vec2(p.x-kk*p.y,-kk*p.x-p.y)/2.;p.x-=clamp(p.x,-2.*ri,0.);d=-length(p)*sign(p.y);}\n' +
+    'else{vec2 q=abs(vL)-(vA.zw-vB.x);d=length(max(q,0.))+min(max(q.x,q.y),0.)-vB.x;}\n' +
+    'float px=1./uV.x;float fc=clamp(.5-d/px,0.,1.);float sc=vB.z>0.?clamp(.5-(abs(d)-vB.z*.5)/px,0.,1.):0.;\n' +
+    'vec4 f=vec4(vF.rgb*vF.a,vF.a)*fc;vec4 s=vec4(vS.rgb*vS.a,vS.a)*sc;o=s+f*(1.-s.a);}';
+  var GL_MESH_VS = '#version 300 es\nprecision highp float;layout(location=0) in vec2 aP;layout(location=1) in vec2 aN;layout(location=2) in vec2 aHS;layout(location=3) in vec4 aC;\n' +
+    'uniform vec4 uV;uniform vec2 uRes;out vec4 vC;out float vSide;out float vHw;out float vSolid;\n' +
+    'void main(){float solid=aHS.x<0.?1.:0.;float hw=max(aHS.x,.7/uV.x);vec2 w=aP+aN*aHS.y*hw*(1.-solid);vec2 px=w*uV.x+uV.yz;\n' +
+    'gl_Position=vec4(px.x/uRes.x*2.-1.,1.-px.y/uRes.y*2.,0.,1.);vC=aC;vSide=aHS.y;vHw=hw*uV.x;vSolid=solid;}';
+  var GL_MESH_FS = '#version 300 es\nprecision highp float;in vec4 vC;in float vSide;in float vHw;in float vSolid;out vec4 o;\n' +
+    'void main(){float cov=vSolid>.5?1.:clamp(vHw-abs(vSide)*vHw+.5,0.,1.);o=vec4(vC.rgb*vC.a,vC.a)*cov;}';
+
+  function glProgram(gl, vs, fs) {
+    var mk = function (t, src) { var s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error('shader: ' + gl.getShaderInfoLog(s)); return s; };
+    var p = gl.createProgram(); gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('link: ' + gl.getProgramInfoLog(p));
+    return p;
+  }
+  function createWebGL2(host, hooks) {
+    var H = makeHost(host), gl = H.main.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
+    if (!gl) throw new Error('no WebGL2');
+    var lost = false;
+    H.main.addEventListener('webglcontextlost', function (e) { e.preventDefault(); lost = true; if (hooks && hooks.onLost) hooks.onLost('webgl2'); });
+    var pS = glProgram(gl, GL_SHAPE_VS, GL_SHAPE_FS), pM = glProgram(gl, GL_MESH_VS, GL_MESH_FS);
+    var uS = { v: gl.getUniformLocation(pS, 'uV'), r: gl.getUniformLocation(pS, 'uRes') }, uM = { v: gl.getUniformLocation(pM, 'uV'), r: gl.getUniformLocation(pM, 'uRes') };
+    var mkVao = function (layout, buf, divisor) {
+      var vao = gl.createVertexArray(); gl.bindVertexArray(vao); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      layout.forEach(function (a) { gl.enableVertexAttribArray(a[0]); gl.vertexAttribPointer(a[0], a[1], gl.FLOAT, false, a[3], a[2] * 4); if (divisor) gl.vertexAttribDivisor(a[0], 1); });
+      gl.bindVertexArray(null); return vao;
+    };
+    var bBack = gl.createBuffer(), bFront = gl.createBuffer(), bMesh = gl.createBuffer();
+    var sl = [[0, 4, 0, 64], [1, 4, 4, 64], [2, 4, 8, 64], [3, 4, 12, 64]], vaoBack = mkVao(sl, bBack, true), vaoFront = mkVao(sl, bFront, true);
+    var vaoMesh = mkVao([[0, 2, 0, 40], [1, 2, 2, 40], [2, 2, 4, 40], [3, 4, 6, 40]], bMesh, false);
+    var T = null, S = null, W = 1, Hh = 1, dpr = 1;
+    var up = function (buf, data) { gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); };
+    var info = (function () { try { var e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : ''; } catch (x) { return ''; } })();
+    var out = {
+      name: 'webgl2', label: 'WebGL 2', device: info,
+      setScene: function (s) { S = s; T = s ? tessellate(s) : null; if (T) { up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
+      restyle: function () { if (S) { T = tessellate(S); up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
+      resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
+      draw: function (view) {
+        if (!S || lost) return;
+        gl.viewport(0, 0, H.main.width, H.main.height);
+        var bg = S.theme.bg; gl.clearColor(bg[0], bg[1], bg[2], 1); gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        var shapes = function (vao, n) { if (!n) return; gl.useProgram(pS); gl.uniform4f(uS.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uS.r, W, Hh); gl.bindVertexArray(vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n); };
+        shapes(vaoBack, T.nBack);
+        if (T.nMesh) { gl.useProgram(pM); gl.uniform4f(uM.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uM.r, W, Hh); gl.bindVertexArray(vaoMesh); gl.drawArrays(gl.TRIANGLES, 0, T.nMesh); }
+        shapes(vaoFront, T.nFront);
+        gl.bindVertexArray(null);
+        drawLabels(H.ctx2, S, view, W, Hh, dpr);
+      },
+      flush: function () { var px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return Promise.resolve(); },
+      snapshot: function () { return copyViaCanvas(H.main); },
+      destroy: function () { try { var x = gl.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); } catch (e) { /* gone */ } host.textContent = ''; }
+    };
+    return Promise.resolve(out);
+  }
+  function copyViaCanvas(src) {
+    var c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+    var x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(src, 0, 0);
+    return x.getImageData(0, 0, c.width, c.height);
+  }
+
+  /* ---------------------------------------------------------------- WebGPU */
+  var WGSL_COMMON = 'struct U { v: vec4<f32>, res: vec2<f32>, pad: vec2<f32> };\n@group(0) @binding(0) var<uniform> u: U;\n';
+  var WGSL_SHAPE = WGSL_COMMON +
+    'struct VO { @builtin(position) pos: vec4<f32>, @location(0) loc: vec2<f32>, @location(1) @interpolate(flat) a: vec4<f32>, @location(2) @interpolate(flat) b: vec4<f32>, @location(3) @interpolate(flat) f: vec4<f32>, @location(4) @interpolate(flat) s: vec4<f32> };\n' +
+    '@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) a: vec4<f32>, @location(1) b: vec4<f32>, @location(2) f: vec4<f32>, @location(3) s: vec4<f32>) -> VO {\n' +
+    ' var cs = array<vec2<f32>,6>(vec2<f32>(0.,0.),vec2<f32>(1.,0.),vec2<f32>(0.,1.),vec2<f32>(1.,0.),vec2<f32>(1.,1.),vec2<f32>(0.,1.));\n' +
+    ' let q = cs[vi]*2.-1.; let pad = b.z*.5 + 2./u.v.x; let loc = q*(a.zw+pad); let w = a.xy+loc; let px = w*u.v.x + u.v.yz;\n' +
+    ' var o: VO; o.pos = vec4<f32>(px.x/u.res.x*2.-1., 1.-px.y/u.res.y*2., 0., 1.); o.loc = loc; o.a=a; o.b=b; o.f=f; o.s=s; return o; }\n' +
+    '@fragment fn fs(i: VO) -> @location(0) vec4<f32> {\n' +
+    ' var d: f32; let kd = i32(i.b.y + .5); let r = i.a.z;\n' +
+    ' if (kd == 1) { d = length(i.loc) - r; }\n' +
+    ' else if (kd == 2) { d = (abs(i.loc.x) + abs(i.loc.y) - r) * .70710678; }\n' +
+    ' else if (kd == 3) { let k = vec3<f32>(-.866025404, .5, .577350269); let ri = r * .866025404; var p = abs(i.loc); p = p - 2. * min(dot(k.xy, p), 0.) * k.xy; p = p - vec2<f32>(clamp(p.x, -k.z * ri, k.z * ri), ri); d = length(p) * sign(p.y); }\n' +
+    ' else if (kd == 4) { let kk = 1.7320508; let ri = r * .866025404; var p = vec2<f32>(i.loc.x, -i.loc.y); p.x = abs(p.x) - ri; p.y = p.y + ri / kk; if (p.x + kk * p.y > 0.) { p = vec2<f32>(p.x - kk * p.y, -kk * p.x - p.y) / 2.; } p.x = p.x - clamp(p.x, -2. * ri, 0.); d = -length(p) * sign(p.y); }\n' +
+    ' else { let q = abs(i.loc) - (i.a.zw - i.b.x); d = length(max(q, vec2<f32>(0.))) + min(max(q.x,q.y),0.) - i.b.x; }\n' +
+    ' let px = 1./u.v.x; let fc = clamp(.5 - d/px, 0., 1.); var sc = 0.; if (i.b.z > 0.) { sc = clamp(.5 - (abs(d) - i.b.z*.5)/px, 0., 1.); }\n' +
+    ' let f = vec4<f32>(i.f.rgb*i.f.a, i.f.a)*fc; let s = vec4<f32>(i.s.rgb*i.s.a, i.s.a)*sc; return s + f*(1.-s.a); }\n';
+  var WGSL_MESH = WGSL_COMMON +
+    'struct VO { @builtin(position) pos: vec4<f32>, @location(0) c: vec4<f32>, @location(1) side: f32, @location(2) hw: f32, @location(3) solid: f32 };\n' +
+    '@vertex fn vs(@location(0) p: vec2<f32>, @location(1) n: vec2<f32>, @location(2) hs: vec2<f32>, @location(3) c: vec4<f32>) -> VO {\n' +
+    ' var solid = 0.; if (hs.x < 0.) { solid = 1.; } let hw = max(hs.x, .7/u.v.x); let w = p + n*hs.y*hw*(1.-solid); let px = w*u.v.x + u.v.yz;\n' +
+    ' var o: VO; o.pos = vec4<f32>(px.x/u.res.x*2.-1., 1.-px.y/u.res.y*2., 0., 1.); o.c = c; o.side = hs.y; o.hw = hw*u.v.x; o.solid = solid; return o; }\n' +
+    '@fragment fn fs(i: VO) -> @location(0) vec4<f32> {\n' +
+    ' var cov = 1.; if (i.solid < .5) { cov = clamp(i.hw - abs(i.side)*i.hw + .5, 0., 1.); } return vec4<f32>(i.c.rgb*i.c.a, i.c.a)*cov; }\n';
+
+  function createWebGPU(host, hooks) {
+    if (!navigator.gpu) return Promise.reject(new Error('no WebGPU'));
+    return navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).then(function (adapter) {
+      if (!adapter) throw new Error('no adapter');
+      return adapter.requestDevice().then(function (device) { return { adapter: adapter, device: device }; });
+    }).then(function (r) {
+      var device = r.device, H = makeHost(host), ctx = H.main.getContext('webgpu');
+      if (!ctx) throw new Error('no WebGPU canvas');
+      var fmt = navigator.gpu.getPreferredCanvasFormat();
+      ctx.configure({ device: device, format: fmt, alphaMode: 'opaque' });
+      var destroyed = false;
+      device.lost.then(function (info) { if (!destroyed && hooks && hooks.onLost) hooks.onLost('webgpu', info && info.message); });
+      var blend = { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
+      var mS = device.createShaderModule({ code: WGSL_SHAPE }), mM = device.createShaderModule({ code: WGSL_MESH });
+      var pShape = device.createRenderPipeline({ layout: 'auto', vertex: { module: mS, entryPoint: 'vs', buffers: [{ arrayStride: 64, stepMode: 'instance', attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }, { shaderLocation: 1, offset: 16, format: 'float32x4' }, { shaderLocation: 2, offset: 32, format: 'float32x4' }, { shaderLocation: 3, offset: 48, format: 'float32x4' }] }] }, fragment: { module: mS, entryPoint: 'fs', targets: [{ format: fmt, blend: blend }] }, primitive: { topology: 'triangle-list' } });
+      var pMesh = device.createRenderPipeline({ layout: 'auto', vertex: { module: mM, entryPoint: 'vs', buffers: [{ arrayStride: 40, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }, { shaderLocation: 1, offset: 8, format: 'float32x2' }, { shaderLocation: 2, offset: 16, format: 'float32x2' }, { shaderLocation: 3, offset: 24, format: 'float32x4' }] }] }, fragment: { module: mM, entryPoint: 'fs', targets: [{ format: fmt, blend: blend }] }, primitive: { topology: 'triangle-list' } });
+      var ubuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+      var bgS = device.createBindGroup({ layout: pShape.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
+      var bgM = device.createBindGroup({ layout: pMesh.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
+      var T = null, S = null, bufs = {}, W = 1, Hh = 1, dpr = 1, ud = new Float32Array(8);
+      var mk = function (name, data, usage) {
+        if (bufs[name]) { bufs[name].destroy(); bufs[name] = null; }
+        if (!data.byteLength) return;
+        var b = device.createBuffer({ size: Math.ceil(data.byteLength / 4) * 4, usage: usage | GPUBufferUsage.COPY_DST });
+        device.queue.writeBuffer(b, 0, data.buffer, data.byteOffset, data.byteLength);
+        bufs[name] = b;
+      };
+      var load = function () { T = tessellate(S); mk('back', T.back, GPUBufferUsage.VERTEX); mk('front', T.front, GPUBufferUsage.VERTEX); mk('mesh', T.mesh, GPUBufferUsage.VERTEX); };
+      var out = {
+        name: 'webgpu', label: 'WebGPU', device: (r.adapter.info && (r.adapter.info.description || r.adapter.info.device)) || '', software: !!r.adapter.isFallbackAdapter,
+        setScene: function (s) { S = s; if (S) load(); },
+        restyle: function () { if (S) load(); },
+        resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
+        draw: function (view) {
+          if (!S || !T) return;
+          ud[0] = view.k; ud[1] = view.tx; ud[2] = view.ty; ud[3] = 0; ud[4] = W; ud[5] = Hh;
+          device.queue.writeBuffer(ubuf, 0, ud);
+          var bg = S.theme.bg, enc = device.createCommandEncoder();
+          var pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }] });
+          if (bufs.back) { pass.setPipeline(pShape); pass.setBindGroup(0, bgS); pass.setVertexBuffer(0, bufs.back); pass.draw(6, T.nBack); }
+          if (bufs.mesh) { pass.setPipeline(pMesh); pass.setBindGroup(0, bgM); pass.setVertexBuffer(0, bufs.mesh); pass.draw(T.nMesh); }
+          if (bufs.front) { pass.setPipeline(pShape); pass.setBindGroup(0, bgS); pass.setVertexBuffer(0, bufs.front); pass.draw(6, T.nFront); }
+          pass.end();
+          device.queue.submit([enc.finish()]);
+          drawLabels(H.ctx2, S, view, W, Hh, dpr);
+        },
+        flush: function () { return device.queue.onSubmittedWorkDone(); },
+        snapshot: function () { return copyViaCanvas(H.main); },
+        destroy: function () { destroyed = true; try { Object.keys(bufs).forEach(function (k) { if (bufs[k]) bufs[k].destroy(); }); device.destroy(); } catch (e) { /* gone */ } host.textContent = ''; }
+      };
+      device.addEventListener && device.addEventListener('uncapturederror', function (ev) { if (hooks && hooks.onError) hooks.onError('webgpu', ev.error && ev.error.message); });
+      return out;
+    });
+  }
+
+  /* ---------------------------------------------------------------- the manager: pick, rebuild after loss, step down after three losses in a minute */
+  var MAKERS = { webgpu: createWebGPU, webgl2: createWebGL2, canvas2d: createCanvas2D };
+  function Manager(host, opts) {
+    this.host = host; this.opts = opts || {}; this.order = ['webgpu', 'webgl2', 'canvas2d']; this.r = null; this.losses = []; this.banned = {};
+    this.choice = 'auto'; this.canary = null; this.log = [];
+  }
+  Manager.prototype.candidates = function () {
+    var self = this, order = this.choice === 'auto' ? this.order : [this.choice].concat(this.order.filter(function (x) { return x !== self.choice; }));
+    return order.filter(function (n) { return !self.banned[n] && (n === 'canvas2d' || !self.canary || (self.canary[n] && self.canary[n].ok)); });
+  };
+  /** Builds the best backend that works. Resolves to the renderer. */
+  Manager.prototype.start = function () {
+    var self = this, list = this.candidates(), i = 0;
+    var hooks = { onLost: function (name, why) { self.lost(name, why); }, onError: function (name, msg) { self.log.push(name + ': ' + msg); } };
+    var next = function () {
+      if (i >= list.length) return Promise.reject(new Error('Nothing could draw.'));
+      var name = list[i++];
+      return Promise.resolve().then(function () { return MAKERS[name](self.host, hooks); }).then(function (r) { self.r = r; self.name = name; if (self.opts.onChange) self.opts.onChange(r); return r; })
+        .catch(function (err) { self.log.push(name + ' failed: ' + (err && err.message)); self.banned[name] = 1; try { self.host.textContent = ''; } catch (e) { /* none */ } return next(); });
+    };
+    return next();
+  };
+  Manager.prototype.lost = function (name, why) {
+    var now = Date.now(), self = this;
+    this.log.push(name + ' lost' + (why ? ': ' + why : ''));
+    this.losses = this.losses.filter(function (t) { return now - t < 60000; }); this.losses.push(now);
+    if (this.losses.length >= 3) { this.banned[name] = 1; this.losses = []; if (this.opts.onStepDown) this.opts.onStepDown(name); }
+    try { if (this.r) this.r.destroy(); } catch (e) { /* ignore */ }
+    this.start().then(function (r) { if (self.opts.onRebuilt) self.opts.onRebuilt(r); });
+  };
+  Manager.prototype.use = function (choice) { this.choice = choice; this.banned = {}; this.losses = []; try { if (this.r) this.r.destroy(); } catch (e) { /* ignore */ } return this.start(); };
+
+  return { Manager: Manager, tessellate: tessellate, drawLabels: drawLabels, createCanvas2D: createCanvas2D, createWebGL2: createWebGL2, createWebGPU: createWebGPU, copyViaCanvas: copyViaCanvas };
+})();
+
+/* ---- src/probe.js ---- */
+/*!
+ * Net Flow Map capability check. canary(): a quick real test of each drawing path (never "does the browser say it can").
+ * check(): the one-button device check with plain-words answers. Copyright (c) 2026 LFC Foundry. MIT License.
+ */
+var NFMProbe = (function () {
+  'use strict';
+  var SOFT = /swiftshader|llvmpipe|softpipe|software|basic render|microsoft basic|mesa offscreen|cpu/i;
+  function withTimeout(p, ms, what) {
+    return new Promise(function (res, rej) { var t = setTimeout(function () { rej(new Error(what + ' took too long')); }, ms); p.then(function (v) { clearTimeout(t); res(v); }, function (e) { clearTimeout(t); rej(e); }); });
+  }
+  function nextRefresh() {
+    return new Promise(function (res) { var done = false, t = setTimeout(function () { if (!done) { done = true; res(false); } }, 1000); requestAnimationFrame(function () { if (!done) { done = true; clearTimeout(t); res(true); } }); });
+  }
+  function nowMs() { return typeof performance !== 'undefined' ? performance.now() : Date.now(); }
+
+  function testCanvas2D() {
+    try {
+      var c = document.createElement('canvas'); c.width = 8; c.height = 8;
+      var x = c.getContext('2d', { willReadFrequently: true }); x.fillStyle = 'rgb(10,200,30)'; x.fillRect(0, 0, 8, 8);
+      var d = x.getImageData(2, 2, 1, 1).data;
+      var ok = Math.abs(d[0] - 10) < 3 && Math.abs(d[1] - 200) < 3 && Math.abs(d[2] - 30) < 3;
+      return { ok: ok, why: ok ? '' : 'the browser changes canvas pixels (privacy protection), so drawings may look slightly off' };
+    } catch (e) { return { ok: false, why: String(e && e.message || e) }; }
+  }
+  function testWebGL2() {
+    try {
+      var c = document.createElement('canvas'); c.width = 4; c.height = 4;
+      var gl = c.getContext('webgl2', { alpha: false, antialias: false, failIfMajorPerformanceCaveat: false });
+      if (!gl) return { ok: false, why: 'WebGL 2 is not available' };
+      var mk = function (t, s) { var o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+      var p = gl.createProgram();
+      gl.attachShader(p, mk(gl.VERTEX_SHADER, '#version 300 es\nvoid main(){vec2 c=vec2(float(gl_VertexID&1),float(gl_VertexID>>1))*4.-1.;gl_Position=vec4(c,0.,1.);}'));
+      gl.attachShader(p, mk(gl.FRAGMENT_SHADER, '#version 300 es\nprecision highp float;out vec4 o;void main(){o=vec4(1.,.5,0.,1.);}'));
+      gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+      gl.useProgram(p); gl.viewport(0, 0, 4, 4); gl.drawArrays(gl.TRIANGLES, 0, 3);
+      var px = new Uint8Array(4); gl.readPixels(1, 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      var dev = ''; try { var e = gl.getExtension('WEBGL_debug_renderer_info'); if (e) dev = String(gl.getParameter(e.UNMASKED_RENDERER_WEBGL) || ''); } catch (x) { /* hidden */ }
+      var lose = gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext();
+      var ok = px[0] > 250 && Math.abs(px[1] - 128) < 4 && px[2] < 4;
+      return { ok: ok, why: ok ? '' : 'a test drawing came back with the wrong colors', software: SOFT.test(dev), device: dev };
+    } catch (err) { return { ok: false, why: String(err && err.message || err) }; }
+  }
+  function testWebGPU() {
+    if (typeof navigator === 'undefined' || !navigator.gpu) return Promise.resolve({ ok: false, why: 'WebGPU is not available in this browser' });
+    var dev = null;
+    return withTimeout(navigator.gpu.requestAdapter(), 4000, 'asking for a graphics adapter').then(function (adapter) {
+      if (!adapter) throw new Error('no graphics adapter');
+      var info = adapter.info || {}, name = [info.vendor, info.architecture, info.description].filter(Boolean).join(' ');
+      var soft = !!adapter.isFallbackAdapter || SOFT.test(name);
+      return withTimeout(adapter.requestDevice(), 4000, 'opening the graphics device').then(function (device) {
+        dev = device;
+        var buf = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+        var rb = device.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+        var mod = device.createShaderModule({ code: '@group(0) @binding(0) var<storage, read_write> o: array<u32>;\n@compute @workgroup_size(1) fn main() { o[0] = 1234u; o[1] = o[0] * 2u; }' });
+        var pipe = device.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint: 'main' } });
+        var bg = device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: buf } }] });
+        var enc = device.createCommandEncoder(), pass = enc.beginComputePass();
+        pass.setPipeline(pipe); pass.setBindGroup(0, bg); pass.dispatchWorkgroups(1); pass.end();
+        enc.copyBufferToBuffer(buf, 0, rb, 0, 16); device.queue.submit([enc.finish()]);
+        return withTimeout(rb.mapAsync(GPUMapMode.READ), 4000, 'reading the test answer back').then(function () {
+          var v = new Uint32Array(rb.getMappedRange().slice(0)); rb.unmap();
+          var ok = v[0] === 1234 && v[1] === 2468;
+          return { ok: ok, why: ok ? '' : 'the test calculation came back wrong', software: soft, device: name };
+        });
+      });
+    }).catch(function (err) { return { ok: false, why: String(err && err.message || err) }; }).then(function (r) { try { if (dev) dev.destroy(); } catch (e) { /* done */ } return r; });
+  }
+  function testWorker() {
+    return new Promise(function (resolve) {
+      try {
+        var url = URL.createObjectURL(new Blob(['self.onmessage=function(e){self.postMessage(e.data*2)}'], { type: 'text/javascript' })), w = new Worker(url);
+        URL.revokeObjectURL(url);
+        var t = setTimeout(function () { w.terminate(); resolve({ ok: false, why: 'the helper did not answer' }); }, 2500);
+        w.onmessage = function (e) { clearTimeout(t); w.terminate(); resolve({ ok: e.data === 42, why: e.data === 42 ? '' : 'the helper answered wrongly' }); };
+        w.onerror = function (e) { clearTimeout(t); resolve({ ok: false, why: 'helpers are blocked here' }); };
+        w.postMessage(21);
+      } catch (err) { resolve({ ok: false, why: String(err && err.message || err) }); }
+    });
+  }
+  /** Quick, silent. Resolves to { canvas2d, webgl2, webgpu, worker }, each { ok, why, software, device }. */
+  function canary() {
+    return Promise.all([testWebGPU(), testWorker()]).then(function (r) {
+      return { canvas2d: testCanvas2D(), webgl2: testWebGL2(), webgpu: r[0], worker: r[1] };
+    });
+  }
+
+  /* ---------------------------------------------------------------- the one-button check */
+  function diff(a, b) {
+    var n = Math.min(a.data.length, b.data.length), sum = 0, bad = 0, px = 0;
+    for (var i = 0; i < n; i += 4) {
+      var d = (Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1]) + Math.abs(a.data[i + 2] - b.data[i + 2])) / 3;
+      sum += d; px++; if (d > 40) bad++;
+    }
+    return { mean: sum / Math.max(1, px), badShare: bad / Math.max(1, px) };
+  }
+  function fitView(S, w, h) {
+    var k = Math.min(w / S.w, h / S.h) * 0.96;
+    return { k: k, tx: (w - S.w * k) / 2 - S.x0 * k, ty: (h - S.h * k) / 2 - S.y0 * k };
+  }
+  /**
+   * Speed of turning a 3D map: one picture per screen refresh, each from a new angle and zoom, for about 1.3 seconds.
+   * opts: { backend: 'webgpu'|'webgl2'|'canvas2d', makeScene(yaw, pitch) -> scene (built the way the page builds it for a new angle), W, H, ms }
+   * Resolves to { backend, fps, sceneMs, drawMs, frames } (sceneMs: working out the new picture, drawMs: handing it to the screen, both per picture), or { backend, skipped }.
+   */
+  function turning(opts) {
+    var W = opts.W || 900, H = opts.H || 600, n = opts.backend, host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:0;top:0;width:' + W + 'px;height:' + H + 'px;opacity:.01;pointer-events:none;z-index:-1'; document.body.appendChild(host);
+    var make = n === 'webgpu' ? NFMRender.createWebGPU : n === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D;
+    var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
+    return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
+      r.resize(W, H, 1);
+      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, hidden = false, budget = opts.ms || 1300;
+      var loop = function () {
+        var f = frames / 90, yaw = 0.6 + 6.2832 * f, pitch = 0.35 + 0.3 * Math.sin(6.2832 * f), z = 1 + 0.35 * Math.sin(6.2832 * f * 0.5);
+        var a = nowMs(), sc = opts.makeScene(yaw, pitch), b = nowMs();
+        r.setScene(sc); var v = fitView(sc, W, H); v.k *= z; v.tx = W / 2 - (W / 2 - v.tx) * z; v.ty = H / 2 - (H / 2 - v.ty) * z; r.draw(v);
+        var c = nowMs(); frames++;
+        if (frames > 3) { sceneT += b - a; drawT += c - b; }
+        return r.flush().then(function () { return nextRefresh(); }).then(function (ok) {
+          if (!ok) { hidden = true; return; }
+          if (frames === 3) t1 = nowMs(); else if (frames > 3) counted++;
+          if (nowMs() - start < budget && frames < 600) return loop();
+        });
+      };
+      return loop().then(function () {
+        var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
+        return gone(hidden || counted < 4 ? { backend: n, skipped: 'the page was in the background' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, frames: counted });
+      });
+    }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
+  }
+  /**
+   * env: { makeScene(kind: 'sample'|'stress') -> scene, onStep(text), makeTurnScene() -> function (yaw, pitch) -> scene [optional: adds the 3D turning test] }
+   * Resolves to { verdict: 'good'|'okay'|'limited', headline, lines: [{ok, text}], data }
+   */
+  function check(env) {
+    var lines = [], data = { backends: {} }, step = function (t) { if (env.onStep) env.onStep(t); };
+    var say = function (ok, text) { lines.push({ ok: ok, text: text }); };
+    var t0 = nowMs();
+    step('Testing each way of drawing…');
+    return canary().then(function (c) {
+      data.canary = c;
+      say(c.canvas2d.ok, c.canvas2d.ok ? 'Basic drawing works.' : 'Basic drawing has a problem: ' + c.canvas2d.why + '.');
+      say(c.worker.ok, c.worker.ok ? 'Background helper works, so big maps will not freeze the page while they are worked out.' : 'The background helper is not available (' + c.worker.why + '). Maps will still work, but a big one can freeze the page for a moment.');
+      ['webgpu', 'webgl2'].forEach(function (n) {
+        var r = c[n], nm = n === 'webgpu' ? 'WebGPU' : 'WebGL 2';
+        if (r.ok && r.software) say(null, nm + ' is there but runs on the processor, not a graphics chip. It is skipped; the map uses the faster path.');
+        else if (r.ok) say(true, nm + ' works' + (r.device ? ' (' + r.device + ')' : '') + '.');
+        else say(null, nm + ' is not usable here' + (r.why ? ': ' + r.why : '') + '.');
+      });
+      var names = ['canvas2d']; if (c.webgl2.ok && !c.webgl2.software) names.push('webgl2'); if (c.webgpu.ok && !c.webgpu.software) names.push('webgpu');
+      return names;
+    }).then(function (names) {
+      step('Drawing a sample map three ways and comparing…');
+      var sample = env.makeScene('sample'), W = 480, H = 320, ref = null, chain = Promise.resolve();
+      names.forEach(function (n) {
+        chain = chain.then(function () {
+          var host = document.createElement('div'); host.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + W + 'px;height:' + H + 'px';
+          document.body.appendChild(host);
+          var make = n === 'webgpu' ? NFMRender.createWebGPU : n === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D;
+          return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
+            r.setScene(sample); r.resize(W, H, 1); r.draw(fitView(sample, W, H));
+            var snap = r.snapshot(); /* must be taken in the same task as the drawing, or a graphics canvas hands back a blank picture */
+            return r.flush().then(function () {
+              r.destroy(); host.remove();
+              if (n === 'canvas2d') { ref = snap; data.backends[n] = { ok: true }; }
+              else {
+                var d = diff(ref, snap), ok = d.mean <= 1.5 && d.badShare < 0.01;
+                data.backends[n] = { ok: ok, mean: d.mean, badShare: d.badShare };
+                say(ok, (n === 'webgpu' ? 'WebGPU' : 'WebGL 2') + ' draws the same picture as basic drawing (average difference ' + d.mean.toFixed(2) + ' out of 255).' + (ok ? '' : ' That is too different, so it will not be used automatically.'));
+              }
+            });
+          }).catch(function (err) { try { host.remove(); } catch (e) { /* none */ } data.backends[n] = { ok: false, why: String(err && err.message || err) }; if (n !== 'canvas2d') say(null, (n === 'webgpu' ? 'WebGPU' : 'WebGL 2') + ' could not draw the sample (' + (err && err.message) + ').'); });
+        });
+      });
+      return chain.then(function () { return names; });
+    }).then(function (names) {
+      step('Timing a large map…');
+      var stress = env.makeScene('stress'), W = 900, H = 600, results = [], chain = Promise.resolve(), soft = (data.canary.webgl2.software || data.canary.webgpu.software);
+      names.filter(function (n) { return data.backends[n] && data.backends[n].ok; }).forEach(function (n) {
+        chain = chain.then(function () {
+          var host = document.createElement('div'); host.style.cssText = 'position:fixed;left:0;top:0;width:' + W + 'px;height:' + H + 'px;opacity:.01;pointer-events:none;z-index:-1';
+          document.body.appendChild(host);
+          var make = n === 'webgpu' ? NFMRender.createWebGPU : n === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D;
+          return make(host, {}).then(function (r) {
+            r.setScene(stress); r.resize(W, H, 1);
+            /* one picture per screen refresh, as the real map does: this measures what a person would see, and it cannot flood the graphics queue */
+            var v = fitView(stress, W, H), frames = 0, counted = 0, start = nowMs(), t1 = 0, hidden = false;
+            var loop = function () {
+              v.tx += (frames % 2 ? 3 : -3); r.draw(v); frames++;
+              return r.flush().then(function () { return nextRefresh(); }).then(function (ok) {
+                if (!ok) { hidden = true; return; }
+                if (frames === 3) t1 = nowMs(); else if (frames > 3) counted++;
+                if (nowMs() - start < 1300 && frames < 600) return loop();
+              });
+            };
+            return loop().then(function () {
+              var secs = Math.max(0.05, (nowMs() - t1) / 1000), fps = counted / secs; r.destroy(); host.remove();
+              if (!hidden && counted > 3) { results.push({ n: n, fps: fps }); data.backends[n].fps = fps; }
+              else data.backends[n].fps = null;
+            });
+          }).catch(function () { try { host.remove(); } catch (e) { /* none */ } });
+        });
+      });
+      var turn = null;
+      chain = chain.then(function () {
+        var top = results.slice().sort(function (a, b) { return b.fps - a.fps; })[0];
+        if (!env.makeTurnScene || !top) return null;
+        step('Turning a 3D map…');
+        return turning({ backend: top.n, makeScene: env.makeTurnScene(), W: W, H: H }).then(function (t) { turn = t; });
+      });
+      return chain.then(function () {
+        var rounded = typeof EnvProbes !== 'undefined' && EnvProbes.timerRounded && EnvProbes.timerRounded();
+        results.forEach(function (r) {
+          var nm = r.n === 'webgpu' ? 'WebGPU' : r.n === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
+          say(r.fps >= 45 ? true : r.fps >= 20 ? null : false, nm + ': about ' + (r.fps >= 100 ? Math.round(r.fps / 10) * 10 : Math.round(r.fps)) + ' pictures per second on a large map (' + stress.nodes.length.toLocaleString('en-US') + ' items, ' + (stress.curves.length + stress.ribbons.length).toLocaleString('en-US') + ' links).' + (rounded ? ' This browser blurs its clock, so treat this as a rough number.' : ''));
+        });
+        if (turn && turn.fps) {
+          var tf = turn.fps >= 100 ? Math.round(turn.fps / 10) * 10 : Math.round(turn.fps);
+          say(turn.fps >= 45 ? true : turn.fps >= 20 ? null : false, 'Turning a 3D map: about ' + tf + ' pictures per second' + (turn.fps < 45 ? ' (working out each new angle takes ' + turn.sceneMs.toFixed(1) + ' ms and drawing it ' + turn.drawMs.toFixed(1) + ' ms)' : '') + '. ' + (turn.fps >= 45 ? 'Rotating and zooming will feel smooth.' : turn.fps >= 20 ? 'Rotating works but will feel a little steppy on big maps.' : 'Rotating a big 3D map will feel choppy here.'));
+          data.turn = { backend: turn.backend, fps: turn.fps, sceneMs: turn.sceneMs, drawMs: turn.drawMs };
+        } else if (turn && turn.skipped) data.turn = { backend: turn.backend, skipped: turn.skipped };
+        if (soft) say(null, 'Speed for the graphics paths that run on the processor is not reported, because it would say little about a real graphics chip.');
+        var best = results.slice().sort(function (a, b) { return b.fps - a.fps; })[0], canvasOk = data.canary.canvas2d.ok;
+        var verdict, headline;
+        if (!canvasOk) { verdict = 'limited'; headline = 'Drawing is restricted in this browser, so maps may look slightly off.'; }
+        else if (!best) { verdict = 'okay'; headline = 'Maps will work. I could not time them (the page may be in the background), so run the check again with this page in front.'; }
+        else if (best.fps >= 45) { verdict = 'good'; headline = 'This device handles big maps smoothly. It will draw with ' + (best.n === 'webgpu' ? 'WebGPU' : best.n === 'webgl2' ? 'WebGL 2' : 'basic drawing') + '.'; }
+        else if (best.fps >= 20) { verdict = 'okay'; headline = 'This device handles medium maps well and big ones a bit slowly. Panning a huge map may stutter.'; }
+        else { verdict = 'limited'; headline = 'Big maps will be slow here. Small and medium maps are fine; for a huge one, filter it down first.'; }
+        data.best = best && best.n;
+        if (!env.cardCheck) { data.seconds = (nowMs() - t0) / 1000; data.verdict = verdict; return { verdict: verdict, headline: headline, lines: lines, data: data }; }
+        /* the graphics card as a calculator: does the big-arrangement path work and pay off here? */
+        step('Timing a big arrangement on the graphics card…');
+        return env.cardCheck().then(function (cc) {
+          data.card = cc.data || null; cc.lines.forEach(function (l) { say(l.ok, l.text); });
+          if (cc.problem) { if (verdict === 'good') verdict = 'okay'; headline += ' ' + cc.problem; }
+          data.seconds = (nowMs() - t0) / 1000; data.verdict = verdict;
+          return { verdict: verdict, headline: headline, lines: lines, data: data };
+        }, function (err) { say(null, 'The graphics-card arrangement test could not run (' + String(err && err.message || err).slice(0, 100) + ').'); data.seconds = (nowMs() - t0) / 1000; data.verdict = verdict; return { verdict: verdict, headline: headline, lines: lines, data: data }; });
+      });
+    });
+  }
+
+  return { canary: canary, check: check, turning: turning, fitView: fitView, testCanvas2D: testCanvas2D, testWebGL2: testWebGL2, testWebGPU: testWebGPU, testWorker: testWorker };
+})();
+
 /* ---- bench/tester/tester.js ---- */
 /* Copyright (c) 2026 LFC Foundry. MIT License.
  * Net Flow Map Tester: opens, runs the research checks by itself, explains each result in plain words, and writes a results file (.md).
@@ -4904,20 +6402,24 @@ var NFMGpuStress = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.15.1711', EDGE = 130;
+  var VERSION = '2026.10.15.1812', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
   /* ------------------------------------------------------------- small helpers */
   function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+  /** Distance error colors (lower is truer): green to 0.147, light green to 0.154, yellow to 0.165, orange to 0.199, red above. */
+  function errCls(v) { var x = Number(v); return !isFinite(x) ? '' : x <= 0.1475 ? 'e1' : x <= 0.1545 ? 'e2' : x <= 0.1655 ? 'e3' : x < 0.2 ? 'e4' : 'e5'; }
+  function tintNums(t) { return esc(t).replace(/\b\d\.\d{3}\b/g, function (m) { var c = errCls(m); return c ? '<span class="' + c + '">' + m + '</span>' : m; }); }
+  function tintSay(t) { return esc(t).replace(/(distance error )(\d\.\d+)( against )?(\d\.\d+)?/g, function (m, a, v1, mid, v2) { return a + '<span class="' + errCls(v1) + '">' + v1 + '</span>' + (mid && v2 ? mid + '<span class="' + errCls(v2) + '">' + v2 + '</span>' : ''); }); }
   function setStatus(t) { $('status').textContent = t; }
   function setBar() { $('barfill').style.width = Math.min(100, Math.round(100 * doneSteps / total)) + '%'; }
   function addSection(title) {
     var card = document.createElement('div'); card.className = 'card'; card.innerHTML = '<h2></h2><div class="verdict note">Working…</div><div class="tw"></div>'; card.firstChild.textContent = title; $('out').appendChild(card);
     var s = { title: title, verdict: '', level: 'ok', head: null, rows: [], notes: [], card: card };
     s.finish = function (level, verdict) {
-      s.level = level; s.verdict = verdict; var v = card.querySelector('.verdict'); v.className = 'verdict ' + level; v.textContent = verdict;
-      if (s.head) { var h = '<table><thead><tr>' + s.head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>' + s.rows.map(function (r) { return '<tr>' + r.map(function (x) { return '<td>' + esc(x) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; card.querySelector('.tw').innerHTML = h; }
+      s.level = level; s.verdict = verdict; var v = card.querySelector('.verdict'); v.className = 'verdict ' + level; v.innerHTML = tintSay(verdict);
+      if (s.head) { var h = '<table><thead><tr>' + s.head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>' + s.rows.map(function (r) { var rowErr = /distance error|^After \d+ steps|CPU math \/ graphics card/i.test(r[0]); return '<tr>' + r.map(function (x, ci) { return '<td>' + (rowErr && ci > 0 || /truth|distance error/i.test(s.head[ci] || '') ? tintNums(x) : esc(x)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; card.querySelector('.tw').innerHTML = h; }
       s.notes.forEach(function (n) { var p = document.createElement('p'); p.className = 'note'; p.textContent = n; card.appendChild(p); });
     };
     sections.push(s); return s;
@@ -4938,12 +6440,12 @@ var NFMGpuStress = (function () {
     return { k: k, off: off, nbr: Uint32Array.from(nbrArr), ids: members.map(function (v) { return g.nodes[v].id; }) };
   }
   /** The truth score used by every benchmark: 60 breadth-first sources, best-scale fit, mean of (hops - scale*distance)^2 / hops^2. Lower is truer. */
-  function truth(P, X) {
-    var k = P.k, ns = Math.min(60, k), stride = k > 3000 ? 7 : 1, dist = new Int32Array(k), q = new Int32Array(k), num = 0, den = 0, pairs = [], s, t;
+  function truth(P, X, dim) {
+    dim = dim || 2; var k = P.k, ns = Math.min(60, k), stride = k > 3000 ? 7 : 1, dist = new Int32Array(k), q = new Int32Array(k), num = 0, den = 0, pairs = [], s, t;
     for (s = 0; s < ns; s++) {
       var src = Math.floor(s * k / ns); dist.fill(-1); dist[src] = 0; q[0] = src; var h = 0, tl = 1;
       while (h < tl) { var u = q[h++]; for (var e = P.off[u]; e < P.off[u + 1]; e++) { var w = P.nbr[e]; if (dist[w] < 0) { dist[w] = dist[u] + 1; q[tl++] = w; } } }
-      for (t = 0; t < k; t += stride) if (t !== src && dist[t] > 0) { var ex = Math.hypot(X[2 * src] - X[2 * t], X[2 * src + 1] - X[2 * t + 1]); pairs.push(dist[t], ex); num += ex / dist[t]; den += ex * ex / (dist[t] * dist[t]); }
+      for (t = 0; t < k; t += stride) if (t !== src && dist[t] > 0) { var ex = dim === 2 ? Math.hypot(X[2 * src] - X[2 * t], X[2 * src + 1] - X[2 * t + 1]) : Math.hypot(X[3 * src] - X[3 * t], X[3 * src + 1] - X[3 * t + 1], X[3 * src + 2] - X[3 * t + 2]); pairs.push(dist[t], ex); num += ex / dist[t]; den += ex * ex / (dist[t] * dist[t]); }
     }
     var sc = num / den, st = 0; for (s = 0; s < pairs.length; s += 2) { var d = pairs[s], ee = pairs[s + 1]; st += Math.pow(d - sc * ee, 2) / (d * d); }
     return st / (pairs.length / 2);
@@ -5007,7 +6509,8 @@ var NFMGpuStress = (function () {
     else {
       var sch0 = G.sgdSchedule(P.k, r2.sched.sweeps, r2.maxD, r2.seed, r2.sched.hi, r2.sched.lo, r2.sched.smooth), pm0 = G.permFor(P.k, r2.seed), Xq = G.sgdCpu(r2.X0, D, P.k, S, EDGE, sch0, pm0), sg2 = pairStress(r2.X, D, P.k, S), sq = pairStress(Xq, D, P.k, S);
       sdiff = Math.abs(sg2 - sq) / sq * 100; for (i = 0; i < P.k; i++) smove += Math.hypot(r2.X[2 * i] - Xq[2 * i], r2.X[2 * i + 1] - Xq[2 * i + 1]); smove = smove / P.k / EDGE;
-      okSgd = sdiff < 2;   // positions can drift apart (many tiny steps, 32-bit against 64-bit), the distance error is what must agree sgdRows.push(['Parallel pairs (' + r2.sweeps + ' sweeps): CPU math / graphics card', r3(sq) + ' / ' + r3(sg2)], ['Parallel pairs: difference / average item difference', r1(sdiff) + '% / ' + r3(smove)]);
+      okSgd = sdiff < 2;   // positions can drift apart (many tiny steps, 32-bit against 64-bit), the distance error is what must agree
+      sgdRows.push(['Parallel pairs (' + r2.sweeps + ' sweeps): CPU math / graphics card', r3(sq) + ' / ' + r3(sg2)], ['Parallel pairs: difference / average item difference', r1(sdiff) + '% / ' + r3(smove)]);
     }
     s.head = ['Check', 'Result']; s.rows = [['Items', String(P.k)], ['Hop table: entries that differ from the CPU table', bad + ' of ' + (P.k * P.k)], ['Distance error at the start (sketch)', r3(s0)], ['After ' + steps + ' steps, CPU math', r3(sc)], ['After ' + steps + ' steps, graphics card', r3(sg)], ['Difference', r1(diff) + '%'], ['Average item difference (share of one link)', r3(move)]].concat(sgdRows);
     okSteps = okSteps && okSgd; var level = okTable && okSteps ? 'ok' : 'bad';
@@ -5146,6 +6649,60 @@ var NFMGpuStress = (function () {
     s.finish('ok', say); return { level: 'ok', say: say };
   } });
 
+
+  /* ------------------------------------------------------------- 3D: layouts, turning speed, spinning previews */
+  var previews = [];
+  /** A draggable, spinning picture of a 3D layout, drawn with the app's own scene and renderer. Spins when visible; click to pause; drag to turn; wheel to zoom. */
+  async function addPreview(card, L3, title, backend) {
+    var wrap = document.createElement('div'); wrap.style.cssText = 'margin:8px 0'; var cap = document.createElement('div'); cap.className = 'note'; cap.textContent = title + ' (drag to turn, wheel to zoom, click to pause)'; wrap.appendChild(cap);
+    var host = document.createElement('div'); host.style.cssText = 'position:relative;width:100%;height:320px;border:1px solid var(--line);border-radius:8px;overflow:hidden;touch-action:none;cursor:grab'; wrap.appendChild(host); card.appendChild(wrap);
+    var make = backend === 'webgpu' ? NFMRender.createWebGPU : backend === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D, r;
+    try { r = await make(host, {}); } catch (e) { cap.textContent = title + ': could not draw the preview (' + String(e && e.message || e).slice(0, 80) + ')'; return; }
+    var W = host.clientWidth || 600, H = 320, st = { yaw: 0.6, pitch: 0.35, zoom: 1, paused: false, drag: null, visible: true };
+    var draw = function () { var sc = NFMScene.make(L3, { colorBy: 'group', theme: matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light', cam: { yaw: st.yaw, pitch: st.pitch, persp: 2.4 } }); r.setScene(sc); r.resize(W, H, 1); var v = NFMProbe.fitView(sc, W, H); v.k *= st.zoom; v.tx = W / 2 - (W / 2 - v.tx) * st.zoom; v.ty = H / 2 - (H / 2 - v.ty) * st.zoom; r.draw(v); };
+    host.addEventListener('pointerdown', function (e) { st.drag = { x: e.clientX, y: e.clientY, moved: false }; host.setPointerCapture(e.pointerId); host.style.cursor = 'grabbing'; });
+    host.addEventListener('pointermove', function (e) { if (!st.drag) return; var dx = e.clientX - st.drag.x, dy = e.clientY - st.drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) st.drag.moved = true; st.drag.x = e.clientX; st.drag.y = e.clientY; st.yaw += dx * 0.01; st.pitch = Math.max(-1.4, Math.min(1.4, st.pitch + dy * 0.01)); draw(); });
+    host.addEventListener('pointerup', function () { if (st.drag && !st.drag.moved) st.paused = !st.paused; st.drag = null; host.style.cursor = 'grab'; });
+    host.addEventListener('wheel', function (e) { e.preventDefault(); st.zoom = Math.max(0.4, Math.min(4, st.zoom * Math.exp(-e.deltaY * 0.001))); draw(); }, { passive: false });
+    if (typeof IntersectionObserver !== 'undefined') new IntersectionObserver(function (en) { st.visible = en[0].isIntersecting; }).observe(host);
+    draw(); previews.push({ st: st, draw: draw });
+  }
+  function startPreviews() {
+    if (!previews.length || startPreviews.on) return; startPreviews.on = true; var last = 0;
+    (function tick(ts) { if (ts - last > 33 && !document.hidden) { last = ts; previews.forEach(function (p) { if (p.st.visible && !p.st.paused && !p.st.drag) { p.st.yaw += 0.012; p.draw(); } }); } requestAnimationFrame(tick); })(0);
+  }
+  STEPS.push({ name: '3D arrangements and turning', run: async function () {
+    var s = addSection('3D arrangements: build time, and how smoothly they turn'), sizes = params.get('plan3d') ? params.get('plan3d').split(',').map(Number) : QUICK ? [600] : [1000, 3000], kinds = [['force3d', '3D force'], ['sphere', 'Sphere'], ['stack', 'Stacked group planes']];
+    s.head = ['Items', 'Arrangement', 'Build time', 'Hop error in 3D']; var scenes = [], previewL = null;
+    for (var zi = 0; zi < sizes.length; zi++) for (var ki = 0; ki < kinds.length; ki++) {
+      var n = sizes[zi], ar = kinds[ki][0]; setStatus('3D, ' + n.toLocaleString() + ' items: ' + kinds[ki][1] + '…'); await yieldUI();
+      var g = graphFor('moderate', n), P = piece(g), dg = C.derive(JSON.parse(JSON.stringify(g))), t0 = now(), L3;
+      try { L3 = E.build(dg, { view: 'network', arrange: ar, colorBy: 'group' }); } catch (e) { s.rows.push([n.toLocaleString(), kinds[ki][1], 'failed', String(e && e.message || e).slice(0, 40)]); continue; }
+      var ms = now() - t0, X = new Float64Array(3 * P.k), pm = new Map(); L3.nodes.forEach(function (nd) { pm.set(nd.nodeId || nd.id, nd); });
+      P.ids.forEach(function (id, i) { var nd = pm.get(id) || { cx: 0, cy: 0, z: 0 }; X[3 * i] = nd.cx; X[3 * i + 1] = nd.cy; X[3 * i + 2] = nd.z || 0; });
+      s.rows.push([n.toLocaleString(), kinds[ki][1], fmtMs(ms), r3(truth(P, X, 3))]);
+      if (ar === 'force3d') scenes.push({ n: n, L3: L3 }); if (!previewL && ar === 'force3d') previewL = { L3: L3, n: n };
+      await yieldUI();
+    }
+    /* turning speed with each usable way of drawing, on the force layout of each size */
+    var c = await NFMProbe.canary(), names = ['canvas2d']; if (c.webgl2.ok && !c.webgl2.software) names.push('webgl2'); if (c.webgpu.ok && !c.webgpu.software) names.push('webgpu');
+    var turnRows = [], best = null; ctx.turn = [];
+    for (var si = 0; si < scenes.length; si++) for (var bi = 0; bi < names.length; bi++) {
+      setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + '…'); await yieldUI();
+      var Lx = scenes[si].L3, t = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, makeScene: function (yaw, pitch) { return NFMScene.make(Lx, { colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      var nm = names[bi] === 'webgpu' ? 'WebGPU' : names[bi] === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
+      if (t.fps) { turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm, Math.round(t.fps), r1(t.sceneMs), r1(t.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], fps: r1(t.fps), sceneMs: r1(t.sceneMs), drawMs: r1(t.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || t.fps > best.fps)) best = t; }
+      else turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm, 'skipped', '-', String(t.skipped).slice(0, 40)]);
+    }
+    s.rows.push(['', '', '', '']); s.rows.push(['Turning speed', 'Pictures per second', 'New angle (ms)', 'Draw (ms)']); turnRows.forEach(function (r) { s.rows.push(r); });
+    if (previewL) await addPreview(s.card, previewL.L3, '3D force, ' + previewL.n.toLocaleString() + ' items', names[names.length - 1]);
+    s.notes.push('Hop error in 3D uses the same measure as the distance error but with three dimensions; it is lower than a flat map would give and is not colored, because the bands are for flat maps. The sphere and stacked planes are shapes first, so their hop error is higher by design. "New angle" is the time to work out the picture from the new viewing angle (done on the main thread, once per picture); "Draw" is the time to hand it to the screen.');
+    var say, level = 'ok';
+    if (!best) { say = 'Built the 3D arrangements, but could not time turning (the page may have been in the background).'; level = 'warn'; }
+    else { say = 'Turning a ' + sizes[sizes.length - 1].toLocaleString() + '-item 3D map ran at about ' + Math.round(best.fps) + ' pictures per second (' + r1(best.sceneMs) + ' ms to work out each new angle, ' + r1(best.drawMs) + ' ms to draw).' + (best.fps >= 45 ? ' Smooth.' : best.fps >= 20 ? ' Usable but a little steppy.' : ' Choppy.'); level = best.fps >= 45 ? 'ok' : best.fps >= 20 ? 'warn' : 'bad'; }
+    s.finish(level, say); return { level: level, say: say };
+  } });
+
   (params.get('extras') ? STEPS : []).push({ name: 'Browser checks', run: async function () {
     var s = addSection('Smaller checks: random draws, CSV reading, Force arrangement'), rows = [];
     s.head = ['Check', 'Run 1', 'Run 2', 'Run 3', 'Run 4', 'Run 5']; setStatus('Random draws…'); await yieldUI();
@@ -5163,7 +6720,7 @@ var NFMGpuStress = (function () {
   function buildMd(elapsed) {
     var L = ['# Net Flow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
-    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, small: ctx.small || null }, null, 1), '```', '');
+    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, turn: ctx.turn || null, small: ctx.small || null }, null, 1), '```', '');
     return L.join('\n');
   }
   function offerResults(md, elapsed) {
@@ -5174,13 +6731,13 @@ var NFMGpuStress = (function () {
     window.__NFM_TESTER_RESULT = { md: md, sections: sections.map(function (s) { return { title: s.title, level: s.level, verdict: s.verdict }; }), ctx: ctx };
   }
   async function runAll() {
-    if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; doneSteps = 0; total = STEPS.length; setBar(); t0Run = now();
+    if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; doneSteps = 0; if (params.get('only')) { var keep = STEPS.filter(function (x) { return x.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }); if (keep.length) { STEPS.length = 0; keep.forEach(function (x) { STEPS.push(x); }); } } total = STEPS.length; setBar(); t0Run = now();
     for (var i = 0; i < STEPS.length; i++) {
       setStatus('Step ' + (i + 1) + ' of ' + STEPS.length + ': ' + STEPS[i].name + '…'); await yieldUI();
       try { await STEPS[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(STEPS[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
       doneSteps = i + 1; setBar();
     }
-    var el = now() - t0Run; setStatus('Finished in ' + fmtMs(el) + '.'); offerResults(buildMd(el), el); running = false;
+    var el = now() - t0Run; setStatus('Finished in ' + fmtMs(el) + '.'); offerResults(buildMd(el), el); startPreviews(); running = false;
   }
   $('again').onclick = function () { runAll(); };
   window.addEventListener('load', function () { setTimeout(runAll, 400); });

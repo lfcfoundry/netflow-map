@@ -132,6 +132,11 @@ var NFMTune = (function () {
       return { profile: prof, rows: rows, variants: variants, verdict: verdict };
     } finally { try { if (c.w) c.w.terminate(); } catch (e) { /* gone */ } }
   }
-  return { run: run, checkCard: checkCard, measure: measure, deviceKey: deviceKey, lawAt: lawAt, VERSION: VERSION };
+  /** How good a distance error is (lower is truer), from the measured ranges: e1 excellent (to 0.147), e2 very good (to 0.154), e3 good (to 0.165), e4 fair (to 0.199), e5 poor. */
+  function errBand(v) {
+    var x = Number(v); if (!isFinite(x)) return null;
+    return x <= 0.1475 ? { cls: 'e1', word: 'excellent' } : x <= 0.1545 ? { cls: 'e2', word: 'very good' } : x <= 0.1655 ? { cls: 'e3', word: 'good' } : x < 0.2 ? { cls: 'e4', word: 'fair' } : { cls: 'e5', word: 'poor' };
+  }
+  return { errBand: errBand, run: run, checkCard: checkCard, measure: measure, deviceKey: deviceKey, lawAt: lawAt, VERSION: VERSION };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMTune;

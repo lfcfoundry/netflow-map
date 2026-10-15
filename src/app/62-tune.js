@@ -28,11 +28,27 @@ function runTuning(box, onDone) {
     onDone(r, r.verdict);
   }, function (err) { onDone(null, 'The test ran into a problem (' + String(err && err.message || err).slice(0, 120) + '). Nothing was changed.'); });
 }
+/** A distance error as colored text: green is excellent, through yellow, to red for poor (lower is truer). */
+function errSpan(v) {
+  var b = NFMTune.errBand(v); if (!b) return h('span', null, String(v));
+  return h('span', { class: b.cls, title: 'Distance error ' + v + ': ' + b.word + ' (lower is truer)' }, String(v));
+}
+/** Text with every "distance error 0.159" (and "against 0.164") number colored. Returns an array of strings and spans. */
+function tintErrors(text) {
+  var out = [], re = /(distance error )(\d\.\d+)( against )?(\d\.\d+)?/g, at = 0, m;
+  while ((m = re.exec(text))) {
+    out.push(text.slice(at, m.index) + m[1], errSpan(m[2])); if (m[3] && m[4]) out.push(m[3], errSpan(m[4]));
+    at = m.index + m[0].length;
+  }
+  out.push(text.slice(at)); return out;
+}
 function tuneResultTable(r) {
   if (!r || !r.rows || !r.rows.length) return null;
   var sec = function (ms) { return ms === null || ms === undefined ? '–' : ms >= 1000 ? (ms / 1000).toFixed(1) + ' s' : ms + ' ms'; };
-  return h('table', { class: 'small', style: { borderCollapse: 'collapse', width: '100%' } }, [h('tr', null, ['Items', 'Processor', 'Graphics card'].map(function (t) { return h('th', { style: { textAlign: 'left', padding: '2px 8px 2px 0' } }, t); }))].concat(
-    r.rows.map(function (x) { return h('tr', null, [nfmt(x.n), sec(x.cpuMs), sec(x.cardMs)].map(function (t) { return h('td', { style: { padding: '2px 8px 2px 0' } }, t); })); })));
+  var th = function (t) { return h('th', { style: { textAlign: 'left', padding: '2px 8px 2px 0' } }, t); }, td = function (t) { return h('td', { style: { padding: '2px 8px 2px 0' } }, t); };
+  var err = function (v) { return v === null || v === undefined ? '–' : errSpan(v); };
+  return h('table', { class: 'small', style: { borderCollapse: 'collapse', width: '100%' } }, [h('tr', null, ['Items', 'Processor', 'Graphics card', 'Distance error (processor / card)'].map(th))].concat(
+    r.rows.map(function (x) { return h('tr', null, [td(nfmt(x.n)), td(sec(x.cpuMs)), td(sec(x.cardMs)), td([err(x.cpuTruth), ' / ', err(x.cardTruth)])]); })));
 }
 /** The question at first start (mode 'ask'), or the same dialog started from a button (mode 'again'). */
 function tuneDialog(mode) {

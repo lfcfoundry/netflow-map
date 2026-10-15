@@ -98,7 +98,38 @@ var NFMProbe = (function () {
     return { k: k, tx: (w - S.w * k) / 2 - S.x0 * k, ty: (h - S.h * k) / 2 - S.y0 * k };
   }
   /**
-   * env: { makeScene(kind: 'sample'|'stress') -> scene, onStep(text) }
+   * Speed of turning a 3D map: one picture per screen refresh, each from a new angle and zoom, for about 1.3 seconds.
+   * opts: { backend: 'webgpu'|'webgl2'|'canvas2d', makeScene(yaw, pitch) -> scene (built the way the page builds it for a new angle), W, H, ms }
+   * Resolves to { backend, fps, sceneMs, drawMs, frames } (sceneMs: working out the new picture, drawMs: handing it to the screen, both per picture), or { backend, skipped }.
+   */
+  function turning(opts) {
+    var W = opts.W || 900, H = opts.H || 600, n = opts.backend, host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:0;top:0;width:' + W + 'px;height:' + H + 'px;opacity:.01;pointer-events:none;z-index:-1'; document.body.appendChild(host);
+    var make = n === 'webgpu' ? NFMRender.createWebGPU : n === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D;
+    var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
+    return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
+      r.resize(W, H, 1);
+      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, hidden = false, budget = opts.ms || 1300;
+      var loop = function () {
+        var f = frames / 90, yaw = 0.6 + 6.2832 * f, pitch = 0.35 + 0.3 * Math.sin(6.2832 * f), z = 1 + 0.35 * Math.sin(6.2832 * f * 0.5);
+        var a = nowMs(), sc = opts.makeScene(yaw, pitch), b = nowMs();
+        r.setScene(sc); var v = fitView(sc, W, H); v.k *= z; v.tx = W / 2 - (W / 2 - v.tx) * z; v.ty = H / 2 - (H / 2 - v.ty) * z; r.draw(v);
+        var c = nowMs(); frames++;
+        if (frames > 3) { sceneT += b - a; drawT += c - b; }
+        return r.flush().then(function () { return nextRefresh(); }).then(function (ok) {
+          if (!ok) { hidden = true; return; }
+          if (frames === 3) t1 = nowMs(); else if (frames > 3) counted++;
+          if (nowMs() - start < budget && frames < 600) return loop();
+        });
+      };
+      return loop().then(function () {
+        var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
+        return gone(hidden || counted < 4 ? { backend: n, skipped: 'the page was in the background' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, frames: counted });
+      });
+    }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
+  }
+  /**
+   * env: { makeScene(kind: 'sample'|'stress') -> scene, onStep(text), makeTurnScene() -> function (yaw, pitch) -> scene [optional: adds the 3D turning test] }
    * Resolves to { verdict: 'good'|'okay'|'limited', headline, lines: [{ok, text}], data }
    */
   function check(env) {
@@ -170,12 +201,24 @@ var NFMProbe = (function () {
           }).catch(function () { try { host.remove(); } catch (e) { /* none */ } });
         });
       });
+      var turn = null;
+      chain = chain.then(function () {
+        var top = results.slice().sort(function (a, b) { return b.fps - a.fps; })[0];
+        if (!env.makeTurnScene || !top) return null;
+        step('Turning a 3D map…');
+        return turning({ backend: top.n, makeScene: env.makeTurnScene(), W: W, H: H }).then(function (t) { turn = t; });
+      });
       return chain.then(function () {
         var rounded = typeof EnvProbes !== 'undefined' && EnvProbes.timerRounded && EnvProbes.timerRounded();
         results.forEach(function (r) {
           var nm = r.n === 'webgpu' ? 'WebGPU' : r.n === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
           say(r.fps >= 45 ? true : r.fps >= 20 ? null : false, nm + ': about ' + (r.fps >= 100 ? Math.round(r.fps / 10) * 10 : Math.round(r.fps)) + ' pictures per second on a large map (' + stress.nodes.length.toLocaleString('en-US') + ' items, ' + (stress.curves.length + stress.ribbons.length).toLocaleString('en-US') + ' links).' + (rounded ? ' This browser blurs its clock, so treat this as a rough number.' : ''));
         });
+        if (turn && turn.fps) {
+          var tf = turn.fps >= 100 ? Math.round(turn.fps / 10) * 10 : Math.round(turn.fps);
+          say(turn.fps >= 45 ? true : turn.fps >= 20 ? null : false, 'Turning a 3D map: about ' + tf + ' pictures per second' + (turn.fps < 45 ? ' (working out each new angle takes ' + turn.sceneMs.toFixed(1) + ' ms and drawing it ' + turn.drawMs.toFixed(1) + ' ms)' : '') + '. ' + (turn.fps >= 45 ? 'Rotating and zooming will feel smooth.' : turn.fps >= 20 ? 'Rotating works but will feel a little steppy on big maps.' : 'Rotating a big 3D map will feel choppy here.'));
+          data.turn = { backend: turn.backend, fps: turn.fps, sceneMs: turn.sceneMs, drawMs: turn.drawMs };
+        } else if (turn && turn.skipped) data.turn = { backend: turn.backend, skipped: turn.skipped };
         if (soft) say(null, 'Speed for the graphics paths that run on the processor is not reported, because it would say little about a real graphics chip.');
         var best = results.slice().sort(function (a, b) { return b.fps - a.fps; })[0], canvasOk = data.canary.canvas2d.ok;
         var verdict, headline;
@@ -198,6 +241,6 @@ var NFMProbe = (function () {
     });
   }
 
-  return { canary: canary, check: check, fitView: fitView, testCanvas2D: testCanvas2D, testWebGL2: testWebGL2, testWebGPU: testWebGPU, testWorker: testWorker };
+  return { canary: canary, check: check, turning: turning, fitView: fitView, testCanvas2D: testCanvas2D, testWebGL2: testWebGL2, testWebGPU: testWebGPU, testWorker: testWorker };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMProbe;
