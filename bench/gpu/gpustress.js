@@ -201,8 +201,9 @@ var NFMGpuStress = (function () {
   /** Ask for a device with the adapter's own large-buffer limits. Returns { device, adapter, info, software } or { error }. */
   async function getDevice() {
     if (!navigator.gpu) return { error: 'This browser has no WebGPU.' };
-    var adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-    if (!adapter) return { error: 'No graphics adapter was offered.' };
+    var adapter = null, tries = [{ powerPreference: 'high-performance' }, undefined, { powerPreference: 'low-power' }];
+    for (var ti = 0; ti < tries.length && !adapter; ti++) { try { adapter = await navigator.gpu.requestAdapter(tries[ti]); } catch (e) { adapter = null; } if (!adapter) await new Promise(function (r) { setTimeout(r, 300); }); }
+    if (!adapter) return { error: 'No graphics adapter was offered.', noAdapter: true };
     var info = adapter.info || {}, desc = [info.vendor, info.architecture, info.description || info.device].filter(Boolean).join(' / ');
     var lim = adapter.limits, req = {};
     ['maxStorageBufferBindingSize', 'maxBufferSize', 'maxComputeWorkgroupsPerDimension'].forEach(function (n) { if (lim[n]) req[n] = lim[n]; });
@@ -242,16 +243,19 @@ var NFMGpuStress = (function () {
     var bgAB = bgFor(FA, FB), bgBA = bgFor(FB, FA), gx = Math.ceil(k / 64);
     ms.upload = now() - t1;
     /* the hop table: group after group of 16 batches (512 start items), so the working arrays stay small enough for the card's caches */
-    var t2 = now(), enc = device.createCommandEncoder(), pass = enc.beginComputePass();
+    var t2 = now(), enc = null, pass = null, inEnc = 0, perEnc = Math.max(1, Math.floor(2e6 / (k * Math.max(1, L)) ) );   // a new submission after a few groups: no single job runs long
+    var flush = function () { if (pass) { pass.end(); device.queue.submit([enc.finish()]); pass = null; enc = null; inEnc = 0; } };
     for (var gi = 0; gi < ngr; gi++) {
+      if (!pass) { enc = device.createCommandEncoder(); pass = enc.beginComputePass(); }
       var rows = Math.min(GR, nb - gi * GR), base = gi * (L + 1);
       pass.setPipeline(pInit); pass.setBindGroup(0, bgBA, [base * ua]); pass.dispatchWorkgroups(gx, rows);
       pass.setPipeline(pLevel);
       for (var l = 1; l <= L; l++) { pass.setBindGroup(0, l % 2 ? bgAB : bgBA, [(base + l) * ua]); pass.dispatchWorkgroups(gx, rows); }
+      if (++inEnc >= perEnc) flush();
     }
-    pass.setPipeline(pW); pass.setBindGroup(0, bgAB, [0]); pass.dispatchWorkgroups(gx);
-    pass.end(); device.queue.submit([enc.finish()]);
-    if (prof) { await wait(); ms.table = now() - t2; } else ms.table = null;   // table and weights are one job unless profiling
+    if (!pass) { enc = device.createCommandEncoder(); pass = enc.beginComputePass(); }
+    pass.setPipeline(pW); pass.setBindGroup(0, bgAB, [0]); pass.dispatchWorkgroups(gx); flush();
+    if (prof || k >= 12000) { await wait(); ms.table = now() - t2; } else ms.table = null;   // big sizes wait once here so the card is never given more than a moment of queued work
     RB.destroy(); FA.destroy(); FB.destroy();
     /* the steps */
     var t4 = now(), PBdata, sp, spReduce = null, jchunk = 0, split = 1, sg;
@@ -274,16 +278,21 @@ var NFMGpuStress = (function () {
     }
     var snaps = (opts.snapshots || []).filter(function (x) { return x < steps; }), snapBufs = {};
     snaps.forEach(function (x) { snapBufs[x] = mk(8 * k, GB.COPY_DST | GB.MAP_READ); });
-    var perSubmit = Math.max(1, Math.floor(6e8 / (k * k))), done = 0;   // about 0.2 s of work per submission: no single job runs long enough for the system to reset the card
+    var perSubmit = Math.max(1, Math.floor(1.5e9 / (k * k))), done = 0, sinceWait = 0, rate = 0;   // one submission is meant to be about 0.1 s of work on a mid-range card; the first one is timed and the size adjusted
     while (done < steps) {
       var upto = Math.min(steps, done + perSubmit); snaps.forEach(function (x) { if (x > done && x < upto) upto = x; });
-      var e2 = device.createCommandEncoder(), p2 = e2.beginComputePass();
+      var from = done, e2 = device.createCommandEncoder(), p2 = e2.beginComputePass();
       for (; done < upto; done++) {
         var bg = done % 2 ? stepBG2 : stepBG1;
         p2.setPipeline(sp); p2.setBindGroup(0, bg); if (kernel === 'v1') p2.dispatchWorkgroups(sg); else { p2.dispatchWorkgroups(sg, split); p2.setPipeline(spReduce); p2.setBindGroup(0, bg); p2.dispatchWorkgroups(gx); }
       }
       p2.end(); if (snapBufs[done]) e2.copyBufferToBuffer(done % 2 ? XB : XA, 0, snapBufs[done], 0, 8 * k);
       device.queue.submit([e2.finish()]);
+      if (k >= 8000 && done < steps) {   // pacing: time the first submission, then wait again whenever about half a second of work is queued
+        var nsteps = upto - from;
+        if (!rate) { var tq = now(); await wait(); rate = Math.max(0.05, (now() - tq) / nsteps); perSubmit = Math.max(1, Math.min(steps, Math.round(120 / rate))); }
+        else { sinceWait += nsteps; if (sinceWait * rate > 450) { await wait(); sinceWait = 0; } }
+      }
       if (opts.onProgress) opts.onProgress(done / steps);
     }
     var RD = mk(8 * k, GB.COPY_DST | GB.MAP_READ), e3 = device.createCommandEncoder(); e3.copyBufferToBuffer(done % 2 ? XB : XA, 0, RD, 0, 8 * k);

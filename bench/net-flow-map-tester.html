@@ -17,7 +17,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1557.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1601.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
@@ -4605,8 +4605,9 @@ var NFMGpuStress = (function () {
   /** Ask for a device with the adapter's own large-buffer limits. Returns { device, adapter, info, software } or { error }. */
   async function getDevice() {
     if (!navigator.gpu) return { error: 'This browser has no WebGPU.' };
-    var adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-    if (!adapter) return { error: 'No graphics adapter was offered.' };
+    var adapter = null, tries = [{ powerPreference: 'high-performance' }, undefined, { powerPreference: 'low-power' }];
+    for (var ti = 0; ti < tries.length && !adapter; ti++) { try { adapter = await navigator.gpu.requestAdapter(tries[ti]); } catch (e) { adapter = null; } if (!adapter) await new Promise(function (r) { setTimeout(r, 300); }); }
+    if (!adapter) return { error: 'No graphics adapter was offered.', noAdapter: true };
     var info = adapter.info || {}, desc = [info.vendor, info.architecture, info.description || info.device].filter(Boolean).join(' / ');
     var lim = adapter.limits, req = {};
     ['maxStorageBufferBindingSize', 'maxBufferSize', 'maxComputeWorkgroupsPerDimension'].forEach(function (n) { if (lim[n]) req[n] = lim[n]; });
@@ -4646,16 +4647,19 @@ var NFMGpuStress = (function () {
     var bgAB = bgFor(FA, FB), bgBA = bgFor(FB, FA), gx = Math.ceil(k / 64);
     ms.upload = now() - t1;
     /* the hop table: group after group of 16 batches (512 start items), so the working arrays stay small enough for the card's caches */
-    var t2 = now(), enc = device.createCommandEncoder(), pass = enc.beginComputePass();
+    var t2 = now(), enc = null, pass = null, inEnc = 0, perEnc = Math.max(1, Math.floor(2e6 / (k * Math.max(1, L)) ) );   // a new submission after a few groups: no single job runs long
+    var flush = function () { if (pass) { pass.end(); device.queue.submit([enc.finish()]); pass = null; enc = null; inEnc = 0; } };
     for (var gi = 0; gi < ngr; gi++) {
+      if (!pass) { enc = device.createCommandEncoder(); pass = enc.beginComputePass(); }
       var rows = Math.min(GR, nb - gi * GR), base = gi * (L + 1);
       pass.setPipeline(pInit); pass.setBindGroup(0, bgBA, [base * ua]); pass.dispatchWorkgroups(gx, rows);
       pass.setPipeline(pLevel);
       for (var l = 1; l <= L; l++) { pass.setBindGroup(0, l % 2 ? bgAB : bgBA, [(base + l) * ua]); pass.dispatchWorkgroups(gx, rows); }
+      if (++inEnc >= perEnc) flush();
     }
-    pass.setPipeline(pW); pass.setBindGroup(0, bgAB, [0]); pass.dispatchWorkgroups(gx);
-    pass.end(); device.queue.submit([enc.finish()]);
-    if (prof) { await wait(); ms.table = now() - t2; } else ms.table = null;   // table and weights are one job unless profiling
+    if (!pass) { enc = device.createCommandEncoder(); pass = enc.beginComputePass(); }
+    pass.setPipeline(pW); pass.setBindGroup(0, bgAB, [0]); pass.dispatchWorkgroups(gx); flush();
+    if (prof || k >= 12000) { await wait(); ms.table = now() - t2; } else ms.table = null;   // big sizes wait once here so the card is never given more than a moment of queued work
     RB.destroy(); FA.destroy(); FB.destroy();
     /* the steps */
     var t4 = now(), PBdata, sp, spReduce = null, jchunk = 0, split = 1, sg;
@@ -4678,16 +4682,21 @@ var NFMGpuStress = (function () {
     }
     var snaps = (opts.snapshots || []).filter(function (x) { return x < steps; }), snapBufs = {};
     snaps.forEach(function (x) { snapBufs[x] = mk(8 * k, GB.COPY_DST | GB.MAP_READ); });
-    var perSubmit = Math.max(1, Math.floor(6e8 / (k * k))), done = 0;   // about 0.2 s of work per submission: no single job runs long enough for the system to reset the card
+    var perSubmit = Math.max(1, Math.floor(1.5e9 / (k * k))), done = 0, sinceWait = 0, rate = 0;   // one submission is meant to be about 0.1 s of work on a mid-range card; the first one is timed and the size adjusted
     while (done < steps) {
       var upto = Math.min(steps, done + perSubmit); snaps.forEach(function (x) { if (x > done && x < upto) upto = x; });
-      var e2 = device.createCommandEncoder(), p2 = e2.beginComputePass();
+      var from = done, e2 = device.createCommandEncoder(), p2 = e2.beginComputePass();
       for (; done < upto; done++) {
         var bg = done % 2 ? stepBG2 : stepBG1;
         p2.setPipeline(sp); p2.setBindGroup(0, bg); if (kernel === 'v1') p2.dispatchWorkgroups(sg); else { p2.dispatchWorkgroups(sg, split); p2.setPipeline(spReduce); p2.setBindGroup(0, bg); p2.dispatchWorkgroups(gx); }
       }
       p2.end(); if (snapBufs[done]) e2.copyBufferToBuffer(done % 2 ? XB : XA, 0, snapBufs[done], 0, 8 * k);
       device.queue.submit([e2.finish()]);
+      if (k >= 8000 && done < steps) {   // pacing: time the first submission, then wait again whenever about half a second of work is queued
+        var nsteps = upto - from;
+        if (!rate) { var tq = now(); await wait(); rate = Math.max(0.05, (now() - tq) / nsteps); perSubmit = Math.max(1, Math.min(steps, Math.round(120 / rate))); }
+        else { sinceWait += nsteps; if (sinceWait * rate > 450) { await wait(); sinceWait = 0; } }
+      }
       if (opts.onProgress) opts.onProgress(done / steps);
     }
     var RD = mk(8 * k, GB.COPY_DST | GB.MAP_READ), e3 = device.createCommandEncoder(); e3.copyBufferToBuffer(done % 2 ? XB : XA, 0, RD, 0, 8 * k);
@@ -4744,7 +4753,7 @@ var NFMGpuStress = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.15.1557', EDGE = 130;
+  var VERSION = '2026.10.15.1601', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -4818,7 +4827,7 @@ var NFMGpuStress = (function () {
     var glName = ''; try { var cv = document.createElement('canvas'), gl = cv.getContext('webgl2') || cv.getContext('webgl'), ext = gl && gl.getExtension('WEBGL_debug_renderer_info'); glName = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : ''; } catch (e) { glName = ''; }
     if (glName) rows.push(['Graphics (as the page sees it)', glName]);
     var dev = await G.getDevice().catch(function (e) { return { error: String(e && e.message || e) }; });
-    if (dev.error) { level = 'warn'; say = 'No graphics-card computing in this browser (' + dev.error + '). The graphics-card checks will be skipped; everything else still runs. ' + (/firefox/i.test(ua) ? 'In Firefox, WebGPU is on by default in recent versions on some systems; on others it may need switching on.' : ''); rows.push(['Graphics-card computing (WebGPU)', 'not available']); }
+    if (dev.error) { level = 'warn'; say = 'No graphics-card computing in this browser (' + dev.error + ')' + (dev.noAdapter ? ' If an earlier test run upset the graphics driver, Firefox keeps refusing it until it is fully closed: quit every Firefox window (also from the tray), open it again, then open this file.' : '') + ' The graphics-card checks will be skipped; everything else still runs. ' + (/firefox/i.test(ua) ? 'In Firefox, WebGPU is on by default in recent versions on some systems; on others it may need switching on.' : ''); rows.push(['Graphics-card computing (WebGPU)', 'not available']); }
     else {
       ctx.dev = dev; rows.push(['Graphics-card computing (WebGPU)', 'available']); rows.push(['Graphics adapter', dev.info]); rows.push(['Largest buffer it allows', Math.round(dev.limits.maxStorageBufferBindingSize / 1048576) + ' MB']);
       if (dev.software) { level = 'warn'; say = 'WebGPU is there, but it is a software stand-in (' + dev.info + '), not a real graphics card, so graphics-card timings will not mean much.'; ctx.softGpu = true; }
@@ -4860,7 +4869,7 @@ var NFMGpuStress = (function () {
       P.ids.forEach(function (id, i) { var p = cb.pos.get(id); Xc[2 * i] = p[0]; Xc[2 * i + 1] = p[1]; });
       var tc = truth(P, Xc); setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card…'); await yieldUI();
       var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: 60, snapshots: [20, 40] });
-      if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', '-']); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
+      if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', String(res.error).slice(0, 60)]); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
       var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t40 = truth(P, res.snapshots[40]), ratio = cb.ms / res.ms.total; tried++; ratios.push(ratio); if (ratio > 1) wins++; if (tg <= tc * 1.03) truthOk++; if (tg > Math.min(t20, t40) * 1.05) s.notes.push('At ' + P.k.toLocaleString() + ' items the steps ran away (truth ' + r3(t20) + ' at 20 steps, ' + r3(t40) + ' at 40, ' + r3(tg) + ' at 60).');
       s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), r1(ratio) + '×', r3(t20) + ' / ' + r3(t40)]);
       summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), parts: { sketch: r1(res.ms.start), setup: r1(res.ms.upload), stepsAndTable: r1(res.ms.steps), read: r1(res.ms.read) }, split: res.split, levels: res.levels, t20: r3(t20), t40: r3(t40) });
@@ -4880,10 +4889,9 @@ var NFMGpuStress = (function () {
   } });
 
   STEPS.push({ name: 'Old kernel against new', run: async function () {
-    var s = addSection('Old graphics-card program against the new one');
+    var s = addSection('Graphics-card program variants');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var n = QUICK ? 800 : 10000, big = QUICK ? 1200 : 30000, variants = [
-      ['moderate', 'old program, 60 steps', { kernel: 'v1', steps: 60, snapshots: [20, 40] }],
       ['moderate', 'new program, plain steps, 60', { kernel: 'v2', omega: 1, steps: 60, snapshots: [20, 40] }],
       ['moderate', 'new program, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60, snapshots: [20, 40] }],
       ['moderate', 'new program without tables, relaxed 1.2, 60', { kernel: 'v3', omega: 1.2, steps: 60, snapshots: [20, 40] }],
@@ -4909,8 +4917,8 @@ var NFMGpuStress = (function () {
       if (!rp.error) { prof = { sketch: r1(rp.ms.start), setup: r1(rp.ms.upload), tableAndWeights: r1(rp.ms.table), steps60: r1(rp.ms.steps), read: r1(rp.ms.read), levels: rp.levels }; s.rows.push(['moderate ' + Pm.k.toLocaleString(), 'parts (new program): sketch / setup / table+weights / 60 steps / read-back', prof.sketch + ' / ' + prof.setup + ' / ' + prof.tableAndWeights + ' / ' + prof.steps60 + ' / ' + prof.read + ' ms', '', '', '']); }
     }
     ctx.kernels = { n: n, variants: out, parts: prof };
-    var oldT = out[0], newT = out[2], say = out.length >= 3 ? 'At ' + n.toLocaleString() + ' items the new program takes ' + fmtMs(newT.totalMs) + ' against ' + fmtMs(oldT.totalMs) + ' for the old one (' + r1(oldT.totalMs / newT.totalMs) + '× as fast).' : 'Not enough runs finished to compare.';
-    s.finish('ok', say); return { level: 'ok', say: say };
+    var say = out.length >= 2 ? 'At ' + n.toLocaleString() + ' items the program takes ' + fmtMs(out[1].totalMs) + ' with relaxation 1.2 and ' + fmtMs(out[0].totalMs) + ' with plain steps.' : 'Not enough runs finished to compare.';
+    s.finish(out.length >= 2 ? 'ok' : 'warn', say); return { level: 'ok', say: say };
   } });
 
   STEPS.push({ name: 'Cold start', run: async function () {
