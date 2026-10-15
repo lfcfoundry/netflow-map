@@ -1121,6 +1121,20 @@ The hop table at 20,000 items fell from 1.0 s to 0.29 s (512 start items togethe
 
 Five clean-up steps after the sweeps change little (complex 9,999: 0.148; moderate 10,000: 0.161). More sweeps help a little (moderate 10,000: 2 sweeps 0.164, 3: 0.161, 4: 0.160); 2 sweeps on complex 9,999 give 0.154 in 0.58 s. So the gap on hub-heavy networks closes (0.156 to 0.149 against the processor's 0.147) and on moderate networks the card is truer than the processor (0.161 against 0.164), at about 1.5 times the old steps' time at 10,000 items. Above about 12,000 items it is not worth it: every pair lookup is a random read of one byte from a table of hundreds of megabytes, which costs 1.7 ns each at 10,000 items, 7 ns at 20,000 and 16 ns at 30,000 (6 s and 30 s), for a gain of 0.003 in truth. Reordering the offsets so neighboring dispatches share cache lines did not work: in a processor emulation, running 16 or 64 neighboring offsets together raises the distance error from 0.144 to 0.179 and 0.189 (complex 5,000), and 2 neighboring offsets together is fine (0.144). Policy that follows from this: parallel pairs up to about 12,000 items, the old 40 steps above.
 
+**Seventh run (one smooth sweep; `bench/results/laptop-8845HS-780M-firefox159-tester8.md`).** The step size now shrinks a little with every dispatch instead of only between sweeps, so one sweep does the work of three (processor emulation first: complex 5,000 0.144 with one smooth sweep against 0.144 with three; neighboring-offset ordering stays rejected). On the card, whole job, one smooth sweep against the old 40 steps and the processor:
+
+| network | items | processor | old steps | one smooth sweep | truth, processor / old / new |
+|---|---:|---:|---:|---:|---:|
+| moderate | 2,000 | 0.45 s | 0.23 s | 0.10 s | 0.149 / 0.153 / 0.155 |
+| moderate | 5,000 | 0.52 s | 0.32 s | 0.10 s | 0.159 / 0.155 / 0.155 |
+| moderate | 10,000 | 1.64 s | 0.47 s | 0.30 s | 0.164 / 0.165 / 0.163 |
+| complex | 5,000 | 0.41 s | 0.27 s | 0.10 s | 0.144 / 0.143 / 0.143 |
+| complex | 9,999 | 1.55 s | 0.45 s | 0.30 s | 0.147 / 0.156 / 0.151 |
+| moderate | 20,000 | 5.6 s | 1.09 s | 2.0 s | 0.162 / 0.166 / 0.162 |
+| moderate | 30,000 | 2.4 s (quick) | 1.9 s | 6.1 s | 0.211 / 0.165 / 0.162 |
+
+Variants at about 10,000 items (complex / moderate): two smooth sweeps 0.48 s, truth 0.147 / 0.163 (the processor's 0.147 / 0.164); three smooth sweeps 0.163 on moderate (no gain); three old-style sweeps 0.58 s, 0.149 / 0.161; five clean-up steps after one sweep change nothing; a bigger first step (0.1) the same, smaller steps (0.02) worse (0.155). The sweep part at 10,000 items is 0.30 s including the flat read-back wait. The card now matches the processor's truth on hub-heavy networks and beats it on moderate ones, 3 to 5 times faster, up to about 12,000 items. Above that the pair lookups are random reads from a table of hundreds of megabytes (2.0 s at 20,000 and 6.1 s at 30,000 for a gain of 0.003 to 0.004), so the old 40 steps stay the choice there. Policy that follows: two smooth sweeps up to about 12,000 items, the old 40 steps above.
+
 **The laptop tester.** `node tools/build-tester.mjs` writes one self-contained page, `bench/net-flow-map-tester.html`. Opened in a browser it starts by itself, runs five checks (the computer and its graphics adapter; whether the graphics-card hop table and steps match the processor's; time and truth of the processor's best quality against the graphics card at 2,000 to 20,000 items; first run against later runs; random draws, CSV reading and Force repeated), explains each in plain words, and offers a results file (`net-flow-map-tester-results.md`) to hand back. `?quick=1` makes it small enough to try anywhere; `?plan=moderate:5000` picks the sizes. `node bench/tester/run-local.js <firefox|chromium> [quick]` runs it in this machine's browsers.
 
 ## Reproduce
