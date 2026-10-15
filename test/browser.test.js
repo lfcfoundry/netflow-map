@@ -55,6 +55,27 @@ async function open() {
   say((await ev(() => NFM.state.graph.nodes.length)) === 3, 'notes with [[links]] read, one placeholder');
   await ev(() => NFM.state.hist.length && NFM.showTab('data'));
   await click('#b-undo');
+  /* zips, Excel and graph files go through the real file picker path */
+  {
+    const Z = require('./zipmake.js'), zlib = require('zlib');
+    const feed = async (name, buf) => { await ev(([n, b64]) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); const dt = new DataTransfer(); dt.items.add(new File([u], n)); const inp = document.getElementById('in-files'); inp.files = dt.files; inp.dispatchEvent(new Event('change')); }, [name, buf.toString('base64')]); await sleep(900); };
+    const stats = () => ev(() => ({ n: NFM.state.graph.nodes.length, m: NFM.state.graph.edges.length, notes: Array.from(document.querySelectorAll('#notes li')).map((l) => l.textContent).join(' | ') }));
+    const csv = 'source,target\nA,B\nB,C\n', xl = Z.makeXlsx([{ name: 'Links', rows: [['source', 'target'], ['C', 'D'], ['D', 'E']] }, { name: 'People', rows: [['id', 'label', 'group'], ['A', 'Ann', 'red']] }]);
+    await feed('pack.zip', Z.makeZip([{ name: 'a/edges.csv', data: csv }, { name: 'a/more.json', data: '{"nodes":[{"id":"F"}],"edges":[{"from":"E","to":"F"}]}' }, { name: 'book.xlsx', data: xl }, { name: 'g.graphml', data: '<graphml><graph><node id="F"/><node id="G"/><edge source="F" target="G"/></graph></graphml>' }, { name: 'pic.png', data: Buffer.from([1, 2, 3, 0]) }]));
+    let z = await stats();
+    say(z.n === 7 && z.m === 6, `a zip of CSV, JSON, Excel and GraphML read: ${z.n} items, ${z.m} links`);
+    say(/left alone/.test(z.notes), 'the zip report says what was left alone');
+    await feed('book.xlsx', xl); z = await stats();
+    say(z.n === 4 && z.m === 2, `an Excel file read on its own: ${z.n} items, ${z.m} links`);
+    await feed('bad.zip', Buffer.from('PK\x03\x04 this is not really a zip, only pretending to be one'));
+    z = await stats(); say(/not a zip/.test(z.notes), 'a damaged zip gets a plain-words message');
+    const t0 = Date.now();
+    await feed('bomb.zip', Z.makeZip([{ name: 'big.csv', raw: zlib.deflateRawSync(Buffer.alloc(200e6)), usize: 100, crc: 0, data: 'x' }, { name: 'ok.csv', data: csv }]));
+    z = await stats(); say(Date.now() - t0 < 15000 && /more than it says|damaged/.test(z.notes), 'a zip bomb is stopped and the rest still reads (' + (Date.now() - t0) + ' ms)');
+    await feed('x.gml', Buffer.from('graph [ node [ id 1 label "One" ] node [ id 2 ] edge [ source 1 target 2 ] ]')); z = await stats();
+    say(z.n === 2 && z.m === 1, 'a GML file read');
+    await ev(() => NFM.showTab('data'));
+  }
 
   /* Examples and every view */
   await ev(() => NFM.showTab('data')); await set('#examples', 'story'); await click('#b-example'); await click('#tabbtn-map');

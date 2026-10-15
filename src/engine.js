@@ -1017,7 +1017,7 @@ var NFMEngine = (function () {
     var rootL = locArr[root], nPiv = full ? k : Math.min(k, Math.max(4, Math.min(Math.max(T.pivMin, Math.min(T.pivMax, Math.round(T.pivBudget / k))), Math.floor(8e6 / k))));
     var cap = full ? (k * (k - 1)) / 2 : nPiv * k + m2 / 2 + k * near;
     var pa = new Int32Array(cap), pb = new Int32Array(cap), pd = new Float32Array(cap), pw = new Float32Array(cap), cnt = 0, maxD = 1;
-    function add(a, b, d) { pa[cnt] = a; pb[cnt] = b; pd[cnt] = d * EDGE; pw[cnt] = 1 / (d * d); cnt++; if (d > maxD) maxD = d; }
+    function add(a, b, d) { if (cnt >= cap) throw new Error('internal: stress pair list overflow'); pa[cnt] = a; pb[cnt] = b; pd[cnt] = d * EDGE; pw[cnt] = 1 / (d * d); cnt++; if (d > maxD) maxD = d; }
     if (full) {
       for (i = 0; i < k; i++) { bfs(i); for (j = i + 1; j < k; j++) if (dist[j] > 0) add(i, j, dist[j]); }
     } else {

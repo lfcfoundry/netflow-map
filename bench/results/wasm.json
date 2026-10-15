@@ -1,0 +1,104 @@
+{
+ "node": [
+  {
+   "n": 3000,
+   "kind": "moderate",
+   "js": 1389,
+   "wasm": 1489,
+   "wasm+simd": 1281,
+   "same": true
+  },
+  {
+   "n": 10000,
+   "kind": "moderate",
+   "js": 709,
+   "wasm": 519,
+   "wasm+simd": 477,
+   "same": true
+  },
+  {
+   "n": 30000,
+   "kind": "moderate",
+   "js": 2322,
+   "wasm": 2082,
+   "wasm+simd": 1844,
+   "same": true
+  },
+  {
+   "n": 10000,
+   "kind": "complex",
+   "js": 657,
+   "wasm": 541,
+   "wasm+simd": 617,
+   "same": true
+  }
+ ],
+ "chromium 154.0.8037.97": [
+  {
+   "n": 3000,
+   "kind": "moderate",
+   "js": 1707,
+   "wasm": 1245,
+   "wasm+simd": 1388,
+   "same": true
+  },
+  {
+   "n": 10000,
+   "kind": "moderate",
+   "js": 602,
+   "wasm": 452,
+   "wasm+simd": 439,
+   "same": true
+  },
+  {
+   "n": 30000,
+   "kind": "moderate",
+   "js": 2366,
+   "wasm": 1926,
+   "wasm+simd": 1845,
+   "same": true
+  },
+  {
+   "n": 10000,
+   "kind": "complex",
+   "js": 648,
+   "wasm": 586,
+   "wasm+simd": 507,
+   "same": true
+  }
+ ],
+ "firefox firefox/158.0": [
+  {
+   "n": 3000,
+   "kind": "moderate",
+   "js": 1945,
+   "wasm": 1419,
+   "wasm+simd": 1529,
+   "same": true
+  },
+  {
+   "n": 10000,
+   "kind": "moderate",
+   "js": 711,
+   "wasm": 505,
+   "wasm+simd": 569,
+   "same": true
+  },
+  {
+   "n": 30000,
+   "kind": "moderate",
+   "js": 2771,
+   "wasm": 2050,
+   "wasm+simd": 2326,
+   "same": true
+  },
+  {
+   "n": 10000,
+   "kind": "complex",
+   "js": 707,
+   "wasm": 596,
+   "wasm+simd": 548,
+   "same": true
+  }
+ ]
+}

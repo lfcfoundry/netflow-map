@@ -14,6 +14,10 @@ t('semicolon with decimal comma', function () {
   var r = I.importAny([{ name: 'e.csv', text: 'from;to;weight\nA;B;1,5\nB;C;2,25\n' }]);
   assert.equal(r.graph.edges[0].weight, 1.5);
 });
+t('a table that only describes items is read as items, not as links', function () {
+  var r = I.importAny([{ name: 'n.csv', text: 'id,label,group\nA,Ann,red\nB,Bob,blue\n' }]);
+  assert.equal(r.graph.nodes.length, 2); assert.equal(r.graph.edges.length, 0); assert.equal(r.graph.nodes[0].group, 'red'); assert.equal(r.graph.nodes[0].label, 'Ann');
+});
 t('node table with links column makes placeholders', function () {
   var r = I.importAny([{ name: 'n.csv', text: 'id,links,group\nA,B;C,x\nB,C,y\n' }]);
   assert.equal(r.graph.edges.length, 3); assert.equal(r.graph.nodes.find(function (x) { return x.id === 'C'; }).ghost, true);
