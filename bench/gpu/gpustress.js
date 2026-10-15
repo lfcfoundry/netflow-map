@@ -244,11 +244,11 @@ var NFMGpuStress = (function () {
     for (i = k - 1; i > 0; i--) { s = (s + 0x6d2b79f5) | 0; var z = Math.imul(s ^ (s >>> 15), 1 | s); z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z; j = Math.floor((((z ^ (z >>> 14)) >>> 0) / 4294967296) * (i + 1)); w = p[i]; p[i] = p[j]; p[j] = w; }
     return p;
   }
-  /** The sweeps: in each, every offset 1..k/2 once in a fresh random order, with a step size shrinking from sweep to sweep (the processor's schedule: 3 sweeps 0.3/0.3, 2 sweeps 0.1/0.5). */
-  function sgdSchedule(k, sweeps, maxD, seed) {
-    var half = k >> 1, hi = sweeps <= 2 ? 0.1 : 0.3, lo = sweeps <= 2 ? 0.5 : 0.3, etaMax = maxD * maxD * hi, lam = Math.log(etaMax / lo) / Math.max(1, sweeps - 1), n = sweeps * half, m = new Uint32Array(n), eta = new Float32Array(n), t, i, j, w, s = ((seed | 0) || 1) + 7777;
+  /** The sweeps: in each, every offset 1..k/2 once in a fresh random order. Step size from maxD^2 * hi down to lo: smooth = shrinking a little with every dispatch (default: 1 sweep, 0.05 / 0.05), otherwise only from sweep to sweep (the processor's schedule: 3 sweeps 0.3 / 0.3, 2 sweeps 0.1 / 0.5). */
+  function sgdSchedule(k, sweeps, maxD, seed, hi, lo, smooth) {
+    var half = k >> 1, etaMax = maxD * maxD * hi, lam = Math.log(etaMax / lo) / (smooth ? sweeps : Math.max(1, sweeps - 1)), n = sweeps * half, m = new Uint32Array(n), eta = new Float32Array(n), t, i, j, w, s = ((seed | 0) || 1) + 7777;
     for (t = 0; t < sweeps; t++) {
-      for (i = 0; i < half; i++) { m[t * half + i] = i + 1; eta[t * half + i] = etaMax * Math.exp(-lam * t); }
+      for (i = 0; i < half; i++) { m[t * half + i] = i + 1; eta[t * half + i] = etaMax * Math.exp(-lam * (smooth ? t + i / half : t)); }
       for (i = half - 1; i > 0; i--) { s = (s + 0x6d2b79f5) | 0; var z = Math.imul(s ^ (s >>> 15), 1 | s); z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z; j = Math.floor((((z ^ (z >>> 14)) >>> 0) / 4294967296) * (i + 1)); w = m[t * half + i]; m[t * half + i] = m[t * half + j]; m[t * half + j] = w; }
     }
     return { m: m, eta: eta, n: n };
@@ -335,11 +335,11 @@ var NFMGpuStress = (function () {
     if (prof || k >= 12000) { await wait(); ms.table = now() - t2; } else ms.table = null;   // big sizes wait once here so the card is never given more than a moment of queued work
     RB.destroy(); FA.destroy(); FB.destroy();
     /* the steps */
-    var t4 = now(), PBdata, sp, spReduce = null, jchunk = 0, split = 1, sg, perm = null, sch = null, maxD = 0;
+    var t4 = now(), PBdata, sp, spReduce = null, jchunk = 0, split = 1, sg, perm = null, sch = null, maxD = 0, sched = null;
     var f32bits = function (v) { return new Uint32Array(new Float32Array([v]).buffer)[0]; };
     var XA = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST, st.X), XB = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST), PART = null, PB = null, stepBG1, stepBG2;
     if (method === 'sgd') {
-      var sweeps = opts.sweeps || (k <= 12000 ? 3 : 2), seed = opts.seed || 12345; maxD = Math.max(2, st.maxEcc); perm = permFor(k, seed); sch = sgdSchedule(k, sweeps, maxD, seed);
+      var smooth = !opts.classic, sweeps = opts.sweeps || (smooth ? 1 : k <= 12000 ? 3 : 2), seed = opts.seed || 12345, hi = opts.hi || (smooth ? 0.05 : sweeps <= 2 ? 0.1 : 0.3), lo = opts.lo || (smooth ? 0.05 : sweeps <= 2 ? 0.5 : 0.3); maxD = Math.max(2, st.maxEcc); perm = permFor(k, seed); sch = sgdSchedule(k, sweeps, maxD, seed, hi, lo, smooth); sched = { sweeps: sweeps, hi: hi, lo: lo, smooth: smooth };
       var Xp = new Float32Array(2 * k); for (var r0 = 0; r0 < k; r0++) { Xp[2 * r0] = st.X[2 * perm[r0]]; Xp[2 * r0 + 1] = st.X[2 * perm[r0] + 1]; }
       device.queue.writeBuffer(XA, 0, Xp);
       var PERM = mk(4 * k, GB.STORAGE, perm), sbuf = new ArrayBuffer(sch.n * ua), su = new Uint32Array(sbuf), sf = new Float32Array(sbuf), ev = (k % 2 === 0) ? (k >> 1) : -1;
@@ -415,7 +415,7 @@ var NFMGpuStress = (function () {
     [offB, nbrB, DM, WS, UB, PB, XA, XB, RD].forEach(function (bf) { if (bf) bf.destroy(); }); if (PART) PART.destroy();
     if (oom || val) return { error: 'The graphics card reported ' + (oom ? 'out of memory: ' + oom.message : 'an error: ' + val.message).slice(0, 200), oom: !!oom };
     ms.total = now() - T0; snapOut[steps] = X;
-    return { X: X, X0: st.X, ms: ms, levels: L, stride: Sx, dTable: dTable, snapshots: snapOut, split: split, kernel: kernel, omega: omega, method: method, maxD: maxD, seed: opts.seed || 12345, sweeps: sch ? sch.n / (k >> 1) : 0 };
+    return { X: X, X0: st.X, ms: ms, levels: L, stride: Sx, dTable: dTable, snapshots: snapOut, split: split, kernel: kernel, omega: omega, method: method, maxD: maxD, seed: opts.seed || 12345, sweeps: sch ? sch.n / (k >> 1) : 0, sched: sched };
   }
 
   /** Same as layoutInner, but any thrown error or message the card reports comes back as { error } instead of an exception. */
