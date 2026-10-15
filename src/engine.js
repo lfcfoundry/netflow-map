@@ -1202,6 +1202,7 @@ var NFMEngine = (function () {
     for (i = 0; i < k; i++) { m2 += adj[members[i]].length; off[i + 1] = m2; }
     var nbr = new Int32Array(m2);
     for (i = 0; i < k; i++) { var lst = adj[members[i]], o0 = off[i]; for (j = 0; j < lst.length; j++) nbr[o0 + j] = locArr[lst[j]]; }
+    if (exactNow && T.external && k > T.fullMax && T.external(X, k, off, nbr, EDGE) === true) return;   // a picture computed elsewhere (the graphics card): the page's own clean-up below still runs on it
     if (exactNow && k > T.fullMax && k <= T.exactMax) {   // 'best quality': every pair; if the device cannot give the memory (k*k/2 bytes), fall through to the pivot version
       var X0 = X.slice();
       try { if (stressExact(X, k, off, nbr, EDGE, rnd, T.exactIters || (k <= 12000 ? 3 : 2)) !== false) return; } catch (err) { if (!(err instanceof RangeError)) throw err; }

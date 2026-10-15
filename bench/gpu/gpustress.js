@@ -272,6 +272,9 @@ var NFMGpuStress = (function () {
     return out;
   }
 
+  /** The choice the app would make for k items: two smooth sweeps up to about 12,000 items, the 40 majorization steps above. */
+  function recommend(k) { return k <= 12500 ? { method: 'sgd', sweeps: 2 } : { method: 'smacof', steps: 40 }; }
+
   /** How much memory the tables need for k items: { dBytes, workBytes }. */
   function need(k) { var S = Math.ceil(k / 4) * 4, nb = Math.ceil(k / 32); return { S: S, nb: nb, dBytes: k * S, workBytes: 3 * nb * k * 4 }; }
 
@@ -444,6 +447,6 @@ var NFMGpuStress = (function () {
     }
     return cur;
   }
-  return { pivotStart: pivotStart, getDevice: getDevice, layout: layout, majCpu: majCpu, sgdCpu: sgdCpu, sgdSchedule: sgdSchedule, permFor: permFor, need: need };
+  return { pivotStart: pivotStart, getDevice: getDevice, layout: layout, majCpu: majCpu, sgdCpu: sgdCpu, recommend: recommend, sgdSchedule: sgdSchedule, permFor: permFor, need: need };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMGpuStress;
