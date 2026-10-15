@@ -489,6 +489,171 @@ Notes: GIF compares our encoder with gifenc using one shared palette on four syn
 4. Reading text over 512 million characters in Chromium needs a chunked reader; the import cap of 200,000 items / 800,000 links is still the app default.
 5. A faster Force layout above 100,000 items; at that size it takes over a minute.
 
+## 7. Scorecard: one geometric mean for all the head-to-head results
+
+How it is counted (you chose: each head-to-head counts once, with speed, memory and layout truth in the same mean):
+
+- One comparison is one of our modules against one competitor on one data set in one browser. A ratio is the competitor's result divided by ours, so above 1 means we are better: 2.0× is twice as fast, uses half the memory, or draws a picture twice as true to the real link distances. Speed ratios are time ÷ time, memory ratios are bytes ÷ bytes, layout truth is the competitor's score ÷ ours (lower score is truer), crossings and group match are done the same way, and GIF file size counts as memory.
+- A win is a ratio over 1.03, a tie is within 3%, a loss is under 0.97. Nothing is weighted: a 60× win and a 1.1× win each count once, and the geometric mean (the n-th root of the product) is the right average because 2× faster and 2× slower cancel exactly.
+- Speed comparisons where both times are under 3 ms were dropped (Firefox's timer steps in whole milliseconds); 4 comparisons.
+- "First place" means our module beats every competitor in that row (for example Stress against both d3-force and ForceAtlas2 at 3,000 complex items in Firefox).
+
+**Overall** (a ratio above 1 means our module is better; a win is a ratio over 1.03, a tie is within 3%)
+
+| | comparisons | wins / ties / losses | geometric mean (other ÷ ours) |
+| --- | ---: | ---: | ---: |
+| Speed only, both browsers | 314 | 249 / 8 / 57 | 2.23× |
+| Speed only, Chromium 154 | 157 | 127 / 2 / 28 | 2.30× |
+| Speed only, Firefox 158 | 157 | 122 / 6 / 29 | 2.15× |
+| Speed + memory + layout truth, both browsers | 498 | 378 / 12 / 108 | 1.74× |
+| Speed + memory + layout truth, Chromium 154 | 250 | 192 / 4 / 54 | 1.78× |
+| Speed + memory + layout truth, Firefox 158 | 248 | 186 / 8 / 54 | 1.70× |
+
+**First places on speed:** one benchmark row is one data set in one browser (for example Stress at 3,000 complex items in Firefox, against d3-force and ForceAtlas2 together). We come first, ahead of every competitor in the row, in 108 of 160 rows (Chromium 56 of 80, Firefox 52 of 80).
+
+**By area** (both browsers, all metrics in the area)
+
+| | comparisons | wins / ties / losses | geometric mean (other ÷ ours) |
+| --- | ---: | ---: | ---: |
+| CSV parsing | 116 | 77 / 4 / 35 | 1.17× |
+| Stress layout | 80 | 80 / 0 / 0 | 6.64× |
+| Stress layout truth | 80 | 64 / 0 / 16 | 1.32× |
+| Force layout | 80 | 67 / 3 / 10 | 1.73× |
+| Force layout truth | 80 | 63 / 0 / 17 | 1.09× |
+| Layered drawing | 12 | 12 / 0 / 0 | 14.8× |
+| Layered drawing truth | 12 | 0 / 0 / 12 | 0.60× |
+| Found groups | 6 | 6 / 0 / 0 | 2.23× |
+| Found groups truth | 6 | 0 / 4 / 2 | 0.96× |
+| Random draws | 14 | 5 / 1 / 8 | 1.06× |
+| Formulas | 2 | 2 / 0 / 0 | 4.34× |
+| GIF export | 8 | 0 / 0 / 8 | 0.66× |
+| Network memory | 2 | 2 / 0 / 0 | 4.26× |
+
+**By competitor** (all areas and metrics)
+
+| | comparisons | wins / ties / losses | geometric mean (other ÷ ours) |
+| --- | ---: | ---: | ---: |
+| Papa Parse | 58 | 39 / 2 / 17 | 1.18× |
+| d3-dsv | 58 | 38 / 2 / 18 | 1.16× |
+| d3-force | 160 | 144 / 0 / 16 | 2.24× |
+| ForceAtlas2 | 160 | 130 / 3 / 27 | 1.81× |
+| dagre | 6 | 6 / 0 / 0 | 8.85× |
+| dagre (crossings) | 6 | 0 / 0 / 6 | 0.66× |
+| ELK | 6 | 6 / 0 / 0 | 24.8× |
+| ELK (crossings) | 6 | 0 / 0 / 6 | 0.55× |
+| Louvain | 6 | 6 / 0 / 0 | 2.23× |
+| Louvain (match) | 6 | 0 / 4 / 2 | 0.96× |
+| d3-random | 10 | 5 / 1 / 4 | 1.31× |
+| jStat | 4 | 0 / 0 / 4 | 0.63× |
+| expr-eval | 2 | 2 / 0 / 0 | 4.34× |
+| gifenc | 8 | 0 / 0 / 8 | 0.66× |
+| graphology | 1 | 1 / 0 / 0 | 1.88× |
+| Cytoscape | 1 | 1 / 0 / 0 | 9.63× |
+
+**Each area counted once:** the geometric mean of the 13 area means is 1.92×. Left out as below timer resolution: 4 comparisons.
+
+Reading it plainly: counting every comparison once, we are **1.74× better on average** (378 wins, 12 ties, 108 losses out of 498; 1.78× in Chromium, 1.70× in Firefox), and **2.23× faster on speed alone**. We come first in 108 of the 160 speed rows. The mean is pulled up by Stress (6.6× faster than the two force layouts, with all 80 comparisons won), layered drawing (14.8× faster than dagre and ELK) and formulas (4.3×); it is pulled down by the places that are honestly behind: layered-drawing crossings (0.60×, we draw more crossings), GIF export (0.66×, slower than gifenc), jStat's normal draws (0.63×) and CSV parsing, which is only 1.17× ahead on average with 35 losses out of 116 (mostly small unquoted files and whole-file parses that Papa Parse reads about as fast). Weighting each of the 13 areas equally instead of each comparison gives 1.92×.
+
+Re-create the table: `node bench/geomean.js` (add `--json` for every individual comparison).
+
+## 8. Reading zips, Excel and graph files
+
+What the Data tab now takes (drop, choose files, or choose a folder): a **.zip** of anything below (any mix, folders inside, other zips inside up to 2 levels deep), **Excel .xlsx** (each sheet becomes a table; dates stay dates; sheets are merged by item name, so one sheet of links and another that describes the items work together), **GraphML** (including the labels yEd writes), **GEXF** (Gephi), **GML**, **Graphviz DOT** (clusters become groups, `{a b} -> {c d}` sets and `a -> b -> c` chains work), and everything that already worked (CSV, tab, semicolon and bar tables, JSON in many shapes, arrow lines, outlines, Markdown notes). Old `.xls` and `.ods` are named in a note with "Save as .xlsx or CSV". A table that only describes items (`id, label, group`, with no link columns) is now read as items instead of as a list of links.
+
+Safety limits (all counted on what is really unpacked, never on what the file claims, so a zip bomb stops at the limit):
+
+| Limit | Value |
+|---|---|
+| Files listed in one zip | 20,000 (first 5,000 text files are read) |
+| One text file | 60 MB (a spreadsheet sheet: 150 MB of XML) |
+| Everything unpacked from one drop, all zips together | 400 MB |
+| Zip file itself | 300 MB |
+| Zips inside zips | 3 levels |
+| Names | cleaned of `..`, leading `/` and `\`; nothing is ever written to disk |
+| Checks per file | the size and CRC-32 must match what the zip says; encrypted files and unknown compression methods are skipped with a note |
+
+A bad file inside a zip is skipped with a plain-words note and the rest still loads. If the outer file is not a zip, or nothing readable is inside, the Data tab says so in words.
+
+## 9. Testing and memory safety
+
+Everything below was run on the final code (Node 22.22, Chromium 154, Firefox 158).
+
+| Test | What it throws at the code | Result |
+|---|---|---|
+| `test/archive.test.js` (Node, 17 checks, 6 s) | Mixed zips, stored and deflated entries, junk in front of a zip, UTF-16 and Latin-1 text, nested zips, path tricks, Excel with dates, booleans, blank rows and a cell at the far corner of the sheet, a 300 MB zip bomb that lies and one that tells the truth, a total-size budget, bad checksums, cut-off data, password flags, odd compression methods, lying offsets and counts, 30,000-entry zips, 60,000-character names, hostile nesting in XML, GML and DOT, entity tricks, 3,000 files merged in linear time | all pass |
+| `test/fuzz.test.js` (Node, three seeds of 70 s each) | about 600,000 random and mutated documents through every importer (tables, JSON shapes, arrows, outlines, notes, DOT, GML, GraphML, GEXF), about 118,000 randomly damaged zips and workbooks, 7 files full of `__proto__` and `constructor` keys, 12 awkward graph shapes through two layouts (empty, one item, self-link, stars, cliques, NaN and infinite weights), 120 random graphs through the Stress layout, then fixed dense-link, leak and bomb-release loops | 0 failures; 0 prototype pollution; every refusal in plain words; no damaged zip took over 2 s |
+| `test/fuzz.browser.js` (inside the real page) | The same zip damage run through the browser's own `DecompressionStream`, two 150 MB zip bombs, and 600 unzip-and-read laps with the process memory watched | see below |
+| `test/browser.test.js` (both browsers, plus the packed page) | A zip of CSV, JSON, Excel and GraphML dropped through the real file picker, an Excel file alone, a damaged zip, a zip bomb (stopped in about 1.5 s with the rest still read), a GML file | all pass |
+
+**Real bugs the new tests found, now fixed**
+1. Outlines and notes with old-Mac (`\r`-only) or Unicode line endings crashed the outline reader. Every reader now splits on all line endings.
+2. A `null` entry in a JSON `links` list (or any non-object) crashed the JSON reader.
+3. Merging many files copied the whole graph once per file (quadratic): 3,000 files now merge in about 1 second. A single bad file among many is skipped with a note instead of cancelling the whole import.
+4. A table with just `id, label, group` columns was read as a list of links (item to label) instead of as items.
+5. The Stress layout writes into fixed-size arrays, and writing past the end of a typed array is silently ignored in JavaScript. A check now throws a clear error if the pair list could ever overflow (the 40 random graphs and the dense-link runs never hit it).
+
+**Memory**
+- Node: 48 rounds of unzip, read and two layouts: heap 483.1 MB to 483.3 MB (flat). A 120 MB zip bomb opened repeatedly releases all of its buffers (0.2 MB before and after).
+- Browsers: see the table the browser fuzz printed (below). Firefox lets garbage pile up during hundreds of thousands of rapidly failing streams and returns it within about 12 seconds; the test waits for that and checks the settled number.
+
+| Browser (30 s of damage) | Cases | Memory over 4 rounds of 150 unzip-and-read laps | Right after the damage run | After 12 s of tidying |
+| --- | --- | --- | --- | --- |
+| Chromium 154 | 154,914 damaged zips (0 unexpected errors, 0 slow) | 851 (start) -> 902 -> 926 -> 931 -> 936 MB | 1096 MB | 873 MB |
+| Firefox 158 | 103,804 damaged zips (0 unexpected errors, 0 slow) | 1047 (start) -> 1279 -> 1250 -> 1292 -> 1226 MB | 5277 MB | 1077 MB |
+
+Both bombs (a zip that claims 100 bytes but holds 150 MB, and one that honestly holds 150 MB, which is over the 60 MB limit for one file) are refused in under 0.6 s in both browsers, without unpacking more than the limit. The peak in the 'right after' column is Firefox collecting the leftovers of about 100,000 rapidly failing streams, which can reach several GB on this machine for those 30 seconds; a normal drop opens at most a few thousand streams.
+
+**Dense links** (Node): 200 items with 15,704 links read in 48 ms and laid out in 67 ms; 1,000 items with 95,000 links in 225 + 786 ms; 2,000 items with 195,000 links in 561 + 2,506 ms (+212 MB heap); 1,000 items with 330,000 links in 1.1 + 2.2 s; one hub with 150,000 links is read whole.
+
+## 10. Would another language noticeably help? WebAssembly experiment
+
+The one loop that does the work in the Stress layout (one sweep over the pairs, 30 to 36 times) was written in C (`bench/wasm/sweep.c`, 515 bytes of WebAssembly, 512 with SIMD), and the engine was run with and without it on the same graphs. The WebAssembly version gives the same positions (bit for bit on these runs). The time includes copying the pairs into WebAssembly memory once and the item positions in and out on every sweep. Whole layout, best of 3, milliseconds (`node bench/wasm/exp.js`):
+
+**Node 22 (V8, the engine inside Chromium)**
+
+| items | structure | JavaScript | WebAssembly | WebAssembly + SIMD | same positions |
+| ---: | --- | ---: | ---: | ---: | --- |
+| 3,000 | moderate | 1,389 ms | 1,489 ms (0.93×) | 1,281 ms (1.08×) | yes |
+| 10,000 | moderate | 709 ms | 519 ms (1.37×) | 477 ms (1.49×) | yes |
+| 30,000 | moderate | 2,322 ms | 2,082 ms (1.12×) | 1,844 ms (1.26×) | yes |
+| 10,000 | complex | 657 ms | 541 ms (1.21×) | 617 ms (1.06×) | yes |
+
+**chromium 154.0.8037.97**
+
+| items | structure | JavaScript | WebAssembly | WebAssembly + SIMD | same positions |
+| ---: | --- | ---: | ---: | ---: | --- |
+| 3,000 | moderate | 1,707 ms | 1,245 ms (1.37×) | 1,388 ms (1.23×) | yes |
+| 10,000 | moderate | 602 ms | 452 ms (1.33×) | 439 ms (1.37×) | yes |
+| 30,000 | moderate | 2,366 ms | 1,926 ms (1.23×) | 1,845 ms (1.28×) | yes |
+| 10,000 | complex | 648 ms | 586 ms (1.11×) | 507 ms (1.28×) | yes |
+
+**firefox firefox/158.0**
+
+| items | structure | JavaScript | WebAssembly | WebAssembly + SIMD | same positions |
+| ---: | --- | ---: | ---: | ---: | --- |
+| 3,000 | moderate | 1,945 ms | 1,419 ms (1.37×) | 1,529 ms (1.27×) | yes |
+| 10,000 | moderate | 711 ms | 505 ms (1.41×) | 569 ms (1.25×) | yes |
+| 30,000 | moderate | 2,771 ms | 2,050 ms (1.35×) | 2,326 ms (1.19×) | yes |
+| 10,000 | complex | 707 ms | 596 ms (1.19×) | 548 ms (1.29×) | yes |
+
+What it says:
+- **Gain: 1.1 to 1.4× on the whole layout**, about the same in all three engines, and not always more with SIMD. Node's first row even came out slower (1,389 ms against 1,489). That is real but not a change you would notice by eye. The 20 to 58× that Stress gained over d3-force at 10,000 items came from algorithms and typed arrays (section 3), not from the language.
+- Most of what the app does is not arithmetic in a loop: reading text, building objects, drawing with the browser's canvas, WebGL or WebGPU, and the DOM. Those run in the browser's own native code already; compiling our JavaScript to WebAssembly would not make them faster, and text handling often gets slower once strings have to cross into WebAssembly.
+- A second toolchain (clang, wasm-ld, or Rust) and a fallback for browsers without it would be needed, for roughly 25% on one module. The cost to the single file is trivial (the binary is under 1 KB); the cost to maintenance is not.
+- What could give a large gain, and was **not measured here**: WebGPU compute for force layouts above 100,000 items (the only layouts that hit the 5-minute limit), and moving the whole Stress pipeline (breadth-first searches, pair building, overlap removal) into WebAssembly so the data never leaves its memory. Expect somewhere around 1.5 to 2× for the second, and a much larger step for the first, but only on machines where WebGPU works (Firefox 158 headless here had none).
+- Web Workers are already used: the engine runs off the page's thread, so the interface stays responsive during layouts.
+
+## 11. Your questions about definitions and limits
+
+**How is "truest layout" defined and measured?** Truest means: distances on the page match how far apart the items really are in the network. For a layout, take the shortest path (number of links, in either direction) between pairs of items as the real distance `d`, and the distance between the items' centers on the page as `e`. Because a picture can be zoomed freely, find the single best zoom `s = Σ(e/d) / Σ(e²/d²)` and score the layout as the mean of `(d − s·e)² / d²`. Zero is a picture where every pair is exactly proportional; lower is truer. Dividing by `d²` makes neighbors matter most: getting two linked items placed far apart costs much more than misplacing two items that are 12 hops apart. To keep the check cheap, 60 evenly spaced source items are used, and each is compared with every other item (every 7th item above 3,000 items). It is the same number for every competitor, measured on their finished positions (`bench/suites.js`, `bench/stress-tune.js`). Two cautions: it is the quantity Stress minimizes, so Stress is naturally good at it; and it ignores item size, so d3-force and ForceAtlas2, which place points and never make room for boxes, are not penalized for overlaps, while ours remove overlaps (which costs a little truth). Layered-drawing quality is measured separately, as the number of crossing lines, and found groups as how well they match the planted groups.
+
+**Are item counts only nodes? Do they limit how many links an item can have?** The counts are items (nodes) only. Links are limited separately, and one item can have as many links as the file has: a single hub with 150,000 links read whole, and 1,000 items with 330,000 links laid out in about 3 seconds. The app's default import caps are 200,000 items and 800,000 links, whichever comes first, with a plain-words note when reached (the benchmarks lift them to measure 1,000,000 items). The scale tables use about 1 link per item (simple), 3 (moderate) and 4.2 (complex, so the 1,000,000-item complex file holds 4.2 million links). More links per item makes everything cost more (reading is linear in links; the Stress layout's work grows with items times pivots plus links, and its pair memory is capped near 12 million pairs), but the cost is smooth and nothing stops at a link count.
+
+**Did the network-mapping research improve our engine, in speed or quality?** Yes in speed, mixed in quality, and none of it came from copying library code (the research only compares; no code was taken). Measured on the same six-cluster test network (`docs/RESEARCH-open-source-comparison.md`, section 7, and sections 1 to 4 above):
+- Speed: overlap removal was 9.9 of 12 seconds at 10,000 items and is about 4× faster; Stress at 10,000 items went from about 15.6 s to 3.6 s, and with typed arrays it is now 20 to 58× faster than d3-force at that size; the minified build is 31% smaller; layout result memory fell 9% (17.8 to 16.3 MB at 10,000 items) and the pair lists use about a fifth of the memory.
+- Quality: at 3,000 items Stress truth went from 0.286 to 0.224 and Force from 0.222 to 0.154 (d3-force: 0.179), so Force is now truer than d3-force there. Stress remains 7 to 28% less true than d3-force at 10,000 items and above.
+- Not improved: the layered flow drawing still has 60 to 100% more crossings than dagre and ELK (it is 7 to 117× faster), our own Louvain groups were not written, and GIF export is slower than gifenc. The research listed these; they remain on the work list.
+
 ## Reproduce
 
 ```
@@ -497,6 +662,9 @@ node run.js chromium csv                             # or: firefox
 node run.js chromium stress
 node run.js chromium typed
 node run.js chromium compare
+node ../test/archive.test.js && node --expose-gc ../test/fuzz.test.js 70   # zips, Excel, graph files; random and hostile input
+node ../test/fuzz.browser.js chromium 30            # or: firefox
+node wasm/exp.js                                    # WebAssembly experiment (sweep.c is built with clang, see its header)
 node run.js chromium limits                          # about 15 minutes per browser
 node report.js                                       # all tables, from bench/results/*.jsonl
 node stress-tune.js moderate 10000 before '{}'       # Node-only side by side of stress settings

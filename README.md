@@ -20,6 +20,9 @@ Nothing is uploaded. Everything runs in the page.
 | CSV, TSV, semicolon or bar tables | A list of links (from, to, weight, label, kind, groups), items with a column that lists their links, items with a parent column, or a grid (adjacency matrix). It guesses; you can change the guess. |
 | JSON | `nodes` + `links` or `edges`, Cytoscape.js, JSON Canvas, story projects (`passages` with `choices`), lists of links, `name: [targets]` lists |
 | Outlines | Indented or bulleted lists, Markdown headings; `[[wiki links]]` inside lines add cross links |
+| Excel (.xlsx) | Every sheet is read as its own table (dates become dates) and the sheets are merged by name, so a sheet of links and a sheet describing the items work together |
+| Graph files | GraphML (including yEd labels), GEXF (Gephi), GML and Graphviz DOT (clusters become groups) |
+| Zip files | A zip of any of the above, in any mix, folders and zips inside zips included; opened with safety limits (see `docs/BENCHMARKS.md`, section 9) |
 | Markdown notes | Several files or a whole folder (Obsidian style): `[[links]]`, `[text](note.md)` links, aliases, tags, folders; links to notes that do not exist become placeholders |
 | Arrow lines | `A -> B : label`, and simple Graphviz DOT |
 
@@ -39,7 +42,9 @@ The map is drawn by WebGPU if this browser can really use it, otherwise WebGL 2,
 node tools/build.mjs                 # writes a minified index.html (version stamp year.month.day.HHMM, US Eastern); needs esbuild
 node tools/build.mjs --dev           # readable, larger file
 node tools/build.mjs --pack          # also writes index.packed.html, a self-extracting copy (our lzma-pack module) for downloads outside git
-node test/importers.test.js          # 18 quick checks of the readers, including 6,000 random tables against a plain reader
+node test/archive.test.js            # zips, Excel and graph files, including zip bombs, bad checksums and cut-off files
+node --expose-gc test/fuzz.test.js 90  # about 90 s of random and hostile input, layout shapes, dense links and leak loops
+node test/importers.test.js          # 19 quick checks of the readers, including 6,000 random tables against a plain reader
 node test/oracle.test.mjs            # new engine versus the older story-map package, 40 random stories
 node test/limits.test.js             # a 20,000-page chain, 1,500 stacked diamonds, a 3,000-item network
 node test/browser.test.js chromium   # real browser run (see the file header for the browser programs it needs)
