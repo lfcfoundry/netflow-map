@@ -979,7 +979,7 @@ var NFMEngine = (function () {
     }
   }
   /** Where each arrangement puts things. All return centers (dim numbers per item) around the origin. */
-  var ARRANGE_NAMES = { stress: 'Distances (stress)', stressBest: 'Distances, best quality (slower)', force: 'Force (springs)', circle: 'Circle', rings: 'Rings by importance', groups: 'Group clusters', radial: 'Radial tree', grid: 'Grid', force3d: '3D force', sphere: 'Sphere', stack: 'Stacked group planes' };
+  var ARRANGE_NAMES = { stress: 'Distances (stress)', closeness: 'Closeness (nearest are linked)', stressBest: 'Distances, best quality (slower)', force: 'Force (springs)', circle: 'Circle', rings: 'Rings by importance', groups: 'Group clusters', radial: 'Radial tree', grid: 'Grid', force3d: '3D force', sphere: 'Sphere', stack: 'Stacked group planes' };
   function arrangeAll(kind, nodes, adj, size, rnd, EDGE) {
     var k = nodes.length, i, dim = /3d|sphere|stack/.test(kind) ? 3 : 2, X = new Float64Array(k * dim);
     var deg = nodes.map(function (n, ix) { return adj[ix].length; });
@@ -1048,6 +1048,46 @@ var NFMEngine = (function () {
       var r = (mu * (mag - pd[q])) / (2 * mag), rx = r * dx, ry = r * dy;
       X[a2] -= rx; X[a2 + 1] -= ry; X[b2] += rx; X[b2 + 1] += ry;
     }
+  }
+
+  /* Tuning knobs for the closeness arrangement. */
+  var CLOSE = { epochs: 150, neg: 10, a: 1, b: 1, clip: 4, fromStress: 1, alpha0: 0.25 };
+
+  /**
+   * Closeness arrangement for one connected piece: starts from the Stress picture (so the overall shape is right), then linked items are pulled together and random other items are pushed away, with a force
+   * that falls off slowly with distance (the kernel of t-SNE and UMAP; sampled repulsion as in LargeVis). It asks "are my links my nearest
+   * items?", where Stress asks "is the distance right?".
+   */
+  function closenessComponent(X, k, members, adj, locArr, root, EDGE, rnd) {
+    if (CLOSE.fromStress) stressComponent(X, k, members, adj, locArr, root, EDGE, rnd);
+    var C = CLOSE, i, j, e, ep, r, nE = 0, sc = 1 / EDGE, U = new Float64Array(2 * k);
+    for (i = 0; i < 2 * k; i++) U[i] = X[i] * sc;
+    var ea = [], eb = [];
+    for (i = 0; i < k; i++) { var lst = adj[members[i]]; for (j = 0; j < lst.length; j++) { var w = locArr[lst[j]]; if (w > i) { ea.push(i); eb.push(w); } } }
+    nE = ea.length;
+    var s = (rnd() * 4294967296) | 0 || 1;
+    function nextInt(n) { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) / 4294967296 * n) | 0; }
+    var a = C.a, b = C.b, clip = C.clip, epochs = k <= 20000 ? C.epochs : k <= 100000 ? 60 : 20, neg = k <= 20000 ? C.neg : 5;   // big pieces: fewer rounds and fewer pushes
+    for (ep = 0; ep < epochs; ep++) {
+      var alpha = C.alpha0 * (1 - ep / epochs);
+      for (e = 0; e < nE; e++) {
+        var p = ea[e], q = eb[e], dx = U[2 * p] - U[2 * q], dy = U[2 * p + 1] - U[2 * q + 1], d2 = dx * dx + dy * dy;
+        var g = d2 > 0 ? -2 * a * b * Math.pow(d2, b - 1) / (1 + a * Math.pow(d2, b)) : 0;
+        var mx = g * dx, my = g * dy; if (mx > clip) mx = clip; else if (mx < -clip) mx = -clip; if (my > clip) my = clip; else if (my < -clip) my = -clip;
+        U[2 * p] += alpha * mx; U[2 * p + 1] += alpha * my; U[2 * q] -= alpha * mx; U[2 * q + 1] -= alpha * my;
+        for (r = 0; r < neg; r++) {
+          var c = nextInt(k); if (c === p) continue;
+          var rx = U[2 * p] - U[2 * c], ry = U[2 * p + 1] - U[2 * c + 1], r2 = rx * rx + ry * ry;
+          var gr = 2 * b / ((0.001 + r2) * (1 + a * Math.pow(r2, b)));
+          var qx = gr * rx, qy = gr * ry; if (qx > clip) qx = clip; else if (qx < -clip) qx = -clip; if (qy > clip) qy = clip; else if (qy < -clip) qy = -clip;
+          U[2 * p] += alpha * qx; U[2 * p + 1] += alpha * qy;
+        }
+      }
+    }
+    // scale so that the middle link is EDGE long
+    var ls = new Float64Array(nE); for (e = 0; e < nE; e++) ls[e] = Math.hypot(U[2 * ea[e]] - U[2 * eb[e]], U[2 * ea[e] + 1] - U[2 * eb[e] + 1]);
+    ls.sort(); var med = nE ? ls[nE >> 1] : 1; if (!(med > 1e-9)) med = 1;
+    var f = EDGE / med; for (i = 0; i < 2 * k; i++) X[i] = U[i] * f;
   }
 
   /* Tuning knobs for the stress layout (the benchmark page changes them to compare settings; the app never does). */
@@ -1230,7 +1270,7 @@ var NFMEngine = (function () {
     var arr = opts.arrange || 'stress';
     exactNow = arr === 'stressBest' || !!opts.exact;
     if (arr === 'stressBest') arr = 'stress';
-    if (arr !== 'stress' && arr !== 'force' && arr !== 'radial') return globalNetwork(arr, nodes, G, adj, size, rnd, EDGE, idxOf);
+    if (arr !== 'stress' && arr !== 'force' && arr !== 'radial' && arr !== 'closeness') return globalNetwork(arr, nodes, G, adj, size, rnd, EDGE, idxOf);
     var packs = [];
     comps.forEach(function (members) {
       var k = members.length, loc = new Map();
@@ -1259,17 +1299,19 @@ var NFMEngine = (function () {
             kd2.forEach(function (c) { var w = (sp[1] - sp[0]) * rleaf.get(c) / tot; span.set(c, [a0, a0 + w]); a0 += w; });
           });
         }
+      } else if (arr === 'closeness') {
+        closenessComponent(X, k, members, adj, locArr, root, EDGE, rnd);
       } else {
       stressComponent(X, k, members, adj, locArr, root, EDGE, rnd);
       }
       /* push overlapping nodes apart (grid buckets, a few passes) */
-      if (arr === 'stress' && STRESS.spread) {   // crowded pictures are first stretched so the items cover about a third of the page; then little is left to push apart
+      if ((arr === 'stress' || arr === 'closeness') && STRESS.spread) {   // crowded pictures are first stretched so the items cover about a third of the page; then little is left to push apart
         var bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity, discs = 0, rr0;
         for (var si = 0; si < k; si++) { rr0 = size(nodes[members[si]]) / 2 + 8; discs += Math.PI * rr0 * rr0; if (X[si * 2] < bx0) bx0 = X[si * 2]; if (X[si * 2] > bx1) bx1 = X[si * 2]; if (X[si * 2 + 1] < by0) by0 = X[si * 2 + 1]; if (X[si * 2 + 1] > by1) by1 = X[si * 2 + 1]; }
         var f0 = Math.sqrt((discs / STRESS.spread) / (Math.max(1, bx1 - bx0) * Math.max(1, by1 - by0)));
         if (f0 > 1) { f0 = Math.min(f0, 8); for (var sj = 0; sj < k * 2; sj++) X[sj] *= f0; }
       }
-      if (arr !== 'stress' || STRESS.sepPasses > 0) clearOverlaps(X, k, 2, function (li) { return size(nodes[members[li]]) / 2 + 8; }, arr === 'stress' ? STRESS.sepPasses : 30, STRESS.growRounds, STRESS.grow);
+      if ((arr !== 'stress' && arr !== 'closeness') || STRESS.sepPasses > 0) clearOverlaps(X, k, 2, function (li) { return size(nodes[members[li]]) / 2 + 8; }, arr === 'stress' || arr === 'closeness' ? STRESS.sepPasses : 30, STRESS.growRounds, STRESS.grow);
       if (STRESS.settle) settleOverlaps(X, k, 2, function (li) { return size(nodes[members[li]]) / 2 + 2; });
       var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
       for (var li4 = 0; li4 < k; li4++) { var rr = size(nodes[members[li4]]) / 2; x0 = Math.min(x0, X[li4 * 2] - rr); x1 = Math.max(x1, X[li4 * 2] + rr); y0 = Math.min(y0, X[li4 * 2 + 1] - rr); y1 = Math.max(y1, X[li4 * 2 + 1] + rr); }
@@ -1702,7 +1744,7 @@ var NFMEngine = (function () {
 
   return {
     MAP_W: MAP_W, MAP_H: MAP_H, VIEWS: VIEWS, TASKS: TASKS, prepare: prepare, importance: importance, flowExact: flowExact, flowSim: flowSim, absorb: absorb, endClasses: endClasses, spread: spread, seedsOf: seedsOf,
-    mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, ARRANGE_NAMES: ARRANGE_NAMES, forceSim: forceSim, stressTuning: STRESS,
+    mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, forceSim: forceSim, stressTuning: STRESS,
     communities: communities, metrics: metrics, taskScore: taskScore, build: build, compare: compare, bfs: bfs, mapCrossPairs: mapCrossPairs, mapPlaceLine: mapPlaceLine, autoStart: autoStart
   };
 })();

@@ -30,6 +30,11 @@ module.exports = {
     return jobs;
   },
   gpumaj: () => [500, 1500, 3000].map((n) => J('gpumaj', { kind: 'moderate', n, steps: 20 }, { timeout: 300000 })),   // needs WebGPU: NFM_CHROME_ARGS='--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan=swiftshader --use-gl=angle --use-angle=swiftshader --ignore-gpu-blocklist'
+  closeness: () => {   // the closeness arrangement in the browser (time and distance truth; the neighborhood score is Node-only, bench/overlap.js)
+    const jobs = [];
+    ['simple', 'moderate', 'complex'].forEach((kind) => [1000, 5000, 10000].forEach((n) => jobs.push(J('network', { kind, n, libs: false, before: false, fast: true, arranges: ['closeness'] }, { timeout: 900000 }))));
+    return jobs;
+  },
   pack: () => [10000, 30000, 100000].map((n) => J('pack', { kind: 'moderate', n }, { timeout: 900000 })),
   gifprof4: () => [1, 2, 3, 4].map((rep) => J('gifprof', { frames: 4, rep })),
   gifprof: () => [1, 2, 3].map((rep) => J('gifprof', { frames: 4, rep })).concat([1, 2].map((rep) => J('gifprof', { frames: 31, rep }))),
