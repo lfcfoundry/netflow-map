@@ -160,6 +160,19 @@ async function open() {
   }
   await ev(() => NFM.manager().use('auto'));
 
+  /* the app's own steps as an example, and the tuning test's question */
+  await ev(() => NFM.showTab('data')); await set('#examples', 'itself'); await click('#b-example');
+  await D.wait(() => NFM.state.graph.nodes.length === 26, null, 20000);
+  say(await ev(() => NFM.state.graph.edges.length === 34 && NFM.state.graph.start === 'file'), 'the example of the app\'s own steps loads (26 steps, 34 handoffs, starts at your data)');
+  await click('#tabbtn-map'); await D.wait(() => NFM.state.scene && NFM.state.scene.curves.length > 20, null, 30000);
+  say(true, 'the app\'s own steps are drawn as a flow');
+  await ev(() => NFM.showTab('adv')); await sleep(300);
+  say(await ev(() => /Tune for this computer/.test(document.getElementById('adv-body').innerText)), 'the Advanced tab has the tuning card');
+  await ev(() => { [...document.querySelectorAll('#adv-body button')].find((b) => /Test this computer/.test(b.textContent)).click(); }); await sleep(300);
+  say(await ev(() => document.getElementById('dlg').open && /Run the test/.test(document.getElementById('dlg-body').innerText) && /nothing is sent anywhere/.test(document.getElementById('dlg-body').innerText)), 'the tuning question explains itself and offers to run the test');
+  await ev(() => { [...document.querySelectorAll('#dlg-body button')].find((b) => /Cancel/.test(b.textContent)).click(); }); await sleep(200);
+  say(await ev(() => !document.getElementById('dlg').open), 'cancelling the tuning question closes it and changes nothing');
+
   /* states: timeline, play, widths change between states, GIF and HTML report */
   await ev(() => NFM.showTab('data')); await set('#examples', 'states'); await click('#b-example');
   await D.wait(() => NFM.state.graph.states && !document.getElementById('states').hidden, null, 20000);

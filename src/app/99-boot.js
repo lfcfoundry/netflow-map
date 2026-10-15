@@ -18,6 +18,6 @@
   indexGraph(); loadView(); loadAdv();
   renderReport(); renderCols();
   $('b-undo').disabled = true;
-  client.start().then(function () { client.setGraph(S.graph); if (S.tab === 'map') refreshMap('boot'); });
+  client.start().then(function () { client.setTune(S.tune); client.setGraph(S.graph); maybeAskTune(); if (S.tab === 'map') refreshMap('boot'); });
   window.NFM = { touch: function (v) { touchForce = v; placeChrome(); if (S.mapBuilt) renderMapUI(); }, state: S, engine: getEngine, client: function () { return client; }, manager: function () { return mgr; }, showTab: showTab, setGraph: setGraph, ingest: ingest, refreshMap: refreshMap, select: function (id) { setSel(id ? [id] : []); }, setSel: setSel, setV: setV, fitView: fitView, zoomAt: zoomAt, runSearch: runSearch, snapshot: snapshot, applySnapshot: applySnapshot };
 })();

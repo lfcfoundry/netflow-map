@@ -11,7 +11,19 @@ var NFMEngineClient = (function () {
   function dispatch(d, st, API) {
     var E = API.E, i;
     switch (d.type) {
-      case 'build': return E.build(st.G, d.opts);
+      case 'build': {
+        var gp = d.opts && d.opts.gpuPicture;   // a finished picture of the big piece, made on the graphics card: the engine goes on with its own clean-up
+        if (!gp) return E.build(st.G, d.opts);
+        var o2 = Object.assign({}, d.opts); delete o2.gpuPicture;
+        E.stressTuning.external = function (X, k) { if (k !== gp.k) return false; for (var q = 0; q < 2 * k; q++) X[q] = gp.X[q]; return true; };
+        try { return E.build(st.G, o2); } finally { E.stressTuning.external = null; }
+      }
+      case 'gpuPiece': {   // the hop structure of the big piece (what the graphics card needs), found by running the build up to that point
+        var cap = null;
+        E.stressTuning.external = function (X, k, off, nbr, edge) { if (cap) return false; cap = { k: k, off: Int32Array.from(off), nbr: Int32Array.from(nbr), edge: edge }; throw new Error('nfm-captured'); };
+        try { E.build(st.G, d.opts); } catch (err) { if (!cap) throw err; } finally { E.stressTuning.external = null; }
+        return { gpuPiece: cap };
+      }
       case 'compare': return E.compare(st.G, d.opts);
       case 'check': return API.CHK.run(st.G, d.opts);
       case 'simStart': {
@@ -94,7 +106,7 @@ var NFMEngineClient = (function () {
     var self = this;
     return new Promise(function (resolve, reject) {
       self.queues = self.queues || {};
-      var key = type === 'build' || type === 'compare' ? 'view' : type;
+      var key = type === 'build' || type === 'compare' || type === 'gpuPiece' ? 'view' : type;
       if (self.queues[key]) self.queues[key].reject(new Error('superseded'));
       self.queues[key] = { type: type, opts: opts, extra: extra || {}, resolve: resolve, reject: reject };
       self.pump();
@@ -123,7 +135,43 @@ var NFMEngineClient = (function () {
     }
   };
   /** Cancels a running Monte Carlo simulation (it simply stops being asked for more). */
-  Client.prototype.build = function (opts) { return this.run('build', opts); };
+  /** Start-up test of the graphics card, once (resolves the card record: { state: 'ready' | 'none', max, info, why, layout }). Needs NFMGpuStress on the page. */
+  Client.prototype.cardProbe = function () {
+    var self = this;
+    if (!this.cardP) this.cardP = (typeof NFMGpuStress === 'undefined' ? Promise.resolve({ state: 'none', why: 'No graphics-card code on this page.' }) : NFMGpuStress.probe()).then(function (c) { self.card = c; if (c.state === 'ready' && self.tune && self.tune.card) c.prof = self.tune.card; if (c.state === 'none') { self.cardWhy = c.why || ''; if (c.retry && (self.probeTries = (self.probeTries || 0) + 1) < 3) self.cardP = null; } return c; });   // a card that was only slow to answer is asked again next time
+    return this.cardP;
+  };
+  /** What advice text and builds may assume right now: { max } when the card passed its test (and the tuning test, if it ran, did not rule it out), otherwise null. */
+  Client.prototype.cardInfo = function () { return this.card && this.card.state === 'ready' && !(this.tune && this.tune.card && this.tune.card.use === false) ? { max: this.card.max, info: this.card.info, min: this.tune && this.tune.card && this.tune.card.minItems || 0 } : null; };
+  /** Saved results of the tuning test (or null): the page sets this at start-up and after a test. */
+  Client.prototype.setTune = function (t) { this.tune = t || null; if (this.card && this.card.state === 'ready') this.card.prof = t && t.card || null; };
+  /** "Distances, best quality" on a big piece: the card makes the picture, the engine finishes it. Any problem: the processor does it as before. */
+  Client.prototype.build = function (opts) {
+    var self = this, tok = this.buildTok = (this.buildTok || 0) + 1, big = false, E = null;
+    try { E = this.onMain(); big = opts && opts.arrange === 'stressBest' && this.graph && this.graph.nodes.length > E.stressTuning.fullMax && !this.cardOff && !(this.tune && this.tune.card && this.tune.card.use === false) && !(this.card && this.card.state !== 'ready'); } catch (e) { big = false; }
+    if (!big) return this.run('build', opts);
+    var stale = function () { return tok !== self.buildTok; }, plain = function () { if (stale()) throw new Error('superseded'); return self.run('build', opts); };
+    return this.cardProbe().then(function (card) {
+      if (stale()) throw new Error('superseded');
+      if (card.state !== 'ready') return self.run('build', opts);
+      return self.run('gpuPiece', opts).then(function (r) {
+        if (stale()) throw new Error('superseded');
+        var cap = r.L && r.L.gpuPiece;
+        if (!cap || cap.k <= E.stressTuning.fullMax || cap.k > card.max || (self.tune && self.tune.card && cap.k < (self.tune.card.minItems || 0))) return self.run('build', opts);
+        var t0 = Date.now();
+        return card.layout(cap).then(function (res) {
+          if (stale()) throw new Error('superseded');
+          if (!res || res.error) { self.cardWhy = res && res.error || 'no answer'; if (res && (res.oom || res.insane || res.thrown || /lost|adapter/i.test(res.error))) self.cardOff = true; return self.run('build', opts); }
+          var o2 = Object.assign({}, opts, { gpuPicture: { k: cap.k, X: res.X } });
+          return self.run('build', o2).then(function (b) { b.card = { ms: Date.now() - t0, k: cap.k, method: res.method === 'sgd' ? 'parallel pair sweeps' : 'majorization steps', info: card.info }; self.cardWhy = ''; return b; });
+        });
+      });
+    }).catch(function (err) {
+      if (err && err.message === 'superseded') throw err;
+      self.cardWhy = String(err && err.message || err).slice(0, 160); self.cardOff = true;
+      return plain();
+    });
+  };
   Client.prototype.compare = function (opts) { return this.run('compare', opts); };
   Client.prototype.check = function (opts) { return this.run('check', opts || {}); };
   Client.prototype.simStart = function (spec, prep) { return this.run('simStart', null, { spec: spec, prep: prep }); };
