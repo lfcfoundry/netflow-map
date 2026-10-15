@@ -800,7 +800,7 @@ var NFMEngine = (function () {
       var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (i = 0; i < k; i++) { var px = X[i * dim], py = X[i * dim + 1]; if (px < x0) x0 = px; if (px > x1) x1 = px; if (py < y0) y0 = py; if (py > y1) y1 = py; }
       var GW = Math.floor((x1 - x0) / cell) + 3, GH = Math.floor((y1 - y0) / cell) + 3;
-      if (!(GW * GH <= 4000000)) { separateSparse(X, k, dim, rad, (passes || 30) - pass); return; }
+      if (!(GW * GH <= 4000000)) { return separateSparse(X, k, dim, rad, (passes || 30) - pass); }
       if (!start || start.length < GW * GH + 1) start = new Int32Array(GW * GH + 1); else start.fill(0, 0, GW * GH + 1);
       // counting sort of the items into grid cells: items of one cell sit next to each other in `sorted`
       for (i = 0; i < k; i++) { var c = (Math.floor((X[i * dim + 1] - y0) / cell) + 1) * GW + Math.floor((X[i * dim] - x0) / cell) + 1; cellOf[i] = c; start[c + 1]++; }
@@ -823,7 +823,65 @@ var NFMEngine = (function () {
       }
       if (!moved) break;
     }
+    return !!moved;   // true when the last pass still had to move something
   }
+  /**
+   * Overlap removal that cannot end with touching items. Push-apart passes first; if some pairs still touch, the whole picture is
+   * stretched a little (the truth score ignores the overall scale, so this costs nothing in truth, only page area) and the passes run
+   * again; the few that remain are placed by settleOverlaps. `margin` is the gap kept between items.
+   */
+  function clearOverlaps(X, k, dim, rad, passes, rounds, grow) {
+    var i, r, dirty = separate(X, k, dim, rad, passes);
+    for (r = 0; r < rounds && dirty; r++) {
+      var cx = 0, cy = 0;
+      for (i = 0; i < k; i++) { cx += X[i * dim]; cy += X[i * dim + 1]; }
+      cx /= k; cy /= k;
+      for (i = 0; i < k; i++) { X[i * dim] = cx + (X[i * dim] - cx) * grow; X[i * dim + 1] = cy + (X[i * dim + 1] - cy) * grow; }
+      dirty = separate(X, k, dim, rad, Math.max(6, passes >> 1));
+    }
+  }
+
+  /**
+   * The last word on overlaps. The push-apart passes above get close but, in crowded cores, can stop with a few touching items. This walks
+   * the items once; an item that touches another is lifted out and put at the nearest free place on an outward spiral. A moved item only
+   * lands where nothing is, so when the walk ends nothing touches anything (by construction, not by hope). `rad(i)` is the item's radius.
+   */
+  function settleOverlaps(X, k, dim, rad) {
+    var rads = new Float64Array(k), rmax = 1, i, j, c;
+    for (i = 0; i < k; i++) { rads[i] = rad(i); if (rads[i] > rmax) rmax = rads[i]; }
+    var cell = 2 * rmax + 1, tsize = 16; while (tsize < 2 * k) tsize <<= 1;
+    var mask = tsize - 1, head = new Int32Array(tsize).fill(-1), next = new Int32Array(k).fill(-1), bucket = new Int32Array(k);
+    var hashOf = function (cx, cy) { return (Math.imul(cx, 73856093) ^ Math.imul(cy, 19349663)) & mask; };
+    var link = function (a) { var b = hashOf(Math.floor(X[a * dim] / cell), Math.floor(X[a * dim + 1] / cell)); bucket[a] = b; next[a] = head[b]; head[b] = a; };
+    var unlink = function (a) { var b = bucket[a], o = head[b], prev = -1; while (o !== a && o >= 0) { prev = o; o = next[o]; } if (o === a) { if (prev < 0) head[b] = next[a]; else next[prev] = next[a]; } };
+    var clash = function (a, x, y, ra) {   // does a disc of radius ra at (x, y) touch any item other than a?
+      var cx = Math.floor(x / cell), cy = Math.floor(y / cell);
+      for (var gx = cx - 1; gx <= cx + 1; gx++) for (var gy = cy - 1; gy <= cy + 1; gy++) {
+        for (var o = head[hashOf(gx, gy)]; o >= 0; o = next[o]) {
+          if (o === a) continue;
+          var dx = X[o * dim] - x, dy = X[o * dim + 1] - y, need = ra + rads[o];
+          if (dx * dx + dy * dy < need * need) return true;
+        }
+      }
+      return false;
+    };
+    for (i = 0; i < k; i++) link(i);
+    var maxX = -Infinity, far = 0;
+    for (i = 0; i < k; i++) if (X[i * dim] > maxX) maxX = X[i * dim];
+    for (i = 0; i < k; i++) {
+      var ra = rads[i], x0 = X[i * dim], y0 = X[i * dim + 1];
+      if (!clash(i, x0, y0, ra)) continue;
+      unlink(i);
+      var placed = false, step = Math.max(2, ra * 0.6);
+      for (c = 1; c < 6000; c++) {
+        var rho = step * Math.sqrt(c), th = c * 2.399963, nx = x0 + rho * Math.cos(th), ny = y0 + rho * Math.sin(th);
+        if (!clash(i, nx, ny, ra)) { X[i * dim] = nx; X[i * dim + 1] = ny; placed = true; break; }
+      }
+      if (!placed) { far++; X[i * dim] = maxX + cell * far; X[i * dim + 1] = y0; }
+      link(i);
+    }
+  }
+
   function separateSparse(X, k, dim, rad, passes) {   // the same job on a hash grid, for pictures too spread out for a plain grid
     var cell = 90, next = new Int32Array(k), head = new Map(), rads = new Float64Array(k), i;
     for (i = 0; i < k; i++) rads[i] = rad(i);
@@ -843,6 +901,7 @@ var NFMEngine = (function () {
       }
       if (!moved) break;
     }
+    return !!moved;
   }
   /**
    * Force-directed placement with Barnes-Hut repulsion (quadtree in 2D, octree in 3D). Edges pull like springs, every item pushes
@@ -992,7 +1051,7 @@ var NFMEngine = (function () {
   }
 
   /* Tuning knobs for the stress layout (the benchmark page changes them to compare settings; the app never does). */
-  var STRESS = { fullMax: 3000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 16, reshuffle: false, sepPasses: 30, spread: 0.35 };
+  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, spread: 0.35 };
 
   /**
    * Stress layout of one connected piece: X (x,y per item) is moved so that the distance on the page follows the hop count.
@@ -1013,11 +1072,11 @@ var NFMEngine = (function () {
       while (head < tail) { u = queue[head++]; var du = dist[u] + 1; for (var e = off[u], e1 = off[u + 1]; e < e1; e++) { w = nbr[e]; if (dist[w] < 0) { dist[w] = du; queue[tail++] = w; } } }
     }
     // Huge pieces: keep the pairs to a memory budget (about 12 million pairs, 200 MB) by using fewer pivots and fewer near neighbors.
-    var near = Math.min(T.near, Math.max(2, Math.floor(4e6 / k)));
+    var near = Math.min(k > 20000 ? T.nearBig : T.near, Math.max(2, Math.floor(4e6 / k)));
     var rootL = locArr[root], nPiv = full ? k : Math.min(k, Math.max(4, Math.min(Math.max(T.pivMin, Math.min(T.pivMax, Math.round(T.pivBudget / k))), Math.floor(8e6 / k))));
     var cap = full ? (k * (k - 1)) / 2 : nPiv * k + m2 / 2 + k * near;
     var pa = new Int32Array(cap), pb = new Int32Array(cap), pd = new Float32Array(cap), pw = new Float32Array(cap), cnt = 0, maxD = 1;
-    function add(a, b, d) { if (cnt >= cap) throw new Error('internal: stress pair list overflow'); pa[cnt] = a; pb[cnt] = b; pd[cnt] = d * EDGE; pw[cnt] = 1 / (d * d); cnt++; if (d > maxD) maxD = d; }
+    function add(a, b, d, wm) { if (cnt >= cap) throw new Error('internal: stress pair list overflow'); pa[cnt] = a; pb[cnt] = b; pd[cnt] = d * EDGE; pw[cnt] = (wm || 1) / (d * d); cnt++; if (d > maxD) maxD = d; }
     if (full) {
       for (i = 0; i < k; i++) { bfs(i); for (j = i + 1; j < k; j++) if (dist[j] > 0) add(i, j, dist[j]); }
     } else {
@@ -1025,7 +1084,7 @@ var NFMEngine = (function () {
       for (h = 0; h < nPiv; h++) {
         bfs(piv);
         var far = -1, fd = -1;
-        for (j = 0; j < k; j++) { var dj = dist[j]; if (dj < minD[j]) minD[j] = dj; if (minD[j] > fd) { fd = minD[j]; far = j; } if (j !== piv && dj > 0) add(piv, j, dj); }
+        for (j = 0; j < k; j++) { var dj = dist[j]; if (dj < minD[j]) minD[j] = dj; if (minD[j] > fd) { fd = minD[j]; far = j; } if (j !== piv && dj > 0) add(piv, j, dj, T.pivW); }
         piv = far;
       }
       for (i = 0; i < k; i++) for (j = off[i]; j < off[i + 1]; j++) if (nbr[j] > i) add(i, nbr[j], 1);
@@ -1128,7 +1187,8 @@ var NFMEngine = (function () {
         var f0 = Math.sqrt((discs / STRESS.spread) / (Math.max(1, bx1 - bx0) * Math.max(1, by1 - by0)));
         if (f0 > 1) { f0 = Math.min(f0, 8); for (var sj = 0; sj < k * 2; sj++) X[sj] *= f0; }
       }
-      if (arr !== 'stress' || STRESS.sepPasses > 0) separate(X, k, 2, function (li) { return size(nodes[members[li]]) / 2 + 8; }, arr === 'stress' ? STRESS.sepPasses : 30);
+      if (arr !== 'stress' || STRESS.sepPasses > 0) clearOverlaps(X, k, 2, function (li) { return size(nodes[members[li]]) / 2 + 8; }, arr === 'stress' ? STRESS.sepPasses : 30, STRESS.growRounds, STRESS.grow);
+      if (STRESS.settle) settleOverlaps(X, k, 2, function (li) { return size(nodes[members[li]]) / 2 + 2; });
       var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
       for (var li4 = 0; li4 < k; li4++) { var rr = size(nodes[members[li4]]) / 2; x0 = Math.min(x0, X[li4 * 2] - rr); x1 = Math.max(x1, X[li4 * 2] + rr); y0 = Math.min(y0, X[li4 * 2 + 1] - rr); y1 = Math.max(y1, X[li4 * 2 + 1] + rr); }
       for (var li5 = 0; li5 < k; li5++) { X[li5 * 2] -= x0; X[li5 * 2 + 1] -= y0; }
@@ -1168,7 +1228,7 @@ var NFMEngine = (function () {
       for (i = 0; i < nb; i++) { var y = nb > 1 ? 1 - 2 * i / (nb - 1) : 0, rr = Math.sqrt(Math.max(0, 1 - y * y)), th = i * ga; X[i * 3] = Rs * rr * Math.cos(th) + (rnd() - 0.5); X[i * 3 + 1] = Rs * y; X[i * 3 + 2] = Rs * rr * Math.sin(th); mass[i] = 1 + Math.sqrt(adj[i].length); adj[i].forEach(function (w) { if (w > i) pairs.push(i, w); }); }
       forceSim(X, nb, 3, pairs, mass, nb <= 300 ? 260 : nb <= 1500 ? 160 : nb <= 6000 ? 90 : 45, EDGE * 0.55, rnd);
     } else { res = arrangeAll(arr, nodes, adj, size, rnd, EDGE); X = res.X; dim = res.dim; }
-    if (dim === 2) separate(X, nb, 2, function (q) { return size(nodes[q]) / 2 + 8; }, 40);
+    if (dim === 2) { clearOverlaps(X, nb, 2, function (q) { return size(nodes[q]) / 2 + 8; }, 40, STRESS.growRounds, STRESS.grow); if (STRESS.settle) settleOverlaps(X, nb, 2, function (q) { return size(nodes[q]) / 2 + 2; }); }
     var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (i = 0; i < nb; i++) { var r = size(nodes[i]) / 2; x0 = Math.min(x0, X[i * dim] - r); x1 = Math.max(x1, X[i * dim] + r); y0 = Math.min(y0, X[i * dim + 1] - r); y1 = Math.max(y1, X[i * dim + 1] + r); if (dim === 3) { z0 = Math.min(z0, X[i * 3 + 2]); z1 = Math.max(z1, X[i * 3 + 2]); } }
     if (!nb) { x0 = x1 = y0 = y1 = 0; }
