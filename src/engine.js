@@ -979,6 +979,23 @@ var NFMEngine = (function () {
     }
   }
   /** Where each arrangement puts things. All return centers (dim numbers per item) around the origin. */
+
+  /**
+   * Plain-words advice about the network arrangements for a network of n items: what the chosen one is best at and, where it matters,
+   * what a different choice would give. Returns { text, offer, secs }; offer is the arrangement worth suggesting (or ''), secs the rough
+   * time of best quality here (browsers, a typical laptop).
+   */
+  function arrangeAdvice(arr, n) {
+    var secs = Math.max(1, Math.round(5.5e-8 * n * n)), big = n > STRESS.fullMax && n <= STRESS.exactMax, since = ' (about ' + secs + (secs === 1 ? ' second' : ' seconds') + ' for ' + n.toLocaleString('en-US') + ' items)';
+    if (arr === 'stress') return n > STRESS.exactMax ? { text: 'Page distances follow the number of links between items. At this size a quick sample of pairs is used.', offer: '', secs: 0 }
+      : big ? { text: 'Page distances follow the number of links between items. At this size a quick sample of pairs is used; "Distances, best quality" uses every pair and is truer' + since + '.', offer: 'stressBest', secs: secs }
+      : { text: 'Page distances follow the number of links between items. At this size every pair is used.', offer: '', secs: 0 };
+    if (arr === 'stressBest') return big ? { text: 'Uses every pair of items for the truest distances' + since + '.', offer: '', secs: secs }
+      : { text: n <= STRESS.fullMax ? 'At this size "Distances" already uses every pair, so this gives the same picture.' : 'Above ' + STRESS.exactMax.toLocaleString('en-US') + ' items this falls back to the quick sample of pairs.', offer: '', secs: 0 };
+    if (arr === 'closeness') return { text: 'Linked items sit nearest each other. Best for "who is next to whom?"; distances across the picture are less true than with Distances.', offer: '', secs: 0 };
+    if (arr === 'force') return { text: 'Springs pull linked items together while everything pushes apart: the classic network picture.', offer: '', secs: 0 };
+    return { text: '', offer: '', secs: 0 };
+  }
   var ARRANGE_NAMES = { stress: 'Distances (stress)', closeness: 'Closeness (nearest are linked)', stressBest: 'Distances, best quality (slower)', force: 'Force (springs)', circle: 'Circle', rings: 'Rings by importance', groups: 'Group clusters', radial: 'Radial tree', grid: 'Grid', force3d: '3D force', sphere: 'Sphere', stack: 'Stacked group planes' };
   function arrangeAll(kind, nodes, adj, size, rnd, EDGE) {
     var k = nodes.length, i, dim = /3d|sphere|stack/.test(kind) ? 3 : 2, X = new Float64Array(k * dim);
@@ -1109,32 +1126,37 @@ var NFMEngine = (function () {
     // D[(m-1)*k + i] = hops between numbered items i and (i+m) mod k, for offsets m = 1..k/2: each pair once, and one offset lies in a straight line.
     // 32 searches run side by side: every item holds a 32-bit mask of the searches that have reached it, so one pass over a link moves 32 searches
     // one step. Rows of a block are kept in a small table and written across in pieces (writing one byte at a time down a column is slow).
-    var BL = 32, tmp = new Uint8Array(BL * nm), reach = new Int32Array(k), fr = new Int32Array(k), fr2 = new Int32Array(k), acc = new Int32Array(k);
+    var BL = 64, tmp = new Uint8Array(BL * nm), rL = new Int32Array(k), rH = new Int32Array(k), fL = new Int32Array(k), fH = new Int32Array(k), aL = new Int32Array(k), aH = new Int32Array(k);
     var list = new Int32Array(k), list2 = new Int32Array(k), touched = new Int32Array(k), seenT = new Uint8Array(k);
     for (var r0 = 0; r0 < k; r0 += BL) {
       var nb = Math.min(BL, k - r0), nl = nb, level = 0, bb;
-      reach.fill(0); tmp.fill(0);
-      for (bb = 0; bb < nb; bb++) { reach[r0 + bb] = fr[r0 + bb] = 1 << bb; list[bb] = r0 + bb; }
+      rL.fill(0); rH.fill(0); tmp.fill(0);
+      for (bb = 0; bb < nb; bb++) { if (bb < 32) rL[r0 + bb] = fL[r0 + bb] = 1 << bb; else rH[r0 + bb] = fH[r0 + bb] = 1 << (bb - 32); list[bb] = r0 + bb; }
       while (nl > 0) {
         level++; var nt = 0, u, e, e1, v;
         if (level > 254) return false;   // hop counts are kept in one byte; a piece this stretched out is left to the pivot version
-        for (var li = 0; li < nl; li++) {   // push: every item that just got reached hands its mask to its neighbors
-          u = list[li]; var fu = fr[u];
-          for (e = off2[u], e1 = off2[u + 1]; e < e1; e++) { v = nbr2[e]; if (!seenT[v]) { seenT[v] = 1; touched[nt++] = v; } acc[v] |= fu; }
+        for (var li = 0; li < nl; li++) {   // push: every item that just got reached hands its masks to its neighbors
+          u = list[li]; var fl = fL[u], fh = fH[u];
+          for (e = off2[u], e1 = off2[u + 1]; e < e1; e++) { v = nbr2[e]; if (!seenT[v]) { seenT[v] = 1; touched[nt++] = v; } aL[v] |= fl; aH[v] |= fh; }
         }
-        for (li = 0; li < nl; li++) fr[list[li]] = 0;
+        for (li = 0; li < nl; li++) { fL[list[li]] = 0; fH[list[li]] = 0; }
         var nl2 = 0, dv = level > 255 ? 255 : level;
         for (var ti = 0; ti < nt; ti++) {
           v = touched[ti]; seenT[v] = 0;
-          var nx = acc[v] & ~reach[v]; acc[v] = 0;
-          if (!nx) continue;
-          reach[v] |= nx; fr[v] = nx; list2[nl2++] = v;
+          var nxL = aL[v] & ~rL[v], nxH = aH[v] & ~rH[v]; aL[v] = 0; aH[v] = 0;
+          if (!(nxL | nxH)) continue;
+          rL[v] |= nxL; rH[v] |= nxH; fL[v] = nxL; fH[v] = nxH; list2[nl2++] = v;
           if (dv > maxD) maxD = dv;
-          while (nx) {
-            var low = nx & -nx; nx ^= low; bb = 31 - Math.clz32(low);
-            m = v - (r0 + bb); if (m < 0) m += k;
-            if (m > nm || (m + m === k && r0 + bb >= nm)) continue;
-            tmp[bb * nm + m - 1] = dv;
+          var base = v - r0; if (base < 0) base += k;
+          if (base - (nb - 1) > nm) continue;   // all of this item's pairs are the second half of their pair (offset above k/2): nothing to write
+          for (var wd = 0; wd < 2; wd++) {
+            var nx = wd ? nxH : nxL;
+            while (nx) {
+              var low = nx & -nx; nx ^= low; bb = 31 - Math.clz32(low) + wd * 32;
+              m = v - (r0 + bb); if (m < 0) m += k;
+              if (m > nm || (m + m === k && r0 + bb >= nm)) continue;
+              tmp[bb * nm + m - 1] = dv;
+            }
           }
         }
         var sw = list; list = list2; list2 = sw; nl = nl2;
@@ -1744,7 +1766,7 @@ var NFMEngine = (function () {
 
   return {
     MAP_W: MAP_W, MAP_H: MAP_H, VIEWS: VIEWS, TASKS: TASKS, prepare: prepare, importance: importance, flowExact: flowExact, flowSim: flowSim, absorb: absorb, endClasses: endClasses, spread: spread, seedsOf: seedsOf,
-    mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, forceSim: forceSim, stressTuning: STRESS,
+    mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressTuning: STRESS,
     communities: communities, metrics: metrics, taskScore: taskScore, build: build, compare: compare, bfs: bfs, mapCrossPairs: mapCrossPairs, mapPlaceLine: mapPlaceLine, autoStart: autoStart
   };
 })();
