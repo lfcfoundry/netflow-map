@@ -13,13 +13,13 @@ var NFMGpuStress = (function () {
   /* ------------------------------------------------------------------ CPU: the sketch */
   /** off/nbr: compressed adjacency of one connected piece with k items. Returns { X (2k floats, page units), minEcc (a bound: no hop count exceeds 2 * minEcc), ms }. */
   function pivotStart(off, nbr, k, EDGE, pivots) {
-    var t0 = now(), p = Math.min(pivots || 60, k), C = new Float64Array(k * p), minD = new Float64Array(k).fill(1e9), dist = new Int32Array(k), q = new Int32Array(k), piv = 0, c, j, a, b, h, t, u, minEcc = 1e9;
+    var t0 = now(), p = Math.min(pivots || 60, k), C = new Float64Array(k * p), minD = new Float64Array(k).fill(1e9), dist = new Int32Array(k), q = new Int32Array(k), piv = 0, c, j, a, b, h, t, u, minEcc = 1e9, maxEcc = 1;
     for (c = 0; c < p; c++) {
       dist.fill(-1); dist[piv] = 0; q[0] = piv; h = 0; t = 1;
       while (h < t) { u = q[h++]; for (var e = off[u]; e < off[u + 1]; e++) { var w = nbr[e]; if (dist[w] < 0) { dist[w] = dist[u] + 1; q[t++] = w; } } }
       var far = 0, fd = -1, ecc = 0;
       for (j = 0; j < k; j++) { var d = dist[j] < 0 ? 0 : dist[j]; if (d > ecc) ecc = d; C[j * p + c] = d * d; if (d < minD[j]) minD[j] = d; if (minD[j] > fd) { fd = minD[j]; far = j; } }
-      if (ecc < minEcc) minEcc = ecc;
+      if (ecc < minEcc) minEcc = ecc; if (ecc > maxEcc) maxEcc = ecc;
       piv = far;
     }
     var rm = new Float64Array(k), cm = new Float64Array(p), gm = 0, v;
@@ -50,7 +50,7 @@ var NFMGpuStress = (function () {
     }
     var sc = den > 0 ? EDGE * num / den : 1;
     for (j = 0; j < 2 * k; j++) X[j] = raw[j] * sc;
-    return { X: X, minEcc: minEcc, ms: now() - t0 };
+    return { X: X, minEcc: minEcc, maxEcc: maxEcc, ms: now() - t0 };
   }
 
   /** A valid bound on the longest hop count (twice the eccentricity of any item) from four quick walks; the sketch finds a tighter one later, but this lets the card start its table at once. */
@@ -206,6 +206,72 @@ var NFMGpuStress = (function () {
     '  pout[i] = xi + prm.omega * (tg - xi);',
     '}'].join('\n'); };
 
+  /* Method 'sgd': the processor's own best-quality method (sweeps over every pair in random order, with a big step that shrinks sweep by sweep), done in parallel.
+     One dispatch = one offset m: with the items in a random order, item i is paired with item i+m (round the ring), and every pair moves both of its ends a little as in the processor's loop.
+     Each thread works out the move of its own item from both of its pairs (as left end and as right end), using the positions from before the dispatch. */
+  var SGD_WGSL = [
+    'struct Q { k: u32, S: u32, m: u32, flags: u32, eta: f32, edge: f32, p1: u32, p2: u32 };',
+    '@group(0) @binding(0) var<uniform> q: Q;',
+    '@group(0) @binding(1) var<storage, read> dm: array<u32>;',
+    '@group(0) @binding(2) var<storage, read> perm: array<u32>;',
+    '@group(0) @binding(3) var<storage, read> pin: array<vec2<f32>>;',
+    '@group(0) @binding(4) var<storage, read_write> pout: array<vec2<f32>>;',
+    'fn hop(a: u32, b: u32) -> f32 { let idx = perm[b] * q.S + perm[a]; return f32((dm[idx >> 2u] >> ((idx & 3u) * 8u)) & 255u); }',
+    'fn corr(xa: vec2<f32>, xb: vec2<f32>, d: f32) -> vec2<f32> {',   // the left end moves by -result, the right end by +result
+    '  if (d <= 0.0) { return vec2<f32>(0.0, 0.0); }',
+    '  let mu = min(q.eta / (d * d), 1.0); let dl = xa - xb; let mag = length(dl) + 1e-9;',
+    '  return (0.5 * mu * (1.0 - d * q.edge / mag)) * dl;',
+    '}',
+    '@compute @workgroup_size(64)',
+    'fn sgd(@builtin(global_invocation_id) gid: vec3<u32>) {',
+    '  let i = gid.x; if (i >= q.k) { return; }',
+    '  let half = q.k >> 1u; let evenHalf = (q.flags & 1u) != 0u;',   // k even and m == k/2: each pair would be seen twice, so only the first half are left ends
+    '  let xi = pin[i]; var x = xi;',
+    '  if (!(evenHalf && i >= half)) { var j = i + q.m; if (j >= q.k) { j = j - q.k; } x = x - corr(xi, pin[j], hop(i, j)); }',
+    '  if (!(evenHalf && i < half)) { var h = i + q.k - q.m; if (h >= q.k) { h = h - q.k; } x = x + corr(pin[h], xi, hop(h, i)); }',
+    '  pout[i] = x;',
+    '}',
+    '@compute @workgroup_size(64)',
+    'fn unperm(@builtin(global_invocation_id) gid: vec3<u32>) {',   // back to the original item order
+    '  let i = gid.x; if (i >= q.k) { return; }',
+    '  pout[perm[i]] = pin[i];',
+    '}'].join('\n');
+
+  /** A random order of the k items (the same on the card and in the CPU check). */
+  function permFor(k, seed) {
+    var p = new Uint32Array(k), i, j, w, s = (seed | 0) || 1;
+    for (i = 0; i < k; i++) p[i] = i;
+    for (i = k - 1; i > 0; i--) { s = (s + 0x6d2b79f5) | 0; var z = Math.imul(s ^ (s >>> 15), 1 | s); z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z; j = Math.floor((((z ^ (z >>> 14)) >>> 0) / 4294967296) * (i + 1)); w = p[i]; p[i] = p[j]; p[j] = w; }
+    return p;
+  }
+  /** The sweeps: in each, every offset 1..k/2 once in a fresh random order, with a step size shrinking from sweep to sweep (the processor's schedule: 3 sweeps 0.3/0.3, 2 sweeps 0.1/0.5). */
+  function sgdSchedule(k, sweeps, maxD, seed) {
+    var half = k >> 1, hi = sweeps <= 2 ? 0.1 : 0.3, lo = sweeps <= 2 ? 0.5 : 0.3, etaMax = maxD * maxD * hi, lam = Math.log(etaMax / lo) / Math.max(1, sweeps - 1), n = sweeps * half, m = new Uint32Array(n), eta = new Float32Array(n), t, i, j, w, s = ((seed | 0) || 1) + 7777;
+    for (t = 0; t < sweeps; t++) {
+      for (i = 0; i < half; i++) { m[t * half + i] = i + 1; eta[t * half + i] = etaMax * Math.exp(-lam * t); }
+      for (i = half - 1; i > 0; i--) { s = (s + 0x6d2b79f5) | 0; var z = Math.imul(s ^ (s >>> 15), 1 | s); z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z; j = Math.floor((((z ^ (z >>> 14)) >>> 0) / 4294967296) * (i + 1)); w = m[t * half + i]; m[t * half + i] = m[t * half + j]; m[t * half + j] = w; }
+    }
+    return { m: m, eta: eta, n: n };
+  }
+  /** The same method on the CPU in 64-bit numbers, for the correctness check (small k only). D: hop counts at D[b * stride + a]. X0 and the answer are in the original item order. */
+  function sgdCpu(X0, D, k, stride, EDGE, sch, perm) {
+    var cur = new Float64Array(2 * k), nxt = new Float64Array(2 * k), half = k >> 1, evenK = k % 2 === 0, b, i, r;
+    for (r = 0; r < k; r++) { cur[2 * r] = X0[2 * perm[r]]; cur[2 * r + 1] = X0[2 * perm[r] + 1]; }
+    var corr = function (xa, ya, xb, yb, d, eta, out) { if (d <= 0) { out[0] = 0; out[1] = 0; return; } var mu = Math.min(eta / (d * d), 1), dx = xa - xb, dy = ya - yb, mag = Math.sqrt(dx * dx + dy * dy) + 1e-9, f = 0.5 * mu * (1 - d * EDGE / mag); out[0] = f * dx; out[1] = f * dy; }, o = [0, 0];
+    for (b = 0; b < sch.n; b++) {
+      var mm = sch.m[b], eta = sch.eta[b], evenHalf = evenK && mm === half;
+      for (i = 0; i < k; i++) {
+        var px = cur[2 * i], py = cur[2 * i + 1], j;
+        if (!(evenHalf && i >= half)) { j = (i + mm) % k; corr(cur[2 * i], cur[2 * i + 1], cur[2 * j], cur[2 * j + 1], D[perm[j] * stride + perm[i]], eta, o); px -= o[0]; py -= o[1]; }
+        if (!(evenHalf && i < half)) { j = (i + k - mm) % k; corr(cur[2 * j], cur[2 * j + 1], cur[2 * i], cur[2 * i + 1], D[perm[i] * stride + perm[j]], eta, o); px += o[0]; py += o[1]; }
+        nxt[2 * i] = px; nxt[2 * i + 1] = py;
+      }
+      var sw = cur; cur = nxt; nxt = sw;
+    }
+    var out = new Float64Array(2 * k); for (r = 0; r < k; r++) { out[2 * perm[r]] = cur[2 * r]; out[2 * perm[r] + 1] = cur[2 * r + 1]; }
+    return out;
+  }
+
   /** How much memory the tables need for k items: { dBytes, workBytes }. */
   function need(k) { var S = Math.ceil(k / 4) * 4, nb = Math.ceil(k / 32); return { S: S, nb: nb, dBytes: k * S, workBytes: 3 * nb * k * 4 }; }
 
@@ -228,7 +294,7 @@ var NFMGpuStress = (function () {
    *  keepTable (false), snapshots ([] step counts to also read back), profile (false: wait after each phase to time it; the waits cost about 0.1 s each in Firefox) }.
    *  Returns { X (Float32Array 2k), X0 (the sketch), ms: { start, upload, table, weights, steps, read, total }, levels, stride, dTable?, snapshots } or { error }. */
   async function layoutInner(dev, off, nbr, k, EDGE, opts) {
-    opts = opts || {}; var device = dev.device, T0 = now(), ms = {}, steps = opts.steps || 60, nd = need(k), lim = dev.limits, kernel = opts.kernel || 'v2', omega = kernel !== 'v1' ? (opts.omega || 1.2) : 1, prof = !!opts.profile;
+    opts = opts || {}; var device = dev.device, T0 = now(), ms = {}, method = opts.method === 'sgd' ? 'sgd' : 'smacof', steps = method === 'sgd' ? (opts.polish || 0) : (opts.steps || 60), nd = need(k), lim = dev.limits, kernel = opts.kernel || 'v2', omega = kernel !== 'v1' ? (opts.omega || 1.2) : 1, prof = !!opts.profile;
     if (nd.dBytes > lim.maxStorageBufferBindingSize || nd.dBytes > lim.maxBufferSize) return { error: 'The hop table (' + Math.round(nd.dBytes / 1048576) + ' MB) does not fit in this graphics card\'s largest buffer (' + Math.round(lim.maxStorageBufferBindingSize / 1048576) + ' MB).', tooBig: true };
     var bound = quickBound(off, nbr, k), L = Math.min(254, bound); if (bound > 254) return { error: 'Some hop counts may exceed 254, which one byte cannot hold.', tooLong: true };
     var Sx = nd.S, nb = nd.nb, GB = GPUBufferUsage, GR = Math.max(1, Math.min(nb, opts.group || 16)), ngr = Math.ceil(nb / GR);
@@ -269,10 +335,41 @@ var NFMGpuStress = (function () {
     if (prof || k >= 12000) { await wait(); ms.table = now() - t2; } else ms.table = null;   // big sizes wait once here so the card is never given more than a moment of queued work
     RB.destroy(); FA.destroy(); FB.destroy();
     /* the steps */
-    var t4 = now(), PBdata, sp, spReduce = null, jchunk = 0, split = 1, sg;
-    var XA = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST, st.X), XB = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST), PART = null, PB, stepBG1, stepBG2;
+    var t4 = now(), PBdata, sp, spReduce = null, jchunk = 0, split = 1, sg, perm = null, sch = null, maxD = 0;
     var f32bits = function (v) { return new Uint32Array(new Float32Array([v]).buffer)[0]; };
-    if (kernel === 'v1') {
+    var XA = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST, st.X), XB = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST), PART = null, PB = null, stepBG1, stepBG2;
+    if (method === 'sgd') {
+      var sweeps = opts.sweeps || (k <= 12000 ? 3 : 2), seed = opts.seed || 12345; maxD = Math.max(2, st.maxEcc); perm = permFor(k, seed); sch = sgdSchedule(k, sweeps, maxD, seed);
+      var Xp = new Float32Array(2 * k); for (var r0 = 0; r0 < k; r0++) { Xp[2 * r0] = st.X[2 * perm[r0]]; Xp[2 * r0 + 1] = st.X[2 * perm[r0] + 1]; }
+      device.queue.writeBuffer(XA, 0, Xp);
+      var PERM = mk(4 * k, GB.STORAGE, perm), sbuf = new ArrayBuffer(sch.n * ua), su = new Uint32Array(sbuf), sf = new Float32Array(sbuf), ev = (k % 2 === 0) ? (k >> 1) : -1;
+      for (var bi = 0; bi < sch.n; bi++) { var so = bi * ua / 4; su[so] = k; su[so + 1] = Sx; su[so + 2] = sch.m[bi]; su[so + 3] = sch.m[bi] === ev ? 1 : 0; sf[so + 4] = sch.eta[bi]; sf[so + 5] = EDGE; }
+      var SU = mk(sbuf.byteLength, GB.UNIFORM, new Uint32Array(sbuf));
+      var lg = device.createBindGroupLayout({ entries: [
+        { binding: 0, visibility: SV, buffer: { type: 'uniform', hasDynamicOffset: true } }, { binding: 1, visibility: SV, buffer: { type: 'read-only-storage' } }, { binding: 2, visibility: SV, buffer: { type: 'read-only-storage' } },
+        { binding: 3, visibility: SV, buffer: { type: 'read-only-storage' } }, { binding: 4, visibility: SV, buffer: { type: 'storage' } }] });
+      var gm = device.createShaderModule({ code: SGD_WGSL }), gp = device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [lg] }), compute: { module: gm, entryPoint: 'sgd' } });
+      var gbg = function (a, b2) { return device.createBindGroup({ layout: lg, entries: [{ binding: 0, resource: { buffer: SU, size: 32 } }, { binding: 1, resource: { buffer: DM } }, { binding: 2, resource: { buffer: PERM } }, { binding: 3, resource: { buffer: a } }, { binding: 4, resource: { buffer: b2 } }] }); };
+      var gAB = gbg(XA, XB), gBA = gbg(XB, XA), gdone = 0, gper = Math.max(16, Math.floor(4e7 / k)), gsince = 0, grate = 0;   // dispatches per submission: the first is timed and the size adjusted
+      while (gdone < sch.n) {
+        var gupto = Math.min(sch.n, gdone + gper), gfrom = gdone, ge = device.createCommandEncoder(), gpass = ge.beginComputePass(); gpass.setPipeline(gp);
+        for (; gdone < gupto; gdone++) { gpass.setBindGroup(0, gdone % 2 ? gBA : gAB, [gdone * ua]); gpass.dispatchWorkgroups(gx); }
+        gpass.end(); device.queue.submit([ge.finish()]);
+        if (k >= 8000 && gdone < sch.n) {
+          var gn = gupto - gfrom;
+          if (!grate) { var gq = now(); await wait(); grate = Math.max(0.0005, (now() - gq) / gn); gper = Math.max(16, Math.min(sch.n, Math.round(120 / grate))); }
+          else { gsince += gn; if (gsince * grate > 900) { await wait(); gsince = 0; } }
+        }
+        if (opts.onProgress) opts.onProgress(gdone / sch.n * 0.9);
+      }
+      var gF = sch.n % 2 ? XB : XA, gO = gF === XA ? XB : XA, ce = device.createCommandEncoder(), cp = ce.beginComputePass();   // back to the original item order, and the answer ends in XA for the clean-up steps / read-back
+      cp.setPipeline(device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [lg] }), compute: { module: gm, entryPoint: 'unperm' } })); cp.setBindGroup(0, gbg(gF, gO), [0]); cp.dispatchWorkgroups(gx); cp.end();
+      if (gO === XB) ce.copyBufferToBuffer(XB, 0, XA, 0, 8 * k);
+      device.queue.submit([ce.finish()]);
+      SU.destroy(); PERM.destroy();
+    }
+    if (steps === 0) { /* no SMACOF steps: nothing to set up */ }
+    else if (kernel === 'v1') {
       var sm = device.createShaderModule({ code: STEP_WGSL }); sp = device.createComputePipeline({ layout: 'auto', compute: { module: sm, entryPoint: 'step4' } });
       PB = mk(16, GB.UNIFORM, new Uint32Array([k, Sx, f32bits(EDGE), 0])); sg = Math.ceil(k / 256);
       var sbg = function (a, b2) { return device.createBindGroup({ layout: sp.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: PB } }, { binding: 1, resource: { buffer: DM } }, { binding: 2, resource: { buffer: a } }, { binding: 3, resource: { buffer: b2 } }, { binding: 4, resource: { buffer: WS } }] }); };
@@ -315,10 +412,10 @@ var NFMGpuStress = (function () {
     var dTable = null; if (rb) { await rb.mapAsync(GPUMapMode.READ); dTable = new Uint8Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy(); }
     var snapOut = {}; for (var key in snapBufs) { await snapBufs[key].mapAsync(GPUMapMode.READ); snapOut[key] = new Float32Array(snapBufs[key].getMappedRange().slice(0)); snapBufs[key].unmap(); snapBufs[key].destroy(); }
     var oom = await device.popErrorScope(), val = await device.popErrorScope();
-    [offB, nbrB, DM, WS, UB, PB, XA, XB, RD].forEach(function (bf) { bf.destroy(); }); if (PART) PART.destroy();
+    [offB, nbrB, DM, WS, UB, PB, XA, XB, RD].forEach(function (bf) { if (bf) bf.destroy(); }); if (PART) PART.destroy();
     if (oom || val) return { error: 'The graphics card reported ' + (oom ? 'out of memory: ' + oom.message : 'an error: ' + val.message).slice(0, 200), oom: !!oom };
     ms.total = now() - T0; snapOut[steps] = X;
-    return { X: X, X0: st.X, ms: ms, levels: L, stride: Sx, dTable: dTable, snapshots: snapOut, split: split, kernel: kernel, omega: omega };
+    return { X: X, X0: st.X, ms: ms, levels: L, stride: Sx, dTable: dTable, snapshots: snapOut, split: split, kernel: kernel, omega: omega, method: method, maxD: maxD, seed: opts.seed || 12345, sweeps: sch ? sch.n / (k >> 1) : 0 };
   }
 
   /** Same as layoutInner, but any thrown error or message the card reports comes back as { error } instead of an exception. */
@@ -347,6 +444,6 @@ var NFMGpuStress = (function () {
     }
     return cur;
   }
-  return { pivotStart: pivotStart, getDevice: getDevice, layout: layout, majCpu: majCpu, need: need };
+  return { pivotStart: pivotStart, getDevice: getDevice, layout: layout, majCpu: majCpu, sgdCpu: sgdCpu, sgdSchedule: sgdSchedule, permFor: permFor, need: need };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMGpuStress;
