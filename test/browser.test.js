@@ -166,6 +166,8 @@ async function open() {
   say(await ev(() => NFM.state.graph.edges.length === 34 && NFM.state.graph.start === 'file'), 'the example of the app\'s own steps loads (26 steps, 34 handoffs, starts at your data)');
   await click('#tabbtn-map'); await D.wait(() => NFM.state.scene && NFM.state.scene.curves.length > 20, null, 30000);
   say(true, 'the app\'s own steps are drawn as a flow');
+  const chk = await ev(async () => { const r = await NFM.client().check({}); return { e: r.L.counts.error, w: r.L.counts.warn, v: r.L.verdict }; });
+  say(chk.e === 0 && chk.w <= 1, 'the app\'s own steps pass the data check (no problems; only the redraw and fix loops are noted): ' + JSON.stringify(chk));
   await ev(() => NFM.showTab('adv')); await sleep(300);
   say(await ev(() => /Tune for this computer/.test(document.getElementById('adv-body').innerText)), 'the Advanced tab has the tuning card');
   await ev(() => { [...document.querySelectorAll('#adv-body button')].find((b) => /Test this computer/.test(b.textContent)).click(); }); await sleep(300);
@@ -210,6 +212,7 @@ async function open() {
   await click('#tabbtn-adv'); await click('#chk-run');
   await D.wait(() => document.querySelector('#chk-out .verdict'), null, 120000);
   const verdict = await ev(() => document.getElementById('chk-out').innerText); say(/seconds/.test(verdict), 'device check finished: ' + verdict.slice(0, 150).replace(/\s+/g, ' '));
+  say(/[Gg]raphics.card (arrangement|\()/.test(verdict) || /graphics card/.test(verdict), 'the device check also reports on the graphics card for big arrangements, in plain words');
   await click('#tabbtn-export'); await sleep(200);
   say(await ev(() => document.querySelectorAll('#export-body button').length >= 6), 'the Export tab offers its buttons');
 

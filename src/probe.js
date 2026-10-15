@@ -184,8 +184,16 @@ var NFMProbe = (function () {
         else if (best.fps >= 45) { verdict = 'good'; headline = 'This device handles big maps smoothly. It will draw with ' + (best.n === 'webgpu' ? 'WebGPU' : best.n === 'webgl2' ? 'WebGL 2' : 'basic drawing') + '.'; }
         else if (best.fps >= 20) { verdict = 'okay'; headline = 'This device handles medium maps well and big ones a bit slowly. Panning a huge map may stutter.'; }
         else { verdict = 'limited'; headline = 'Big maps will be slow here. Small and medium maps are fine; for a huge one, filter it down first.'; }
-        data.seconds = (nowMs() - t0) / 1000; data.best = best && best.n; data.verdict = verdict;
-        return { verdict: verdict, headline: headline, lines: lines, data: data };
+        data.best = best && best.n;
+        if (!env.cardCheck) { data.seconds = (nowMs() - t0) / 1000; data.verdict = verdict; return { verdict: verdict, headline: headline, lines: lines, data: data }; }
+        /* the graphics card as a calculator: does the big-arrangement path work and pay off here? */
+        step('Timing a big arrangement on the graphics card…');
+        return env.cardCheck().then(function (cc) {
+          data.card = cc.data || null; cc.lines.forEach(function (l) { say(l.ok, l.text); });
+          if (cc.problem) { if (verdict === 'good') verdict = 'okay'; headline += ' ' + cc.problem; }
+          data.seconds = (nowMs() - t0) / 1000; data.verdict = verdict;
+          return { verdict: verdict, headline: headline, lines: lines, data: data };
+        }, function (err) { say(null, 'The graphics-card arrangement test could not run (' + String(err && err.message || err).slice(0, 100) + ').'); data.seconds = (nowMs() - t0) / 1000; data.verdict = verdict; return { verdict: verdict, headline: headline, lines: lines, data: data }; });
       });
     });
   }
