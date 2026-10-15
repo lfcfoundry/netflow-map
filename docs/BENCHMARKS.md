@@ -506,7 +506,7 @@ Notes: GIF compares our encoder with gifenc using one shared palette on four syn
 Done in the last rounds (sections 12 to 17): the 10,000+ Stress gap (7 to 28% down to 10% truer to 9% less true than d3-force), layout results as columns (about 2.5× faster end to end at 100,000 items, not the 70 to 100× estimated before the object rebuild was counted), the GIF encoder (now faster than gifenc from about 30 frames, and far truer in color) and the normal / lognormal draws (Chromium win; Firefox tie).
 
 1. Stress at 10,000 items and above, normal arrangement: the last 5 to 9% of distance truth stays open for the quick arrangement (section 13, four rounds, all within noise). The slower **best quality** arrangement closes it (section 16). Open: making best quality faster still (the sweeps and the table of hop counts are each about half of the 4 to 5 s at 10,000 items); a graphics-card version of the sweeps is checked for correctness (end of section 16) but not built into the page.
-2. Neighborhood preservation (section 15): four corrections on top of Stress failed (section 13); a separate arrangement with its own objective works (section 17). Open: its distance truth on networks with hubs (23 to 37% worse than ForceAtlas2), and checking the neighborhood score of the browsers' own runs (Node only so far).
+2. Neighborhood preservation (section 15): four corrections on top of Stress failed (section 13); a separate arrangement with its own objective works (section 17). Open: its distance truth on networks with hubs (23 to 37% worse than ForceAtlas2; section 17 shows that winning it back costs the neighborhood score), and checking the neighborhood score of the browsers' own runs (Node only so far).
 3. GIF: the palette is a fixed cost that four frames cannot spread out (section 14). The histogram and the k-means step are what is left to trim.
 4. Reading text over 512 million characters in Chromium needs a chunked reader; the import cap of 200,000 items / 800,000 links is still the app default.
 5. A faster Force layout above 100,000 items; at that size it takes over a minute.
@@ -978,6 +978,21 @@ Reading it:
 - **It is not the choice for distances.** On the plain tree its distance truth is level with or better than ForceAtlas2 and d3-force (0.154 against 0.197 at 1,000 items, 0.195 against 0.205 at 5,000, 0.202 against 0.199 at 10,000); on moderate networks it is 8 to 12% less true, and on complex networks with hubs 23 to 37% less true (0.221 to 0.246 against 0.179 at 10,000 items). For distances use Distances (section 16 for big networks).
 - **Runs differ between engines.** The same data scored 0.221 in Node and 0.246 and 0.269 in Chromium and Firefox for the complex network at 10,000 items; the optimization is sensitive to the last digits of the number routines. Single runs; differences under about 0.01 are noise.
 - **What did not matter.** Starting step size 0.1 to 0.5, 80 to 600 rounds, 2 to 10 random pushes (more pushes raised the score a little at 5,000 items and were kept), and dividing each item's steps by its number of links, all moved the results by less than the run-to-run difference or in the wrong direction. A first version that started from the spiral instead of the Stress picture scored 0.202 on the 1,000-item tree but only 0.25 to 0.37 in distance truth.
+- **Winning the distance truth back on networks with hubs: tried, and it is a trade, not a fix** (Node, 5,000-item networks and the 1,000-item tree; each cell is distance truth / neighborhood score; as shipped, then with Stress sweeps added after the closeness rounds):
+
+| | complex 5,000 | moderate 5,000 | simple 1,000 |
+|---|---:|---:|---:|
+| As shipped | 0.234 / 0.044 | 0.197 / 0.047 | 0.154 / 0.208 |
+| 2 gentle sweeps (step 0.05) | 0.184 / 0.010 | 0.188 / 0.022 | 0.141 / 0.105 |
+| 4 gentle sweeps (step 0.05) | 0.177 / 0.007 | 0.184 / 0.016 | 0.137 / 0.052 |
+| 4 sweeps (step 0.1) | 0.170 / 0.004 | 0.181 / 0.010 | 0.133 / 0.023 |
+| 4 sweeps (step 0.3) | 0.166 / 0.002 | 0.172 / 0.004 | 0.127 / 0.012 |
+| 8 sweeps (step 1.0) | 0.174 / 0.001 | 0.178 / 0.001 | 0.122 / 0.013 |
+| Far pairs only (3+ hops), 4 sweeps (step 0.3) | 0.224 / 0.009 | 0.187 / 0.008 | 0.128 / 0.019 |
+| Far pairs only (4+ hops), 4 sweeps (step 0.3) | 0.230 / 0.026 | 0.209 / 0.025 | 0.128 / 0.010 |
+| ForceAtlas2, for reference | 0.171 / 0.011 | 0.182 / 0.020 | 0.197 / 0.159 |
+
+Distance truth comes back with a few Stress sweeps, and the neighborhood score goes with it: the two objectives pull the same items in different directions, so there is a curve and no free point on it. The middle of the curve (2 sweeps at step 0.05) matches ForceAtlas2 on both scores at 5,000 items (0.184 / 0.010 against 0.171 / 0.011 on the complex network) and keeps no neighborhood advantage. Keeping the near pairs out of the sweeps, so only the far ones act, did not help either. None of this code was kept: Closeness stays at the neighborhood end of the curve, Distances at the other.
 - **A bug found on the way:** the step that stretches a crowded picture before separating items was only applied to Stress; without it the complex network at 5,000 items scored 0.225 even with zero rounds of the new method. Closeness now gets it too.
 
 ## Reproduce
