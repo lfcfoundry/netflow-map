@@ -5,7 +5,7 @@
 'use strict';
 const path = require('path');
 const which = process.argv[2] || 'chromium', outDir = process.argv[3] || '/tmp';
-const strict = which === 'chromium';
+const strict = which === 'chromium' || !!process.env.NFM_STRICT;
 const flags = ['--no-sandbox', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist'];
 let fails = 0; const say = (ok, t) => { if (ok === false) fails++; console.log((ok === true ? 'ok   ' : ok === false ? 'FAIL ' : 'note ') + t); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -13,7 +13,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function open() {
   if (which === 'firefox') {
     const pp = require(process.env.NFM_PUPPETEER || '/tmp/pptr/node_modules/puppeteer-core');
-    const b = await pp.launch({ browser: 'firefox', executablePath: process.env.NFM_FIREFOX || '/tmp/ffdl/firefox/firefox', headless: true, protocol: 'webDriverBiDi' });
+    // WebGL 2 needs a display (run under xvfb-run with NFM_HEADFUL=1); WebGPU needs a Vulkan driver (NFM_VK_ICD = a vk_*_icd.json file, e.g. SwiftShader's)
+    const env = Object.assign({}, process.env, process.env.NFM_VK_ICD ? { VK_ICD_FILENAMES: process.env.NFM_VK_ICD, VK_DRIVER_FILES: process.env.NFM_VK_ICD } : {}, { LIBGL_ALWAYS_SOFTWARE: '1' });
+    const b = await pp.launch({ browser: 'firefox', executablePath: process.env.NFM_FIREFOX || '/tmp/ffdl/firefox/firefox', headless: !process.env.NFM_HEADFUL, protocol: 'webDriverBiDi', env, extraPrefsFirefox: { 'dom.webgpu.enabled': true, 'gfx.webgpu.ignore-blocklist': true, 'webgl.force-enabled': true, 'webgl.enable-webgl2': true } });
     const page = await b.newPage(); await page.setViewport({ width: 1100, height: 720 });
     return { b, page, close: () => b.close(), size: (w, h) => page.setViewport({ width: w, height: h }), wait: (fn, arg, ms) => page.waitForFunction(fn, { timeout: ms || 20000 }, arg), shot: (p) => page.screenshot({ path: p }), click: (x, y) => page.mouse.click(x, y), press: (k) => page.keyboard.press(k), version: await b.version() };
   }

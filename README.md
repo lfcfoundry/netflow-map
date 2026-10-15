@@ -37,7 +37,7 @@ node test/importers.test.js          # 17 quick checks of the readers
 node test/oracle.test.mjs            # new engine versus the older story-map package, 40 random stories
 node test/limits.test.js             # a 20,000-page chain, 1,500 stacked diamonds, a 3,000-item network
 node test/browser.test.js chromium   # real browser run (see the file header for the browser programs it needs)
-node test/browser.test.js firefox
+node test/browser.test.js firefox    # add NFM_HEADFUL=1 NFM_STRICT=1 NFM_VK_ICD=<a vk_*_icd.json> under xvfb-run to also run WebGL 2 and WebGPU in Firefox
 sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 ```
 
@@ -58,4 +58,4 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - Link weights act as odds only when "Use link weights" is on.
 - In loops, the map shows expected visits per player, not "share of players who saw it".
 - A layered view stops above 90,000 stops and says so; use Network or Matrix instead.
-- Not yet run on a phone (Pixel 7 Pro) or on a real graphics chip; the tests so far ran in headless Firefox 158 and ungoogled-chromium 154.
+- Not yet run on a phone (Pixel 7 Pro) or on a real graphics chip. The tests ran on Firefox 158 and ungoogled-chromium 154 with WebGPU, WebGL 2 and basic drawing all matching to about 0.2 out of 255.
