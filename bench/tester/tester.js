@@ -81,7 +81,7 @@
     var glName = ''; try { var cv = document.createElement('canvas'), gl = cv.getContext('webgl2') || cv.getContext('webgl'), ext = gl && gl.getExtension('WEBGL_debug_renderer_info'); glName = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : ''; } catch (e) { glName = ''; }
     if (glName) rows.push(['Graphics (as the page sees it)', glName]);
     var dev = await G.getDevice().catch(function (e) { return { error: String(e && e.message || e) }; });
-    if (dev.error) { level = 'warn'; say = 'No graphics-card computing in this browser (' + dev.error + '). The graphics-card checks will be skipped; everything else still runs. ' + (/firefox/i.test(ua) ? 'In Firefox, WebGPU is on by default in recent versions on some systems; on others it may need switching on.' : ''); rows.push(['Graphics-card computing (WebGPU)', 'not available']); }
+    if (dev.error) { level = 'warn'; say = 'No graphics-card computing in this browser (' + dev.error + ')' + (dev.noAdapter ? ' If an earlier test run upset the graphics driver, Firefox keeps refusing it until it is fully closed: quit every Firefox window (also from the tray), open it again, then open this file.' : '') + ' The graphics-card checks will be skipped; everything else still runs. ' + (/firefox/i.test(ua) ? 'In Firefox, WebGPU is on by default in recent versions on some systems; on others it may need switching on.' : ''); rows.push(['Graphics-card computing (WebGPU)', 'not available']); }
     else {
       ctx.dev = dev; rows.push(['Graphics-card computing (WebGPU)', 'available']); rows.push(['Graphics adapter', dev.info]); rows.push(['Largest buffer it allows', Math.round(dev.limits.maxStorageBufferBindingSize / 1048576) + ' MB']);
       if (dev.software) { level = 'warn'; say = 'WebGPU is there, but it is a software stand-in (' + dev.info + '), not a real graphics card, so graphics-card timings will not mean much.'; ctx.softGpu = true; }
@@ -123,7 +123,7 @@
       P.ids.forEach(function (id, i) { var p = cb.pos.get(id); Xc[2 * i] = p[0]; Xc[2 * i + 1] = p[1]; });
       var tc = truth(P, Xc); setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card…'); await yieldUI();
       var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: 60, snapshots: [20, 40] });
-      if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', '-']); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
+      if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', String(res.error).slice(0, 60)]); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
       var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t40 = truth(P, res.snapshots[40]), ratio = cb.ms / res.ms.total; tried++; ratios.push(ratio); if (ratio > 1) wins++; if (tg <= tc * 1.03) truthOk++; if (tg > Math.min(t20, t40) * 1.05) s.notes.push('At ' + P.k.toLocaleString() + ' items the steps ran away (truth ' + r3(t20) + ' at 20 steps, ' + r3(t40) + ' at 40, ' + r3(tg) + ' at 60).');
       s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), r1(ratio) + '×', r3(t20) + ' / ' + r3(t40)]);
       summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), parts: { sketch: r1(res.ms.start), setup: r1(res.ms.upload), stepsAndTable: r1(res.ms.steps), read: r1(res.ms.read) }, split: res.split, levels: res.levels, t20: r3(t20), t40: r3(t40) });
@@ -143,10 +143,9 @@
   } });
 
   STEPS.push({ name: 'Old kernel against new', run: async function () {
-    var s = addSection('Old graphics-card program against the new one');
+    var s = addSection('Graphics-card program variants');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var n = QUICK ? 800 : 10000, big = QUICK ? 1200 : 30000, variants = [
-      ['moderate', 'old program, 60 steps', { kernel: 'v1', steps: 60, snapshots: [20, 40] }],
       ['moderate', 'new program, plain steps, 60', { kernel: 'v2', omega: 1, steps: 60, snapshots: [20, 40] }],
       ['moderate', 'new program, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60, snapshots: [20, 40] }],
       ['moderate', 'new program without tables, relaxed 1.2, 60', { kernel: 'v3', omega: 1.2, steps: 60, snapshots: [20, 40] }],
@@ -172,8 +171,8 @@
       if (!rp.error) { prof = { sketch: r1(rp.ms.start), setup: r1(rp.ms.upload), tableAndWeights: r1(rp.ms.table), steps60: r1(rp.ms.steps), read: r1(rp.ms.read), levels: rp.levels }; s.rows.push(['moderate ' + Pm.k.toLocaleString(), 'parts (new program): sketch / setup / table+weights / 60 steps / read-back', prof.sketch + ' / ' + prof.setup + ' / ' + prof.tableAndWeights + ' / ' + prof.steps60 + ' / ' + prof.read + ' ms', '', '', '']); }
     }
     ctx.kernels = { n: n, variants: out, parts: prof };
-    var oldT = out[0], newT = out[2], say = out.length >= 3 ? 'At ' + n.toLocaleString() + ' items the new program takes ' + fmtMs(newT.totalMs) + ' against ' + fmtMs(oldT.totalMs) + ' for the old one (' + r1(oldT.totalMs / newT.totalMs) + '× as fast).' : 'Not enough runs finished to compare.';
-    s.finish('ok', say); return { level: 'ok', say: say };
+    var say = out.length >= 2 ? 'At ' + n.toLocaleString() + ' items the program takes ' + fmtMs(out[1].totalMs) + ' with relaxation 1.2 and ' + fmtMs(out[0].totalMs) + ' with plain steps.' : 'Not enough runs finished to compare.';
+    s.finish(out.length >= 2 ? 'ok' : 'warn', say); return { level: 'ok', say: say };
   } });
 
   STEPS.push({ name: 'Cold start', run: async function () {
