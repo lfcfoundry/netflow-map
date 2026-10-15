@@ -1093,6 +1093,20 @@ Version 3 (next tester) overlaps the processor's sketch with the card's table, u
 
 **Fourth run (sketch overlapped, 40 steps; `bench/results/laptop-8845HS-780M-firefox159-tester5.md`).** 10,000 items: 0.46 s against 1.67 s (3.7×, truth 0.165 against 0.164); 20,000: 2.2 s against 5.1 s (2.3×, 0.166 against 0.162); 30,000: 4.0 s (was 5.5 s) at truth 0.165 against the app's quick 0.211; complex 9,999: 3.0× at 0.156 against 0.147. Relaxation 1.2 and 1.6 both converge (0.164 and 0.163 at 60 steps against 0.165 plain); 1.2 stays the default. Hop table by start items walked together (20,000 items): 32: 1.34 s, 64: 1.00 s, 128: 1.08 s, 256: 1.00 s, 512: 1.00 s, so the table is not limited by the working arrays fitting a cache; it is limited by about 1.3 billion scattered reads (625 batches x 18 levels x 120,000 edge reads). Version 4 (in the next tester) interleaves the batches of one item side by side in memory so neighboring threads read neighboring words, which turns that into line-sized reads; the table's answer is unchanged (0 of 360,000 entries differ at 600 items on the software stand-in).
 
+**Fifth run (batches of one item side by side in memory; `bench/results/laptop-8845HS-780M-firefox159-tester6.md`).** Faster than the processor in all 7 sizes:
+
+| network | items | processor | graphics card | faster by | truth, processor / card |
+|---|---:|---:|---:|---:|---:|
+| moderate | 2,000 | 0.44 s | 0.31 s | 1.4× | 0.149 / 0.153 |
+| moderate | 5,000 | 0.56 s | 0.30 s | 1.9× | 0.159 / 0.155 |
+| moderate | 10,000 | 1.73 s | 0.50 s | 3.5× | 0.164 / 0.165 |
+| complex | 5,000 | 0.42 s | 0.29 s | 1.5× | 0.144 / 0.143 |
+| complex | 9,999 | 1.62 s | 0.50 s | 3.2× | 0.147 / 0.156 |
+| moderate | 20,000 | 5.2 s | 1.17 s | 4.5× | 0.162 / 0.166 |
+| moderate | 30,000 | 2.5 s (quick sample) | 1.73 s | 1.5× | 0.211 / 0.165 |
+
+The hop table at 20,000 items fell from 1.0 s to 0.29 s (512 start items together; 32 together 1.65 s, 64: 0.69 s, 128 and 256: 0.39 s); at 30,000 items the whole job is 1.7 s, faster than the quick sample and 22% truer. What is left at 10,000 items (0.5 s): sketch 0.06 s (overlapped), table 0.15 s, 40 steps 0.2 s, read-back 0.1 s (a flat wait in Firefox). What this does not yet do: run the app's overlap clean-up on the card's picture, and match the processor's truth on hub-heavy networks (complex 9,999: 0.156 at 40 or 60 steps, 0.153 at 150, against 0.147).
+
 **The laptop tester.** `node tools/build-tester.mjs` writes one self-contained page, `bench/net-flow-map-tester.html`. Opened in a browser it starts by itself, runs five checks (the computer and its graphics adapter; whether the graphics-card hop table and steps match the processor's; time and truth of the processor's best quality against the graphics card at 2,000 to 20,000 items; first run against later runs; random draws, CSV reading and Force repeated), explains each in plain words, and offers a results file (`net-flow-map-tester-results.md`) to hand back. `?quick=1` makes it small enough to try anywhere; `?plan=moderate:5000` picks the sizes. `node bench/tester/run-local.js <firefox|chromium> [quick]` runs it in this machine's browsers.
 
 ## Reproduce
