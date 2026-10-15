@@ -13,14 +13,18 @@
 
   /* ------------------------------------------------------------- small helpers */
   function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+  /** Distance error colors (lower is truer): green to 0.147, light green to 0.154, yellow to 0.165, orange to 0.199, red above. */
+  function errCls(v) { var x = Number(v); return !isFinite(x) ? '' : x <= 0.1475 ? 'e1' : x <= 0.1545 ? 'e2' : x <= 0.1655 ? 'e3' : x < 0.2 ? 'e4' : 'e5'; }
+  function tintNums(t) { return esc(t).replace(/\b\d\.\d{3}\b/g, function (m) { var c = errCls(m); return c ? '<span class="' + c + '">' + m + '</span>' : m; }); }
+  function tintSay(t) { return esc(t).replace(/(distance error )(\d\.\d+)( against )?(\d\.\d+)?/g, function (m, a, v1, mid, v2) { return a + '<span class="' + errCls(v1) + '">' + v1 + '</span>' + (mid && v2 ? mid + '<span class="' + errCls(v2) + '">' + v2 + '</span>' : ''); }); }
   function setStatus(t) { $('status').textContent = t; }
   function setBar() { $('barfill').style.width = Math.min(100, Math.round(100 * doneSteps / total)) + '%'; }
   function addSection(title) {
     var card = document.createElement('div'); card.className = 'card'; card.innerHTML = '<h2></h2><div class="verdict note">Working…</div><div class="tw"></div>'; card.firstChild.textContent = title; $('out').appendChild(card);
     var s = { title: title, verdict: '', level: 'ok', head: null, rows: [], notes: [], card: card };
     s.finish = function (level, verdict) {
-      s.level = level; s.verdict = verdict; var v = card.querySelector('.verdict'); v.className = 'verdict ' + level; v.textContent = verdict;
-      if (s.head) { var h = '<table><thead><tr>' + s.head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>' + s.rows.map(function (r) { return '<tr>' + r.map(function (x) { return '<td>' + esc(x) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; card.querySelector('.tw').innerHTML = h; }
+      s.level = level; s.verdict = verdict; var v = card.querySelector('.verdict'); v.className = 'verdict ' + level; v.innerHTML = tintSay(verdict);
+      if (s.head) { var h = '<table><thead><tr>' + s.head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>' + s.rows.map(function (r) { var rowErr = /distance error|^After \d+ steps|CPU math \/ graphics card/i.test(r[0]); return '<tr>' + r.map(function (x, ci) { return '<td>' + (rowErr && ci > 0 || /truth|distance error/i.test(s.head[ci] || '') ? tintNums(x) : esc(x)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; card.querySelector('.tw').innerHTML = h; }
       s.notes.forEach(function (n) { var p = document.createElement('p'); p.className = 'note'; p.textContent = n; card.appendChild(p); });
     };
     sections.push(s); return s;
@@ -41,12 +45,12 @@
     return { k: k, off: off, nbr: Uint32Array.from(nbrArr), ids: members.map(function (v) { return g.nodes[v].id; }) };
   }
   /** The truth score used by every benchmark: 60 breadth-first sources, best-scale fit, mean of (hops - scale*distance)^2 / hops^2. Lower is truer. */
-  function truth(P, X) {
-    var k = P.k, ns = Math.min(60, k), stride = k > 3000 ? 7 : 1, dist = new Int32Array(k), q = new Int32Array(k), num = 0, den = 0, pairs = [], s, t;
+  function truth(P, X, dim) {
+    dim = dim || 2; var k = P.k, ns = Math.min(60, k), stride = k > 3000 ? 7 : 1, dist = new Int32Array(k), q = new Int32Array(k), num = 0, den = 0, pairs = [], s, t;
     for (s = 0; s < ns; s++) {
       var src = Math.floor(s * k / ns); dist.fill(-1); dist[src] = 0; q[0] = src; var h = 0, tl = 1;
       while (h < tl) { var u = q[h++]; for (var e = P.off[u]; e < P.off[u + 1]; e++) { var w = P.nbr[e]; if (dist[w] < 0) { dist[w] = dist[u] + 1; q[tl++] = w; } } }
-      for (t = 0; t < k; t += stride) if (t !== src && dist[t] > 0) { var ex = Math.hypot(X[2 * src] - X[2 * t], X[2 * src + 1] - X[2 * t + 1]); pairs.push(dist[t], ex); num += ex / dist[t]; den += ex * ex / (dist[t] * dist[t]); }
+      for (t = 0; t < k; t += stride) if (t !== src && dist[t] > 0) { var ex = dim === 2 ? Math.hypot(X[2 * src] - X[2 * t], X[2 * src + 1] - X[2 * t + 1]) : Math.hypot(X[3 * src] - X[3 * t], X[3 * src + 1] - X[3 * t + 1], X[3 * src + 2] - X[3 * t + 2]); pairs.push(dist[t], ex); num += ex / dist[t]; den += ex * ex / (dist[t] * dist[t]); }
     }
     var sc = num / den, st = 0; for (s = 0; s < pairs.length; s += 2) { var d = pairs[s], ee = pairs[s + 1]; st += Math.pow(d - sc * ee, 2) / (d * d); }
     return st / (pairs.length / 2);
@@ -110,7 +114,8 @@
     else {
       var sch0 = G.sgdSchedule(P.k, r2.sched.sweeps, r2.maxD, r2.seed, r2.sched.hi, r2.sched.lo, r2.sched.smooth), pm0 = G.permFor(P.k, r2.seed), Xq = G.sgdCpu(r2.X0, D, P.k, S, EDGE, sch0, pm0), sg2 = pairStress(r2.X, D, P.k, S), sq = pairStress(Xq, D, P.k, S);
       sdiff = Math.abs(sg2 - sq) / sq * 100; for (i = 0; i < P.k; i++) smove += Math.hypot(r2.X[2 * i] - Xq[2 * i], r2.X[2 * i + 1] - Xq[2 * i + 1]); smove = smove / P.k / EDGE;
-      okSgd = sdiff < 2;   // positions can drift apart (many tiny steps, 32-bit against 64-bit), the distance error is what must agree sgdRows.push(['Parallel pairs (' + r2.sweeps + ' sweeps): CPU math / graphics card', r3(sq) + ' / ' + r3(sg2)], ['Parallel pairs: difference / average item difference', r1(sdiff) + '% / ' + r3(smove)]);
+      okSgd = sdiff < 2;   // positions can drift apart (many tiny steps, 32-bit against 64-bit), the distance error is what must agree
+      sgdRows.push(['Parallel pairs (' + r2.sweeps + ' sweeps): CPU math / graphics card', r3(sq) + ' / ' + r3(sg2)], ['Parallel pairs: difference / average item difference', r1(sdiff) + '% / ' + r3(smove)]);
     }
     s.head = ['Check', 'Result']; s.rows = [['Items', String(P.k)], ['Hop table: entries that differ from the CPU table', bad + ' of ' + (P.k * P.k)], ['Distance error at the start (sketch)', r3(s0)], ['After ' + steps + ' steps, CPU math', r3(sc)], ['After ' + steps + ' steps, graphics card', r3(sg)], ['Difference', r1(diff) + '%'], ['Average item difference (share of one link)', r3(move)]].concat(sgdRows);
     okSteps = okSteps && okSgd; var level = okTable && okSteps ? 'ok' : 'bad';
@@ -249,6 +254,60 @@
     s.finish('ok', say); return { level: 'ok', say: say };
   } });
 
+
+  /* ------------------------------------------------------------- 3D: layouts, turning speed, spinning previews */
+  var previews = [];
+  /** A draggable, spinning picture of a 3D layout, drawn with the app's own scene and renderer. Spins when visible; click to pause; drag to turn; wheel to zoom. */
+  async function addPreview(card, L3, title, backend) {
+    var wrap = document.createElement('div'); wrap.style.cssText = 'margin:8px 0'; var cap = document.createElement('div'); cap.className = 'note'; cap.textContent = title + ' (drag to turn, wheel to zoom, click to pause)'; wrap.appendChild(cap);
+    var host = document.createElement('div'); host.style.cssText = 'position:relative;width:100%;height:320px;border:1px solid var(--line);border-radius:8px;overflow:hidden;touch-action:none;cursor:grab'; wrap.appendChild(host); card.appendChild(wrap);
+    var make = backend === 'webgpu' ? NFMRender.createWebGPU : backend === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D, r;
+    try { r = await make(host, {}); } catch (e) { cap.textContent = title + ': could not draw the preview (' + String(e && e.message || e).slice(0, 80) + ')'; return; }
+    var W = host.clientWidth || 600, H = 320, st = { yaw: 0.6, pitch: 0.35, zoom: 1, paused: false, drag: null, visible: true };
+    var draw = function () { var sc = NFMScene.make(L3, { colorBy: 'group', theme: matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light', cam: { yaw: st.yaw, pitch: st.pitch, persp: 2.4 } }); r.setScene(sc); r.resize(W, H, 1); var v = NFMProbe.fitView(sc, W, H); v.k *= st.zoom; v.tx = W / 2 - (W / 2 - v.tx) * st.zoom; v.ty = H / 2 - (H / 2 - v.ty) * st.zoom; r.draw(v); };
+    host.addEventListener('pointerdown', function (e) { st.drag = { x: e.clientX, y: e.clientY, moved: false }; host.setPointerCapture(e.pointerId); host.style.cursor = 'grabbing'; });
+    host.addEventListener('pointermove', function (e) { if (!st.drag) return; var dx = e.clientX - st.drag.x, dy = e.clientY - st.drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) st.drag.moved = true; st.drag.x = e.clientX; st.drag.y = e.clientY; st.yaw += dx * 0.01; st.pitch = Math.max(-1.4, Math.min(1.4, st.pitch + dy * 0.01)); draw(); });
+    host.addEventListener('pointerup', function () { if (st.drag && !st.drag.moved) st.paused = !st.paused; st.drag = null; host.style.cursor = 'grab'; });
+    host.addEventListener('wheel', function (e) { e.preventDefault(); st.zoom = Math.max(0.4, Math.min(4, st.zoom * Math.exp(-e.deltaY * 0.001))); draw(); }, { passive: false });
+    if (typeof IntersectionObserver !== 'undefined') new IntersectionObserver(function (en) { st.visible = en[0].isIntersecting; }).observe(host);
+    draw(); previews.push({ st: st, draw: draw });
+  }
+  function startPreviews() {
+    if (!previews.length || startPreviews.on) return; startPreviews.on = true; var last = 0;
+    (function tick(ts) { if (ts - last > 33 && !document.hidden) { last = ts; previews.forEach(function (p) { if (p.st.visible && !p.st.paused && !p.st.drag) { p.st.yaw += 0.012; p.draw(); } }); } requestAnimationFrame(tick); })(0);
+  }
+  STEPS.push({ name: '3D arrangements and turning', run: async function () {
+    var s = addSection('3D arrangements: build time, and how smoothly they turn'), sizes = params.get('plan3d') ? params.get('plan3d').split(',').map(Number) : QUICK ? [600] : [1000, 3000], kinds = [['force3d', '3D force'], ['sphere', 'Sphere'], ['stack', 'Stacked group planes']];
+    s.head = ['Items', 'Arrangement', 'Build time', 'Hop error in 3D']; var scenes = [], previewL = null;
+    for (var zi = 0; zi < sizes.length; zi++) for (var ki = 0; ki < kinds.length; ki++) {
+      var n = sizes[zi], ar = kinds[ki][0]; setStatus('3D, ' + n.toLocaleString() + ' items: ' + kinds[ki][1] + '…'); await yieldUI();
+      var g = graphFor('moderate', n), P = piece(g), dg = C.derive(JSON.parse(JSON.stringify(g))), t0 = now(), L3;
+      try { L3 = E.build(dg, { view: 'network', arrange: ar, colorBy: 'group' }); } catch (e) { s.rows.push([n.toLocaleString(), kinds[ki][1], 'failed', String(e && e.message || e).slice(0, 40)]); continue; }
+      var ms = now() - t0, X = new Float64Array(3 * P.k), pm = new Map(); L3.nodes.forEach(function (nd) { pm.set(nd.nodeId || nd.id, nd); });
+      P.ids.forEach(function (id, i) { var nd = pm.get(id) || { cx: 0, cy: 0, z: 0 }; X[3 * i] = nd.cx; X[3 * i + 1] = nd.cy; X[3 * i + 2] = nd.z || 0; });
+      s.rows.push([n.toLocaleString(), kinds[ki][1], fmtMs(ms), r3(truth(P, X, 3))]);
+      if (ar === 'force3d') scenes.push({ n: n, L3: L3 }); if (!previewL && ar === 'force3d') previewL = { L3: L3, n: n };
+      await yieldUI();
+    }
+    /* turning speed with each usable way of drawing, on the force layout of each size */
+    var c = await NFMProbe.canary(), names = ['canvas2d']; if (c.webgl2.ok && !c.webgl2.software) names.push('webgl2'); if (c.webgpu.ok && !c.webgpu.software) names.push('webgpu');
+    var turnRows = [], best = null; ctx.turn = [];
+    for (var si = 0; si < scenes.length; si++) for (var bi = 0; bi < names.length; bi++) {
+      setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + '…'); await yieldUI();
+      var Lx = scenes[si].L3, t = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, makeScene: function (yaw, pitch) { return NFMScene.make(Lx, { colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      var nm = names[bi] === 'webgpu' ? 'WebGPU' : names[bi] === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
+      if (t.fps) { turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm, Math.round(t.fps), r1(t.sceneMs), r1(t.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], fps: r1(t.fps), sceneMs: r1(t.sceneMs), drawMs: r1(t.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || t.fps > best.fps)) best = t; }
+      else turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm, 'skipped', '-', String(t.skipped).slice(0, 40)]);
+    }
+    s.rows.push(['', '', '', '']); s.rows.push(['Turning speed', 'Pictures per second', 'New angle (ms)', 'Draw (ms)']); turnRows.forEach(function (r) { s.rows.push(r); });
+    if (previewL) await addPreview(s.card, previewL.L3, '3D force, ' + previewL.n.toLocaleString() + ' items', names[names.length - 1]);
+    s.notes.push('Hop error in 3D uses the same measure as the distance error but with three dimensions; it is lower than a flat map would give and is not colored, because the bands are for flat maps. The sphere and stacked planes are shapes first, so their hop error is higher by design. "New angle" is the time to work out the picture from the new viewing angle (done on the main thread, once per picture); "Draw" is the time to hand it to the screen.');
+    var say, level = 'ok';
+    if (!best) { say = 'Built the 3D arrangements, but could not time turning (the page may have been in the background).'; level = 'warn'; }
+    else { say = 'Turning a ' + sizes[sizes.length - 1].toLocaleString() + '-item 3D map ran at about ' + Math.round(best.fps) + ' pictures per second (' + r1(best.sceneMs) + ' ms to work out each new angle, ' + r1(best.drawMs) + ' ms to draw).' + (best.fps >= 45 ? ' Smooth.' : best.fps >= 20 ? ' Usable but a little steppy.' : ' Choppy.'); level = best.fps >= 45 ? 'ok' : best.fps >= 20 ? 'warn' : 'bad'; }
+    s.finish(level, say); return { level: level, say: say };
+  } });
+
   (params.get('extras') ? STEPS : []).push({ name: 'Browser checks', run: async function () {
     var s = addSection('Smaller checks: random draws, CSV reading, Force arrangement'), rows = [];
     s.head = ['Check', 'Run 1', 'Run 2', 'Run 3', 'Run 4', 'Run 5']; setStatus('Random draws…'); await yieldUI();
@@ -266,7 +325,7 @@
   function buildMd(elapsed) {
     var L = ['# Net Flow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
-    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, small: ctx.small || null }, null, 1), '```', '');
+    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, turn: ctx.turn || null, small: ctx.small || null }, null, 1), '```', '');
     return L.join('\n');
   }
   function offerResults(md, elapsed) {
@@ -277,13 +336,13 @@
     window.__NFM_TESTER_RESULT = { md: md, sections: sections.map(function (s) { return { title: s.title, level: s.level, verdict: s.verdict }; }), ctx: ctx };
   }
   async function runAll() {
-    if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; doneSteps = 0; total = STEPS.length; setBar(); t0Run = now();
+    if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; doneSteps = 0; if (params.get('only')) { var keep = STEPS.filter(function (x) { return x.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }); if (keep.length) { STEPS.length = 0; keep.forEach(function (x) { STEPS.push(x); }); } } total = STEPS.length; setBar(); t0Run = now();
     for (var i = 0; i < STEPS.length; i++) {
       setStatus('Step ' + (i + 1) + ' of ' + STEPS.length + ': ' + STEPS[i].name + '…'); await yieldUI();
       try { await STEPS[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(STEPS[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
       doneSteps = i + 1; setBar();
     }
-    var el = now() - t0Run; setStatus('Finished in ' + fmtMs(el) + '.'); offerResults(buildMd(el), el); running = false;
+    var el = now() - t0Run; setStatus('Finished in ' + fmtMs(el) + '.'); offerResults(buildMd(el), el); startPreviews(); running = false;
   }
   $('again').onclick = function () { runAll(); };
   window.addEventListener('load', function () { setTimeout(runAll, 400); });
