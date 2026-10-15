@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Copyright (c) 2026 JNFoo. MIT License.
+Copyright (c) 2026 LFC Foundry. MIT License.
 
 Rules for anyone (person or AI) changing this repository.
 
@@ -8,9 +8,9 @@ Rules for anyone (person or AI) changing this repository.
 `index.html` is built from `src/` by `node tools/build.mjs`. It must stay ONE self-contained file that works offline. The engine source is embedded as text so the same code runs in a Web Worker (from a Blob) and on the page.
 
 ## House rules
-- The only name in any file or commit is **JNFoo**. Author and committer: `JNFoo <45110762+JNFoo@users.noreply.github.com>`. Run `sh tools/hooks/install.sh` once per clone; the hooks refuse a `Claude-Session:` line, a claude.ai link, or another author. A `Co-Authored-By` trailer is fine.
+- Every commit's author and committer is **JNFoo**; copyright notices and the visible credit say **LFC Foundry** (since Oct 15, 2026). Author and committer: `JNFoo <45110762+JNFoo@users.noreply.github.com>`. Run `sh tools/hooks/install.sh` once per clone; the hooks refuse a `Claude-Session:` line, a claude.ai link, or another author. A `Co-Authored-By` trailer is fine.
 - American English in all text. Plain words in the page and docs.
-- New files start with `Copyright (c) 2026 JNFoo. MIT License.`
+- New files start with `Copyright (c) 2026 LFC Foundry. MIT License.`
 - Version stamps are `year.month.day.HHMM`, US Eastern.
 - Only copy code that is MIT, BSD, ISC or Apache 2.0 compatible. Never GPL, AGPL, LGPL or MPL.
 - Never force-push. Fetch and rebase before pushing.

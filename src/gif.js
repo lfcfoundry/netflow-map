@@ -1,6 +1,6 @@
 /*!
  * Net Flow Map GIF writer: one palette that fits every picture, frame differencing, LZW. No DOM; runs in the page or in Node.
- * Copyright (c) 2026 JNFoo. MIT License.
+ * Copyright (c) 2026 LFC Foundry. MIT License.
  *
  * Made for pictures of this app (flat colors, text, soft edges, some gradients):
  *  - the palette comes from median cut over the exact colors of several key pictures (weighted by pixel count), then a few rounds of

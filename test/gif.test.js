@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. The GIF writer, checked by decoding what it wrote with a small independent decoder. */
+/* Copyright (c) 2026 LFC Foundry. MIT License. The GIF writer, checked by decoding what it wrote with a small independent decoder. */
 'use strict';
 const G = require('../src/gif.js');
 let fails = 0; const ok = (c, t) => { if (!c) fails++; console.log((c ? 'ok   ' : 'FAIL ') + t); };

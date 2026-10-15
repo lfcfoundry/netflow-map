@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 4: the Map (building, scene, drawing, camera). Copyright (c) 2026 JNFoo. MIT License.
+ * Net Flow Map app, part 4: the Map (building, scene, drawing, camera). Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var client = null, mgr = null, host = $('host'), stage = $('stage');
 var VIEWS = getEngine().VIEWS, ARR = getEngine().ARRANGE_NAMES;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Packing a layout for the trip from the worker must give back exactly what the engine made. */
+/* Copyright (c) 2026 LFC Foundry. MIT License. Packing a layout for the trip from the worker must give back exactly what the engine made. */
 'use strict';
 const assert = require('assert'), E = require('../src/engine.js'), P = require('../src/pack.js'); let bad = 0;
 const t = (name, fn) => { const t0 = Date.now(); try { const r = fn(); console.log('ok   ' + name + ' (' + (Date.now() - t0) + ' ms)' + (r ? ' ' + r : '')); } catch (e) { bad++; console.log('FAIL ' + name + ': ' + e.message); } };

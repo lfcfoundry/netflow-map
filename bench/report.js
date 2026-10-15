@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Turns bench/results/*.jsonl into the tables of docs/BENCHMARKS.md.
+/* Copyright (c) 2026 LFC Foundry. MIT License. Turns bench/results/*.jsonl into the tables of docs/BENCHMARKS.md.
  * node bench/report.js            prints the markdown tables (the narrative around them is written by hand in docs/BENCHMARKS.md)
  * node bench/report.js <section>  csv | csvkind | stress | typed | limits | compare */
 'use strict';

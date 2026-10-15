@@ -1,6 +1,6 @@
 /*!
  * Net Flow Map app, part 8b: the Monte Carlo simulation in the Advanced tab (set-up, distributions, run, charts, what-if table, map link).
- * Copyright (c) 2026 JNFoo. MIT License.
+ * Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var SIM = { st: 'idle', snap: null, exact: null, exactAvg: false, sweep: null, sweepBusy: false, sweepWhat: 'items', err: '', stop: false, runId: 0, info: null, spec: null, t0: 0, ms: 0, allEnds: false, startKey: '', startInfo: null };
 S.simVer = 0; S.simSnap = null; S.simUsed = 0;

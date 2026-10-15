@@ -1,6 +1,6 @@
 /*!
  * Net Flow Map app, part 5b: states (baseline, year 1, year 2 ...): turning columns into states, the timeline, and the morph between them.
- * Copyright (c) 2026 JNFoo. MIT License.
+ * Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var ST = { frames: null, key: '', pending: null, pendingKey: '', token: 0, playing: false, pos: 0, raf: 0, last: 0, lastMake: 0, makeMs: 16, shown: null, wmax: null, building: 0 };
 function nStates() { var s = S.graph.states; return s && s.names && s.names.length > 1 && S.graph.edges.some(function (e) { return e.vals; }) ? s.names.length : 0; }

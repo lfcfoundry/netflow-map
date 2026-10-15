@@ -3,7 +3,7 @@
  * Builds on the Story Editor's checker (dead ends, unreachable items, traps) and adds data checks: spellings, categories, numbers,
  * outliers, flow that does not add up, odds that do not add to 100%, jumps between states.
  * Every finding says how sure it is, shows the rows behind it, and may offer a fix. No DOM; runs in the page, a worker or Node.
- * Copyright (c) 2026 JNFoo. MIT License.
+ * Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var NFMCheck = (function () {
   'use strict';

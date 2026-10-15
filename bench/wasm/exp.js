@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Experiment: does WebAssembly speed up the stress layout's inner loop (sgdSweep)?
+/* Copyright (c) 2026 LFC Foundry. MIT License. Experiment: does WebAssembly speed up the stress layout's inner loop (sgdSweep)?
  *   node bench/wasm/exp.js            runs in Node (V8), Firefox 158 and ungoogled-chromium 154, prints a table
  * The engine is loaded unchanged except that sgdSweep may hand its work to a WebAssembly build of the same loop (bench/wasm/sweep.c).
  * The pairs are copied into WebAssembly memory once per layout; the item positions are copied in and out on every sweep (that cost is included). */

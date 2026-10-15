@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Random damage to zips and workbooks, run inside the real page of a real browser, plus a memory loop.
+/* Copyright (c) 2026 LFC Foundry. MIT License. Random damage to zips and workbooks, run inside the real page of a real browser, plus a memory loop.
  * Run: node test/fuzz.browser.js <chromium|firefox> [seconds=60]      (uses the same browser programs as bench/driver.js) */
 'use strict';
 const fs = require('fs'), path = require('path'), { open } = require('../bench/driver.js');

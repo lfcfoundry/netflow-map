@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 10: start-up. Copyright (c) 2026 JNFoo. MIT License.
+ * Net Flow Map app, part 10: start-up. Copyright (c) 2026 LFC Foundry. MIT License.
  */
 (function boot() {
   try { var p = JSON.parse(LS.get('nfm-prefs') || '{}'); if (p.theme) S.theme = p.theme; if (p.method) S.method = p.method; } catch (e) { /* ignore */ }

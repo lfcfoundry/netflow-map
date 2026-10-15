@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Zip, Excel and graph-file checks, including hostile files. Run: node test/archive.test.js */
+/* Copyright (c) 2026 LFC Foundry. MIT License. Zip, Excel and graph-file checks, including hostile files. Run: node test/archive.test.js */
 'use strict';
 var assert = require('assert'), zlib = require('zlib');
 var I = require('../src/importers.js'), U = require('../src/unpack.js'), Z = require('./zipmake.js');

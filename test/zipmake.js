@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Tiny zip and xlsx writers for tests (Node only). */
+/* Copyright (c) 2026 LFC Foundry. MIT License. Tiny zip and xlsx writers for tests (Node only). */
 'use strict';
 var zlib = require('zlib');
 function crc(b) { return zlib.crc32 ? zlib.crc32(b) >>> 0 : require('../src/unpack.js').crc32(b); }
