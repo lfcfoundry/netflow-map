@@ -61,6 +61,7 @@ function engineOpts() {
   var ek = Object.keys(V.facets).filter(function (k) { return k.indexOf('e:') === 0 && V.facets[k] && V.facets[k].length; })[0];
   if (ek) o.edgeFacet = { col: ek.slice(2), values: V.facets[ek] };
   if (S.simSnap) o.sim = S.simSnap;
+  S.simUsed = S.simVer;
   if (S.A.amounts && V.view === 'river' && V.widthBy) o.amounts = true;
   return o;
 }
@@ -205,6 +206,7 @@ function edgesFromOrig(set) { /* original link numbers -> drawn arrow numbers */
 }
 function applyStyle(noDraw) {
   var sc = S.scene; if (!sc) return;
+  attachSimOverlay();
   var mk = new Map(), ids = Array.from(S.sel); Object.keys(S.V.marks || {}).forEach(function (id) { var n = sceneNodeFor(id); if (n) mk.set(n.key, S.V.marks[id]); });
   var st = { marks: mk.size ? mk : null };
   if (S.search.q && S.search.hits.size) { st.focus = keysOf(neighborIds(S.search.hits)); st.sel = keysOf(S.search.hits); }
@@ -278,7 +280,8 @@ TAB_HOOKS.map = function () {
   if (!S.mapBuilt) { buildMapUI(); S.mapBuilt = true; }
   startRenderer(); applySize();
   if (S.sel.size) { var a = Array.from(S.sel); S.sel = new Set(a); }
-  if (!S.scene || S.mapStale !== S.gver) { S.mapStale = S.gver; refreshMap('shown'); } else { requestDraw(); renderMapUI(); }
+  if (!S.scene || S.mapStale !== S.gver || (S.simUsed !== S.simVer && simUsesMap())) { S.mapStale = S.gver; refreshMap('shown'); } else { requestDraw(); renderMapUI(); }
+  attachSimOverlay();
 };
 new ResizeObserver(function () { if (S.tab === 'map') { var was = S.stageW; applySize(); if (S.scene && (was <= 2 || Math.abs(S.stageW - was) / was > 0.2)) fitView(true); } }).observe(stage);
 

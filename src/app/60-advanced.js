@@ -11,7 +11,7 @@ function advPanels() { return []; }
 function renderAdv() {
   var box = $('adv-body'); if (!box) return;
   if (!S.graph.nodes.length) { mount(box, h('div', { class: 'card' }, [h('h2', null, 'Advanced'), h('p', { class: 'muted' }, 'Bring in data first.')])); return; }
-  var V = S.V, kids = [];
+  var V = S.V, kids = simCards();
   kids.push(h('div', { class: 'card' }, [h('h2', null, 'Layout and fold'),
     h('div', { class: 'maprow' }, [
       field('Direction (Flow view)', seg([['LR', 'Left to right'], ['TB', 'Top to bottom']], V.dir, function (v) { setV({ dir: v }, 'none'); renderAdv(); })),
@@ -20,7 +20,7 @@ function renderAdv() {
     check('Fold straight runs of ' + word('items') + ' into one box', V.fold, function (on) { setV({ fold: on }, 'none'); }),
     check('Merge parallel arrows', V.merge, function (on) { setV({ merge: on }, 'none'); }),
     h('p', { class: 'muted small', style: { margin: 0 } }, 'These change the Map when you next look at it.')]));
-  kids.push(h('div', { class: 'card' }, [h('h2', null, 'How ' + word('walkers') + ' choose (exact odds or dice)'),
+  kids.push(h('div', { class: 'card' }, [h('h2', null, 'Odds colors on the Map (no dice)'),
     h('div', { class: 'maprow' }, [
       field('Choosing', select([['random', 'At random (exact odds, no dice)'], ['first', 'Always the first option'], ['curious', 'Prefer places not seen yet']], S.A.mode, function (v) { S.A.mode = v; saveAdv(); renderAdv(); })),
       S.A.mode !== 'random' ? field('Number of ' + word('walkers'), select([500, 2000, 10000, 50000].map(function (r) { return [r, nfmt(r)]; }), S.A.runs, function (v) { S.A.runs = +v; saveAdv(); })) : null]),

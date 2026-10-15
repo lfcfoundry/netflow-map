@@ -301,7 +301,7 @@ var NFMScene = (function () {
       } else if (colorBy === 'heat') { S.legendTitle = 'Traffic'; S.legend.push({ k: 'ramp', a: rampAt(HEAT, 0), b: rampAt(HEAT, 1), lo: 'rarely', hi: 'busy', t: '', ramp: HEAT }); }
       else if (numMode && colRange) { S.legendTitle = colorBy === 'sim' || colorBy === 'sys:sim' ? 'Simulated visits' : nm; S.legend.push({ k: 'ramp', ramp: nodeRamp, a: rampAt(nodeRamp, 0), b: rampAt(nodeRamp, 1), lo: fmtNum(colRange.min), hi: fmtNum(colRange.max), t: '' }); }
       if (CH.size && CH.size.n) S.legend.push({ k: 'size', t: 'Size: ' + chName(CH.size.ch), lo: fmtNum(CH.size.min), hi: fmtNum(CH.size.max) });
-      if (widthR) S.legend.push({ k: 'width', t: 'Line width: ' + chName(widthR.ch), lo: fmtNum(widthR.min), hi: fmtNum(widthR.max) });
+      if (widthR) S.legend.push({ k: 'width', t: 'Line width: ' + (widthR.ch === 'sys:sim' ? 'Simulated traffic' : chName(widthR.ch)), lo: fmtNum(widthR.min), hi: fmtNum(widthR.max) });
       if (ecR) S.legend.push({ k: 'ramp', ramp: 'plasma', a: rampAt('plasma', 1), b: rampAt('plasma', 0), lo: fmtNum(ecR.min), hi: fmtNum(ecR.max), t: 'Line color: ' + chName(CH.ecolor.ch) });
       else if (edgeCats) { S.legend.push({ k: 'text', t: 'Line color: ' + chName(CH.ecolor.ch), head: true }); edgeCats.slice(0, 8).forEach(function (c, i) { legend(T.groups[(i + 3) % T.groups.length], c, 'e:' + c); }); }
       if (story && view !== 'river') { legend(T.good, 'good ending', 'endgood'); legend(T.bad, 'bad ending', 'endbad'); }
