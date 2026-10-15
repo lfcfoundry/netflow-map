@@ -1107,6 +1107,20 @@ Version 3 (next tester) overlaps the processor's sketch with the card's table, u
 
 The hop table at 20,000 items fell from 1.0 s to 0.29 s (512 start items together; 32 together 1.65 s, 64: 0.69 s, 128 and 256: 0.39 s); at 30,000 items the whole job is 1.7 s, faster than the quick sample and 22% truer. What is left at 10,000 items (0.5 s): sketch 0.06 s (overlapped), table 0.15 s, 40 steps 0.2 s, read-back 0.1 s (a flat wait in Firefox). What this does not yet do: run the app's overlap clean-up on the card's picture, and match the processor's truth on hub-heavy networks (complex 9,999: 0.156 at 40 or 60 steps, 0.153 at 150, against 0.147).
 
+**Sixth run (parallel random pairs; `bench/results/laptop-8845HS-780M-firefox159-tester7.md`).** The graphics card now also runs the processor's own best-quality method in parallel: with the items in a random order, one dispatch pairs item i with item i+m for one offset m, every pair moves both ends as in the processor's loop, and 3 sweeps (2 above 12,000 items) over all offsets use the processor's step schedule. It matches a 64-bit processor copy of the same sweeps to within 0.4% in distance error (and to under 0.002 of a link on single sweeps; many tiny steps let 32-bit and 64-bit positions drift apart, which is why only the distance error is compared). Total time and truth, old 40 steps against the new method:
+
+| network | items | processor | old steps | parallel pairs | truth, processor / old / new |
+|---|---:|---:|---:|---:|---:|
+| moderate | 2,000 | 0.46 s | 0.28 s | 0.10 s | 0.149 / 0.153 / 0.154 |
+| moderate | 5,000 | 0.59 s | 0.35 s | 0.30 s | 0.159 / 0.155 / 0.156 |
+| moderate | 10,000 | 2.04 s | 0.56 s | 0.80 s | 0.164 / 0.165 / 0.161 |
+| complex | 5,000 | 0.47 s | 0.30 s | 0.30 s | 0.144 / 0.143 / 0.144 |
+| complex | 9,999 | 1.85 s | 0.54 s | 0.90 s | 0.147 / 0.156 / 0.149 |
+| moderate | 20,000 | 5.9 s | 1.26 s | 6.1 s | 0.162 / 0.166 / 0.163 |
+| moderate | 30,000 | 2.8 s (quick) | 2.6 s | 30 s | 0.211 / 0.165 / 0.163 |
+
+Five clean-up steps after the sweeps change little (complex 9,999: 0.148; moderate 10,000: 0.161). More sweeps help a little (moderate 10,000: 2 sweeps 0.164, 3: 0.161, 4: 0.160); 2 sweeps on complex 9,999 give 0.154 in 0.58 s. So the gap on hub-heavy networks closes (0.156 to 0.149 against the processor's 0.147) and on moderate networks the card is truer than the processor (0.161 against 0.164), at about 1.5 times the old steps' time at 10,000 items. Above about 12,000 items it is not worth it: every pair lookup is a random read of one byte from a table of hundreds of megabytes, which costs 1.7 ns each at 10,000 items, 7 ns at 20,000 and 16 ns at 30,000 (6 s and 30 s), for a gain of 0.003 in truth. Reordering the offsets so neighboring dispatches share cache lines did not work: in a processor emulation, running 16 or 64 neighboring offsets together raises the distance error from 0.144 to 0.179 and 0.189 (complex 5,000), and 2 neighboring offsets together is fine (0.144). Policy that follows from this: parallel pairs up to about 12,000 items, the old 40 steps above.
+
 **The laptop tester.** `node tools/build-tester.mjs` writes one self-contained page, `bench/net-flow-map-tester.html`. Opened in a browser it starts by itself, runs five checks (the computer and its graphics adapter; whether the graphics-card hop table and steps match the processor's; time and truth of the processor's best quality against the graphics card at 2,000 to 20,000 items; first run against later runs; random draws, CSV reading and Force repeated), explains each in plain words, and offers a results file (`net-flow-map-tester-results.md`) to hand back. `?quick=1` makes it small enough to try anywhere; `?plan=moderate:5000` picks the sizes. `node bench/tester/run-local.js <firefox|chromium> [quick]` runs it in this machine's browsers.
 
 ## Reproduce
