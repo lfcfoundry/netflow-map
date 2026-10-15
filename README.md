@@ -36,7 +36,9 @@ The map is drawn by WebGPU if this browser can really use it, otherwise WebGL 2,
 ## Build and test
 
 ```
-node tools/build.mjs                 # writes index.html (version stamp year.month.day.HHMM, US Eastern)
+node tools/build.mjs                 # writes a minified index.html (version stamp year.month.day.HHMM, US Eastern); needs esbuild
+node tools/build.mjs --dev           # readable, larger file
+node tools/build.mjs --pack          # also writes index.html.xz (LZMA) for local copies
 node test/importers.test.js          # 17 quick checks of the readers
 node test/oracle.test.mjs            # new engine versus the older story-map package, 40 random stories
 node test/limits.test.js             # a 20,000-page chain, 1,500 stacked diamonds, a 3,000-item network

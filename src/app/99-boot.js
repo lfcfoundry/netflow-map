@@ -13,10 +13,11 @@
   client = new NFMEngineClient.Client(engineSrc, getEngine);
   var saved = LS.get('nfm-graph');
   if (saved) { try { S.graph = NFMImport.sanitizeGraph(JSON.parse(saved)); S.gver++; } catch (e) { LS.del('nfm-graph'); } }
-  applyTheme();
+  applyTheme(); placeChrome(); keyboardLift();
+  if (window.matchMedia) ['(hover: none) and (pointer: coarse)', '(max-width:820px)'].forEach(function (q) { matchMedia(q).addEventListener('change', function () { placeChrome(); if (S.mapBuilt) renderMapUI(); }); });
   indexGraph(); loadView(); loadAdv();
   renderReport(); renderCols();
   $('b-undo').disabled = true;
   client.start().then(function () { client.setGraph(S.graph); if (S.tab === 'map') refreshMap('boot'); });
-  window.NFM = { state: S, engine: getEngine, client: function () { return client; }, manager: function () { return mgr; }, showTab: showTab, setGraph: setGraph, ingest: ingest, refreshMap: refreshMap, select: function (id) { setSel(id ? [id] : []); }, setSel: setSel, setV: setV, fitView: fitView, zoomAt: zoomAt, runSearch: runSearch, snapshot: snapshot, applySnapshot: applySnapshot };
+  window.NFM = { touch: function (v) { touchForce = v; placeChrome(); if (S.mapBuilt) renderMapUI(); }, state: S, engine: getEngine, client: function () { return client; }, manager: function () { return mgr; }, showTab: showTab, setGraph: setGraph, ingest: ingest, refreshMap: refreshMap, select: function (id) { setSel(id ? [id] : []); }, setSel: setSel, setV: setV, fitView: fitView, zoomAt: zoomAt, runSearch: runSearch, snapshot: snapshot, applySnapshot: applySnapshot };
 })();

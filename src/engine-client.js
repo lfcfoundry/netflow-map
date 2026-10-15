@@ -45,7 +45,7 @@ var NFMEngineClient = (function () {
       default: throw new Error('Unknown job: ' + d.type);
     }
   }
-  var WORKER_MAIN = '\n' + dispatch.toString() + '\nvar __st={G:null,ver:-1,P:null,sim:null};var __API={E:NFMEngine,SIM:NFMSim,CHK:NFMCheck,C:NFMColumns};self.onmessage=function(e){var d=e.data;try{' +
+  var WORKER_MAIN = '\nvar dispatch = ' + dispatch.toString() + '\nvar __st={G:null,ver:-1,P:null,sim:null};var __API={E:NFMEngine,SIM:NFMSim,CHK:NFMCheck,C:NFMColumns};self.onmessage=function(e){var d=e.data;try{' +
     'if(d.type==="graph"){__st.G=NFMColumns.derive(d.graph);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
     'if(d.type==="ping"){self.postMessage({id:d.id,ok:true,result:"pong"});return;}' +
     'if(d.ver!==__st.ver)throw new Error("The worker has an older copy of the data.");' +
