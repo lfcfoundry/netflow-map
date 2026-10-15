@@ -61,6 +61,7 @@ function engineOpts() {
   var ek = Object.keys(V.facets).filter(function (k) { return k.indexOf('e:') === 0 && V.facets[k] && V.facets[k].length; })[0];
   if (ek) o.edgeFacet = { col: ek.slice(2), values: V.facets[ek] };
   if (S.simSnap) o.sim = S.simSnap;
+  if (hasStates()) { o.state = curState(); if (V.widthBy === 'weight') o.widthMax = stateWidthMax(); }
   S.simUsed = S.simVer;
   if (S.A.amounts && V.view === 'river' && V.widthBy) o.amounts = true;
   return o;
@@ -77,6 +78,7 @@ function hideMsg() { $('msg').hidden = true; }
 var buildQueued = 0;
 function refreshMap(reason) {
   if (S.tab !== 'map') return;
+  stateAbort();
   clearTimeout(busyT);
   if (!S.graph.nodes.length) {
     S.L = null; S.scene = null; if (mgr && mgr.r) mgr.r.setScene(null);
@@ -151,6 +153,19 @@ function sceneOpts() {
   if (sm.any) {
     o.nodeStyle = function (n) { return sm.nodes.get(n.nodeId || n.id) || null; };
     o.linkStyle = function (e, ei) { var best = null; if (e.orig) for (var i = 0; i < e.orig.length && !best; i++) best = sm.edges.get(e.orig[i]) || null; return best; };
+  }
+  if (hasStates()) {
+    annotate(S.L);
+    var baseL = o.linkStyle, baseN = o.nodeStyle, ghost = V.anim.ghost;
+    o.linkStyle = function (e, ei) {
+      var b = baseL ? baseL(e, ei) : null, p = e.pres !== undefined ? e.pres : (e.absent ? 0 : 1);
+      if (p >= 0.999) return b;
+      var st = Object.assign({}, b || {}); st.opacity = (ghost === 'hide' ? 0 : 0.1) + 0.5 * p; st.wmul = (st.wmul || 1) * (0.4 + 0.6 * p); if (ghost === 'hide' && p < 0.03) st.hide = true; return st;
+    };
+    o.nodeStyle = function (n) {
+      var b = baseN ? baseN(n) : null, p = n.pres !== undefined ? n.pres : 1; if (p >= 0.999) return b;
+      return Object.assign({}, b || {}, { opacity: 0.28 + 0.72 * p });
+    };
   }
   if (V.labelCol) o.labelFn = function (n) { var d = byDg.get(n.nodeId); var v = d && d.attrs ? d.attrs[V.labelCol] : ''; return v === '' || v === undefined || v === null ? n.label : (n.label + ' · ' + v); };
   if (V.linkLabels) o.linkLabelFn = function (e) {
@@ -281,7 +296,7 @@ TAB_HOOKS.map = function () {
   startRenderer(); applySize();
   if (S.sel.size) { var a = Array.from(S.sel); S.sel = new Set(a); }
   if (!S.scene || S.mapStale !== S.gver || (S.simUsed !== S.simVer && simUsesMap())) { S.mapStale = S.gver; refreshMap('shown'); } else { requestDraw(); renderMapUI(); }
-  attachSimOverlay();
+  attachSimOverlay(); renderTimeline();
 };
 new ResizeObserver(function () { if (S.tab === 'map') { var was = S.stageW; applySize(); if (S.scene && (was <= 2 || Math.abs(S.stageW - was) / was > 0.2)) fitView(true); } }).observe(stage);
 

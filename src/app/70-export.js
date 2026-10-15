@@ -66,6 +66,7 @@ function renderExport() {
       h('div', { class: 'row' }, [check('Include the key', key, function (on) { EXP.key = on; }),
         field('PNG size', select([[1, 'Normal'], [2, 'Sharp (2x)'], [3, 'Poster (3x)']], pngScale, function (v) { EXP.scale = +v; }))]),
       h('div', { class: 'row' }, [btn('PNG', function () { exportPng(EXP.scale, EXP.key); }, false, needMap), btn('SVG (editable)', function () { download(fname('-' + S.V.view + '.svg'), NFMScene.toSvg(S.scene, S.graph.name + ' (' + S.V.view + ')'), 'image/svg+xml'); }, false, needMap), btn('Poster (print or PDF)', function () { printPoster(S.graph.name, ''); }, false, needMap)])]),
+    gifCard(),
     h('div', { class: 'card' }, [h('h2', null, 'Reports and views'),
       h('div', { class: 'row' }, [btn('Data check report (Markdown)', function () { if (!CHK.res) { toast('Run the check first (Check tab).'); showTab('check'); return; } download(fname('-check.md'), NFMCheck.toMarkdown(CHK.res, S.graph), 'text/markdown'); }),
         btn('Saved views (JSON)', function () { download(fname('-views.json'), JSON.stringify({ name: S.graph.name, views: S.V.saved }, null, 1), 'application/json'); }, false, !S.V.saved.length),

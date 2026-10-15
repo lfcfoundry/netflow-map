@@ -4,12 +4,12 @@ Copyright (c) 2026 JNFoo. MIT License.
 
 One file, `index.html`, that works offline. Bring in a table, a JSON graph, an outline, or a folder of notes, and see how everything connects. It has six tabs:
 
-- **Data**: drop in files or a folder (or paste text), see in plain words what was found, and use the columns workbench: every column with its type and what it does on the map (color, size, line width, labels, filters), plus calculated columns.
+- **Data**: drop in files or a folder (or paste text), see in plain words what was found, and use the columns workbench: every column with its type and what it does on the map (color, size, line width, labels, filters), plus calculated columns. If the data holds the same network at several times, a States card turns one column per state (or a column naming the state on repeated links) into baseline / year 1 / year 2 / end state.
 - **Nodes**: the items and links as tables you can sort, filter, edit, add to, and delete from.
-- **Map**: nine views, a network view with several arrangements (including 3D you can turn), a floating key you can drag and edit, search, strongest-links slider, facets, route lighting, box and lasso selection, hand-moved items, right-click menus, formatting rules for items and links, saved views, and a poster print.
+- **Map**: (with states: a timeline under the picture to play, pause or drag through them) nine views, a network view with several arrangements (including 3D you can turn), a floating key you can drag and edit, search, strongest-links slider, facets, route lighting, box and lasso selection, hand-moved items, right-click menus, formatting rules for items and links, saved views, and a poster print.
 - **Check**: findings about the data, each with a plain-words reason, a way to see it on the map or in the table, and a fix where one is safe.
 - **Advanced**: the Monte Carlo simulation (up to 100,000 walkers; start items, walker types, 16 distributions for arrivals, uncertain link weights, link costs and dwell times; exact odds with error bars beside the dice; step, cost and settling charts; what-if ranking of items or links; results as map color and link width, with optional flow dots), layout settings, and the one-button device check.
-- **Export**: JSON, CSV, SVG, PNG, poster, the check report, and saved views.
+- **Export**: JSON, CSV, SVG, PNG, poster, the check report, saved views, an animated GIF for slides (plays through the states with a smooth change between them, or turns a 3D view around), and a one-page HTML report with the animation inside.
 
 Nothing is uploaded. Everything runs in the page.
 
@@ -53,8 +53,9 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - `src/render.js`: the three drawing backends
 - `src/probe.js`: the startup test and the one-button device check
 - `src/engine-client.js`: runs the engine in a background helper, with a fallback
-- `src/columns.js`, `src/sim.js`, `src/check.js`: column types and calculated columns, the walker simulation, the data checks
-- `src/app/*.js` (joined in file-name order into one function), `src/app.css`, `src/index.template.html`: the page (00 core, 10 data, 20 nodes, 30 map, 32 interact, 35 rail, 50 check, 60 advanced, 61 simulation, 70 export, 99 boot)
+- `src/columns.js`, `src/sim.js`, `src/check.js`: column types, calculated columns and states, the walker simulation, the data checks
+- `src/gif.js`: the animated GIF writer (palette, frame differencing, LZW)
+- `src/app/*.js` (joined in file-name order into one function), `src/app.css`, `src/index.template.html`: the page (00 core, 10 data, 20 nodes, 30 map, 32 interact, 35 rail, 40 states, 50 check, 60 advanced, 61 simulation, 70 export, 72 gif, 99 boot)
 - `vendor/`: `env-probes.js` and `back-close.js` from [JS-modules](https://github.com/JNFoo/JS-modules); `story-map.global.js` is only the test oracle, it is not shipped in `index.html`
 
 ## Known limits

@@ -133,6 +133,26 @@ async function open() {
   }
   await ev(() => NFM.manager().use('auto'));
 
+  /* states: timeline, play, widths change between states, GIF and HTML report */
+  await ev(() => NFM.showTab('data')); await set('#examples', 'states'); await click('#b-example');
+  await D.wait(() => NFM.state.graph.states && !document.getElementById('states').hidden, null, 20000);
+  say(await ev(() => /4 states/.test(document.getElementById('states').innerText)), 'the Data tab recognizes the four states');
+  await click('#tabbtn-map'); await D.wait(() => NFM.state.scene && !document.getElementById('timeline').hidden, null, 30000); await sleep(300);
+  const sumW = () => ev(() => NFM.state.scene.curves.reduce((a, c) => a + (c.edge >= 0 ? c.w : 0), 0));
+  const w0 = await sumW();
+  await ev(() => document.querySelectorAll('#tl-ticks .tick')[3].click());
+  await D.wait(() => NFM.state.V.state === 3 && NFM.state.L.edges.length > 0, null, 20000); await sleep(400);
+  const w3 = await sumW(); say(Math.abs(w3 - w0) > 1, `link widths follow the state (${w0.toFixed(1)} at baseline, ${w3.toFixed(1)} at the end)`);
+  await ev(() => document.querySelectorAll('#tl-ticks .tick')[0].click()); await D.wait(() => NFM.state.V.state === 0, null, 20000);
+  await click('#tl-play'); await sleep(1800);
+  const pos1 = await ev(() => parseFloat(document.getElementById('tl-range').value)); say(pos1 > 0.3, 'playing moves along the timeline (' + pos1.toFixed(2) + ')');
+  await click('#tl-play'); await sleep(300);
+  say(await ev(() => !document.getElementById('tl-play').textContent.includes('❚')), 'pausing works');
+  await click('#tabbtn-export'); await sleep(200); await click('#gif-go');
+  await D.wait(() => document.querySelector('#gif-out img'), null, 120000);
+  const gifInfo = await ev(async () => { const im = document.querySelector('#gif-out img'), b = new Uint8Array(await (await fetch(im.src)).arrayBuffer()); return { head: String.fromCharCode(...b.slice(0, 6)), w: im.naturalWidth, bytes: b.length, text: document.getElementById('gif-out').innerText }; });
+  say(gifInfo.head === 'GIF89a' && gifInfo.w === 960 && gifInfo.bytes > 5000, 'the GIF is made: ' + gifInfo.text.split('\n')[0]);
+  say(await ev(() => !!Array.from(document.querySelectorAll('#gif-out button')).find((b) => /HTML report/.test(b.textContent))), 'the HTML report is offered');
   /* checks tab, advanced tab (one-button device check), export */
   await click('#tabbtn-check'); await D.wait(() => document.querySelector('#check-body .verdict'), null, 20000);
   say(await ev(() => document.querySelectorAll('#check-body .find, #check-body .verdict').length >= 1), 'the Check tab reports');

@@ -274,6 +274,10 @@ var NFMImport = (function () {
       var lines = stripBom(text).split(/\r?\n/).filter(function (l) { return l.trim(); });
       try { data = lines.map(function (l) { return JSON.parse(l); }); } catch (e2) { throw new Error('This is not valid JSON: ' + err.message); }
     }
+    if (data && !Array.isArray(data) && Array.isArray(data.nodes) && Array.isArray(data.edges) && (data.states || data.calc || data.roles)) {
+      var sg = sanitizeGraph(Object.assign({}, data, { name: data.name || name }));
+      return { graph: sg, report: { format: 'Net Flow Map JSON', nodes: sg.nodes.length, edges: sg.edges.length, ghosts: 0, notes: ['Read back with its calculated columns, column roles' + (sg.states ? ' and ' + sg.states.names.length + ' states' : '') + ' where the file had them.'] } };
+    }
     var B = new Builder(name, opts), shape = 'unknown';
     var nodeProps = function (o) {
       var attrs = {}, skip = { id: 1, key: 1, name: 1, label: 1, title: 1, group: 1, type: 1, class: 1, category: 1, cluster: 1, community: 1, valence: 1, outcome: 1, x: 1, y: 1, size: 1, color: 1, text: 1, data: 1 };
@@ -632,7 +636,7 @@ var NFMImport = (function () {
     if (g.start && !ids.has(g.start)) g.start = null;
     if (raw.flavor === 'story' || raw.flavor === 'data') g.flavor = raw.flavor;
     if (Array.isArray(raw.calc)) g.calc = raw.calc.slice(0, 40).filter(function (c) { return c && typeof c.name === 'string' && typeof c.formula === 'string' && c.name; }).map(function (c) { return { scope: c.scope === 'edges' ? 'edges' : 'nodes', name: clip(cleanText(c.name), 60), formula: clip(c.formula, 500) }; });
-    if (raw.roles && typeof raw.roles === 'object') { g.roles = {}; ['colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'orderBy'].forEach(function (k) { if (typeof raw.roles[k] === 'string') g.roles[k] = clip(raw.roles[k], 80); }); }
+    if (raw.roles && typeof raw.roles === 'object') { g.roles = {}; ['colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'orderBy', 'view'].forEach(function (k) { if (typeof raw.roles[k] === 'string') g.roles[k] = clip(raw.roles[k], 80); }); }
     if (raw.states && Array.isArray(raw.states.names) && raw.states.names.length > 1) {
       g.states = { names: raw.states.names.slice(0, 60).map(function (x) { return clip(cleanText(String(x)), 60); }) };
       var ns = g.states.names.length, vals = function (a) { return Array.isArray(a) ? a.slice(0, ns).map(function (x) { var v = Number(x); return x === null || x === '' || !isFinite(v) ? null : v; }) : null; };
