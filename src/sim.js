@@ -1,0 +1,480 @@
+/*!
+ * Net Flow Map simulation: Monte Carlo walkers on the prepared graph (see engine.js prepare), with a menu of distributions for how
+ * many walkers arrive, how uncertain each link's weight is, and what each link or item costs in time or money.
+ * Counter-based random numbers: trial t of seed s always gives the same numbers, no matter how the run is cut into batches.
+ * No DOM; runs in the page, in a worker, or in Node. Copyright (c) 2026 JNFoo. MIT License.
+ */
+var NFMSim = (function () {
+  'use strict';
+  var E = typeof NFMEngine !== 'undefined' ? NFMEngine : require('./engine.js');
+
+  /* ---------------------------------------------------------------- random numbers */
+  function mix32(a, b) {
+    var h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x7f4a7c15, 0xc2b2ae35);
+    h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
+    return h | 0;
+  }
+  function makeRng(seed) {
+    var s = seed | 0, spare = NaN;
+    var u = function () {
+      s = (s + 0x6d2b79f5) | 0;
+      var t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    u.normal = function () {
+      if (spare === spare) { var t = spare; spare = NaN; return t; }
+      var a = u() || 1e-300, b = u(), r = Math.sqrt(-2 * Math.log(a));
+      spare = r * Math.sin(2 * Math.PI * b);
+      return r * Math.cos(2 * Math.PI * b);
+    };
+    return u;
+  }
+  function rngFor(seed, trial) { return makeRng(mix32(seed | 0, trial | 0)); }
+
+  /* ---------------------------------------------------------------- distributions */
+  var LG = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+  function lgamma(x) {
+    if (x < 0.5) return Math.log(Math.PI / Math.abs(Math.sin(Math.PI * x))) - lgamma(1 - x);
+    x -= 1;
+    var a = LG[0], t = x + 7.5;
+    for (var i = 1; i < 9; i++) a += LG[i] / (x + i);
+    return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+  }
+  function gammaShape(r, k) { /* Marsaglia and Tsang; mean k, scale 1 */
+    if (!(k > 0)) return 0;
+    if (k < 1) { var u0 = r() || 1e-300; return gammaShape(r, k + 1) * Math.pow(u0, 1 / k); }
+    var d = k - 1 / 3, c = 1 / Math.sqrt(9 * d);
+    for (;;) {
+      var x, v;
+      do { x = r.normal(); v = 1 + c * x; } while (v <= 0);
+      v = v * v * v;
+      var u = r() || 1e-300;
+      if (u < 1 - 0.0331 * x * x * x * x) return d * v;
+      if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
+    }
+  }
+  function poisson(r, lam) {
+    if (!(lam > 0)) return 0;
+    if (lam < 30) {
+      var L = Math.exp(-lam), k = 0, p = 1;
+      do { k++; p *= r(); } while (p > L);
+      return k - 1;
+    }
+    var smu = Math.sqrt(lam), b = 0.931 + 2.53 * smu, a = -0.059 + 0.02483 * b, invalpha = 1.1239 + 1.1328 / (b - 3.4), vr = 0.9277 - 3.6224 / (b - 2);
+    for (;;) {
+      var U = r() - 0.5, V = r(), us = 0.5 - Math.abs(U), kk = Math.floor((2 * a / us + b) * U + lam + 0.43);
+      if (us >= 0.07 && V <= vr) return kk;
+      if (kk < 0 || (us < 0.013 && V > us)) continue;
+      if (Math.log(V) + Math.log(invalpha) - Math.log(a / (us * us) + b) <= -lam + kk * Math.log(lam) - lgamma(kk + 1)) return kk;
+    }
+  }
+  function binomial(r, n, p) {
+    n = Math.floor(n);
+    if (!(n > 0) || !(p > 0)) return 0;
+    if (p >= 1) return n;
+    if (p > 0.5) return n - binomial(r, n, 1 - p);
+    if (n * p < 10) {
+      var q = 1 - p, s = p / q, a = (n + 1) * s, rr = Math.pow(q, n), u = r(), x = 0;
+      while (u > rr && x < n) { u -= rr; x++; rr *= a / x - s; }
+      return x;
+    }
+    var spq = Math.sqrt(n * p * (1 - p)), b = 1.15 + 2.53 * spq, a2 = -0.0873 + 0.0248 * b + 0.01 * p, c = n * p + 0.5, vr = 0.92 - 4.2 / b;
+    var alpha = (2.83 + 5.1 / b) * spq, lpq = Math.log(p / (1 - p)), m = Math.floor((n + 1) * p), h = lgamma(m + 1) + lgamma(n - m + 1);
+    for (;;) {
+      var U = r() - 0.5, V = r(), us = 0.5 - Math.abs(U), k = Math.floor((2 * a2 / us + b) * U + c);
+      if (k < 0 || k > n) continue;
+      if (us >= 0.07 && V <= vr) return k;
+      V = Math.log(V * alpha / (a2 / (us * us) + b));
+      if (V <= h - lgamma(k + 1) - lgamma(n - k + 1) + (k - m) * lpq) return k;
+    }
+  }
+  /** name, plain-words help, whether it gives whole numbers, and what its three numbers mean. */
+  var DISTS = [
+    { id: 'fixed', name: 'Fixed value', discrete: false, blurb: 'Always the same number.', params: [{ k: 'a', label: 'Value' }] },
+    { id: 'normal', name: 'Normal (Gaussian)', discrete: false, blurb: 'A bell curve around an average. Good for measurements and errors.', params: [{ k: 'a', label: 'Average' }, { k: 'b', label: 'Spread (standard deviation)' }] },
+    { id: 'lognormal', name: 'Lognormal', discrete: false, blurb: 'Never negative and skewed to the high side. Good for sizes, durations and prices.', params: [{ k: 'a', label: 'Average' }, { k: 'b', label: 'Spread (standard deviation)' }] },
+    { id: 'poisson', name: 'Poisson', discrete: true, blurb: 'Counts of things that happen independently at an average rate: arrivals, calls, defects.', params: [{ k: 'a', label: 'Average count' }] },
+    { id: 'binomial', name: 'Binomial', discrete: true, blurb: 'How many of a fixed number of tries succeed.', params: [{ k: 'a', label: 'Number of tries' }, { k: 'b', label: 'Chance each time (0 to 1)' }] },
+    { id: 'negbinomial', name: 'Negative binomial', discrete: true, blurb: 'Counts that vary more than Poisson (bursty arrivals).', params: [{ k: 'a', label: 'Average count' }, { k: 'b', label: 'Spread (standard deviation)' }] },
+    { id: 'geometric', name: 'Geometric', discrete: true, blurb: 'How many tries until the first success.', params: [{ k: 'a', label: 'Average number of tries (1 or more)' }] },
+    { id: 'exponential', name: 'Exponential', discrete: false, blurb: 'Waiting times when events are independent.', params: [{ k: 'a', label: 'Average' }] },
+    { id: 'gamma', name: 'Gamma', discrete: false, blurb: 'Never negative; a flexible shape for durations and amounts.', params: [{ k: 'a', label: 'Average' }, { k: 'b', label: 'Spread (standard deviation)' }] },
+    { id: 'weibull', name: 'Weibull', discrete: false, blurb: 'Lifetimes and delays; the shape says whether failures speed up or slow down.', params: [{ k: 'a', label: 'Typical size (scale)' }, { k: 'b', label: 'Shape (1 acts like exponential)' }] },
+    { id: 'beta', name: 'Beta', discrete: false, blurb: 'A rate or share between 0 and 1 you are unsure about.', params: [{ k: 'a', label: 'Average (0 to 1)' }, { k: 'b', label: 'Spread (standard deviation)' }] },
+    { id: 'uniform', name: 'Uniform', discrete: false, blurb: 'Anything between a lowest and a highest value is equally likely.', params: [{ k: 'a', label: 'Lowest' }, { k: 'b', label: 'Highest' }] },
+    { id: 'triangular', name: 'Triangular', discrete: false, blurb: 'A best guess with a lowest and a highest possible value.', params: [{ k: 'a', label: 'Lowest' }, { k: 'b', label: 'Most likely' }, { k: 'c', label: 'Highest' }] },
+    { id: 'pareto', name: 'Pareto', discrete: false, blurb: 'A few huge values and many small ones (wealth, sizes of cities).', params: [{ k: 'a', label: 'Smallest value' }, { k: 'b', label: 'Shape (bigger = lighter tail)' }] },
+    { id: 'dunif', name: 'Whole-number uniform', discrete: true, blurb: 'Any whole number from a lowest to a highest, equally likely (a die roll).', params: [{ k: 'a', label: 'Lowest' }, { k: 'b', label: 'Highest' }] },
+    { id: 'empirical', name: 'Resample from the data', discrete: false, blurb: 'Pick at random from the numbers in a column.', params: [] }
+  ];
+  var DIST_BY = {}; DISTS.forEach(function (d) { DIST_BY[d.id] = d; });
+
+  var DRAW = {
+    fixed: function (r, a) { return a; },
+    normal: function (r, a, b) { return a + (b > 0 ? b : 0) * r.normal(); },
+    lognormal: function (r, a, b) {
+      if (!(a > 0)) return 0;
+      var s2 = Math.log(1 + (b / a) * (b / a)), mu = Math.log(a) - s2 / 2;
+      return Math.exp(mu + Math.sqrt(s2) * r.normal());
+    },
+    poisson: function (r, a) { return poisson(r, a); },
+    binomial: function (r, a, b) { return binomial(r, a, b); },
+    negbinomial: function (r, a, b) {
+      var v = b * b;
+      if (!(a > 0)) return 0;
+      if (!(v > a)) return poisson(r, a);
+      var rr = a * a / (v - a);
+      return poisson(r, gammaShape(r, rr) * (a / rr));
+    },
+    geometric: function (r, a) {
+      if (!(a > 1)) return 1;
+      var p = 1 / a;
+      return Math.max(1, Math.ceil(Math.log(r() || 1e-300) / Math.log(1 - p)));
+    },
+    exponential: function (r, a) { return a > 0 ? -a * Math.log(r() || 1e-300) : 0; },
+    gamma: function (r, a, b) {
+      if (!(a > 0)) return 0;
+      if (!(b > 0)) return a;
+      var k = (a / b) * (a / b), th = b * b / a;
+      return gammaShape(r, k) * th;
+    },
+    weibull: function (r, a, b) { return a > 0 && b > 0 ? a * Math.pow(-Math.log(r() || 1e-300), 1 / b) : 0; },
+    beta: function (r, a, b) {
+      if (!(a > 0 && a < 1)) return a <= 0 ? 0 : 1;
+      var nu = a * (1 - a) / (b * b) - 1;
+      if (!(nu > 0)) return a;
+      var x = gammaShape(r, a * nu), y = gammaShape(r, (1 - a) * nu);
+      return x + y > 0 ? x / (x + y) : a;
+    },
+    uniform: function (r, a, b) { return a + (b - a) * r(); },
+    triangular: function (r, a, b, c) {
+      if (!(c > a)) return a;
+      var u = r(), f = (b - a) / (c - a);
+      return u < f ? a + Math.sqrt(u * (c - a) * (b - a)) : c - Math.sqrt((1 - u) * (c - a) * (c - b));
+    },
+    pareto: function (r, a, b) { return a > 0 && b > 0 ? a / Math.pow(r() || 1e-300, 1 / b) : 0; },
+    dunif: function (r, a, b) { a = Math.ceil(a); b = Math.floor(b); return b < a ? a : a + Math.floor(r() * (b - a + 1)); }
+  };
+  /** The mean and variance a distribution should have (used by the tests and by the settings page to show what you chose). */
+  function moments(dist, a, b, c) {
+    switch (dist) {
+      case 'fixed': return { mean: a, variance: 0 };
+      case 'normal': case 'lognormal': case 'gamma': case 'beta': return { mean: a, variance: b * b };
+      case 'poisson': return { mean: a, variance: a };
+      case 'binomial': return { mean: a * b, variance: a * b * (1 - b) };
+      case 'negbinomial': return { mean: a, variance: Math.max(a, b * b) };
+      case 'geometric': return { mean: Math.max(1, a), variance: a > 1 ? (1 - 1 / a) * a * a : 0 };
+      case 'exponential': return { mean: a, variance: a * a };
+      case 'weibull': return { mean: a * Math.exp(lgamma(1 + 1 / b)), variance: a * a * (Math.exp(lgamma(1 + 2 / b)) - Math.exp(2 * lgamma(1 + 1 / b))) };
+      case 'uniform': return { mean: (a + b) / 2, variance: (b - a) * (b - a) / 12 };
+      case 'triangular': return { mean: (a + b + c) / 3, variance: (a * a + b * b + c * c - a * b - a * c - b * c) / 18 };
+      case 'pareto': return { mean: b > 1 ? a * b / (b - 1) : Infinity, variance: b > 2 ? a * a * b / ((b - 1) * (b - 1) * (b - 2)) : Infinity };
+      case 'dunif': { var lo = Math.ceil(a), hi = Math.floor(b), k = hi - lo + 1; return { mean: (lo + hi) / 2, variance: (k * k - 1) / 12 }; }
+      default: return { mean: NaN, variance: NaN };
+    }
+  }
+  /** spec: { dist, a, b, c, values } with numbers, or arrays per element for a, b, c. Returns draw(rng, i). */
+  function drawer(spec) {
+    if (!spec || !spec.dist) return null;
+    var f = DRAW[spec.dist], A = spec.a, B = spec.b, C = spec.c, V = spec.values;
+    if (spec.dist === 'empirical') {
+      if (!V || !V.length) return null;
+      return function (r) { return V[Math.floor(r() * V.length)]; };
+    }
+    if (!f) return null;
+    var arr = function (x, i) { return x !== null && x !== undefined && typeof x === 'object' ? x[i] : x; };
+    return function (r, i) { return f(r, arr(A, i), arr(B, i), arr(C, i)); };
+  }
+
+  /* ---------------------------------------------------------------- the simulation */
+  function quantile(sorted, q) {
+    if (!sorted.length) return NaN;
+    var pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+  }
+  function wilson(k, n) {
+    if (!n) return [0, 0];
+    var p = k / n, z = 1.96, z2 = z * z, den = 1 + z2 / n, mid = (p + z2 / (2 * n)) / den, half = z * Math.sqrt(p * (1 - p) / n + z2 / (4 * n * n)) / den;
+    return [Math.max(0, mid - half), Math.min(1, mid + half)];
+  }
+  function histogram(vals, bins, intBins) {
+    if (!vals.length) return { lo: 0, hi: 0, bins: [] };
+    var lo = Infinity, hi = -Infinity, i;
+    for (i = 0; i < vals.length; i++) { if (vals[i] < lo) lo = vals[i]; if (vals[i] > hi) hi = vals[i]; }
+    if (intBins) { lo = Math.floor(lo); hi = Math.floor(hi); bins = Math.min(bins, hi - lo + 1); }
+    if (hi === lo) return { lo: lo, hi: hi, bins: [vals.length] };
+    var b = new Array(bins).fill(0), w = (hi - lo) / bins;
+    for (i = 0; i < vals.length; i++) { var k = Math.min(bins - 1, Math.floor((vals[i] - lo) / w)); b[k]++; }
+    return { lo: lo, hi: hi, bins: b };
+  }
+  /**
+   * cfg: { seed, trials, stepCap, sources: [{v, w}], targets: [v] | null, arrivals: spec, rule: 'weights'|'uniform'|'first'|'curious'|'softmax',
+   *        temp, weights: Float64Array(m) base weights, linkWeight: spec | null, linkCost: spec | null, dwell: spec | null, maxWalkers }
+   */
+  function create(P, cfg) {
+    cfg = cfg || {};
+    var n = P.n, m = P.m, seed = cfg.seed === undefined ? 1 : cfg.seed | 0, T = Math.max(1, cfg.trials | 0), cap = cfg.stepCap || 400;
+    var rule = cfg.rule || 'weights', temp = cfg.temp > 0 ? cfg.temp : 1;
+    var maxWalkers = cfg.maxWalkers || 5e6;
+    var base = cfg.weights || P.w;
+    var srcs = (cfg.sources && cfg.sources.length ? cfg.sources : P.start >= 0 ? [{ v: P.start, w: 1 }] : []).filter(function (s) { return s.v >= 0 && s.v < n && s.w > 0; });
+    var srcCum = [], tot = 0;
+    srcs.forEach(function (s) { tot += s.w; srcCum.push(tot); });
+    var isEnd = new Uint8Array(n), epOf = new Int32Array(n).fill(-1), ends = [], i;
+    if (cfg.targets && cfg.targets.length) cfg.targets.forEach(function (v) { if (v >= 0 && v < n) isEnd[v] = 1; });
+    for (i = 0; i < n; i++) if (P.outStart[i + 1] === P.outStart[i]) isEnd[i] = 1;
+    for (i = 0; i < n; i++) if (isEnd[i]) { epOf[i] = ends.length; ends.push(i); }
+    var K = ends.length;
+    var dArr = drawer(cfg.arrivals || { dist: 'fixed', a: 1 }), dW = drawer(cfg.linkWeight), dCost = drawer(cfg.linkCost), dDwell = drawer(cfg.dwell);
+    var W = new Float64Array(m), cum = new Float64Array(m), nodeTot = new Float64Array(n);
+    var weightsFixed = !dW;
+    var buildCum = function (rng) {
+      for (var e = 0; e < m; e++) {
+        var w = rule === 'uniform' || rule === 'first' ? 1 : (dW ? dW(rng, e) : base[e]);
+        if (!(w > 0) || !isFinite(w)) w = 0;
+        W[e] = w;
+      }
+      for (var v = 0; v < n; v++) {
+        var a = P.outStart[v], b = P.outStart[v + 1], s = 0, mx = 0, k;
+        if (rule === 'softmax') { for (k = a; k < b; k++) if (W[P.outEdge[k]] > mx) mx = W[P.outEdge[k]]; }
+        for (k = a; k < b; k++) {
+          var ww = W[P.outEdge[k]];
+          if (rule === 'softmax') ww = Math.exp((ww - mx) / temp);
+          s += ww; cum[k] = s;
+        }
+        nodeTot[v] = s;
+      }
+    };
+    if (weightsFixed) buildCum(makeRng(1));
+    var st = {
+      P: P, cfg: cfg, T: T, trial: 0, K: K, ends: ends, epOf: epOf, walkers: 0, stuck: 0,
+      visits: new Float64Array(n), moves: new Float64Array(m), epCount: new Float64Array(K), epSum: new Float64Array(K), epSumSq: new Float64Array(K), epShareSum: new Float64Array(K), epShareSq: new Float64Array(K), shareTrials: 0,
+      epPerTrial: [], epCosts: [], costs: [], costSeen: 0, steps: [], stepSeen: 0, trace: [], nextTrace: 10, lastRng: null, startedAt: 0, busyMs: 0
+    };
+    for (i = 0; i < K; i++) { st.epPerTrial.push([]); st.epCosts.push([]); }
+    var seen = new Int32Array(n).fill(-1), stamp = 0, trialCounts = new Float64Array(K), EP_CAP = 4000, COST_CAP = 100000, STEP_CAP = 100000, EPCOST_CAP = 5000;
+
+    function pickEdge(v, rng) {
+      var a = P.outStart[v], b = P.outStart[v + 1], od = b - a, k;
+      if (rule === 'first') return P.outEdge[a];
+      if (rule === 'uniform') return P.outEdge[a + Math.floor(rng() * od)];
+      if (rule === 'curious') {
+        var cnt = 0, sum = 0;
+        for (k = a; k < b; k++) if (seen[P.to[P.outEdge[k]]] !== stamp) { cnt++; sum += cum[k] - (k > a ? cum[k - 1] : 0); }
+        if (cnt && cnt < od) {
+          if (!(sum > 0)) { var skip = Math.floor(rng() * cnt); for (k = a; k < b; k++) if (seen[P.to[P.outEdge[k]]] !== stamp && skip-- === 0) return P.outEdge[k]; }
+          var x = rng() * sum;
+          for (k = a; k < b; k++) if (seen[P.to[P.outEdge[k]]] !== stamp) { x -= cum[k] - (k > a ? cum[k - 1] : 0); if (x <= 0) return P.outEdge[k]; }
+          return P.outEdge[b - 1];
+        }
+      }
+      var t = nodeTot[v];
+      if (!(t > 0)) return P.outEdge[a + Math.floor(rng() * od)];
+      var r = rng() * t, lo = a, hi = b - 1;
+      while (lo < hi) { var mid = (lo + hi) >> 1; if (cum[mid] > r) hi = mid; else lo = mid + 1; }
+      return P.outEdge[lo];
+    }
+    function pushSample(arr, seenN, cap, x, rng) {
+      if (arr.length < cap) arr.push(x);
+      else { var j = Math.floor(rng() * seenN); if (j < cap) arr[j] = x; }
+    }
+    st.run = function (maxTrials, budgetMs) {
+      var t0 = Date.now(), done = 0;
+      if (!srcs.length) { st.trial = T; return { done: true, trials: st.trial }; }
+      while (st.trial < T && done < maxTrials && (Date.now() - t0 < budgetMs || done === 0)) {
+        var rng = rngFor(seed, st.trial);
+        if (!weightsFixed) buildCum(rng);
+        var count = Math.max(0, Math.round(dArr(rng, 0)));
+        if (st.walkers + count > maxWalkers) count = Math.max(0, maxWalkers - st.walkers);
+        var k;
+        for (k = 0; k < K; k++) trialCounts[k] = 0;
+        for (var wk = 0; wk < count; wk++) {
+          var s = srcs[0].v;
+          if (srcs.length > 1) { var xr = rng() * tot, si = 0; while (si < srcs.length - 1 && srcCum[si] < xr) si++; s = srcs[si].v; }
+          stamp++;
+          var v = s, steps = 0, cost = 0;
+          seen[v] = stamp; st.visits[v]++;
+          if (dDwell && !isEnd[v]) cost += dDwell(rng, v);
+          while (!isEnd[v] && steps < cap) {
+            var e = pickEdge(v, rng);
+            st.moves[e]++;
+            if (dCost) cost += dCost(rng, e);
+            v = P.to[e]; steps++;
+            seen[v] = stamp; st.visits[v]++;
+            if (dDwell && !isEnd[v]) cost += dDwell(rng, v);
+          }
+          st.walkers++;
+          st.stepSeen++; pushSample(st.steps, st.stepSeen, STEP_CAP, steps, rng);
+          if (dCost || dDwell) { st.costSeen++; pushSample(st.costs, st.costSeen, COST_CAP, cost, rng); }
+          if (isEnd[v]) {
+            var ep = epOf[v];
+            trialCounts[ep]++;
+            if (dCost || dDwell) { var ce = st.epCosts[ep]; ce.n = (ce.n || 0) + 1; pushSample(ce, ce.n, EPCOST_CAP, cost, rng); }
+          } else st.stuck++;
+        }
+        var nz = 0;
+        for (k = 0; k < K; k++) { st.epCount[k] += trialCounts[k]; st.epSum[k] += trialCounts[k]; st.epSumSq[k] += trialCounts[k] * trialCounts[k]; if (count > 0) { var sh = trialCounts[k] / count; st.epShareSum[k] += sh; st.epShareSq[k] += sh * sh; } nz++; }
+        if (count > 0) st.shareTrials++;
+        for (k = 0; k < K; k++) { var pa = st.epPerTrial[k]; pa.n = (pa.n || 0) + 1; pushSample(pa, pa.n, EP_CAP, trialCounts[k], rng); }
+        st.trial++; done++;
+        if (st.walkers >= st.nextTrace || st.trial === T) {
+          var row = { walkers: st.walkers, trial: st.trial, shares: [] };
+          for (k = 0; k < K; k++) row.shares.push(st.walkers ? st.epCount[k] / st.walkers : 0);
+          st.trace.push(row); st.nextTrace = Math.ceil(st.walkers * 1.25) + 5;
+        }
+        if (st.walkers >= maxWalkers) { st.trial = T; break; }
+      }
+      st.busyMs += Date.now() - t0;
+      return { done: st.trial >= T, trials: st.trial };
+    };
+    /** A plain copy of the results so far (typed arrays are copied, so the next batch does not change what you hold). */
+    st.snapshot = function () {
+      var W0 = st.walkers || 1, eps = [], k;
+      for (k = 0; k < K; k++) {
+        var cnt = st.epCount[k], wl = wilson(cnt, st.walkers), share = st.walkers ? cnt / st.walkers : 0, tr = st.epPerTrial[k].slice().sort(function (a, b) { return a - b; });
+        var mean = st.trial ? st.epSum[k] / st.trial : 0, sd = st.trial > 1 ? Math.sqrt(Math.max(0, st.epSumSq[k] / st.trial - mean * mean) * st.trial / (st.trial - 1)) : 0;
+        var smean = st.shareTrials ? st.epShareSum[k] / st.shareTrials : 0, ssd = st.shareTrials > 1 ? Math.sqrt(Math.max(0, st.epShareSq[k] / st.shareTrials - smean * smean) * st.shareTrials / (st.shareTrials - 1)) : 0;
+        var lo = wl[0], hi = wl[1];
+        if (!weightsFixed && st.shareTrials >= 30) { var hw = 1.96 * ssd / Math.sqrt(st.shareTrials); lo = Math.min(lo, share - hw); hi = Math.max(hi, share + hw); }
+        var cs = st.epCosts[k].slice().sort(function (a, b) { return a - b; });
+        eps.push({
+          v: st.ends[k], id: P.nodes[st.ends[k]].id, count: cnt, share: share, lo: Math.max(0, lo), hi: Math.min(1, hi),
+          perTrial: { mean: mean, sd: sd, p5: quantile(tr, 0.05), p50: quantile(tr, 0.5), p95: quantile(tr, 0.95) },
+          cost: cs.length ? { n: st.epCosts[k].n, mean: cs.reduce(function (a, b) { return a + b; }, 0) / cs.length, p5: quantile(cs, 0.05), p50: quantile(cs, 0.5), p95: quantile(cs, 0.95) } : null
+        });
+      }
+      var out = {
+        trials: st.trial, planned: T, walkers: st.walkers, stuck: st.stuck, stuckShare: st.walkers ? st.stuck / st.walkers : 0,
+        endpoints: eps, visits: st.visits.map(function (x) { return x / W0; }), moves: st.moves.map(function (x) { return x / W0; }),
+        steps: histogram(st.steps, 40, true), stepStats: null, cost: null, trace: st.trace.slice(), busyMs: st.busyMs, weightsFixed: weightsFixed, rule: rule
+      };
+      var ss = st.steps.slice().sort(function (a, b) { return a - b; });
+      if (ss.length) out.stepStats = { mean: ss.reduce(function (a, b) { return a + b; }, 0) / ss.length, p5: quantile(ss, 0.05), p50: quantile(ss, 0.5), p95: quantile(ss, 0.95), max: ss[ss.length - 1] };
+      if (st.costs.length) {
+        var cc = st.costs.slice().sort(function (a, b) { return a - b; }), mean2 = cc.reduce(function (a, b) { return a + b; }, 0) / cc.length;
+        var v2 = cc.reduce(function (a, b) { return a + (b - mean2) * (b - mean2); }, 0) / Math.max(1, cc.length - 1);
+        out.cost = { n: st.costSeen, mean: mean2, sd: Math.sqrt(v2), p5: quantile(cc, 0.05), p25: quantile(cc, 0.25), p50: quantile(cc, 0.5), p75: quantile(cc, 0.75), p95: quantile(cc, 0.95), hist: histogram(cc, 30, false) };
+      }
+      return out;
+    };
+    return st;
+  }
+
+  /* ---------------------------------------------------------------- exact answers to compare with, and what-if sweeps */
+  /** Exact end odds for the same set-up when that is possible (fixed weights, weights or uniform choice, ends are the items with no way on). */
+  function exactEndpoints(P, cfg) {
+    cfg = cfg || {};
+    var rule = cfg.rule || 'weights';
+    if (rule !== 'weights' && rule !== 'uniform') return null;
+    if (cfg.linkWeight) return null;
+    var ends = [], i, n = P.n;
+    for (i = 0; i < n; i++) if (P.outStart[i + 1] === P.outStart[i]) ends.push(i);
+    if (cfg.targets && cfg.targets.length) { var tset = new Set(cfg.targets); for (i = 0; i < n; i++) if (tset.has(i) && P.outStart[i + 1] !== P.outStart[i]) return null; }
+    var K = ends.length;
+    if (!K || K > 64) return null;
+    var w = rule === 'uniform' ? new Float64Array(P.m).fill(1) : (cfg.weights || P.w);
+    var Q = Object.assign({}, P, { w: w }), epOf = new Int32Array(n).fill(-1);
+    ends.forEach(function (v, k) { epOf[v] = k; });
+    var srcs = (cfg.sources && cfg.sources.length ? cfg.sources : P.start >= 0 ? [{ v: P.start, w: 1 }] : []);
+    var tot = 0; srcs.forEach(function (s) { tot += s.w; });
+    var seeds = srcs.map(function (s) { return { id: P.nodes[s.v].id, mass: s.w / (tot || 1) }; });
+    var imp = E.importance(Q);
+    var r = E.absorb(Q, imp, { sources: seeds, cap: cfg.stepCap || 400 }, function (v) { return epOf[v]; }, K);
+    var got = 0; for (i = 0; i < K; i++) got += r.start[i];
+    return { ends: ends, p: r.start, stuck: Math.max(0, 1 - got), visits: r.visits, moves: r.moves, weights: w, Q: Q, imp: imp, epOf: epOf, seeds: seeds, K: K };
+  }
+
+  /* ---------------------------------------------------------------- settings from the screen -> the numbers the simulation wants */
+  /**
+   * A parameter is { src: 'const', v } | { src: 'col', col } | { src: 'weight' } | { src: 'pct', p } (percent of the first parameter, per element).
+   * spec: { dist, a, b, c, values: { scope: 'edges'|'nodes', col } }.  scope says what each element is: 'edges' (links), 'nodes' (items), 'one' (a single number).
+   */
+  function resolveSpec(P, spec, scope) {
+    if (!spec || !spec.dist || spec.dist === 'none') return null;
+    var C = typeof NFMColumns !== 'undefined' ? NFMColumns : require('./columns.js');
+    var count = scope === 'edges' ? P.m : scope === 'nodes' ? P.n : 1;
+    var read = function (i, param) {
+      if (!param) return NaN;
+      if (param.src === 'const') return Number(param.v);
+      if (scope === 'one') return Number(param.v);
+      if (param.src === 'weight' && scope === 'edges') return C.num(P.edges[P.eorig[i]].weight);
+      if (param.src === 'col') return C.numOf(scope === 'edges' ? P.edges[P.eorig[i]] : P.nodes[i], 'col:' + param.col);
+      return NaN;
+    };
+    var out = { dist: spec.dist };
+    if (spec.dist === 'empirical') {
+      var vals = [], src = spec.values || {}, arr = src.scope === 'nodes' ? P.nodes : P.edges, col = src.col;
+      for (var q = 0; q < arr.length && vals.length < 200000; q++) { var v = col === 'weight' ? C.num(arr[q].weight) : C.numOf(arr[q], 'col:' + col); if (v === v) vals.push(v); }
+      out.values = vals; return out;
+    }
+    ['a', 'b', 'c'].forEach(function (k) {
+      var param = spec[k]; if (!param) return;
+      if (param.src === 'const' || scope === 'one') { out[k] = Number(param.v); return; }
+      var arr = new Float64Array(count), i;
+      if (param.src === 'pct') { var A = out.a; for (i = 0; i < count; i++) arr[i] = (Number(param.p) / 100) * (A && typeof A === 'object' ? A[i] : A); }
+      else for (i = 0; i < count; i++) arr[i] = read(i, param);
+      out[k] = arr;
+    });
+    return out;
+  }
+  /** Turns the Advanced tab settings into the config create() wants. */
+  function fromSpec(P, spec) {
+    spec = spec || {};
+    var idx = P.index, cfg = { seed: spec.seed === undefined ? 1 : spec.seed, trials: spec.trials || 1000, stepCap: spec.stepCap || 400, rule: spec.rule || 'weights', temp: spec.temp || 1, maxWalkers: spec.maxWalkers || 5e6 };
+    var toV = function (id) { var v = idx.get(id); return v === undefined ? -1 : v; };
+    if (spec.sources && spec.sources.length) cfg.sources = spec.sources.map(function (s) { return { v: toV(s.id), w: s.w > 0 ? s.w : 1 }; }).filter(function (s) { return s.v >= 0; });
+    if (spec.targets && spec.targets.length) cfg.targets = spec.targets.map(toV).filter(function (v) { return v >= 0; });
+    cfg.arrivals = resolveSpec(P, spec.arrivals, 'one');
+    cfg.linkWeight = resolveSpec(P, spec.linkWeight, 'edges');
+    cfg.linkCost = resolveSpec(P, spec.linkCost, 'edges');
+    cfg.dwell = resolveSpec(P, spec.dwell, 'nodes');
+    return cfg;
+  }
+  /** Exact odds without the heavy insides, safe to send between threads. */
+  function exactSummary(P, cfg) {
+    var x = exactEndpoints(P, cfg);
+    if (!x) return null;
+    return { ends: x.ends.map(function (v) { return P.nodes[v].id; }), p: Array.prototype.slice.call(x.p), stuck: x.stuck, visits: x.visits, moves: x.moves };
+  }
+
+  function tv(a, sa, b, sb) {
+    var d = Math.abs(sa - sb);
+    for (var i = 0; i < a.length; i++) d += Math.abs(a[i] - b[i]);
+    return d / 2;
+  }
+  /**
+   * What if this item (or link) were gone? Ranks the busiest items or links by how far the end odds move.
+   * opts: { what: 'items' | 'links', top, budgetMs }. Rows: { kind, v | e, shift, stuck, after: [odds], before: [odds] }.
+   */
+  function sweep(P, cfg, opts) {
+    opts = opts || {};
+    var base = exactEndpoints(P, cfg);
+    if (!base) return { ok: false, reason: 'The what-if sweep needs fixed link weights, a weighted or even choice, and ends that are items with no way on.', rows: [] };
+    var what = opts.what === 'links' ? 'links' : 'items', top = opts.top || 40, t0 = Date.now(), budget = opts.budgetMs || 8000, rows = [], cand = [], i, e;
+    var isSrc = new Set((cfg.sources || []).map(function (s) { return s.v; }));
+    if (P.start >= 0 && !(cfg.sources && cfg.sources.length)) isSrc.add(P.start);
+    if (what === 'items') {
+      for (i = 0; i < P.n; i++) if (!isSrc.has(i) && base.epOf[i] < 0 && base.visits[i] > 1e-9) cand.push(i);
+      cand.sort(function (a, b) { return base.visits[b] - base.visits[a]; });
+    } else {
+      for (e = 0; e < P.m; e++) if (base.moves[e] > 1e-9) cand.push(e);
+      cand.sort(function (a, b) { return base.moves[b] - base.moves[a]; });
+    }
+    cand = cand.slice(0, top);
+    for (var ci = 0; ci < cand.length; ci++) {
+      if (Date.now() - t0 > budget) break;
+      var w2 = Float64Array.from(base.weights), c = cand[ci];
+      if (what === 'items') { for (e = 0; e < P.m; e++) if (P.to[e] === c) w2[e] = 0; } else w2[c] = 0;
+      var Q2 = Object.assign({}, P, { w: w2 }), r = E.absorb(Q2, base.imp, { sources: base.seeds, cap: cfg.stepCap || 400 }, function (v) { return base.epOf[v]; }, base.K);
+      var got = 0; for (i = 0; i < base.K; i++) got += r.start[i];
+      var stuck = Math.max(0, 1 - got);
+      rows.push(what === 'items' ? { kind: 'item', v: c, id: P.nodes[c].id, shift: tv(base.p, base.stuck, r.start, stuck), stuck: stuck, after: Array.prototype.slice.call(r.start) } : { kind: 'link', e: c, from: P.nodes[P.from[c]].id, to: P.nodes[P.to[c]].id, shift: tv(base.p, base.stuck, r.start, stuck), stuck: stuck, after: Array.prototype.slice.call(r.start) });
+    }
+    rows.sort(function (a, b) { return b.shift - a.shift; });
+    return { ok: true, what: what, ends: base.ends.map(function (v) { return P.nodes[v].id; }), before: Array.prototype.slice.call(base.p), beforeStuck: base.stuck, rows: rows, partial: cand.length > rows.length };
+  }
+
+  return { DISTS: DISTS, DIST_BY: DIST_BY, DRAW: DRAW, moments: moments, drawer: drawer, makeRng: makeRng, rngFor: rngFor, lgamma: lgamma, create: create, exactEndpoints: exactEndpoints, exactSummary: exactSummary, fromSpec: fromSpec, resolveSpec: resolveSpec, sweep: sweep, wilson: wilson, quantile: quantile };
+})();
+if (typeof module !== 'undefined' && module.exports) module.exports = NFMSim;
