@@ -1101,8 +1101,8 @@ var NFMEngine = (function () {
       }
       for (m = 0; m < nm; m++) { var ob = m * k + r0; for (var b2 = 0; b2 < nb; b2++) D[ob + b2] = tmp[b2 * nm + m]; }
     }
-    var Y = new Float64Array(2 * k);
-    for (r = 0; r < k; r++) { Y[2 * r] = X[2 * rp[r]]; Y[2 * r + 1] = X[2 * rp[r] + 1]; }
+    var Yx = new Float64Array(k), Yy = new Float64Array(k);   // x and y in separate arrays: faster to read in a straight line
+    for (r = 0; r < k; r++) { Yx[r] = X[2 * rp[r]]; Yy[r] = X[2 * rp[r] + 1]; }
     var pdT = new Float64Array(256), wT = new Float64Array(256), ord = new Int32Array(nm);
     for (i = 1; i < 256; i++) { pdT[i] = i * EDGE; wT[i] = 1 / (i * i); }
     for (m = 0; m < nm; m++) ord[m] = m + 1;
@@ -1113,17 +1113,19 @@ var NFMEngine = (function () {
       for (var q = 0; q < nm; q++) {   // one offset at a time, in a random order: successive pairs are far apart in the picture's history
         m = ord[q];
         var row = (m - 1) * k, lim = m + m === k ? nm : k;
-        for (i = 0; i < lim; i++) {
-          var dd = D[row + i]; if (dd === 0) continue;
-          j = i + m; if (j >= k) j -= k;
-          var mu = wT[dd] * eta; if (mu > 1) mu = 1;
-          var dx = Y[2 * i] - Y[2 * j], dy = Y[2 * i + 1] - Y[2 * j + 1], mag = Math.sqrt(dx * dx + dy * dy) || 1e-6;
-          var f = (mu * (mag - pdT[dd])) / (2 * mag), rx = f * dx, ry = f * dy;
-          Y[2 * i] -= rx; Y[2 * i + 1] -= ry; Y[2 * j] += rx; Y[2 * j + 1] += ry;
+        for (var seg = 0; seg < 2; seg++) {   // items i with i+m inside the list, then the ones that wrap round to the start
+          var i0 = seg ? k - m : 0, i1 = seg ? lim : Math.min(lim, k - m), sh = seg ? m - k : m;
+          for (i = i0; i < i1; i++) {
+            var dd = D[row + i]; if (dd === 0) continue;
+            j = i + sh;
+            var mu = wT[dd] * eta; if (mu > 1) mu = 1;
+            var dx = Yx[i] - Yx[j], dy = Yy[i] - Yy[j], mag = Math.sqrt(dx * dx + dy * dy) + 1e-9, f = 0.5 * mu * (1 - pdT[dd] / mag), rx = f * dx, ry = f * dy;
+            Yx[i] -= rx; Yy[i] -= ry; Yx[j] += rx; Yy[j] += ry;
+          }
         }
       }
     }
-    for (r = 0; r < k; r++) { X[2 * rp[r]] = Y[2 * r]; X[2 * rp[r] + 1] = Y[2 * r + 1]; }
+    for (r = 0; r < k; r++) { X[2 * rp[r]] = Yx[r]; X[2 * rp[r] + 1] = Yy[r]; }
   }
 
   /**
@@ -1140,7 +1142,7 @@ var NFMEngine = (function () {
     for (i = 0; i < k; i++) { var lst = adj[members[i]], o0 = off[i]; for (j = 0; j < lst.length; j++) nbr[o0 + j] = locArr[lst[j]]; }
     if (exactNow && k > T.fullMax && k <= T.exactMax) {   // 'best quality': every pair; if the device cannot give the memory (k*k/2 bytes), fall through to the pivot version
       var X0 = X.slice();
-      try { if (stressExact(X, k, off, nbr, EDGE, rnd, T.exactIters || (k <= 6000 ? 12 : k <= 12000 ? 6 : 4)) !== false) return; } catch (err) { if (!(err instanceof RangeError)) throw err; }
+      try { if (stressExact(X, k, off, nbr, EDGE, rnd, T.exactIters || (k <= 12000 ? 4 : 3)) !== false) return; } catch (err) { if (!(err instanceof RangeError)) throw err; }
       X.set(X0);
     }
     var dist = new Int32Array(k), queue = new Int32Array(k);
