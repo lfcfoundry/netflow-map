@@ -39,6 +39,10 @@ module.exports = {
   pack: () => [10000, 30000, 100000].map((n) => J('pack', { kind: 'moderate', n }, { timeout: 900000 })),
   gifprof4: () => [1, 2, 3, 4].map((rep) => J('gifprof', { frames: 4, rep })),
   gifprof: () => [1, 2, 3].map((rep) => J('gifprof', { frames: 4, rep })).concat([1, 2].map((rep) => J('gifprof', { frames: 31, rep }))),
+  csvCold: () => { const j = []; for (let rep = 0; rep < 4; rep++) ['current', 'sliceSplit', 'linesFirst', 'flat'].forEach((v) => j.push(J('csvvar', { rows: 50000, cols: 6, len: 12, only: [v], rounds: 1 }))); return j; },
+  csvVar: () => [[50000, 6, 12], [50000, 6, 64], [50000, 6, 200], [50000, 12, 12], [10000, 6, 12]].map(([rows, cols, len]) => J('csvvar', { rows, cols, len })),
+  drawsVar: () => [J('drawsvar', { N: 1000000 })],
+  drawsRun: () => [J('drawsrun', { N: 1000000 })],
   refresh: () => [J('draws', { N: 1000000 }, { timeout: 600000 }), J('gif', { frames: 4 }), J('gif', { frames: 31 }, { timeout: 600000 })],
   typed: () => {   // what typed arrays cost and save
     const jobs = [];
