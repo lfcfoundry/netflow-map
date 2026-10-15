@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. The benchmark suites. They run inside a page (Firefox or Chromium) next to our modules and LIBS.
+/* Copyright (c) 2026 LFC Foundry. MIT License. The benchmark suites. They run inside a page (Firefox or Chromium) next to our modules and LIBS.
  * Every suite is  SUITES.name(args) -> plain object.  Times are milliseconds; "ms" is the median of up to 3 runs (one run when it is slow). */
 var SUITES = (function () {
   'use strict';

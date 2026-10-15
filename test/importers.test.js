@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Quick checks for the importers. Run: node test/importers.test.js */
+/* Copyright (c) 2026 LFC Foundry. MIT License. Quick checks for the importers. Run: node test/importers.test.js */
 'use strict';
 var I = require('../src/importers.js'), assert = require('assert'), n = 0;
 function t(name, fn) { try { fn(); n++; } catch (e) { console.log('FAIL', name, '\n  ', e.message); process.exitCode = 1; } }

@@ -1,6 +1,6 @@
 /*!
  * Net Flow Map app, part 1: helpers, state, the one place that changes the data, tabs and theme.
- * Copyright (c) 2026 JNFoo. MIT License.
+ * Copyright (c) 2026 LFC Foundry. MIT License.
  * The parts in src/app/ are joined into one function by tools/build.mjs, so they share these names.
  */
 var $ = function (id) { return document.getElementById(id); };

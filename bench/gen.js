@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Seeded test-data makers for the benchmarks, shared by Node and the page.
+/* Copyright (c) 2026 LFC Foundry. MIT License. Seeded test-data makers for the benchmarks, shared by Node and the page.
  * Three kinds of structure, by how hard they are for the engine:
  *   simple   a plain tree, one link per item, two columns, no quoting.
  *   moderate communities, about 3 links per item, a weight, a group and a label (a few quoted), a few cross-group links.

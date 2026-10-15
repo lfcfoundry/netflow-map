@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map result packing. Copyright (c) 2026 JNFoo. MIT License.
+ * Net Flow Map result packing. Copyright (c) 2026 LFC Foundry. MIT License.
  * A big layout is a list of one object per item and one per link. Sending that from the worker to the page as objects makes the
  * browser walk every field of every object twice (once to write, once to rebuild). Here the numbers of each field travel as one typed
  * array, text as one long string plus lengths, and the page rebuilds the objects from the columns. The objects that come out are the

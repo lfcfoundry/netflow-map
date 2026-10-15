@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License.
+/* Copyright (c) 2026 LFC Foundry. MIT License.
  *   node bench/run.js <firefox|chromium> <plan> [--only=suite] [--out=file.jsonl]
  * Runs every job of the plan in its own fresh page of one browser, with a time limit; a crash or time-out is recorded and the browser is restarted.
  * Writes one JSON line per job to bench/results/<browser>-<plan>.jsonl and prints a short line as it goes. */

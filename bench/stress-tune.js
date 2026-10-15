@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Node-only tuning tool for the stress layout: time and truth (sampled stress) for settings side by side.
+/* Copyright (c) 2026 LFC Foundry. MIT License. Node-only tuning tool for the stress layout: time and truth (sampled stress) for settings side by side.
  * node bench/stress-tune.js <kind> <n> '<json settings>' ...   (settings: any key of NFMEngine.stressTuning; "before" runs the engine as committed before the typed-array change) */
 'use strict';
 const fs = require('fs'), path = require('path');

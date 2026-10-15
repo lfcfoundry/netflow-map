@@ -1,6 +1,6 @@
 /*!
  * Net Flow Map importers: turn text, tables, JSON and notes into one graph, and say what was kept, changed or dropped.
- * Copyright (c) 2026 JNFoo. MIT License. No DOM; runs in the page or in Node.
+ * Copyright (c) 2026 LFC Foundry. MIT License. No DOM; runs in the page or in Node.
  *
  * Graph: { name, start, nodes: [{id, label, group, valence, ghost, attrs}], edges: [{from, to, label, weight, kind, attrs}] }
  * Report: { format, nodes, edges, ghosts, notes: [plain-words lines], counts: {...} }

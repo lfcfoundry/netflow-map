@@ -1,6 +1,6 @@
 /*!
  * Net Flow Map capability check. canary(): a quick real test of each drawing path (never "does the browser say it can").
- * check(): the one-button device check with plain-words answers. Copyright (c) 2026 JNFoo. MIT License.
+ * check(): the one-button device check with plain-words answers. Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var NFMProbe = (function () {
   'use strict';

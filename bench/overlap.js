@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Node-only: how many items sit on top of each other in each layout?
+/* Copyright (c) 2026 LFC Foundry. MIT License. Node-only: how many items sit on top of each other in each layout?
  * node bench/overlap.js <kind> <n> ...   Every layout is drawn with the same item sizes (ours). Libraries that place points are first
  * scaled so the median link is as long as ours (130), the kindest fair scale. "zoom" = how much bigger the page would have to be
  * to pull the worst pair apart (1.0 = nothing overlaps). Also reports sampled truth (lower = truer) and time. */

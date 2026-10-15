@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 6: the left rail (Ask, Look, Filter, Find, Style, Views), the top bar and the floating key. Copyright (c) 2026 JNFoo. MIT License.
+ * Net Flow Map app, part 6: the left rail (Ask, Look, Filter, Find, Style, Views), the top bar and the floating key. Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var RAIL = { tab: 'ask', open: true, peek: false };
 var VIEW_NOTES = {

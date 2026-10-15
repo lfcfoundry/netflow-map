@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Experiment only: the stress layout's inner loop in C, built to WebAssembly (see bench/wasm/README in docs/BENCHMARKS.md). */
+/* Copyright (c) 2026 LFC Foundry. MIT License. Experiment only: the stress layout's inner loop in C, built to WebAssembly (see bench/wasm/README in docs/BENCHMARKS.md). */
 typedef int i32;
 __attribute__((export_name("sweep")))
 void sweep(double *X, const i32 *pa, const i32 *pb, const float *pd, const float *pw, i32 cnt, double eta, i32 back) {

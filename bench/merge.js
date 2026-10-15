@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Puts newly measured fields into an older results file, job by job (same key):
+/* Copyright (c) 2026 LFC Foundry. MIT License. Puts newly measured fields into an older results file, job by job (same key):
  *   node bench/merge.js <new.jsonl> <old.jsonl>      fields of "ok" in the new line replace the same fields in the old line; other fields stay.
  * Lines of the new file with no match are added. Used to refresh our own numbers without re-running the competitors. */
 'use strict';

@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 7: the Check tab. Copyright (c) 2026 JNFoo. MIT License.
+ * Net Flow Map app, part 7: the Check tab. Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var CHK = { res: null, busy: false, ignore: new Set(), filter: 'all', gver: -1, err: '' };
 function runCheck() {

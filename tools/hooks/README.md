@@ -1,6 +1,6 @@
 # House-rule git hooks
 
-Copyright (c) 2026 JNFoo. MIT License.
+Copyright (c) 2026 LFC Foundry. MIT License.
 
 Git does not copy hooks when it clones a repository, so these live in a tracked folder. Turn them on once per clone:
 
