@@ -1046,6 +1046,21 @@ The first run pays a fixed warm-up of about 130 to 220 ms in both browsers (the 
 
 (Started from the app's quick Distances picture instead of the sketch, the same steps need 30 to 80 to get there, 0.159 and 0.150 at 30; the sketch is both cheaper and a better start.) The prototype in `bench/gpu/gpustress.js` does all of it on the card with WebGPU: the hop table by bit-parallel breadth-first walks (32 start items per word, one byte per pair, all batches in one dispatch per level), the weights, and the steps (4 items per thread, positions shared through workgroup memory). Checked on this machine's software WebGPU stand-in (not a real card): the hop table matches the processor's in every one of 360,000 entries at 600 items, the steps match the processor's 64-bit math (0% difference in distance error), and at 5,000 items the truth after 20 / 40 / 60 steps is 0.157 / 0.155 / 0.155 (moderate) and 0.144 / 0.143 / 0.143 (complex), the same as the numbers above. Speed on a real card is unmeasured; `bench/net-flow-map-tester.html` measures it on a laptop (below).
 
+**First run on a real card** (Ryzen 7 8845HS laptop, Radeon 780M with 2 GB, 14 GB DDR5, Windows, Firefox 159; `bench/results/laptop-8845HS-780M-firefox159-tester1.md`). The graphics-card hop table matched the processor's in all 1,440,000 entries at 1,200 items and the steps matched. But the first kernel was not faster than the processor's best quality on this fast laptop (0.5 to 0.8×):
+
+| network | items | processor | graphics card (v1) | truth, processor / card |
+|---|---:|---:|---:|---:|
+| moderate | 2,000 | 0.51 s | 0.75 s | 0.149 / 0.153 |
+| moderate | 5,000 | 0.55 s | 1.11 s | 0.159 / 0.155 |
+| moderate | 10,000 | 1.75 s | 2.10 s | 0.164 / 0.165 |
+| complex | 5,000 | 0.51 s | 1.10 s | 0.144 / 0.143 |
+| complex | 9,999 | 1.66 s | 2.17 s | 0.147 / 0.156 |
+| moderate | 20,000 | 5.2 s | 8.9 s | 0.162 / 0.164 |
+
+What the numbers say: the 60 steps ran at about 3.7 billion item pairs a second whatever the size (that is 1.7 s of the 2.1 s at 10,000 items), well under what the card can do, because the kernel does two divisions and a square root per pair; at 2,000 items it ran 8 times slower per pair than at 10,000 because 2,000 items fill only 8 workgroups of a 12-unit card; the weights pass and the read-back each cost a flat 100 ms in Firefox (a wait, not work); and at 20,000 items the hop table took 2.3 s against 0.12 s at 10,000 (the working arrays no longer fit the cache). Truth was equal except complex 10,000, where plain steps stop at a local minimum (0.156 at 60 steps against 0.147 for the processor; from the app's quick picture 0.154; over-relaxed steps, x <- x + 1.8 (target - x), reach 0.154 at 60 and 0.152 at 120 steps in Node). The same file shows Firefox 159 on this laptop is warm from the first run (cold start 215 ms against 181 ms, no extra cost at 2,000 items) and does 1,000,000 normal draws in 15 ms.
+
+Version 2 of the kernel (in the tester built after this result) answers each of those: no divisions (two small tables, or one reciprocal, plus one inverse square root per pair), the item range split over workgroups so the card is full at every size, hop table walked 512 start items at a time, waits removed (only the final read-back waits), 150 steps available, and over-relaxation. Correct on the software stand-in at 800 items (0% difference from the processor's math). The next laptop run times old against new.
+
 **The laptop tester.** `node tools/build-tester.mjs` writes one self-contained page, `bench/net-flow-map-tester.html`. Opened in a browser it starts by itself, runs five checks (the computer and its graphics adapter; whether the graphics-card hop table and steps match the processor's; time and truth of the processor's best quality against the graphics card at 2,000 to 20,000 items; first run against later runs; random draws, CSV reading and Force repeated), explains each in plain words, and offers a results file (`net-flow-map-tester-results.md`) to hand back. `?quick=1` makes it small enough to try anywhere; `?plan=moderate:5000` picks the sizes. `node bench/tester/run-local.js <firefox|chromium> [quick]` runs it in this machine's browsers.
 
 ## Reproduce
