@@ -73,3 +73,25 @@ function maybeAskTune() {
   if (!force && t) return;   // already tuned; the Advanced tab says if the computer looks different
   setTimeout(function () { if (!$('dlg').open) tuneDialog('ask'); }, 1200);
 }
+
+/** The device check's graphics-card test (see NFMProbe.check): { lines, problem, data }. Uses the tuning test's sizes in automatic runs. */
+function cardCheckForDevice() {
+  var sz = tuneSizes(), sec = function (ms) { return ms >= 1000 ? (ms / 1000).toFixed(1) + ' s' : ms + ' ms'; };
+  return NFMTune.checkCard({ Client: NFMEngineClient.Client, engineSrc: engineSrc, getEngine: getEngine, makeGraph: tuneMakeGraph, n: sz ? sz[0] : 6000, onStep: function (t) { var el = $('chk-step'); if (el) el.textContent = t; } }).then(function (r) {
+    var n = r.row ? r.row.n.toLocaleString('en-US') : '', lines = [], problem = '';
+    if (r.state !== 'ready') {
+      lines.push({ ok: null, text: 'Graphics-card arrangement is not available here (' + String(r.why).replace(/\.$/, '') + '), so big arrangements use the processor' + (r.row ? ': ' + sec(r.row.cpuMs) + ' for ' + n + ' items at best quality' : '') + '.' });
+    } else if (r.verdict === 'good') {
+      lines.push({ ok: true, text: 'Graphics-card arrangement works (' + r.info + '): best quality for ' + n + ' items took ' + sec(r.row.cardMs) + ' with the card against ' + sec(r.row.cpuMs) + ' on the processor (' + r.speedup.toFixed(1) + ' times faster), with the same accuracy (distance error ' + r.row.cardTruth + ' against ' + r.row.cpuTruth + ').' });
+    } else if (r.verdict === 'slower') {
+      lines.push({ ok: null, text: 'The graphics card (' + r.info + ') works but was ' + (r.speedup < 0.9 ? 'slower' : 'not clearly faster') + ' here: ' + sec(r.row.cardMs) + ' against ' + sec(r.row.cpuMs) + ' on the processor for ' + n + ' items. The tuning test decides which to use.' });
+    } else if (r.verdict === 'worse') {
+      lines.push({ ok: false, text: 'The graphics card (' + r.info + ') made a less accurate picture than the processor (distance error ' + r.row.cardTruth + ' against ' + r.row.cpuTruth + ').' }); problem = 'The graphics card gave a less accurate arrangement; best quality should stay on the processor.';
+    } else {
+      lines.push({ ok: false, text: 'The graphics card (' + r.info + ') passed its start-up test, but the arrangement fell back to the processor' + (r.why ? ' (' + String(r.why).replace(/\.$/, '') + ')' : '') + '.' }); problem = 'Graphics-card arrangement fell back to the processor.';
+    }
+    if (r.state === 'ready' && S.tune && S.tune.card && S.tune.card.use === false && r.verdict === 'good') lines.push({ ok: null, text: 'Your saved tuning says to keep the processor, but the card is faster now. Run "Tune for this computer" again to update it.' });
+    if (r.state === 'ready' && S.tune && S.tune.card && S.tune.card.use === true && (r.verdict === 'slower' || r.verdict === 'unused')) lines.push({ ok: null, text: 'Your saved tuning says to use the card, but it did not pay off just now. Run "Tune for this computer" again to update it.' });
+    return { lines: lines, problem: problem, data: { state: r.state, verdict: r.verdict || null, speedup: r.speedup || null, row: r.row || null, info: r.info || '' } };
+  });
+}

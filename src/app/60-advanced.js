@@ -48,6 +48,7 @@ function deviceCard() {
     btn.disabled = true; mount(out, h('p', { class: 'muted', id: 'chk-step' }, 'Starting…'));
     NFMProbe.check({
       onStep: function (t) { var el = $('chk-step'); if (el) el.textContent = t; },
+      cardCheck: cardCheckForDevice,
       makeScene: function (kind) {
         if (kind === 'stress') return syntheticScene(1600, 3600, 5);
         var E = getEngine(), x = NFMExamples.LIST[0].load(), L = E.build(x.graph, { view: 'flow', colorBy: 'odds', wantFlow: true });

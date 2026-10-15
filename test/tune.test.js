@@ -14,7 +14,7 @@ function world(w) {
   class Client {
     constructor() { this.mode = 'starting'; } async start() { this.mode = 'worker'; } setGraph(g) { this.g = g; }
     async run() { return { L: { gpuPiece: { k: this.g.nodes.length, off: new Uint32Array(1), nbr: new Uint32Array(1) } } }; }
-    async build() { const n = this.g.nodes.length, viaCard = !this.cardOff && this.card && this.card.state === 'ready'; await sleep(viaCard ? w.cardMs : w.cpuMs); const nodes = this.g.nodes.map((nd) => ({ id: nd.id, cx: viaCard ? w.cardTruth : w.cpuTruth, cy: 0 })); return { L: { nodes }, card: viaCard ? { ms: 1 } : undefined }; }
+    async build() { const n = this.g.nodes.length, viaCard = !this.cardOff && this.card && this.card.state === 'ready'; await sleep(viaCard ? w.cardMs : w.cpuMs); const nodes = this.g.nodes.map((nd) => ({ id: nd.id, cx: viaCard ? w.cardTruth : w.cpuTruth, cy: 0 })); if (viaCard && w.unused) this.cardWhy = 'device lost'; return { L: { nodes }, card: viaCard && !w.unused ? { ms: 1 } : undefined }; }
   }
   return Client;
 }
@@ -46,6 +46,12 @@ const meth = { sgd1: { ms: 100, truth: 0.151 }, sgd2: { ms: 160, truth: 0.147 },
     let n = 0; const r = await NFMTune.run({ Client: world({ card: true, cpuMs: 20, cardMs: 5, cpuTruth: 0.15, cardTruth: 0.15, method: meth }), engineSrc: '', getEngine: () => null, makeGraph: graph, sizes: [5000, 10000], big: 0, cancelled: () => ++n > 3 });
     ok(r.cancelled, 'not cancelled');
   });
+  const chk = (w, n) => NFMTune.checkCard({ Client: world(w), engineSrc: '', getEngine: () => null, makeGraph: graph, n: n || 6000 });
+  await t('device check: a faster, equally true card is reported as good with the real numbers', async () => { const r = await chk({ card: true, cpuMs: 120, cardMs: 30, cpuTruth: 0.150, cardTruth: 0.151, method: meth }); ok(r.state === 'ready' && r.verdict === 'good' && r.speedup > 3, JSON.stringify(r)); });
+  await t('device check: a card that works but is not faster is reported as slower', async () => { const r = await chk({ card: true, cpuMs: 30, cardMs: 120, cpuTruth: 0.150, cardTruth: 0.150, method: meth }); ok(r.verdict === 'slower', r.verdict); });
+  await t('device check: a faster card with a clearly worse picture is reported as worse', async () => { const r = await chk({ card: true, cpuMs: 120, cardMs: 30, cpuTruth: 0.150, cardTruth: 0.190, method: meth }); ok(r.verdict === 'worse', r.verdict); });
+  await t('device check: a card that passed its test but fell back is reported as unused, with the reason', async () => { const r = await chk({ card: true, unused: true, cpuMs: 120, cardMs: 30, cpuTruth: 0.150, cardTruth: 0.150, method: meth }); ok(r.verdict === 'unused' && /device lost/.test(r.why), r.verdict + ' ' + r.why); });
+  await t('device check: no card gives the reason and the processor time', async () => { const r = await chk({ card: false, cpuMs: 60, cardMs: 0, cpuTruth: 0.150, cardTruth: 0, method: meth }); ok(r.state === 'none' && /No adapter/.test(r.why) && r.row.cpuMs > 0, JSON.stringify(r)); });
   await t('timing law: a power law through two points', async () => { const l = { n0: 5000, t0: 0.5, p: 1.8 }; ok(Math.abs(NFMTune.lawAt(l, 10000) - 0.5 * Math.pow(2, 1.8)) < 1e-9, 'law'); });
   if (bad) { console.log(bad + ' failed'); process.exit(1); } console.log('tune: all passed');
 })();
