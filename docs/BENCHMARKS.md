@@ -1061,6 +1061,20 @@ What the numbers say: the 60 steps ran at about 3.7 billion item pairs a second 
 
 Version 2 of the kernel (in the tester built after this result) answers each of those: no divisions (two small tables, or one reciprocal, plus one inverse square root per pair), the item range split over workgroups so the card is full at every size, hop table walked 512 start items at a time, waits removed (only the final read-back waits), 150 steps available, and over-relaxation. Correct on the software stand-in at 800 items (0% difference from the processor's math). The next laptop run times old against new.
 
+**Second run (version 2 of the kernel, same laptop; `bench/results/laptop-8845HS-780M-firefox159-tester2.md`).** The graphics card is now faster than the processor's best quality in 6 of 7 runs, with equal truth:
+
+| network | items | processor | graphics card (v2) | faster by | truth, processor / card |
+|---|---:|---:|---:|---:|---:|
+| moderate | 2,000 | 0.55 s | 0.29 s | 1.9× | 0.149 / 0.152 |
+| moderate | 5,000 | 0.57 s | 0.38 s | 1.5× | 0.159 / 0.154 |
+| moderate | 10,000 | 1.75 s | 0.56 s | 3.1× | 0.164 / 0.163 |
+| complex | 5,000 | 0.42 s | 0.38 s | 1.1× | 0.144 / 0.142 |
+| complex | 9,999 | 1.65 s | 0.55 s | 3.0× | 0.147 / 0.155 |
+| moderate | 20,000 | 5.2 s | 1.55 s | 3.4× | 0.162 / 0.163 |
+| moderate | 30,000 | 2.6 s (quick sample, above the best-quality limit) | 4.3 s | | 0.211 / 0.796 (ran away) |
+
+The 30,000-item run is the one that matters (the processor cannot do best quality there) and it failed: the steps diverged (truth 0.206 at 20 steps, 0.222 at 40, 0.796 at 60). The cause is the over-relaxation factor 1.6 used in that run: the simultaneous (Jacobi) update has iteration-matrix eigenvalues down to some negative number, and a factor of 1.6 overshoots once that number is below about -0.25; it was fine up to 20,000 items and not above. Version 2's default is now 1.2 (safe to about -0.8), and the tester runs 30,000 items with factors 1.0 and 1.2 and flags a run-away. The old-against-new comparison step also failed on the laptop ("Invalid buffer", before any row): the old kernel's run is the likely cause and is now caught per variant with the card's own message and any device-lost reason recorded. Complex 9,999 items still ends at 0.155 against 0.147; the 150-step variant in the next run shows how far more steps close that. Cold start is 244 ms against 186 ms at 500 items and 1.34 s against 1.28 s at 2,000.
+
 **The laptop tester.** `node tools/build-tester.mjs` writes one self-contained page, `bench/net-flow-map-tester.html`. Opened in a browser it starts by itself, runs five checks (the computer and its graphics adapter; whether the graphics-card hop table and steps match the processor's; time and truth of the processor's best quality against the graphics card at 2,000 to 20,000 items; first run against later runs; random draws, CSV reading and Force repeated), explains each in plain words, and offers a results file (`net-flow-map-tester-results.md`) to hand back. `?quick=1` makes it small enough to try anywhere; `?plan=moderate:5000` picks the sizes. `node bench/tester/run-local.js <firefox|chromium> [quick]` runs it in this machine's browsers.
 
 ## Reproduce
