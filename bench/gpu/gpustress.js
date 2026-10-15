@@ -53,6 +53,17 @@ var NFMGpuStress = (function () {
     return { X: X, minEcc: minEcc, ms: now() - t0 };
   }
 
+  /** A valid bound on the longest hop count (twice the eccentricity of any item) from four quick walks; the sketch finds a tighter one later, but this lets the card start its table at once. */
+  function quickBound(off, nbr, k) {
+    var dist = new Int32Array(k), q = new Int32Array(k), src = 0, best = 1e9, r, h, t, u, far, ecc;
+    for (r = 0; r < 4; r++) {
+      dist.fill(-1); dist[src] = 0; q[0] = src; h = 0; t = 1; far = src; ecc = 0;
+      while (h < t) { u = q[h++]; if (dist[u] > ecc) { ecc = dist[u]; far = u; } for (var e = off[u]; e < off[u + 1]; e++) { var w = nbr[e]; if (dist[w] < 0) { dist[w] = dist[u] + 1; q[t++] = w; } } }
+      if (ecc < best) best = ecc; src = far;
+    }
+    return 2 * best;
+  }
+
   /* ------------------------------------------------------------------ GPU programs */
   var BFS_WGSL = [
     'struct B { k: u32, S: u32, b0: u32, level: u32 };',   // b0: first 32-source batch of this group of batches
@@ -219,8 +230,7 @@ var NFMGpuStress = (function () {
   async function layoutInner(dev, off, nbr, k, EDGE, opts) {
     opts = opts || {}; var device = dev.device, T0 = now(), ms = {}, steps = opts.steps || 60, nd = need(k), lim = dev.limits, kernel = opts.kernel || 'v2', omega = kernel !== 'v1' ? (opts.omega || 1.2) : 1, prof = !!opts.profile;
     if (nd.dBytes > lim.maxStorageBufferBindingSize || nd.dBytes > lim.maxBufferSize) return { error: 'The hop table (' + Math.round(nd.dBytes / 1048576) + ' MB) does not fit in this graphics card\'s largest buffer (' + Math.round(lim.maxStorageBufferBindingSize / 1048576) + ' MB).', tooBig: true };
-    var st = pivotStart(off, nbr, k, EDGE, opts.pivots); ms.start = st.ms;
-    var L = Math.min(254, 2 * st.minEcc); if (2 * st.minEcc > 254) return { error: 'Some hop counts exceed 254, which one byte cannot hold.', tooLong: true };
+    var bound = quickBound(off, nbr, k), L = Math.min(254, bound); if (bound > 254) return { error: 'Some hop counts may exceed 254, which one byte cannot hold.', tooLong: true };
     var Sx = nd.S, nb = nd.nb, GB = GPUBufferUsage, GR = Math.max(1, Math.min(nb, opts.group || 16)), ngr = Math.ceil(nb / GR);
     device.pushErrorScope('validation'); device.pushErrorScope('out-of-memory');
     var mk = function (size, usage, data) { var bf = device.createBuffer({ size: Math.max(16, size), usage: usage, mappedAtCreation: !!data }); if (data) { new data.constructor(bf.getMappedRange()).set(data); bf.unmap(); } return bf; };
@@ -255,6 +265,7 @@ var NFMGpuStress = (function () {
     }
     if (!pass) { enc = device.createCommandEncoder(); pass = enc.beginComputePass(); }
     pass.setPipeline(pW); pass.setBindGroup(0, bgAB, [0]); pass.dispatchWorkgroups(gx); flush();
+    var st = pivotStart(off, nbr, k, EDGE, opts.pivots); ms.start = st.ms;   // the processor makes the sketch while the card builds the table
     if (prof || k >= 12000) { await wait(); ms.table = now() - t2; } else ms.table = null;   // big sizes wait once here so the card is never given more than a moment of queued work
     RB.destroy(); FA.destroy(); FB.destroy();
     /* the steps */
@@ -291,7 +302,7 @@ var NFMGpuStress = (function () {
       if (k >= 8000 && done < steps) {   // pacing: time the first submission, then wait again whenever about half a second of work is queued
         var nsteps = upto - from;
         if (!rate) { var tq = now(); await wait(); rate = Math.max(0.05, (now() - tq) / nsteps); perSubmit = Math.max(1, Math.min(steps, Math.round(120 / rate))); }
-        else { sinceWait += nsteps; if (sinceWait * rate > 450) { await wait(); sinceWait = 0; } }
+        else { sinceWait += nsteps; if (sinceWait * rate > 900) { await wait(); sinceWait = 0; } }
       }
       if (opts.onProgress) opts.onProgress(done / steps);
     }

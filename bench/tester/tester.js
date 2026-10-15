@@ -116,13 +116,13 @@
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var plan = QUICK ? [['moderate', 800], ['complex', 800]] : [['moderate', 2000], ['moderate', 5000], ['moderate', 10000], ['complex', 5000], ['complex', 10000], ['moderate', 20000], ['moderate', 30000]];
     if (params.get('plan')) plan = params.get('plan').split(',').map(function (x) { var a = x.split(':'); return [a[0], +a[1]]; });
-    s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Graphics-card time', 'Graphics-card truth', 'Faster by', 'Truth at 20 / 40 steps']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
+    s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Graphics-card time', 'Graphics-card truth', 'Faster by', 'Truth at 20 / 30 steps']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
     for (var pi = 0; pi < plan.length; pi++) {
       var kind = plan[pi][0], n = plan[pi][1]; setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: processor…'); await yieldUI();
       var g = graphFor(kind, n), P = piece(g), cb = cpuBest(g), Xc = new Float64Array(2 * P.k);
       P.ids.forEach(function (id, i) { var p = cb.pos.get(id); Xc[2 * i] = p[0]; Xc[2 * i + 1] = p[1]; });
       var tc = truth(P, Xc); setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card…'); await yieldUI();
-      var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: 60, snapshots: [20, 40] });
+      var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: 40, snapshots: [20, 30] });
       if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', String(res.error).slice(0, 60)]); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
       var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t40 = truth(P, res.snapshots[40]), ratio = cb.ms / res.ms.total; tried++; ratios.push(ratio); if (ratio > 1) wins++; if (tg <= tc * 1.03) truthOk++; if (tg > Math.min(t20, t40) * 1.05) s.notes.push('At ' + P.k.toLocaleString() + ' items the steps ran away (truth ' + r3(t20) + ' at 20 steps, ' + r3(t40) + ' at 40, ' + r3(tg) + ' at 60).');
       s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), r1(ratio) + '×', r3(t20) + ' / ' + r3(t40)]);
@@ -138,7 +138,7 @@
       say = 'Graphics card faster in ' + wins + ' of ' + tried + ' runs (middle ' + r1(med) + '×), and as true or truer (within 3%) in ' + truthOk + ' of ' + tried + '. Truth: lower is truer.' + (ctx.softGpu ? ' (Software stand-in, not a real graphics card.)' : '');
     }
     s.notes.push('Above 20,000 items the app\'s best quality falls back to the quick sample, so the processor truth there is the quick one.');
-    s.notes.push('Graphics-card time covers everything: the 60-point sketch, the upload, the hop table, 60 steps and reading the picture back. The processor time is the app\'s best-quality arrangement, which also includes the overlap clean-up that the graphics-card picture has not had yet, so the graphics-card truth is slightly flattering.');
+    s.notes.push('Graphics-card time covers everything: the 60-pivot sketch (made while the card builds the table), the upload, the hop table, 40 steps and reading the picture back. The processor time is the app\'s best-quality arrangement, which also includes the overlap clean-up that the graphics-card picture has not had yet, so the graphics-card truth is slightly flattering.');
     s.finish(level, say); return { level: level, say: say };
   } });
 
@@ -173,6 +173,22 @@
     ctx.kernels = { n: n, variants: out, parts: prof };
     var say = out.length >= 2 ? 'At ' + n.toLocaleString() + ' items the program takes ' + fmtMs(out[1].totalMs) + ' with relaxation 1.2 and ' + fmtMs(out[0].totalMs) + ' with plain steps.' : 'Not enough runs finished to compare.';
     s.finish(out.length >= 2 ? 'ok' : 'warn', say); return { level: 'ok', say: say };
+  } });
+
+  STEPS.push({ name: 'Hop table groups', run: async function () {
+    var s = addSection('Hop table: how many start items to walk together');
+    if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
+    var n = QUICK ? 1200 : 20000, P = piece(graphFor('moderate', n)), rows = [], best = null;
+    s.head = ['Start items walked together', 'Hop table time', 'Whole job']; ctx.groups = [];
+    for (var gv = 0; gv < 5; gv++) {
+      var grp = [1, 2, 4, 8, 16][gv]; setStatus('Hop table, ' + grp * 32 + ' start items at a time…'); await yieldUI();
+      var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: 1, profile: true, group: grp });
+      if (res.error) { s.rows.push([String(grp * 32), 'failed', res.error.slice(0, 50)]); continue; }
+      s.rows.push([String(grp * 32), fmtMs(res.ms.table), fmtMs(res.ms.total)]); ctx.groups.push({ group: grp * 32, tableMs: r1(res.ms.table), totalMs: r1(res.ms.total) });
+      if (!best || res.ms.table < best.ms) best = { g: grp * 32, ms: res.ms.table };
+    }
+    var say = best ? 'At ' + P.k.toLocaleString() + ' items the table is quickest with ' + best.g + ' start items at a time (' + fmtMs(best.ms) + ').' : 'No run finished.';
+    s.finish(best ? 'ok' : 'warn', say); return { level: 'ok', say: say };
   } });
 
   STEPS.push({ name: 'Cold start', run: async function () {
@@ -217,7 +233,7 @@
   function buildMd(elapsed) {
     var L = ['# Net Flow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
-    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, cold: ctx.cold || null, small: ctx.small || null }, null, 1), '```', '');
+    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, small: ctx.small || null }, null, 1), '```', '');
     return L.join('\n');
   }
   function offerResults(md, elapsed) {
