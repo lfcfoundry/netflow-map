@@ -17,7 +17,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1614.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1625.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
@@ -4417,13 +4417,13 @@ var NFMGpuStress = (function () {
   /* ------------------------------------------------------------------ CPU: the sketch */
   /** off/nbr: compressed adjacency of one connected piece with k items. Returns { X (2k floats, page units), minEcc (a bound: no hop count exceeds 2 * minEcc), ms }. */
   function pivotStart(off, nbr, k, EDGE, pivots) {
-    var t0 = now(), p = Math.min(pivots || 60, k), C = new Float64Array(k * p), minD = new Float64Array(k).fill(1e9), dist = new Int32Array(k), q = new Int32Array(k), piv = 0, c, j, a, b, h, t, u, minEcc = 1e9;
+    var t0 = now(), p = Math.min(pivots || 60, k), C = new Float64Array(k * p), minD = new Float64Array(k).fill(1e9), dist = new Int32Array(k), q = new Int32Array(k), piv = 0, c, j, a, b, h, t, u, minEcc = 1e9, maxEcc = 1;
     for (c = 0; c < p; c++) {
       dist.fill(-1); dist[piv] = 0; q[0] = piv; h = 0; t = 1;
       while (h < t) { u = q[h++]; for (var e = off[u]; e < off[u + 1]; e++) { var w = nbr[e]; if (dist[w] < 0) { dist[w] = dist[u] + 1; q[t++] = w; } } }
       var far = 0, fd = -1, ecc = 0;
       for (j = 0; j < k; j++) { var d = dist[j] < 0 ? 0 : dist[j]; if (d > ecc) ecc = d; C[j * p + c] = d * d; if (d < minD[j]) minD[j] = d; if (minD[j] > fd) { fd = minD[j]; far = j; } }
-      if (ecc < minEcc) minEcc = ecc;
+      if (ecc < minEcc) minEcc = ecc; if (ecc > maxEcc) maxEcc = ecc;
       piv = far;
     }
     var rm = new Float64Array(k), cm = new Float64Array(p), gm = 0, v;
@@ -4454,7 +4454,7 @@ var NFMGpuStress = (function () {
     }
     var sc = den > 0 ? EDGE * num / den : 1;
     for (j = 0; j < 2 * k; j++) X[j] = raw[j] * sc;
-    return { X: X, minEcc: minEcc, ms: now() - t0 };
+    return { X: X, minEcc: minEcc, maxEcc: maxEcc, ms: now() - t0 };
   }
 
   /** A valid bound on the longest hop count (twice the eccentricity of any item) from four quick walks; the sketch finds a tighter one later, but this lets the card start its table at once. */
@@ -4610,6 +4610,72 @@ var NFMGpuStress = (function () {
     '  pout[i] = xi + prm.omega * (tg - xi);',
     '}'].join('\n'); };
 
+  /* Method 'sgd': the processor's own best-quality method (sweeps over every pair in random order, with a big step that shrinks sweep by sweep), done in parallel.
+     One dispatch = one offset m: with the items in a random order, item i is paired with item i+m (round the ring), and every pair moves both of its ends a little as in the processor's loop.
+     Each thread works out the move of its own item from both of its pairs (as left end and as right end), using the positions from before the dispatch. */
+  var SGD_WGSL = [
+    'struct Q { k: u32, S: u32, m: u32, flags: u32, eta: f32, edge: f32, p1: u32, p2: u32 };',
+    '@group(0) @binding(0) var<uniform> q: Q;',
+    '@group(0) @binding(1) var<storage, read> dm: array<u32>;',
+    '@group(0) @binding(2) var<storage, read> perm: array<u32>;',
+    '@group(0) @binding(3) var<storage, read> pin: array<vec2<f32>>;',
+    '@group(0) @binding(4) var<storage, read_write> pout: array<vec2<f32>>;',
+    'fn hop(a: u32, b: u32) -> f32 { let idx = perm[b] * q.S + perm[a]; return f32((dm[idx >> 2u] >> ((idx & 3u) * 8u)) & 255u); }',
+    'fn corr(xa: vec2<f32>, xb: vec2<f32>, d: f32) -> vec2<f32> {',   // the left end moves by -result, the right end by +result
+    '  if (d <= 0.0) { return vec2<f32>(0.0, 0.0); }',
+    '  let mu = min(q.eta / (d * d), 1.0); let dl = xa - xb; let mag = length(dl) + 1e-9;',
+    '  return (0.5 * mu * (1.0 - d * q.edge / mag)) * dl;',
+    '}',
+    '@compute @workgroup_size(64)',
+    'fn sgd(@builtin(global_invocation_id) gid: vec3<u32>) {',
+    '  let i = gid.x; if (i >= q.k) { return; }',
+    '  let half = q.k >> 1u; let evenHalf = (q.flags & 1u) != 0u;',   // k even and m == k/2: each pair would be seen twice, so only the first half are left ends
+    '  let xi = pin[i]; var x = xi;',
+    '  if (!(evenHalf && i >= half)) { var j = i + q.m; if (j >= q.k) { j = j - q.k; } x = x - corr(xi, pin[j], hop(i, j)); }',
+    '  if (!(evenHalf && i < half)) { var h = i + q.k - q.m; if (h >= q.k) { h = h - q.k; } x = x + corr(pin[h], xi, hop(h, i)); }',
+    '  pout[i] = x;',
+    '}',
+    '@compute @workgroup_size(64)',
+    'fn unperm(@builtin(global_invocation_id) gid: vec3<u32>) {',   // back to the original item order
+    '  let i = gid.x; if (i >= q.k) { return; }',
+    '  pout[perm[i]] = pin[i];',
+    '}'].join('\n');
+
+  /** A random order of the k items (the same on the card and in the CPU check). */
+  function permFor(k, seed) {
+    var p = new Uint32Array(k), i, j, w, s = (seed | 0) || 1;
+    for (i = 0; i < k; i++) p[i] = i;
+    for (i = k - 1; i > 0; i--) { s = (s + 0x6d2b79f5) | 0; var z = Math.imul(s ^ (s >>> 15), 1 | s); z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z; j = Math.floor((((z ^ (z >>> 14)) >>> 0) / 4294967296) * (i + 1)); w = p[i]; p[i] = p[j]; p[j] = w; }
+    return p;
+  }
+  /** The sweeps: in each, every offset 1..k/2 once in a fresh random order, with a step size shrinking from sweep to sweep (the processor's schedule: 3 sweeps 0.3/0.3, 2 sweeps 0.1/0.5). */
+  function sgdSchedule(k, sweeps, maxD, seed) {
+    var half = k >> 1, hi = sweeps <= 2 ? 0.1 : 0.3, lo = sweeps <= 2 ? 0.5 : 0.3, etaMax = maxD * maxD * hi, lam = Math.log(etaMax / lo) / Math.max(1, sweeps - 1), n = sweeps * half, m = new Uint32Array(n), eta = new Float32Array(n), t, i, j, w, s = ((seed | 0) || 1) + 7777;
+    for (t = 0; t < sweeps; t++) {
+      for (i = 0; i < half; i++) { m[t * half + i] = i + 1; eta[t * half + i] = etaMax * Math.exp(-lam * t); }
+      for (i = half - 1; i > 0; i--) { s = (s + 0x6d2b79f5) | 0; var z = Math.imul(s ^ (s >>> 15), 1 | s); z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z; j = Math.floor((((z ^ (z >>> 14)) >>> 0) / 4294967296) * (i + 1)); w = m[t * half + i]; m[t * half + i] = m[t * half + j]; m[t * half + j] = w; }
+    }
+    return { m: m, eta: eta, n: n };
+  }
+  /** The same method on the CPU in 64-bit numbers, for the correctness check (small k only). D: hop counts at D[b * stride + a]. X0 and the answer are in the original item order. */
+  function sgdCpu(X0, D, k, stride, EDGE, sch, perm) {
+    var cur = new Float64Array(2 * k), nxt = new Float64Array(2 * k), half = k >> 1, evenK = k % 2 === 0, b, i, r;
+    for (r = 0; r < k; r++) { cur[2 * r] = X0[2 * perm[r]]; cur[2 * r + 1] = X0[2 * perm[r] + 1]; }
+    var corr = function (xa, ya, xb, yb, d, eta, out) { if (d <= 0) { out[0] = 0; out[1] = 0; return; } var mu = Math.min(eta / (d * d), 1), dx = xa - xb, dy = ya - yb, mag = Math.sqrt(dx * dx + dy * dy) + 1e-9, f = 0.5 * mu * (1 - d * EDGE / mag); out[0] = f * dx; out[1] = f * dy; }, o = [0, 0];
+    for (b = 0; b < sch.n; b++) {
+      var mm = sch.m[b], eta = sch.eta[b], evenHalf = evenK && mm === half;
+      for (i = 0; i < k; i++) {
+        var px = cur[2 * i], py = cur[2 * i + 1], j;
+        if (!(evenHalf && i >= half)) { j = (i + mm) % k; corr(cur[2 * i], cur[2 * i + 1], cur[2 * j], cur[2 * j + 1], D[perm[j] * stride + perm[i]], eta, o); px -= o[0]; py -= o[1]; }
+        if (!(evenHalf && i < half)) { j = (i + k - mm) % k; corr(cur[2 * j], cur[2 * j + 1], cur[2 * i], cur[2 * i + 1], D[perm[i] * stride + perm[j]], eta, o); px += o[0]; py += o[1]; }
+        nxt[2 * i] = px; nxt[2 * i + 1] = py;
+      }
+      var sw = cur; cur = nxt; nxt = sw;
+    }
+    var out = new Float64Array(2 * k); for (r = 0; r < k; r++) { out[2 * perm[r]] = cur[2 * r]; out[2 * perm[r] + 1] = cur[2 * r + 1]; }
+    return out;
+  }
+
   /** How much memory the tables need for k items: { dBytes, workBytes }. */
   function need(k) { var S = Math.ceil(k / 4) * 4, nb = Math.ceil(k / 32); return { S: S, nb: nb, dBytes: k * S, workBytes: 3 * nb * k * 4 }; }
 
@@ -4632,7 +4698,7 @@ var NFMGpuStress = (function () {
    *  keepTable (false), snapshots ([] step counts to also read back), profile (false: wait after each phase to time it; the waits cost about 0.1 s each in Firefox) }.
    *  Returns { X (Float32Array 2k), X0 (the sketch), ms: { start, upload, table, weights, steps, read, total }, levels, stride, dTable?, snapshots } or { error }. */
   async function layoutInner(dev, off, nbr, k, EDGE, opts) {
-    opts = opts || {}; var device = dev.device, T0 = now(), ms = {}, steps = opts.steps || 60, nd = need(k), lim = dev.limits, kernel = opts.kernel || 'v2', omega = kernel !== 'v1' ? (opts.omega || 1.2) : 1, prof = !!opts.profile;
+    opts = opts || {}; var device = dev.device, T0 = now(), ms = {}, method = opts.method === 'sgd' ? 'sgd' : 'smacof', steps = method === 'sgd' ? (opts.polish || 0) : (opts.steps || 60), nd = need(k), lim = dev.limits, kernel = opts.kernel || 'v2', omega = kernel !== 'v1' ? (opts.omega || 1.2) : 1, prof = !!opts.profile;
     if (nd.dBytes > lim.maxStorageBufferBindingSize || nd.dBytes > lim.maxBufferSize) return { error: 'The hop table (' + Math.round(nd.dBytes / 1048576) + ' MB) does not fit in this graphics card\'s largest buffer (' + Math.round(lim.maxStorageBufferBindingSize / 1048576) + ' MB).', tooBig: true };
     var bound = quickBound(off, nbr, k), L = Math.min(254, bound); if (bound > 254) return { error: 'Some hop counts may exceed 254, which one byte cannot hold.', tooLong: true };
     var Sx = nd.S, nb = nd.nb, GB = GPUBufferUsage, GR = Math.max(1, Math.min(nb, opts.group || 16)), ngr = Math.ceil(nb / GR);
@@ -4673,10 +4739,41 @@ var NFMGpuStress = (function () {
     if (prof || k >= 12000) { await wait(); ms.table = now() - t2; } else ms.table = null;   // big sizes wait once here so the card is never given more than a moment of queued work
     RB.destroy(); FA.destroy(); FB.destroy();
     /* the steps */
-    var t4 = now(), PBdata, sp, spReduce = null, jchunk = 0, split = 1, sg;
-    var XA = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST, st.X), XB = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST), PART = null, PB, stepBG1, stepBG2;
+    var t4 = now(), PBdata, sp, spReduce = null, jchunk = 0, split = 1, sg, perm = null, sch = null, maxD = 0;
     var f32bits = function (v) { return new Uint32Array(new Float32Array([v]).buffer)[0]; };
-    if (kernel === 'v1') {
+    var XA = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST, st.X), XB = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST), PART = null, PB = null, stepBG1, stepBG2;
+    if (method === 'sgd') {
+      var sweeps = opts.sweeps || (k <= 12000 ? 3 : 2), seed = opts.seed || 12345; maxD = Math.max(2, st.maxEcc); perm = permFor(k, seed); sch = sgdSchedule(k, sweeps, maxD, seed);
+      var Xp = new Float32Array(2 * k); for (var r0 = 0; r0 < k; r0++) { Xp[2 * r0] = st.X[2 * perm[r0]]; Xp[2 * r0 + 1] = st.X[2 * perm[r0] + 1]; }
+      device.queue.writeBuffer(XA, 0, Xp);
+      var PERM = mk(4 * k, GB.STORAGE, perm), sbuf = new ArrayBuffer(sch.n * ua), su = new Uint32Array(sbuf), sf = new Float32Array(sbuf), ev = (k % 2 === 0) ? (k >> 1) : -1;
+      for (var bi = 0; bi < sch.n; bi++) { var so = bi * ua / 4; su[so] = k; su[so + 1] = Sx; su[so + 2] = sch.m[bi]; su[so + 3] = sch.m[bi] === ev ? 1 : 0; sf[so + 4] = sch.eta[bi]; sf[so + 5] = EDGE; }
+      var SU = mk(sbuf.byteLength, GB.UNIFORM, new Uint32Array(sbuf));
+      var lg = device.createBindGroupLayout({ entries: [
+        { binding: 0, visibility: SV, buffer: { type: 'uniform', hasDynamicOffset: true } }, { binding: 1, visibility: SV, buffer: { type: 'read-only-storage' } }, { binding: 2, visibility: SV, buffer: { type: 'read-only-storage' } },
+        { binding: 3, visibility: SV, buffer: { type: 'read-only-storage' } }, { binding: 4, visibility: SV, buffer: { type: 'storage' } }] });
+      var gm = device.createShaderModule({ code: SGD_WGSL }), gp = device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [lg] }), compute: { module: gm, entryPoint: 'sgd' } });
+      var gbg = function (a, b2) { return device.createBindGroup({ layout: lg, entries: [{ binding: 0, resource: { buffer: SU, size: 32 } }, { binding: 1, resource: { buffer: DM } }, { binding: 2, resource: { buffer: PERM } }, { binding: 3, resource: { buffer: a } }, { binding: 4, resource: { buffer: b2 } }] }); };
+      var gAB = gbg(XA, XB), gBA = gbg(XB, XA), gdone = 0, gper = Math.max(16, Math.floor(4e7 / k)), gsince = 0, grate = 0;   // dispatches per submission: the first is timed and the size adjusted
+      while (gdone < sch.n) {
+        var gupto = Math.min(sch.n, gdone + gper), gfrom = gdone, ge = device.createCommandEncoder(), gpass = ge.beginComputePass(); gpass.setPipeline(gp);
+        for (; gdone < gupto; gdone++) { gpass.setBindGroup(0, gdone % 2 ? gBA : gAB, [gdone * ua]); gpass.dispatchWorkgroups(gx); }
+        gpass.end(); device.queue.submit([ge.finish()]);
+        if (k >= 8000 && gdone < sch.n) {
+          var gn = gupto - gfrom;
+          if (!grate) { var gq = now(); await wait(); grate = Math.max(0.0005, (now() - gq) / gn); gper = Math.max(16, Math.min(sch.n, Math.round(120 / grate))); }
+          else { gsince += gn; if (gsince * grate > 900) { await wait(); gsince = 0; } }
+        }
+        if (opts.onProgress) opts.onProgress(gdone / sch.n * 0.9);
+      }
+      var gF = sch.n % 2 ? XB : XA, gO = gF === XA ? XB : XA, ce = device.createCommandEncoder(), cp = ce.beginComputePass();   // back to the original item order, and the answer ends in XA for the clean-up steps / read-back
+      cp.setPipeline(device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [lg] }), compute: { module: gm, entryPoint: 'unperm' } })); cp.setBindGroup(0, gbg(gF, gO), [0]); cp.dispatchWorkgroups(gx); cp.end();
+      if (gO === XB) ce.copyBufferToBuffer(XB, 0, XA, 0, 8 * k);
+      device.queue.submit([ce.finish()]);
+      SU.destroy(); PERM.destroy();
+    }
+    if (steps === 0) { /* no SMACOF steps: nothing to set up */ }
+    else if (kernel === 'v1') {
       var sm = device.createShaderModule({ code: STEP_WGSL }); sp = device.createComputePipeline({ layout: 'auto', compute: { module: sm, entryPoint: 'step4' } });
       PB = mk(16, GB.UNIFORM, new Uint32Array([k, Sx, f32bits(EDGE), 0])); sg = Math.ceil(k / 256);
       var sbg = function (a, b2) { return device.createBindGroup({ layout: sp.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: PB } }, { binding: 1, resource: { buffer: DM } }, { binding: 2, resource: { buffer: a } }, { binding: 3, resource: { buffer: b2 } }, { binding: 4, resource: { buffer: WS } }] }); };
@@ -4719,10 +4816,10 @@ var NFMGpuStress = (function () {
     var dTable = null; if (rb) { await rb.mapAsync(GPUMapMode.READ); dTable = new Uint8Array(rb.getMappedRange().slice(0)); rb.unmap(); rb.destroy(); }
     var snapOut = {}; for (var key in snapBufs) { await snapBufs[key].mapAsync(GPUMapMode.READ); snapOut[key] = new Float32Array(snapBufs[key].getMappedRange().slice(0)); snapBufs[key].unmap(); snapBufs[key].destroy(); }
     var oom = await device.popErrorScope(), val = await device.popErrorScope();
-    [offB, nbrB, DM, WS, UB, PB, XA, XB, RD].forEach(function (bf) { bf.destroy(); }); if (PART) PART.destroy();
+    [offB, nbrB, DM, WS, UB, PB, XA, XB, RD].forEach(function (bf) { if (bf) bf.destroy(); }); if (PART) PART.destroy();
     if (oom || val) return { error: 'The graphics card reported ' + (oom ? 'out of memory: ' + oom.message : 'an error: ' + val.message).slice(0, 200), oom: !!oom };
     ms.total = now() - T0; snapOut[steps] = X;
-    return { X: X, X0: st.X, ms: ms, levels: L, stride: Sx, dTable: dTable, snapshots: snapOut, split: split, kernel: kernel, omega: omega };
+    return { X: X, X0: st.X, ms: ms, levels: L, stride: Sx, dTable: dTable, snapshots: snapOut, split: split, kernel: kernel, omega: omega, method: method, maxD: maxD, seed: opts.seed || 12345, sweeps: sch ? sch.n / (k >> 1) : 0 };
   }
 
   /** Same as layoutInner, but any thrown error or message the card reports comes back as { error } instead of an exception. */
@@ -4751,7 +4848,7 @@ var NFMGpuStress = (function () {
     }
     return cur;
   }
-  return { pivotStart: pivotStart, getDevice: getDevice, layout: layout, majCpu: majCpu, need: need };
+  return { pivotStart: pivotStart, getDevice: getDevice, layout: layout, majCpu: majCpu, sgdCpu: sgdCpu, sgdSchedule: sgdSchedule, permFor: permFor, need: need };
 })();
 
 /* ---- bench/tester/tester.js ---- */
@@ -4764,7 +4861,7 @@ var NFMGpuStress = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.15.1614', EDGE = 130;
+  var VERSION = '2026.10.15.1625', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -4861,10 +4958,18 @@ var NFMGpuStress = (function () {
     var Xc = G.majCpu(res.X0, D, P.k, S, EDGE, steps, 1.2), sg = pairStress(res.X, D, P.k, S), sc = pairStress(Xc, D, P.k, S), s0 = pairStress(res.X0, D, P.k, S);
     var diff = Math.abs(sg - sc) / sc * 100, move = 0; for (i = 0; i < P.k; i++) move += Math.hypot(res.X[2 * i] - Xc[2 * i], res.X[2 * i + 1] - Xc[2 * i + 1]); move = move / P.k / EDGE;
     var okTable = bad === 0, okSteps = diff < 1 && move < 0.05;
-    s.head = ['Check', 'Result']; s.rows = [['Items', String(P.k)], ['Hop table: entries that differ from the CPU table', bad + ' of ' + (P.k * P.k)], ['Distance error at the start (sketch)', r3(s0)], ['After ' + steps + ' steps, CPU math', r3(sc)], ['After ' + steps + ' steps, graphics card', r3(sg)], ['Difference', r1(diff) + '%'], ['Average item difference (share of one link)', r3(move)]];
-    var level = okTable && okSteps ? 'ok' : 'bad';
-    var say = okTable && okSteps ? 'Yes. The graphics card builds the same hop table as the processor, and its steps give the same picture (distance error ' + r3(sg) + ' against ' + r3(sc) + ' on the processor).' : (!okTable ? 'No: the hop table built on the graphics card differs from the processor\'s in ' + bad + ' entries.' : 'The hop table matches, but the steps differ from the processor\'s (' + r1(diff) + '% in distance error).');
-    s.finish(level, say); ctx.correct = { table: okTable, steps: okSteps, bad: bad, diffPct: r1(diff), move: r3(move) };
+    setStatus('Checking the parallel-pairs method on ' + P.k + ' items…'); await yieldUI();
+    var r2 = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd', keepTable: true }), okSgd = false, sgdRows = [], sdiff = 0, smove = 0;
+    if (r2.error) { sgdRows.push(['Parallel pairs: failed', r2.error.slice(0, 80)]); }
+    else {
+      var sch0 = G.sgdSchedule(P.k, r2.sweeps, r2.maxD, r2.seed), pm0 = G.permFor(P.k, r2.seed), Xq = G.sgdCpu(r2.X0, D, P.k, S, EDGE, sch0, pm0), sg2 = pairStress(r2.X, D, P.k, S), sq = pairStress(Xq, D, P.k, S);
+      sdiff = Math.abs(sg2 - sq) / sq * 100; for (i = 0; i < P.k; i++) smove += Math.hypot(r2.X[2 * i] - Xq[2 * i], r2.X[2 * i + 1] - Xq[2 * i + 1]); smove = smove / P.k / EDGE;
+      okSgd = sdiff < 2;   // positions can drift apart (many tiny steps, 32-bit against 64-bit), the distance error is what must agree sgdRows.push(['Parallel pairs (' + r2.sweeps + ' sweeps): CPU math / graphics card', r3(sq) + ' / ' + r3(sg2)], ['Parallel pairs: difference / average item difference', r1(sdiff) + '% / ' + r3(smove)]);
+    }
+    s.head = ['Check', 'Result']; s.rows = [['Items', String(P.k)], ['Hop table: entries that differ from the CPU table', bad + ' of ' + (P.k * P.k)], ['Distance error at the start (sketch)', r3(s0)], ['After ' + steps + ' steps, CPU math', r3(sc)], ['After ' + steps + ' steps, graphics card', r3(sg)], ['Difference', r1(diff) + '%'], ['Average item difference (share of one link)', r3(move)]].concat(sgdRows);
+    okSteps = okSteps && okSgd; var level = okTable && okSteps ? 'ok' : 'bad';
+    var say = okTable && okSteps ? 'Yes. The graphics card builds the same hop table as the processor, and its steps give the same picture (distance error ' + r3(sg) + ' against ' + r3(sc) + ' on the processor).' : (!okTable ? 'No: the hop table built on the graphics card differs from the processor\'s in ' + bad + ' entries.' : 'The hop table matches, but the answer differs from the processor\'s (steps ' + r1(diff) + '%, parallel pairs ' + r1(sdiff) + '% in distance error).');
+    s.finish(level, say); ctx.correct = { table: okTable, steps: okSteps, bad: bad, diffPct: r1(diff), move: r3(move), sgdDiffPct: r1(sdiff), sgdMove: r3(smove), sgdOk: okSgd };
     return { level: level, say: say };
   } });
 
@@ -4873,17 +4978,23 @@ var NFMGpuStress = (function () {
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var plan = QUICK ? [['moderate', 800], ['complex', 800]] : [['moderate', 2000], ['moderate', 5000], ['moderate', 10000], ['complex', 5000], ['complex', 10000], ['moderate', 20000], ['moderate', 30000]];
     if (params.get('plan')) plan = params.get('plan').split(',').map(function (x) { var a = x.split(':'); return [a[0], +a[1]]; });
-    s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Graphics-card time', 'Graphics-card truth', 'Faster by', 'Truth at 20 / 30 steps']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
+    s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Old steps time', 'Old steps truth', 'Parallel pairs time', 'truth', '+ 5 clean-up steps time', 'truth', 'Best card faster by']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
     for (var pi = 0; pi < plan.length; pi++) {
       var kind = plan[pi][0], n = plan[pi][1]; setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: processor…'); await yieldUI();
       var g = graphFor(kind, n), P = piece(g), cb = cpuBest(g), Xc = new Float64Array(2 * P.k);
       P.ids.forEach(function (id, i) { var p = cb.pos.get(id); Xc[2 * i] = p[0]; Xc[2 * i + 1] = p[1]; });
       var tc = truth(P, Xc); setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card…'); await yieldUI();
       var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: 40, snapshots: [20, 30] });
-      if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', String(res.error).slice(0, 60)]); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
-      var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t40 = truth(P, res.snapshots[40]), ratio = cb.ms / res.ms.total; tried++; ratios.push(ratio); if (ratio > 1) wins++; if (tg <= tc * 1.03) truthOk++; if (tg > Math.min(t20, t40) * 1.05) s.notes.push('At ' + P.k.toLocaleString() + ' items the steps ran away (truth ' + r3(t20) + ' at 20 steps, ' + r3(t40) + ' at 40, ' + r3(tg) + ' at 60).');
-      s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), r1(ratio) + '×', r3(t20) + ' / ' + r3(t40)]);
-      summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), parts: { sketch: r1(res.ms.start), setup: r1(res.ms.upload), stepsAndTable: r1(res.ms.steps), read: r1(res.ms.read) }, split: res.split, levels: res.levels, t20: r3(t20), t40: r3(t40) });
+      if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', '-', '-', '-', String(res.error).slice(0, 60)]); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
+      setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card, parallel pairs…'); await yieldUI();
+      var rs = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd' });
+      var rq = rs.error ? rs : await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd', polish: 5 });
+      var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t30 = truth(P, res.snapshots[30]), ts = rs.error ? null : truth(P, rs.X), tq = rq.error ? null : truth(P, rq.X);
+      var bestMs = Math.min(res.ms.total, rs.error ? 1e12 : rs.ms.total), ratio = cb.ms / bestMs; tried++; ratios.push(ratio); if (ratio > 1) wins++;
+      var bestT = Math.min(tg, ts === null ? 9 : ts, tq === null ? 9 : tq); if (bestT <= tc * 1.03) truthOk++;
+      if (tg > Math.min(t20, t30) * 1.05) s.notes.push('At ' + P.k.toLocaleString() + ' items the old steps ran away (truth ' + r3(t20) + ' at 20 steps, ' + r3(t30) + ' at 30, ' + r3(tg) + ' at 40).');
+      s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), rs.error ? 'failed' : fmtMs(rs.ms.total), ts === null ? '-' : r3(ts), rq.error ? 'failed' : fmtMs(rq.ms.total), tq === null ? '-' : r3(tq), r1(ratio) + '×']);
+      summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), sgdMs: rs.error ? null : r1(rs.ms.total), sgdTruth: ts === null ? null : r3(ts), sgdError: rs.error || null, sgdPolishMs: rq.error ? null : r1(rq.ms.total), sgdPolishTruth: tq === null ? null : r3(tq), sweeps: rs.sweeps || null, parts: { sketch: r1(res.ms.start), setup: r1(res.ms.upload), stepsAndTable: r1(res.ms.steps), read: r1(res.ms.read) }, sgdParts: rs.error ? null : { stepsAndTable: r1(rs.ms.steps), read: r1(rs.ms.read) }, split: res.split, levels: res.levels, t20: r3(t20), t30: r3(t30) });
       doneSteps += 0.1; setBar();
     }
     ctx.ladder = summary;
@@ -4892,7 +5003,7 @@ var NFMGpuStress = (function () {
     else {
       ratios.sort(function (a, b) { return a - b; }); var med = ratios[ratios.length >> 1];
       level = ctx.softGpu ? 'warn' : (wins === tried && truthOk === tried ? 'ok' : wins ? 'warn' : 'bad');
-      say = 'Graphics card faster in ' + wins + ' of ' + tried + ' runs (middle ' + r1(med) + '×), and as true or truer (within 3%) in ' + truthOk + ' of ' + tried + '. Truth: lower is truer.' + (ctx.softGpu ? ' (Software stand-in, not a real graphics card.)' : '');
+      say = 'The best graphics-card version was faster in ' + wins + ' of ' + tried + ' runs (middle ' + r1(med) + '×), and as true or truer (within 3%) in ' + truthOk + ' of ' + tried + '. Truth: lower is truer.' + (ctx.softGpu ? ' (Software stand-in, not a real graphics card.)' : '');
     }
     s.notes.push('Above 20,000 items the app\'s best quality falls back to the quick sample, so the processor truth there is the quick one.');
     s.notes.push('Graphics-card time covers everything: the 60-pivot sketch (made while the card builds the table), the upload, the hop table, 40 steps and reading the picture back. The processor time is the app\'s best-quality arrangement, which also includes the overlap clean-up that the graphics-card picture has not had yet, so the graphics-card truth is slightly flattering.');
@@ -4900,39 +5011,42 @@ var NFMGpuStress = (function () {
   } });
 
   STEPS.push({ name: 'Old kernel against new', run: async function () {
-    var s = addSection('Graphics-card program variants');
+    var s = addSection('Parallel-pairs variants');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var n = QUICK ? 800 : 10000, big = QUICK ? 1200 : 30000, variants = [
-      ['moderate', 'new program, plain steps, 60', { kernel: 'v2', omega: 1, steps: 60, snapshots: [20, 40] }],
-      ['moderate', 'new program, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60, snapshots: [20, 40] }],
-      ['moderate', 'new program without tables, relaxed 1.2, 60', { kernel: 'v3', omega: 1.2, steps: 60, snapshots: [20, 40] }],
-      ['moderate', 'new program, relaxed 1.6, 60', { kernel: 'v2', omega: 1.6, steps: 60, snapshots: [20, 40] }],
-      ['moderate', 'new program, relaxed 1.2, 30', { kernel: 'v2', omega: 1.2, steps: 30, snapshots: [10, 20] }],
-      ['complex', 'new program, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60, snapshots: [20, 40] }],
-      ['complex', 'new program, relaxed 1.2, 150', { kernel: 'v2', omega: 1.2, steps: 150, snapshots: [60, 100] }],
-      ['moderate', 'plain steps, 60', { kernel: 'v2', omega: 1, steps: 60, snapshots: [20, 40] }, big],
-      ['moderate', 'relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60, snapshots: [20, 40] }, big]];
-    s.head = ['Network', 'Variant', 'Total time', 'Truth at 1/3 of the steps', 'at 2/3', 'at the end']; var cache = {}, out = [];
+      ['complex', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }],
+      ['complex', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }],
+      ['complex', 'parallel pairs, 3 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 3, polish: 5 }],
+      ['complex', 'parallel pairs, 3 sweeps + 15 clean-up steps', { method: 'sgd', sweeps: 3, polish: 15 }],
+      ['complex', 'old steps, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60 }],
+      ['moderate', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }],
+      ['moderate', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }],
+      ['moderate', 'parallel pairs, 3 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 3, polish: 5 }],
+      ['moderate', 'parallel pairs, 4 sweeps', { method: 'sgd', sweeps: 4 }],
+      ['moderate', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }, big],
+      ['moderate', 'parallel pairs, 2 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 2, polish: 5 }, big],
+      ['moderate', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }, big]];
+    s.head = ['Network', 'Variant', 'Total time', 'Truth']; var cache = {}, out = [];
     for (var vi = 0; vi < variants.length; vi++) {
       var kind = variants[vi][0], name = variants[vi][1], o = variants[vi][2], nn = variants[vi][3] || n; setStatus('Program comparison: ' + kind + ' ' + name + '…'); await yieldUI();
       var P = cache[kind + nn] || (cache[kind + nn] = piece(graphFor(kind, nn))), res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, o);
-      if (res.error) { s.rows.push([kind, name, 'failed: ' + res.error.slice(0, 40), '', '', '']); continue; }
-      var sn = Object.keys(res.snapshots).map(Number).sort(function (a, b) { return a - b; }), tt = sn.map(function (k2) { return truth(P, res.snapshots[k2]); });
-      s.rows.push([kind + ' ' + P.k.toLocaleString(), name, fmtMs(res.ms.total), r3(tt[0]), r3(tt[1]), r3(tt[2])]);
-      out.push({ kind: kind, n: P.k, variant: name, totalMs: r1(res.ms.total), truths: tt.map(r3), split: res.split });
+      if (res.error) { s.rows.push([kind, name, 'failed: ' + res.error.slice(0, 40), '']); continue; }
+      var tt = truth(P, res.X);
+      s.rows.push([kind + ' ' + P.k.toLocaleString(), name, fmtMs(res.ms.total), r3(tt)]);
+      out.push({ kind: kind, n: P.k, variant: name, totalMs: r1(res.ms.total), truth: r3(tt), split: res.split });
     }
     var prof = null;
     if (out.length) {
-      var Pm = cache['moderate' + n]; setStatus('Program comparison: timing each part…'); await yieldUI();
-      var rp = await G.layout(ctx.dev, Pm.off, Pm.nbr, Pm.k, EDGE, { kernel: 'v2', omega: 1.2, steps: 60, profile: true });
-      if (!rp.error) { prof = { sketch: r1(rp.ms.start), setup: r1(rp.ms.upload), tableAndWeights: r1(rp.ms.table), steps60: r1(rp.ms.steps), read: r1(rp.ms.read), levels: rp.levels }; s.rows.push(['moderate ' + Pm.k.toLocaleString(), 'parts (new program): sketch / setup / table+weights / 60 steps / read-back', prof.sketch + ' / ' + prof.setup + ' / ' + prof.tableAndWeights + ' / ' + prof.steps60 + ' / ' + prof.read + ' ms', '', '', '']); }
+      var Pm = cache['moderate' + n] || cache['complex' + n]; setStatus('Program comparison: timing each part…'); await yieldUI();
+      var rp = await G.layout(ctx.dev, Pm.off, Pm.nbr, Pm.k, EDGE, { method: 'sgd', profile: true });
+      if (!rp.error) { prof = { sketch: r1(rp.ms.start), setup: r1(rp.ms.upload), tableAndWeights: r1(rp.ms.table), steps60: r1(rp.ms.steps), read: r1(rp.ms.read), levels: rp.levels }; s.rows.push(['moderate ' + Pm.k.toLocaleString(), 'parts (parallel pairs): sketch / setup / table+weights / sweeps / read-back', prof.sketch + ' / ' + prof.setup + ' / ' + prof.tableAndWeights + ' / ' + prof.steps60 + ' / ' + prof.read + ' ms', '']); }
     }
     ctx.kernels = { n: n, variants: out, parts: prof };
-    var say = out.length >= 2 ? 'At ' + n.toLocaleString() + ' items the program takes ' + fmtMs(out[1].totalMs) + ' with relaxation 1.2 and ' + fmtMs(out[0].totalMs) + ' with plain steps.' : 'Not enough runs finished to compare.';
+    var say = out.length >= 2 ? 'Ran ' + out.length + ' variants; compare time and truth in the table.' : 'Not enough runs finished to compare.';
     s.finish(out.length >= 2 ? 'ok' : 'warn', say); return { level: 'ok', say: say };
   } });
 
-  STEPS.push({ name: 'Hop table groups', run: async function () {
+  (params.get('extras') ? STEPS : []).push({ name: 'Hop table groups', run: async function () {
     var s = addSection('Hop table: how many start items to walk together');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var n = QUICK ? 1200 : 20000, P = piece(graphFor('moderate', n)), rows = [], best = null;
@@ -4948,7 +5062,7 @@ var NFMGpuStress = (function () {
     s.finish(best ? 'ok' : 'warn', say); return { level: 'ok', say: say };
   } });
 
-  STEPS.push({ name: 'Cold start', run: async function () {
+  (params.get('extras') ? STEPS : []).push({ name: 'Cold start', run: async function () {
     var s = addSection('First run against later runs (cold start)'), sizes = QUICK ? [300] : [500, 2000], rows = [], firstSlow = [];
     s.head = ['Items', 'Step', 'First run', 'Second run', 'Third run'];
     for (var zi = 0; zi < sizes.length; zi++) {
@@ -4973,7 +5087,7 @@ var NFMGpuStress = (function () {
     s.finish('ok', say); return { level: 'ok', say: say };
   } });
 
-  STEPS.push({ name: 'Browser checks', run: async function () {
+  (params.get('extras') ? STEPS : []).push({ name: 'Browser checks', run: async function () {
     var s = addSection('Smaller checks: random draws, CSV reading, Force arrangement'), rows = [];
     s.head = ['Check', 'Run 1', 'Run 2', 'Run 3', 'Run 4', 'Run 5']; setStatus('Random draws…'); await yieldUI();
     var Sim = typeof NFMSim !== 'undefined' ? NFMSim : null, drawRuns = [];

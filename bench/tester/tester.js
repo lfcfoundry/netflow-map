@@ -104,10 +104,18 @@
     var Xc = G.majCpu(res.X0, D, P.k, S, EDGE, steps, 1.2), sg = pairStress(res.X, D, P.k, S), sc = pairStress(Xc, D, P.k, S), s0 = pairStress(res.X0, D, P.k, S);
     var diff = Math.abs(sg - sc) / sc * 100, move = 0; for (i = 0; i < P.k; i++) move += Math.hypot(res.X[2 * i] - Xc[2 * i], res.X[2 * i + 1] - Xc[2 * i + 1]); move = move / P.k / EDGE;
     var okTable = bad === 0, okSteps = diff < 1 && move < 0.05;
-    s.head = ['Check', 'Result']; s.rows = [['Items', String(P.k)], ['Hop table: entries that differ from the CPU table', bad + ' of ' + (P.k * P.k)], ['Distance error at the start (sketch)', r3(s0)], ['After ' + steps + ' steps, CPU math', r3(sc)], ['After ' + steps + ' steps, graphics card', r3(sg)], ['Difference', r1(diff) + '%'], ['Average item difference (share of one link)', r3(move)]];
-    var level = okTable && okSteps ? 'ok' : 'bad';
-    var say = okTable && okSteps ? 'Yes. The graphics card builds the same hop table as the processor, and its steps give the same picture (distance error ' + r3(sg) + ' against ' + r3(sc) + ' on the processor).' : (!okTable ? 'No: the hop table built on the graphics card differs from the processor\'s in ' + bad + ' entries.' : 'The hop table matches, but the steps differ from the processor\'s (' + r1(diff) + '% in distance error).');
-    s.finish(level, say); ctx.correct = { table: okTable, steps: okSteps, bad: bad, diffPct: r1(diff), move: r3(move) };
+    setStatus('Checking the parallel-pairs method on ' + P.k + ' items…'); await yieldUI();
+    var r2 = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd', keepTable: true }), okSgd = false, sgdRows = [], sdiff = 0, smove = 0;
+    if (r2.error) { sgdRows.push(['Parallel pairs: failed', r2.error.slice(0, 80)]); }
+    else {
+      var sch0 = G.sgdSchedule(P.k, r2.sweeps, r2.maxD, r2.seed), pm0 = G.permFor(P.k, r2.seed), Xq = G.sgdCpu(r2.X0, D, P.k, S, EDGE, sch0, pm0), sg2 = pairStress(r2.X, D, P.k, S), sq = pairStress(Xq, D, P.k, S);
+      sdiff = Math.abs(sg2 - sq) / sq * 100; for (i = 0; i < P.k; i++) smove += Math.hypot(r2.X[2 * i] - Xq[2 * i], r2.X[2 * i + 1] - Xq[2 * i + 1]); smove = smove / P.k / EDGE;
+      okSgd = sdiff < 2;   // positions can drift apart (many tiny steps, 32-bit against 64-bit), the distance error is what must agree sgdRows.push(['Parallel pairs (' + r2.sweeps + ' sweeps): CPU math / graphics card', r3(sq) + ' / ' + r3(sg2)], ['Parallel pairs: difference / average item difference', r1(sdiff) + '% / ' + r3(smove)]);
+    }
+    s.head = ['Check', 'Result']; s.rows = [['Items', String(P.k)], ['Hop table: entries that differ from the CPU table', bad + ' of ' + (P.k * P.k)], ['Distance error at the start (sketch)', r3(s0)], ['After ' + steps + ' steps, CPU math', r3(sc)], ['After ' + steps + ' steps, graphics card', r3(sg)], ['Difference', r1(diff) + '%'], ['Average item difference (share of one link)', r3(move)]].concat(sgdRows);
+    okSteps = okSteps && okSgd; var level = okTable && okSteps ? 'ok' : 'bad';
+    var say = okTable && okSteps ? 'Yes. The graphics card builds the same hop table as the processor, and its steps give the same picture (distance error ' + r3(sg) + ' against ' + r3(sc) + ' on the processor).' : (!okTable ? 'No: the hop table built on the graphics card differs from the processor\'s in ' + bad + ' entries.' : 'The hop table matches, but the answer differs from the processor\'s (steps ' + r1(diff) + '%, parallel pairs ' + r1(sdiff) + '% in distance error).');
+    s.finish(level, say); ctx.correct = { table: okTable, steps: okSteps, bad: bad, diffPct: r1(diff), move: r3(move), sgdDiffPct: r1(sdiff), sgdMove: r3(smove), sgdOk: okSgd };
     return { level: level, say: say };
   } });
 
@@ -116,17 +124,23 @@
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var plan = QUICK ? [['moderate', 800], ['complex', 800]] : [['moderate', 2000], ['moderate', 5000], ['moderate', 10000], ['complex', 5000], ['complex', 10000], ['moderate', 20000], ['moderate', 30000]];
     if (params.get('plan')) plan = params.get('plan').split(',').map(function (x) { var a = x.split(':'); return [a[0], +a[1]]; });
-    s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Graphics-card time', 'Graphics-card truth', 'Faster by', 'Truth at 20 / 30 steps']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
+    s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Old steps time', 'Old steps truth', 'Parallel pairs time', 'truth', '+ 5 clean-up steps time', 'truth', 'Best card faster by']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
     for (var pi = 0; pi < plan.length; pi++) {
       var kind = plan[pi][0], n = plan[pi][1]; setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: processor…'); await yieldUI();
       var g = graphFor(kind, n), P = piece(g), cb = cpuBest(g), Xc = new Float64Array(2 * P.k);
       P.ids.forEach(function (id, i) { var p = cb.pos.get(id); Xc[2 * i] = p[0]; Xc[2 * i + 1] = p[1]; });
       var tc = truth(P, Xc); setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card…'); await yieldUI();
       var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: 40, snapshots: [20, 30] });
-      if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', String(res.error).slice(0, 60)]); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
-      var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t40 = truth(P, res.snapshots[40]), ratio = cb.ms / res.ms.total; tried++; ratios.push(ratio); if (ratio > 1) wins++; if (tg <= tc * 1.03) truthOk++; if (tg > Math.min(t20, t40) * 1.05) s.notes.push('At ' + P.k.toLocaleString() + ' items the steps ran away (truth ' + r3(t20) + ' at 20 steps, ' + r3(t40) + ' at 40, ' + r3(tg) + ' at 60).');
-      s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), r1(ratio) + '×', r3(t20) + ' / ' + r3(t40)]);
-      summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), parts: { sketch: r1(res.ms.start), setup: r1(res.ms.upload), stepsAndTable: r1(res.ms.steps), read: r1(res.ms.read) }, split: res.split, levels: res.levels, t20: r3(t20), t40: r3(t40) });
+      if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', '-', '-', '-', String(res.error).slice(0, 60)]); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
+      setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card, parallel pairs…'); await yieldUI();
+      var rs = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd' });
+      var rq = rs.error ? rs : await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd', polish: 5 });
+      var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t30 = truth(P, res.snapshots[30]), ts = rs.error ? null : truth(P, rs.X), tq = rq.error ? null : truth(P, rq.X);
+      var bestMs = Math.min(res.ms.total, rs.error ? 1e12 : rs.ms.total), ratio = cb.ms / bestMs; tried++; ratios.push(ratio); if (ratio > 1) wins++;
+      var bestT = Math.min(tg, ts === null ? 9 : ts, tq === null ? 9 : tq); if (bestT <= tc * 1.03) truthOk++;
+      if (tg > Math.min(t20, t30) * 1.05) s.notes.push('At ' + P.k.toLocaleString() + ' items the old steps ran away (truth ' + r3(t20) + ' at 20 steps, ' + r3(t30) + ' at 30, ' + r3(tg) + ' at 40).');
+      s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), rs.error ? 'failed' : fmtMs(rs.ms.total), ts === null ? '-' : r3(ts), rq.error ? 'failed' : fmtMs(rq.ms.total), tq === null ? '-' : r3(tq), r1(ratio) + '×']);
+      summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), sgdMs: rs.error ? null : r1(rs.ms.total), sgdTruth: ts === null ? null : r3(ts), sgdError: rs.error || null, sgdPolishMs: rq.error ? null : r1(rq.ms.total), sgdPolishTruth: tq === null ? null : r3(tq), sweeps: rs.sweeps || null, parts: { sketch: r1(res.ms.start), setup: r1(res.ms.upload), stepsAndTable: r1(res.ms.steps), read: r1(res.ms.read) }, sgdParts: rs.error ? null : { stepsAndTable: r1(rs.ms.steps), read: r1(rs.ms.read) }, split: res.split, levels: res.levels, t20: r3(t20), t30: r3(t30) });
       doneSteps += 0.1; setBar();
     }
     ctx.ladder = summary;
@@ -135,7 +149,7 @@
     else {
       ratios.sort(function (a, b) { return a - b; }); var med = ratios[ratios.length >> 1];
       level = ctx.softGpu ? 'warn' : (wins === tried && truthOk === tried ? 'ok' : wins ? 'warn' : 'bad');
-      say = 'Graphics card faster in ' + wins + ' of ' + tried + ' runs (middle ' + r1(med) + '×), and as true or truer (within 3%) in ' + truthOk + ' of ' + tried + '. Truth: lower is truer.' + (ctx.softGpu ? ' (Software stand-in, not a real graphics card.)' : '');
+      say = 'The best graphics-card version was faster in ' + wins + ' of ' + tried + ' runs (middle ' + r1(med) + '×), and as true or truer (within 3%) in ' + truthOk + ' of ' + tried + '. Truth: lower is truer.' + (ctx.softGpu ? ' (Software stand-in, not a real graphics card.)' : '');
     }
     s.notes.push('Above 20,000 items the app\'s best quality falls back to the quick sample, so the processor truth there is the quick one.');
     s.notes.push('Graphics-card time covers everything: the 60-pivot sketch (made while the card builds the table), the upload, the hop table, 40 steps and reading the picture back. The processor time is the app\'s best-quality arrangement, which also includes the overlap clean-up that the graphics-card picture has not had yet, so the graphics-card truth is slightly flattering.');
@@ -143,39 +157,42 @@
   } });
 
   STEPS.push({ name: 'Old kernel against new', run: async function () {
-    var s = addSection('Graphics-card program variants');
+    var s = addSection('Parallel-pairs variants');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var n = QUICK ? 800 : 10000, big = QUICK ? 1200 : 30000, variants = [
-      ['moderate', 'new program, plain steps, 60', { kernel: 'v2', omega: 1, steps: 60, snapshots: [20, 40] }],
-      ['moderate', 'new program, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60, snapshots: [20, 40] }],
-      ['moderate', 'new program without tables, relaxed 1.2, 60', { kernel: 'v3', omega: 1.2, steps: 60, snapshots: [20, 40] }],
-      ['moderate', 'new program, relaxed 1.6, 60', { kernel: 'v2', omega: 1.6, steps: 60, snapshots: [20, 40] }],
-      ['moderate', 'new program, relaxed 1.2, 30', { kernel: 'v2', omega: 1.2, steps: 30, snapshots: [10, 20] }],
-      ['complex', 'new program, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60, snapshots: [20, 40] }],
-      ['complex', 'new program, relaxed 1.2, 150', { kernel: 'v2', omega: 1.2, steps: 150, snapshots: [60, 100] }],
-      ['moderate', 'plain steps, 60', { kernel: 'v2', omega: 1, steps: 60, snapshots: [20, 40] }, big],
-      ['moderate', 'relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60, snapshots: [20, 40] }, big]];
-    s.head = ['Network', 'Variant', 'Total time', 'Truth at 1/3 of the steps', 'at 2/3', 'at the end']; var cache = {}, out = [];
+      ['complex', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }],
+      ['complex', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }],
+      ['complex', 'parallel pairs, 3 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 3, polish: 5 }],
+      ['complex', 'parallel pairs, 3 sweeps + 15 clean-up steps', { method: 'sgd', sweeps: 3, polish: 15 }],
+      ['complex', 'old steps, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60 }],
+      ['moderate', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }],
+      ['moderate', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }],
+      ['moderate', 'parallel pairs, 3 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 3, polish: 5 }],
+      ['moderate', 'parallel pairs, 4 sweeps', { method: 'sgd', sweeps: 4 }],
+      ['moderate', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }, big],
+      ['moderate', 'parallel pairs, 2 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 2, polish: 5 }, big],
+      ['moderate', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }, big]];
+    s.head = ['Network', 'Variant', 'Total time', 'Truth']; var cache = {}, out = [];
     for (var vi = 0; vi < variants.length; vi++) {
       var kind = variants[vi][0], name = variants[vi][1], o = variants[vi][2], nn = variants[vi][3] || n; setStatus('Program comparison: ' + kind + ' ' + name + '…'); await yieldUI();
       var P = cache[kind + nn] || (cache[kind + nn] = piece(graphFor(kind, nn))), res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, o);
-      if (res.error) { s.rows.push([kind, name, 'failed: ' + res.error.slice(0, 40), '', '', '']); continue; }
-      var sn = Object.keys(res.snapshots).map(Number).sort(function (a, b) { return a - b; }), tt = sn.map(function (k2) { return truth(P, res.snapshots[k2]); });
-      s.rows.push([kind + ' ' + P.k.toLocaleString(), name, fmtMs(res.ms.total), r3(tt[0]), r3(tt[1]), r3(tt[2])]);
-      out.push({ kind: kind, n: P.k, variant: name, totalMs: r1(res.ms.total), truths: tt.map(r3), split: res.split });
+      if (res.error) { s.rows.push([kind, name, 'failed: ' + res.error.slice(0, 40), '']); continue; }
+      var tt = truth(P, res.X);
+      s.rows.push([kind + ' ' + P.k.toLocaleString(), name, fmtMs(res.ms.total), r3(tt)]);
+      out.push({ kind: kind, n: P.k, variant: name, totalMs: r1(res.ms.total), truth: r3(tt), split: res.split });
     }
     var prof = null;
     if (out.length) {
-      var Pm = cache['moderate' + n]; setStatus('Program comparison: timing each part…'); await yieldUI();
-      var rp = await G.layout(ctx.dev, Pm.off, Pm.nbr, Pm.k, EDGE, { kernel: 'v2', omega: 1.2, steps: 60, profile: true });
-      if (!rp.error) { prof = { sketch: r1(rp.ms.start), setup: r1(rp.ms.upload), tableAndWeights: r1(rp.ms.table), steps60: r1(rp.ms.steps), read: r1(rp.ms.read), levels: rp.levels }; s.rows.push(['moderate ' + Pm.k.toLocaleString(), 'parts (new program): sketch / setup / table+weights / 60 steps / read-back', prof.sketch + ' / ' + prof.setup + ' / ' + prof.tableAndWeights + ' / ' + prof.steps60 + ' / ' + prof.read + ' ms', '', '', '']); }
+      var Pm = cache['moderate' + n] || cache['complex' + n]; setStatus('Program comparison: timing each part…'); await yieldUI();
+      var rp = await G.layout(ctx.dev, Pm.off, Pm.nbr, Pm.k, EDGE, { method: 'sgd', profile: true });
+      if (!rp.error) { prof = { sketch: r1(rp.ms.start), setup: r1(rp.ms.upload), tableAndWeights: r1(rp.ms.table), steps60: r1(rp.ms.steps), read: r1(rp.ms.read), levels: rp.levels }; s.rows.push(['moderate ' + Pm.k.toLocaleString(), 'parts (parallel pairs): sketch / setup / table+weights / sweeps / read-back', prof.sketch + ' / ' + prof.setup + ' / ' + prof.tableAndWeights + ' / ' + prof.steps60 + ' / ' + prof.read + ' ms', '']); }
     }
     ctx.kernels = { n: n, variants: out, parts: prof };
-    var say = out.length >= 2 ? 'At ' + n.toLocaleString() + ' items the program takes ' + fmtMs(out[1].totalMs) + ' with relaxation 1.2 and ' + fmtMs(out[0].totalMs) + ' with plain steps.' : 'Not enough runs finished to compare.';
+    var say = out.length >= 2 ? 'Ran ' + out.length + ' variants; compare time and truth in the table.' : 'Not enough runs finished to compare.';
     s.finish(out.length >= 2 ? 'ok' : 'warn', say); return { level: 'ok', say: say };
   } });
 
-  STEPS.push({ name: 'Hop table groups', run: async function () {
+  (params.get('extras') ? STEPS : []).push({ name: 'Hop table groups', run: async function () {
     var s = addSection('Hop table: how many start items to walk together');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var n = QUICK ? 1200 : 20000, P = piece(graphFor('moderate', n)), rows = [], best = null;
@@ -191,7 +208,7 @@
     s.finish(best ? 'ok' : 'warn', say); return { level: 'ok', say: say };
   } });
 
-  STEPS.push({ name: 'Cold start', run: async function () {
+  (params.get('extras') ? STEPS : []).push({ name: 'Cold start', run: async function () {
     var s = addSection('First run against later runs (cold start)'), sizes = QUICK ? [300] : [500, 2000], rows = [], firstSlow = [];
     s.head = ['Items', 'Step', 'First run', 'Second run', 'Third run'];
     for (var zi = 0; zi < sizes.length; zi++) {
@@ -216,7 +233,7 @@
     s.finish('ok', say); return { level: 'ok', say: say };
   } });
 
-  STEPS.push({ name: 'Browser checks', run: async function () {
+  (params.get('extras') ? STEPS : []).push({ name: 'Browser checks', run: async function () {
     var s = addSection('Smaller checks: random draws, CSV reading, Force arrangement'), rows = [];
     s.head = ['Check', 'Run 1', 'Run 2', 'Run 3', 'Run 4', 'Run 5']; setStatus('Random draws…'); await yieldUI();
     var Sim = typeof NFMSim !== 'undefined' ? NFMSim : null, drawRuns = [];
