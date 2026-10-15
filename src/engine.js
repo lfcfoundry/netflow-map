@@ -793,6 +793,38 @@ var NFMEngine = (function () {
     }
   }
   function separate(X, k, dim, rad, passes) {
+    var rads = new Float64Array(k), cellOf = new Int32Array(k), sorted = new Int32Array(k), start = null, i, o, pass, rmax = 0;
+    for (i = 0; i < k; i++) { rads[i] = rad(i); if (rads[i] > rmax) rmax = rads[i]; }
+    var cell = Math.max(2 * rmax, 20);   // a cell as wide as the longest reach of two touching items: only the 3 x 3 cells around an item matter
+    for (pass = 0; pass < (passes || 30); pass++) {
+      var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (i = 0; i < k; i++) { var px = X[i * dim], py = X[i * dim + 1]; if (px < x0) x0 = px; if (px > x1) x1 = px; if (py < y0) y0 = py; if (py > y1) y1 = py; }
+      var GW = Math.floor((x1 - x0) / cell) + 3, GH = Math.floor((y1 - y0) / cell) + 3;
+      if (!(GW * GH <= 4000000)) { separateSparse(X, k, dim, rad, (passes || 30) - pass); return; }
+      if (!start || start.length < GW * GH + 1) start = new Int32Array(GW * GH + 1); else start.fill(0, 0, GW * GH + 1);
+      // counting sort of the items into grid cells: items of one cell sit next to each other in `sorted`
+      for (i = 0; i < k; i++) { var c = (Math.floor((X[i * dim + 1] - y0) / cell) + 1) * GW + Math.floor((X[i * dim] - x0) / cell) + 1; cellOf[i] = c; start[c + 1]++; }
+      for (c = 0; c < GW * GH; c++) start[c + 1] += start[c];
+      for (i = 0; i < k; i++) sorted[start[cellOf[i]]++] = i;
+      for (c = GW * GH; c > 0; c--) start[c] = start[c - 1];
+      start[0] = 0;
+      var moved = false;
+      for (i = 0; i < k; i++) {
+        var ci = cellOf[i], ra = rads[i];
+        for (var row = -1; row <= 1; row++) {
+          var from = start[ci + row * GW - 1], to = start[ci + row * GW + 2];   // three neighboring cells in a row are one slice
+          for (var q = from; q < to; q++) {
+            o = sorted[q];
+            if (o <= i) continue;
+            var dx = X[o * dim] - X[i * dim], dy = X[o * dim + 1] - X[i * dim + 1], dd = Math.sqrt(dx * dx + dy * dy) || 0.01, need = ra + rads[o];
+            if (dd < need) { var push = (need - dd) / 2, ux = dx / dd || 1, uy = dy / dd; X[i * dim] -= ux * push; X[i * dim + 1] -= uy * push; X[o * dim] += ux * push; X[o * dim + 1] += uy * push; moved = true; }
+          }
+        }
+      }
+      if (!moved) break;
+    }
+  }
+  function separateSparse(X, k, dim, rad, passes) {   // the same job on a hash grid, for pictures too spread out for a plain grid
     var cell = 90, next = new Int32Array(k), head = new Map(), rads = new Float64Array(k), i;
     for (i = 0; i < k; i++) rads[i] = rad(i);
     for (var pass = 0; pass < (passes || 30); pass++) {
@@ -938,6 +970,99 @@ var NFMEngine = (function () {
     return { X: X, dim: dim };
   }
 
+  /** One sweep of stochastic gradient descent over the pairs, in the order given (a small function on purpose: engines compile small hot loops best). */
+  function sgdPass(X, pa, pb, pd, pw, ord, cnt, eta) {
+    for (var q = 0; q < cnt; q++) {
+      var p = ord[q], mu = pw[p] * eta; if (mu > 1) mu = 1;
+      var a2 = pa[p] * 2, b2 = pb[p] * 2, dx = X[a2] - X[b2], dy = X[a2 + 1] - X[b2 + 1], mag = Math.sqrt(dx * dx + dy * dy) || 1e-6;
+      var r = (mu * (mag - pd[p])) / (2 * mag), rx = r * dx, ry = r * dy;
+      X[a2] -= rx; X[a2 + 1] -= ry; X[b2] += rx; X[b2 + 1] += ry;
+    }
+  }
+
+  /** The same sweep over the pairs as they lie in memory (forward or backward): no index lookups, so the memory is read in a straight line. */
+  function sgdSweep(X, pa, pb, pd, pw, cnt, eta, back) {
+    var q = back ? cnt - 1 : 0, step = back ? -1 : 1;
+    for (var n = 0; n < cnt; n++, q += step) {
+      var mu = pw[q] * eta; if (mu > 1) mu = 1;
+      var a2 = pa[q] * 2, b2 = pb[q] * 2, dx = X[a2] - X[b2], dy = X[a2 + 1] - X[b2 + 1], mag = Math.sqrt(dx * dx + dy * dy) || 1e-6;
+      var r = (mu * (mag - pd[q])) / (2 * mag), rx = r * dx, ry = r * dy;
+      X[a2] -= rx; X[a2 + 1] -= ry; X[b2] += rx; X[b2 + 1] += ry;
+    }
+  }
+
+  /* Tuning knobs for the stress layout (the benchmark page changes them to compare settings; the app never does). */
+  var STRESS = { fullMax: 3000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 16, reshuffle: false, sepPasses: 30, spread: 0.35 };
+
+  /**
+   * Stress layout of one connected piece: X (x,y per item) is moved so that the distance on the page follows the hop count.
+   * Hop counts come from every item (small pieces) or from far-apart "pivot" items plus the links and a few near neighbors (big pieces).
+   * Pairs live in typed arrays (two Int32 index lists, two Float32 lists), not one small array per pair: about a fifth of the memory and
+   * no garbage for the collector.
+   */
+  function stressComponent(X, k, members, adj, locArr, root, EDGE, rnd) {
+    var T = STRESS, full = k <= T.fullMax, i, j, h, u, w;
+    var off = new Int32Array(k + 1), m2 = 0;
+    for (i = 0; i < k; i++) { m2 += adj[members[i]].length; off[i + 1] = m2; }
+    var nbr = new Int32Array(m2);
+    for (i = 0; i < k; i++) { var lst = adj[members[i]], o0 = off[i]; for (j = 0; j < lst.length; j++) nbr[o0 + j] = locArr[lst[j]]; }
+    var dist = new Int32Array(k), queue = new Int32Array(k);
+    function bfs(src) {
+      dist.fill(-1); dist[src] = 0; queue[0] = src;
+      var head = 0, tail = 1;
+      while (head < tail) { u = queue[head++]; var du = dist[u] + 1; for (var e = off[u], e1 = off[u + 1]; e < e1; e++) { w = nbr[e]; if (dist[w] < 0) { dist[w] = du; queue[tail++] = w; } } }
+    }
+    // Huge pieces: keep the pairs to a memory budget (about 12 million pairs, 200 MB) by using fewer pivots and fewer near neighbors.
+    var near = Math.min(T.near, Math.max(2, Math.floor(4e6 / k)));
+    var rootL = locArr[root], nPiv = full ? k : Math.min(k, Math.max(4, Math.min(Math.max(T.pivMin, Math.min(T.pivMax, Math.round(T.pivBudget / k))), Math.floor(8e6 / k))));
+    var cap = full ? (k * (k - 1)) / 2 : nPiv * k + m2 / 2 + k * near;
+    var pa = new Int32Array(cap), pb = new Int32Array(cap), pd = new Float32Array(cap), pw = new Float32Array(cap), cnt = 0, maxD = 1;
+    function add(a, b, d) { pa[cnt] = a; pb[cnt] = b; pd[cnt] = d * EDGE; pw[cnt] = 1 / (d * d); cnt++; if (d > maxD) maxD = d; }
+    if (full) {
+      for (i = 0; i < k; i++) { bfs(i); for (j = i + 1; j < k; j++) if (dist[j] > 0) add(i, j, dist[j]); }
+    } else {
+      var minD = new Int32Array(k).fill(1e9), piv = rootL;
+      for (h = 0; h < nPiv; h++) {
+        bfs(piv);
+        var far = -1, fd = -1;
+        for (j = 0; j < k; j++) { var dj = dist[j]; if (dj < minD[j]) minD[j] = dj; if (minD[j] > fd) { fd = minD[j]; far = j; } if (j !== piv && dj > 0) add(piv, j, dj); }
+        piv = far;
+      }
+      for (i = 0; i < k; i++) for (j = off[i]; j < off[i + 1]; j++) if (nbr[j] > i) add(i, nbr[j], 1);
+      if (near > 0) {   // a few more near neighbors per item (two or three hops away), found by a short breadth-first walk
+        var stamp = new Int32Array(k).fill(-1), dl = new Int32Array(k);
+        for (i = 0; i < k; i++) {
+          var tail2 = 1, head2 = 0, got = 0; queue[0] = i; stamp[i] = i; dl[i] = 0;
+          while (head2 < tail2 && got < near) {
+            u = queue[head2++];
+            for (var e2 = off[u], e3 = off[u + 1]; e2 < e3 && got < near; e2++) {
+              w = nbr[e2];
+              if (stamp[w] !== i) { stamp[w] = i; dl[w] = dl[u] + 1; queue[tail2++] = w; if (dl[w] >= 2 && w > i) { add(i, w, dl[w]); got++; } }
+            }
+          }
+        }
+      }
+    }
+    var tmax = full ? (k <= 700 ? T.fullIters : k <= 1500 ? 20 : 12) : T.iters, wMin = 1 / (maxD * maxD), etaMax = 1 / wMin, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
+    var s = (rnd() * 4294967296) | 0 || 1, t, p, q;
+    function nextInt(n) { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) / 4294967296 * n) | 0; }
+    if (T.reshuffle) {   // a fresh random order every sweep (an index list is shuffled; the pairs stay where they are)
+      var ord = new Int32Array(cnt);
+      for (q = 0; q < cnt; q++) ord[q] = q;
+      for (t = 0; t < tmax; t++) {
+        for (q = cnt - 1; q > 0; q--) { j = nextInt(q + 1); p = ord[q]; ord[q] = ord[j]; ord[j] = p; }
+        sgdPass(X, pa, pb, pd, pw, ord, cnt, etaMax * Math.exp(-lambda * t));
+      }
+    } else {   // one random order, made once in memory; sweeps then go forward and backward through it
+      for (q = cnt - 1; q > 0; q--) {
+        j = nextInt(q + 1);
+        p = pa[q]; pa[q] = pa[j]; pa[j] = p; p = pb[q]; pb[q] = pb[j]; pb[j] = p;
+        var f = pd[q]; pd[q] = pd[j]; pd[j] = f; f = pw[q]; pw[q] = pw[j]; pw[j] = f;
+      }
+      for (t = 0; t < tmax; t++) sgdSweep(X, pa, pb, pd, pw, cnt, etaMax * Math.exp(-lambda * t), t & 1);
+    }
+  }
+
   /**
    * For data that is not a story: places nodes so that the distance on the page is close to the number of hops between them
    * (stress, minimized by stochastic gradient descent, Zheng, Pawar and Goodman 2018). Small graphs use every pair, large ones
@@ -961,14 +1086,14 @@ var NFMEngine = (function () {
       for (var h = 0; h < q.length; h++) adj[q[h]].forEach(function (w) { if (comp[w] < 0) { comp[w] = cid; q.push(w); } });
       comps.push(q);
     }
-    var rnd = mulberry32(12345), EDGE = 130;
+    var rnd = mulberry32(12345), EDGE = 130, locArr = new Int32Array(nb);
     var size = function (nd) { if (nd.sizeK !== undefined) return 20 + 52 * nd.sizeK; return 26 + Math.min(26, 8 * Math.sqrt((nd.traffic || 0))) + Math.min(14, Math.sqrt(adj[idxOf[nd.id]].length) * 3); };
     var arr = opts.arrange || 'stress';
     if (arr !== 'stress' && arr !== 'force' && arr !== 'radial') return globalNetwork(arr, nodes, G, adj, size, rnd, EDGE, idxOf);
     var packs = [];
     comps.forEach(function (members) {
       var k = members.length, loc = new Map();
-      members.forEach(function (g, li) { loc.set(g, li); });
+      members.forEach(function (g, li) { loc.set(g, li); locArr[g] = li; });
       var X = new Float64Array(k * 2);
       if (k === 1) { packs.push({ members: members, X: X, w: size(nodes[members[0]]) + 20, h: size(nodes[members[0]]) + 20 }); return; }
       /* start: a spiral in breadth-first order from the best-connected node, so neighbors begin close */
@@ -994,54 +1119,16 @@ var NFMEngine = (function () {
           });
         }
       } else {
-      /* hop distances: all pairs for small components, from pivots for large ones */
-      var full = k <= 700, pivots;
-      if (full) pivots = members.map(function (g) { return g; });
-      else {
-        pivots = [root];
-        var minD = new Int32Array(k).fill(1e9);
-        for (var pc = 1; pc < Math.min(Math.max(40, Math.min(120, Math.round(400000 / k))), k); pc++) {
-          var last = pivots[pivots.length - 1], dl = hopFrom(last);
-          var far = -1, fd = -1;
-          members.forEach(function (g) { var li = loc.get(g); if (dl[li] < minD[li]) minD[li] = dl[li]; if (minD[li] > fd) { fd = minD[li]; far = g; } });
-          pivots.push(far);
-        }
-      }
-      function hopFrom(src) {
-        var d = new Int32Array(k).fill(-1), qq = [src];
-        d[loc.get(src)] = 0;
-        for (var hh = 0; hh < qq.length; hh++) {
-          var u = qq[hh];
-          adj[u].forEach(function (w) { var lw = loc.get(w); if (d[lw] < 0) { d[lw] = d[loc.get(u)] + 1; qq.push(w); } });
-        }
-        return d;
-      }
-      var pairs = []; // [a, b, dist]
-      var maxD = 1;
-      pivots.forEach(function (pv, pi) {
-        var d = hopFrom(pv), lp = loc.get(pv);
-        members.forEach(function (g) {
-          var lg = loc.get(g);
-          if (lg === lp || (full && lg < lp)) return;
-          if (d[lg] > maxD) maxD = d[lg];
-          pairs.push([lp, lg, d[lg]]);
-        });
-      });
-      if (!full) members.forEach(function (g) { var lg0 = loc.get(g); adj[g].forEach(function (w) { var lw0 = loc.get(w); if (lw0 > lg0) pairs.push([lg0, lw0, 1]); }); });
-      var tmax = full ? 30 : 24, wMin = 1 / (maxD * maxD), etaMax = 1 / wMin, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
-      for (var t = 0; t < tmax; t++) {
-        var eta = etaMax * Math.exp(-lambda * t);
-        for (var pi2 = pairs.length - 1; pi2 > 0; pi2--) { var j = Math.floor(rnd() * (pi2 + 1)), tmp = pairs[pi2]; pairs[pi2] = pairs[j]; pairs[j] = tmp; }
-        for (var pi3 = 0; pi3 < pairs.length; pi3++) {
-          var pr = pairs[pi3], dij = pr[2] * EDGE, wij = 1 / (pr[2] * pr[2]), mu = Math.min(1, wij * eta);
-          var a2 = pr[0] * 2, b2 = pr[1] * 2, dx = X[a2] - X[b2], dy = X[a2 + 1] - X[b2 + 1], mag = Math.sqrt(dx * dx + dy * dy) || 1e-6;
-          var r = (mu * (mag - dij)) / 2, rx = (r * dx) / mag, ry = (r * dy) / mag;
-          X[a2] -= rx; X[a2 + 1] -= ry; X[b2] += rx; X[b2 + 1] += ry;
-        }
-      }
+      stressComponent(X, k, members, adj, locArr, root, EDGE, rnd);
       }
       /* push overlapping nodes apart (grid buckets, a few passes) */
-      separate(X, k, 2, function (li) { return size(nodes[members[li]]) / 2 + 8; }, 30);
+      if (arr === 'stress' && STRESS.spread) {   // crowded pictures are first stretched so the items cover about a third of the page; then little is left to push apart
+        var bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity, discs = 0, rr0;
+        for (var si = 0; si < k; si++) { rr0 = size(nodes[members[si]]) / 2 + 8; discs += Math.PI * rr0 * rr0; if (X[si * 2] < bx0) bx0 = X[si * 2]; if (X[si * 2] > bx1) bx1 = X[si * 2]; if (X[si * 2 + 1] < by0) by0 = X[si * 2 + 1]; if (X[si * 2 + 1] > by1) by1 = X[si * 2 + 1]; }
+        var f0 = Math.sqrt((discs / STRESS.spread) / (Math.max(1, bx1 - bx0) * Math.max(1, by1 - by0)));
+        if (f0 > 1) { f0 = Math.min(f0, 8); for (var sj = 0; sj < k * 2; sj++) X[sj] *= f0; }
+      }
+      if (arr !== 'stress' || STRESS.sepPasses > 0) separate(X, k, 2, function (li) { return size(nodes[members[li]]) / 2 + 8; }, arr === 'stress' ? STRESS.sepPasses : 30);
       var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
       for (var li4 = 0; li4 < k; li4++) { var rr = size(nodes[members[li4]]) / 2; x0 = Math.min(x0, X[li4 * 2] - rr); x1 = Math.max(x1, X[li4 * 2] + rr); y0 = Math.min(y0, X[li4 * 2 + 1] - rr); y1 = Math.max(y1, X[li4 * 2 + 1] + rr); }
       for (var li5 = 0; li5 < k; li5++) { X[li5 * 2] -= x0; X[li5 * 2 + 1] -= y0; }
@@ -1473,7 +1560,7 @@ var NFMEngine = (function () {
 
   return {
     MAP_W: MAP_W, MAP_H: MAP_H, VIEWS: VIEWS, TASKS: TASKS, prepare: prepare, importance: importance, flowExact: flowExact, flowSim: flowSim, absorb: absorb, endClasses: endClasses, spread: spread, seedsOf: seedsOf,
-    mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, ARRANGE_NAMES: ARRANGE_NAMES, forceSim: forceSim,
+    mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, ARRANGE_NAMES: ARRANGE_NAMES, forceSim: forceSim, stressTuning: STRESS,
     communities: communities, metrics: metrics, taskScore: taskScore, build: build, compare: compare, bfs: bfs, mapCrossPairs: mapCrossPairs, mapPlaceLine: mapPlaceLine, autoStart: autoStart
   };
 })();

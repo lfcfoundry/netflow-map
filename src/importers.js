@@ -14,14 +14,17 @@ var NFMImport = (function () {
   function Builder(name, opts) {
     this.g = { name: name || 'Untitled', start: null, nodes: [], edges: [] };
     this.opts = opts || {};
+    this.maxNodes = this.opts.maxNodes || MAX_NODES; this.maxEdges = this.opts.maxEdges || MAX_EDGES;
     this.map = new Map();
     this.ci = !!this.opts.caseInsensitive;
     this.r = { dupNodes: 0, selfLoops: 0, dupEdges: 0, droppedEdges: 0, ghosts: 0, emptyIds: 0, trimmed: 0, capped: false, notes: [] };
-    this.edgeKeys = new Set();
+    this.edgeKeys = new Set(); this.nodeIx = new Map();
   }
   function clip(s, n) { s = String(s === undefined || s === null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  var PLAIN = /^[\x20-\x7e]*$/;   // printable ASCII: nothing to normalize or strip, only trim
   function cleanText(s) {
-    s = String(s === undefined || s === null ? '' : s);
+    s = typeof s === 'string' ? s : String(s === undefined || s === null ? '' : s);
+    if (PLAIN.test(s)) return s.trim();
     try { s = s.normalize('NFC'); } catch (e) { /* old engines */ }
     return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u200B\u2028\u2029\uFEFF]/g, '').trim();
   }
@@ -38,20 +41,21 @@ var NFMImport = (function () {
         if (props.group && !nd.group) nd.group = clip(cleanText(props.group), 80);
         if (props.valence && !nd.valence) nd.valence = props.valence;
         if (props.ghost === false) nd.ghost = false;
-        if (props.attrs) for (var a in props.attrs) if (!BAD_KEYS[a] && !(a in nd.attrs) && Object.keys(nd.attrs).length < MAX_ATTRS) nd.attrs[a] = props.attrs[a];
+        if (props.attrs) { var have = Object.keys(nd.attrs).length; for (var a in props.attrs) if (!BAD_KEYS[a] && !(a in nd.attrs) && have < MAX_ATTRS) { nd.attrs[a] = props.attrs[a]; have++; } }
       }
       return nd;
     }
-    if (this.g.nodes.length >= MAX_NODES) { this.r.capped = true; return null; }
+    if (this.g.nodes.length >= this.maxNodes) { this.r.capped = true; return null; }
     nd = { id: id, label: id, group: '', valence: '', ghost: false, attrs: {} };
     if (props) {
       if (props.label) nd.label = clip(cleanText(props.label), MAX_LABEL) || id;
       if (props.group) nd.group = clip(cleanText(props.group), 80);
       if (props.valence) nd.valence = props.valence;
       if (props.ghost) nd.ghost = true;
-      if (props.attrs) for (var b in props.attrs) if (!BAD_KEYS[b] && Object.keys(nd.attrs).length < MAX_ATTRS) nd.attrs[b] = props.attrs[b];
+      if (props.attrs) { var cnt = 0; for (var b in props.attrs) if (!BAD_KEYS[b] && cnt < MAX_ATTRS) { nd.attrs[b] = props.attrs[b]; cnt++; } }
     }
     this.map.set(k, nd);
+    this.nodeIx.set(nd, this.g.nodes.length);
     this.g.nodes.push(nd);
     return nd;
   };
@@ -60,13 +64,15 @@ var NFMImport = (function () {
     props = props || {};
     if (a === b) this.r.selfLoops++;
     var kind = props.kind || '', label = props.label ? clip(cleanText(props.label), MAX_LABEL) : '';
-    var dk = a.id + '\u0001' + b.id + '\u0001' + kind + '\u0001' + label;
+    // a plain link (no kind, no label) is remembered by the two items' positions as one number; the rest by text
+    var ia = this.nodeIx.get(a), ib = this.nodeIx.get(b);
+    var dk = kind === '' && label === '' && ia !== undefined && ib !== undefined ? ia * 33554432 + ib : a.id + '\u0001' + b.id + '\u0001' + kind + '\u0001' + label;
     if (this.edgeKeys.has(dk)) { this.r.dupEdges++; if (!this.opts.keepDuplicates) return null; }
-    if (this.g.edges.length >= MAX_EDGES) { this.r.capped = true; return null; }
+    if (this.g.edges.length >= this.maxEdges) { this.r.capped = true; return null; }
     this.edgeKeys.add(dk);
     var wt = props.weight === undefined || props.weight === '' || props.weight === null ? undefined : Number(props.weight);
     var e = { from: a.id, to: b.id, label: label, weight: isFinite(wt) ? wt : undefined, kind: kind, attrs: {} };
-    if (props.attrs) for (var x in props.attrs) if (!BAD_KEYS[x] && Object.keys(e.attrs).length < MAX_ATTRS) e.attrs[x] = props.attrs[x];
+    if (props.attrs) { var ec = 0; for (var x in props.attrs) if (!BAD_KEYS[x] && ec < MAX_ATTRS) { e.attrs[x] = props.attrs[x]; ec++; } }
     this.g.edges.push(e);
     return e;
   };
@@ -110,23 +116,46 @@ var NFMImport = (function () {
     out.push(cur);
     return out;
   }
-  /** Full parser: quotes, doubled quotes, line breaks inside quotes, any single-character delimiter. */
+  /**
+   * Full parser: quotes, doubled quotes, line breaks inside quotes, any single-character delimiter.
+   * Fast where it can be: a line with no quote mark in it is cut with the browser's own split (no per-character work, which is what made long
+   * fields slow); only records that contain a quote go through the character loop, and inside quotes that loop jumps from quote to quote.
+   * Same results as the plain character-by-character reader (test/importers.test.js compares them on thousands of random tables).
+   */
   function parseDelimited(text, d) {
     text = stripBom(text);
-    var rows = [], row = [], cur = '', q = false, i = 0, n = text.length;
-    while (i < n) {
-      var ch = text[i];
-      if (q) {
-        if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i += 2; continue; } q = false; i++; continue; }
-        cur += ch; i++; continue;
+    var rows = [], n = text.length, pos = 0, dc = d.charCodeAt(0), nextQuote = text.indexOf('"');
+    while (pos < n) {
+      var nl = text.indexOf('\n', pos), end = nl < 0 ? n : nl;
+      if (nextQuote >= 0 && nextQuote < pos) nextQuote = text.indexOf('"', pos);
+      if (nextQuote < 0 || nextQuote >= end) {   // no quote on this line: cut it with split
+        var line = text.slice(pos, end);
+        if (line.indexOf('\r') >= 0) line = line.replace(/\r/g, '');
+        var parts = line.split(d);
+        if (parts.length > 1 || parts[0] !== '') rows.push(parts);
+        pos = end + 1; continue;
       }
-      if (ch === '"' && cur === '') { q = true; i++; continue; }
-      if (ch === d) { row.push(cur); cur = ''; i++; continue; }
-      if (ch === '\r') { i++; continue; }
-      if (ch === '\n') { row.push(cur); cur = ''; if (row.length > 1 || row[0] !== '') rows.push(row); row = []; i++; continue; }
-      cur += ch; i++;
+      var row = [], cur = '', q = false, i = pos, ended = false;
+      while (i < n) {
+        if (q) {
+          var k = text.indexOf('"', i);
+          if (k < 0) { cur += text.slice(i); i = n; break; }
+          cur += text.slice(i, k);
+          if (text.charCodeAt(k + 1) === 34) { cur += '"'; i = k + 2; continue; }
+          q = false; i = k + 1; continue;
+        }
+        var ch = text.charCodeAt(i);
+        if (ch === 34 && cur === '') { q = true; i++; continue; }
+        if (ch === dc) { row.push(cur); cur = ''; i++; continue; }
+        if (ch === 13) { i++; continue; }
+        if (ch === 10) { row.push(cur); cur = ''; if (row.length > 1 || row[0] !== '') rows.push(row); i++; ended = true; break; }
+        var st = i++, c2;   // an ordinary run of characters: take it whole up to the next delimiter, line end or carriage return
+        while (i < n) { c2 = text.charCodeAt(i); if (c2 === dc || c2 === 10 || c2 === 13) break; i++; }
+        cur += text.slice(st, i);
+      }
+      if (!ended && (cur !== '' || row.length)) { row.push(cur); rows.push(row); }
+      pos = i;
     }
-    if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
     return rows;
   }
   var ROLE = {
@@ -195,7 +224,14 @@ var NFMImport = (function () {
     opts = opts || {};
     var B = new Builder(name, opts), cols = map.cols, mode = map.mode, body = map.header ? rows.slice(1) : rows, headers = map.headers || [];
     var dec = opts.decimal || (opts.delimiter === ';' ? ',' : '.');
-    var extra = function (row, skip) { var a = {}; headers.forEach(function (h, i) { if (skip.indexOf(i) < 0 && row[i] !== undefined && String(row[i]).trim() !== '') a[h] = row[i]; }); return a; };
+    var extraCache = new Map();   // the extra columns for one set of skipped columns, worked out once
+    var extra = function (row, skip) {
+      var ix = extraCache.get(skip);
+      if (!ix) { ix = []; headers.forEach(function (h, i) { if (skip.indexOf(i) < 0) ix.push(i); }); extraCache.set(skip, ix); }
+      var a = {};
+      for (var k = 0; k < ix.length; k++) { var v = row[ix[k]]; if (v !== undefined && String(v).trim() !== '') a[headers[ix[k]]] = v; }
+      return a;
+    };
     var cell = function (row, c) { return c === undefined || c < 0 ? '' : row[c] === undefined ? '' : String(row[c]).trim(); };
     var rowCount = 0, badNum = 0;
     if (mode === 'edges') {

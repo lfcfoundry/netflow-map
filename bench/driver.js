@@ -1,0 +1,19 @@
+/* Copyright (c) 2026 JNFoo. MIT License. Opens a page in Firefox 158 (Puppeteer over WebDriver BiDi) or ungoogled-chromium 154 (Playwright).
+ * NFM_FIREFOX, NFM_CHROME, NFM_PUPPETEER, NFM_PLAYWRIGHT name the programs and packages (defaults are this machine's). */
+'use strict';
+const CHROME = process.env.NFM_CHROME || '/tmp/ugc/ungoogled-chromium-154.0.8037.97-1-x86_64_linux/chrome';
+const FIREFOX = process.env.NFM_FIREFOX || '/tmp/ffdl/firefox/firefox';
+async function open(which, opts) {
+  opts = opts || {};
+  if (which === 'firefox') {
+    const pp = require(process.env.NFM_PUPPETEER || '/tmp/pptr/node_modules/puppeteer-core');
+    const b = await pp.launch({ browser: 'firefox', executablePath: FIREFOX, headless: true, protocol: 'webDriverBiDi', timeout: 120000, protocolTimeout: opts.timeout || 600000, extraPrefsFirefox: Object.assign({ 'dom.max_script_run_time': 0, 'dom.max_chrome_script_run_time': 0 }, opts.prefs || {}) });
+    const page = await b.newPage();
+    return { b, page, version: await b.version(), close: () => b.close().catch(() => {}), eval: (fn, arg) => page.evaluate(fn, arg), goto: (u) => page.goto(u, { waitUntil: 'load', timeout: 120000 }) };
+  }
+  const pw = require(process.env.NFM_PLAYWRIGHT || '/opt/npm-tools/node_modules/playwright-core');
+  const b = await pw.chromium.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--js-flags=--max-old-space-size=8192', '--enable-precise-memory-info'].concat(opts.args || []) });
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } }), page = await ctx.newPage(); page.setDefaultTimeout(opts.timeout || 600000);
+  return { b, page, version: 'chromium ' + b.version(), close: () => b.close().catch(() => {}), eval: (fn, arg) => page.evaluate(fn, arg), goto: (u) => page.goto(u, { waitUntil: 'load', timeout: 120000 }) };
+}
+module.exports = { open, CHROME, FIREFOX };

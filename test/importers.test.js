@@ -72,4 +72,9 @@ t('clean-ups', function () {
   assert.equal(I.CLEAN.twoWay(g).graph.edges.length > g.edges.length, true);
 });
 t('bad json explains itself', function () { assert.throws(function () { I.importJSON('{oops', 'x'); }, /not valid JSON/); });
+t('the fast table reader gives the same rows as the plain character-by-character reader (6,000 random tables)', function () {
+  function ref(text, d) { text = text.replace(/^\uFEFF/, ''); var rows = [], row = [], cur = '', q = false, i = 0, n = text.length; while (i < n) { var ch = text[i]; if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i += 2; continue; } q = false; i++; continue; } cur += ch; i++; continue; } if (ch === '"' && cur === '') { q = true; i++; continue; } if (ch === d) { row.push(cur); cur = ''; i++; continue; } if (ch === '\r') { i++; continue; } if (ch === '\n') { row.push(cur); cur = ''; if (row.length > 1 || row[0] !== '') rows.push(row); row = []; i++; continue; } cur += ch; i++; } if (cur !== '' || row.length) { row.push(cur); rows.push(row); } return rows; }
+  var s = 1, r = function () { return (s = (s * 16807) % 2147483647) / 2147483647; }, alpha = ['a', 'b', 'c', ',', ';', '\t', '"', '"', '\n', '\r', '\r\n', ' ', 'x', '', '"', ',', '\n', '\u00e9', '\uFEFF'];
+  for (var k = 0; k < 2000; k++) { var len = Math.floor(r() * 40), x = ''; for (var j = 0; j < len; j++) x += alpha[Math.floor(r() * alpha.length)]; [',', ';', '\t'].forEach(function (d) { assert.deepEqual(I.parseDelimited(x, d), ref(x, d), JSON.stringify(x)); }); }
+});
 console.log(process.exitCode ? 'importers: FAILED' : 'importers: all ' + n + ' checks passed');
