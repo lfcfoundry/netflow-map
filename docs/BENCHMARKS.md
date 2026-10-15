@@ -23,7 +23,7 @@ Libraries we compare against (all current npm releases, bundled into the benchma
 | Stress layout truth vs d3-force and ForceAtlas2 | as true or truer in 17 of 20 (both) | 17 of 20 (both) | Win up to 3,000 items (15 to 58% truer); at 10,000 items 10% truer to 9% less true than d3-force and 4% truer to 17% less true than ForceAtlas2 (was 7 to 28% less true) |
 | **Items left touching (section 12)** | **0 in all 40 test layouts per browser; d3-force and ForceAtlas2 leave 70 to 100% of items overlapping at the same item sizes (ForceAtlas2 on a plain tree: 9%)** | same (the rule is in the code, and a test checks it) | **Vital advantage**: the picture can be read; the others need a zoom of 2.6× to 48× to separate their worst pair, or a slower collision pass |
 | **Neighborhood preservation (section 15; 4 networks, Node, single runs)** | **Stress is below d3-force, d3-force + forceCollide and ForceAtlas2 in all four** | not run | **Weakness**: distance truth and local closeness disagree; Force is closer to the competitors |
-| **Best-quality Stress (section 16; 6 networks, 10,000 items)** | **truer than d3-force and ForceAtlas2 in all 3 (0.136 to 0.162 against 0.18 to 0.21), 4.4 to 4.8× faster than the faster of them** | **same (0.136 to 0.160), 2.9 to 4.4× faster than the faster of them** | **Win, opt-in: 5 to 8 s at 10,000 items against 1.5 s for the normal arrangement; no overlaps** |
+| **Best-quality Stress (section 16; 6 networks, 10,000 items)** | **truer than d3-force and ForceAtlas2 in all 3 (0.137 to 0.158 against 0.18 to 0.21), 4.4 to 5.5× faster than the faster of them** | **same (0.137 to 0.159), 3.9 to 4.3× faster than the faster of them** | **Win, opt-in: 4 to 6 s at 10,000 items against 1.5 s for the normal arrangement; no overlaps** |
 | Force layout vs d3-force | faster in 20 of 20 | faster in 20 of 20 | Consistent win |
 | Layered drawing vs dagre / ELK | 7 to 13× faster than dagre, but 7 to 117% more crossings | same | Speed win, quality loss (unchanged) |
 | Formulas vs expr-eval | 3.8× faster | 5.0× faster | Consistent win |
@@ -504,7 +504,7 @@ Notes: GIF compares our encoder with gifenc using one shared palette on four syn
 
 Done in the last rounds (sections 12 to 16): the 10,000+ Stress gap (7 to 28% down to 10% truer to 9% less true than d3-force), layout results as columns (about 2.5× faster end to end at 100,000 items, not the 70 to 100× estimated before the object rebuild was counted), the GIF encoder (now faster than gifenc from about 30 frames, and far truer in color) and the normal / lognormal draws (Chromium win; Firefox tie).
 
-1. Stress at 10,000 items and above, normal arrangement: the last 5 to 9% of distance truth stays open for the quick arrangement (section 13, four rounds, all within noise). The slower **best quality** arrangement closes it (section 16). Open: making best quality faster still (its sweeps are about two thirds of the time at 10,000 items; a graphics-card version is a possible project, not started), and a middle option between 1.5 s and 5 s.
+1. Stress at 10,000 items and above, normal arrangement: the last 5 to 9% of distance truth stays open for the quick arrangement (section 13, four rounds, all within noise). The slower **best quality** arrangement closes it (section 16). Open: making best quality faster still (the sweeps and the table of hop counts are each about half of the 4 to 5 s at 10,000 items); a graphics-card version of the sweeps is checked for correctness (end of section 16) but not built into the page.
 2. Stress on neighborhood preservation (section 15): four ways of adding a local term were tried and none helped (section 13, fourth round). Open: a different objective, not a correction on top of Stress.
 3. GIF: the palette is a fixed cost that four frames cannot spread out (section 14). The histogram and the k-means step are what is left to trim.
 4. Reading text over 512 million characters in Chromium needs a chunked reader; the import cap of 200,000 items / 800,000 links is still the app default.
@@ -902,43 +902,45 @@ Each cell is the neighborhood score with the distance truth in parentheses. Read
 The normal Stress layout samples pairs (pivots, links and near neighbors) once a network has more than 4,000 items. That is fast, and it is the plateau described in section 13: about 0.20 at 10,000 items whatever was tuned. The remaining route was to use every pair of items, which is what the layout does up to 4,000 items. It is now available above that size as its own choice in the Arrangement list, **Distances, best quality (slower)**. Nothing else changes: the normal arrangement stays the default, and both guarantee that no two items touch.
 
 How it fits in memory and time:
-- Hop counts between all pairs are kept in one byte each, and only one of each pair (half a byte per pair on average for 10,000 items: 50 MB; for 20,000 items 200 MB). The old way, 16 bytes per pair, would need 800 MB at 10,000 items.
+- Hop counts between all pairs are kept in one byte each, one byte per pair (50 MB for 10,000 items, 200 MB for 20,000). The old way, 16 bytes per pair, would need 800 MB at 10,000 items.
 - Pairs are visited one offset at a time in a random order (item 1 against the item 7 places on, then item 2 against the item 7 places on, and so on). That is as good as a fully random order for the result, and memory is read in straight lines, which is what makes it fast. A first version that took each item against its next neighbors in turn reached only 0.19 to 0.21 at 5,000 items; the offset order reached 0.152.
 - Building the table of hop counts is done 32 searches at a time (each item carries a 32-bit mask of the searches that reached it), which cut that step at 10,000 items from 4.8 s to 1.8 s with byte-for-byte identical tables.
+- **Four sweeps up to 12,000 items, three above.** The first version used 12, 6 and 4. Four sweeps score the same as twelve at 5,000 items (moderate 0.153 against 0.152, complex 0.144 against 0.143, simple 0.133 against 0.133), and 30 sweeps gave nothing more (0.153). Three sweeps are a little weaker on some networks (simple tree 0.139), and two fail (0.212 at 10,000 items), because the step size has too few stops to come down. Complex networks at 10,000 items lost a little (0.146 to 0.150) in this change.
+- The inner loop keeps the x and y of the items in separate lists and handles the pairs that wrap round to the start of the list as their own stretch; in isolation that made a sweep about 15 to 20% faster.
 - A piece with a path longer than 254 hops (a long chain) is left to the normal method, because one byte cannot count that far; so is a device that cannot give the memory.
-- 12 sweeps up to 6,000 items, 6 up to 12,000, 4 above that (up to 20,000). More sweeps gave nothing: 0.153 after 30 against 0.152 after 12 at 5,000 items; at 10,000 items 0.160 after 12 against 0.162 after 6.
 
 **Node, same machine, one run each** (time / truth, lower truth is truer; same item sizes for all; ours leave no items touching, d3-force and ForceAtlas2 leave 10 to 100% of items overlapping at these sizes, section 12):
 
 | network | items | normal Stress | best quality | d3-force | ForceAtlas2 |
 |---|---:|---:|---:|---:|---:|
-| simple tree | 5,000 | 0.6 s / 0.184 | **2.2 s / 0.133** | 12.2 s / 0.206 | 9.6 s / 0.205 |
-| simple tree | 10,000 | 1.0 s / 0.199 | **4.7 s / 0.136** | 27.4 s / 0.210 | 22.2 s / 0.199 |
-| moderate | 5,000 | 0.9 s / 0.198 | **2.2 s / 0.152** | 10.5 s / 0.182 | 10.2 s / 0.182 |
-| moderate | 10,000 | 1.8 s / 0.203 | **5.1 s / 0.162** | 26.3 s / 0.190 | 22.9 s / 0.184 |
-| complex | 5,000 | 0.9 s / 0.201 | **2.3 s / 0.143** | 10.9 s / 0.187 | 10.9 s / 0.171 |
-| complex | 10,000 | 1.6 s / 0.198 | **5.2 s / 0.146** | 27.1 s / 0.195 | 24.9 s / 0.179 |
+| simple tree | 5,000 | 0.6 s / 0.184 | **1.0 s / 0.134** | 12.2 s / 0.206 | 9.6 s / 0.205 |
+| simple tree | 10,000 | 1.0 s / 0.199 | **3.6 s / 0.137** | 27.4 s / 0.210 | 22.2 s / 0.199 |
+| moderate | 5,000 | 0.9 s / 0.198 | **1.2 s / 0.153** | 10.5 s / 0.182 | 10.2 s / 0.182 |
+| moderate | 10,000 | 1.8 s / 0.203 | **4.6 s / 0.161** | 26.3 s / 0.190 | 22.9 s / 0.184 |
+| complex | 5,000 | 0.9 s / 0.201 | **1.3 s / 0.144** | 10.9 s / 0.187 | 10.9 s / 0.171 |
+| complex | 10,000 | 1.6 s / 0.198 | **4.2 s / 0.150** | 27.1 s / 0.195 | 24.9 s / 0.179 |
 
-At 20,000 items on the moderate network: 28 s, truth 0.160.
+At 20,000 items on the moderate network: 13.4 s, truth 0.163 (the first version took 28 s).
 
 **In the browsers, 10,000 items** (time / truth, one run each; d3-force and ForceAtlas2 from section 2):
 
 | network | browser | normal Stress | best quality | d3-force | ForceAtlas2 |
 |---|---|---:|---:|---:|---:|
-| simple | Chromium 154 | 1.1 s / 0.192 | 6.1 s / 0.136 | 25.6 s / 0.210 | 22.6 s / 0.201 |
-| simple | Firefox 158 | 1.4 s / 0.190 | 6.6 s / 0.136 | 31.6 s / 0.210 | 20.4 s / 0.198 |
-| moderate | Chromium 154 | 1.5 s / 0.207 | 6.4 s / 0.159 | 21.7 s / 0.190 | 24.0 s / 0.180 |
-| moderate | Firefox 158 | 1.9 s / 0.204 | 7.1 s / 0.160 | 29.6 s / 0.190 | 21.0 s / 0.175 |
-| complex | Chromium 154 | 1.6 s / 0.205 | 5.6 s / 0.146 | 24.5 s / 0.195 | 26.7 s / 0.179 |
-| complex | Firefox 158 | 2.0 s / 0.207 | 7.8 s / 0.146 | 34.5 s / 0.195 | 22.6 s / 0.179 |
+| simple | Chromium 154 | 1.1 s / 0.192 | 4.1 s / 0.137 | 25.6 s / 0.210 | 22.6 s / 0.201 |
+| simple | Firefox 158 | 1.4 s / 0.190 | 4.7 s / 0.137 | 31.6 s / 0.210 | 20.4 s / 0.198 |
+| moderate | Chromium 154 | 1.5 s / 0.207 | 4.9 s / 0.158 | 21.7 s / 0.190 | 24.0 s / 0.180 |
+| moderate | Firefox 158 | 1.7 s / 0.204 | 5.3 s / 0.159 | 29.6 s / 0.190 | 21.0 s / 0.175 |
+| complex | Chromium 154 | 1.6 s / 0.205 | 4.6 s / 0.151 | 24.5 s / 0.195 | 26.7 s / 0.179 |
+| complex | Firefox 158 | 2.0 s / 0.207 | 5.8 s / 0.152 | 34.5 s / 0.195 | 22.6 s / 0.179 |
 
-At 5,000 items the browsers took 2.3 to 3.3 s (truth 0.133, 0.153, 0.143), raw numbers in `bench/results/*-best.jsonl`.
+At 5,000 items the browsers took 1.2 to 1.7 s (truth 0.133 to 0.157). Raw numbers are in `bench/results/*-best.jsonl`.
 
 Reading it:
-- **At 5,000 to 20,000 items this closes the gap.** It is truer than d3-force and ForceAtlas2 on every network tried (12 to 32% truer at 10,000 items in Node, 9 to 31% in the browsers) and 4.4 to 4.8× faster than the faster of them in Node (2.9 to 4.4× in the browsers), and nothing touches. The normal arrangement remains the quick choice: 3.5 to 5.5× faster again, and about 0.20 true.
-- **Neighborhood preservation is not helped** (0.002 to 0.005 here against 0.008 to 0.02 for the others on the moderate networks): the same weakness as section 15.
+- **At 5,000 to 20,000 items this closes the gap.** It is truer than d3-force and ForceAtlas2 on every network tried (12 to 31% truer at 10,000 items in Node, 9 to 32% in the browsers) and 5.0 to 9.6× faster than the faster of them in Node (3.9 to 5.5× in the browsers), and nothing touches. The normal arrangement remains the quick choice: 2.9 to 4.3× faster again in the browsers, and about 0.20 true.
+- **Neighborhood preservation is not helped** (0.001 to 0.005 here against 0.008 to 0.02 for the others on the moderate networks): the same weakness as section 15.
 - **Single runs, one machine, one generator.** Differences under about 0.005 are noise. The competitors were run with the settings used in section 2 and are not tuned further.
-- **What was left alone: a graphics card.** The normal sweeps take about two thirds of the time at 10,000 items now (3.8 s of 5.8 s); majorization is the part a graphics card can do in parallel (section 13, fourth round), and it reaches the same truth, not a better one. The most it could save is that share of the time, on hardware that is not here to measure, so it is not built into the page. The first step toward it would be a test page that checks a graphics-card version against the CPU one.
+
+**The graphics-card question, with a check instead of a guess.** Majorization (every item moving at once to the weighted mean of where each other item wants it) is the form of this calculation a graphics card can run in parallel, and on the CPU it reaches the same truth as the sweeps, not a better one (section 13, fourth round). `bench/suites.js` now has a check, `gpumaj`, that runs 20 such steps in a WebGPU compute shader and again on the CPU from the same start and reports whether the two pictures agree, in plain words (`NFM_CHROME_ARGS='--enable-unsafe-webgpu ...' node bench/run.js chromium gpumaj`; the flags are in the plan). In Chromium 154 on the adapter available here, it agrees at 500, 1,500 and 3,000 items: the distance error is identical to the digit shown (2092.1, 2414.1 and 2570.2, from starts of 5,911, 32,407 and 71,986) and items differ by less than 0.05% of a link length. So the shader is right. What it does not tell is how fast a real card would be: that adapter is a software one, and its times (106, 638 and 2,450 ms against 53, 350 and 1,256 ms on the CPU) are not evidence either way. It is not part of the page. After the changes above, the sweeps are about half of the time at 10,000 items (roughly 2.2 of 4.5 s, the rest is the table of hop counts and the overlap step), so the most a card could save is about half, and only on a card that is fast enough to beat the CPU on a table of 100 MB moved across.
 
 ## Reproduce
 
@@ -949,6 +951,7 @@ node run.js chromium stress
 node run.js chromium typed
 node run.js chromium compare
 node run.js chromium stressBest                    # or: firefox; the best-quality arrangement next to the normal one (section 16)
+NFM_CHROME_ARGS='--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan=swiftshader --use-gl=angle --use-angle=swiftshader --ignore-gpu-blocklist' node run.js chromium gpumaj   # does a WebGPU majorization agree with the CPU one? (section 16)
 node run.js chromium stressOurs                      # or: firefox; only our Stress, quick re-run after a change
 node run.js chromium refresh                         # or: firefox; the parts of the compare suite that changed (draws, GIF)
 node run.js chromium pack                            # or: firefox; sending a layout from the worker, packed or not

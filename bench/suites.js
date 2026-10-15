@@ -203,6 +203,80 @@ var SUITES = (function () {
     return { frames: N, runs: runs };
   };
 
+
+  /* ================= majorization on the graphics card: does it give the same picture as the CPU? ================= */
+  var MAJ_WGSL = [
+    'struct P { k: u32, edge: f32, a: u32, b: u32 };',
+    '@group(0) @binding(0) var<uniform> prm: P;',
+    '@group(0) @binding(1) var<storage, read> dm: array<u32>;',
+    '@group(0) @binding(2) var<storage, read> pin: array<vec2<f32>>;',
+    '@group(0) @binding(3) var<storage, read_write> pout: array<vec2<f32>>;',
+    '@group(0) @binding(4) var<storage, read> wsum: array<f32>;',
+    'fn hop(a: u32, b: u32) -> f32 { let idx = a * prm.k + b; return f32((dm[idx >> 2u] >> ((idx & 3u) * 8u)) & 255u); }',
+    '@compute @workgroup_size(64)',
+    'fn step(@builtin(global_invocation_id) gid: vec3<u32>) {',
+    '  let i = gid.x; if (i >= prm.k) { return; }',
+    '  let xi = pin[i]; var acc = vec2<f32>(0.0, 0.0);',
+    '  for (var j = 0u; j < prm.k; j = j + 1u) {',
+    '    let d = hop(j, i);',   // the table is symmetric: reading it column-wise lets neighboring threads read neighboring bytes
+    '    if (d == 0.0) { continue; }',
+    '    let xj = pin[j]; let dl = xi - xj; let len = max(length(dl), 1e-6);',
+    '    acc = acc + (1.0 / (d * d)) * (xj + (d * prm.edge / len) * dl);',
+    '  }',
+    '  if (wsum[i] > 0.0) { pout[i] = acc / wsum[i]; } else { pout[i] = xi; }',
+    '}'].join('\n');
+  /** The same step on the CPU (64-bit numbers): every item moves to the weighted mean of where each other item wants it. */
+  function majCpu(P, D, k, edge, steps, wsum) {
+    var cur = Float64Array.from(P), nxt = new Float64Array(2 * k), s, i, j;
+    for (s = 0; s < steps; s++) {
+      for (i = 0; i < k; i++) {
+        var ax = 0, ay = 0, xi = cur[2 * i], yi = cur[2 * i + 1];
+        for (j = 0; j < k; j++) { var d = D[i * k + j]; if (!d) continue; var dx = xi - cur[2 * j], dy = yi - cur[2 * j + 1], len = Math.max(Math.sqrt(dx * dx + dy * dy), 1e-6), w = 1 / (d * d), f = d * edge / len; ax += w * (cur[2 * j] + f * dx); ay += w * (cur[2 * j + 1] + f * dy); }
+        if (wsum[i] > 0) { nxt[2 * i] = ax / wsum[i]; nxt[2 * i + 1] = ay / wsum[i]; } else { nxt[2 * i] = xi; nxt[2 * i + 1] = yi; }
+      }
+      var sw = cur; cur = nxt; nxt = sw;
+    }
+    return cur;
+  }
+  function allStress(P, D, k, edge) {   // mean of w * (page distance - wanted distance)^2 over every pair
+    var sum = 0, cnt = 0, i, j;
+    for (i = 0; i < k; i++) for (j = i + 1; j < k; j++) { var d = D[i * k + j]; if (!d) continue; sum += Math.pow(Math.hypot(P[2 * i] - P[2 * j], P[2 * i + 1] - P[2 * j + 1]) - d * edge, 2) / (d * d); cnt++; }
+    return sum / cnt;
+  }
+  SUITES.gpumaj = async function (a) {   // a: { kind, n, steps }
+    var out = { kind: a.kind || 'moderate', n: a.n, steps: a.steps || 20 }, EDGE = 130;
+    if (!navigator.gpu) { out.verdict = 'This browser has no WebGPU, so there is nothing to check.'; out.skipped = true; return out; }
+    var adapter = await navigator.gpu.requestAdapter(); if (!adapter) { out.verdict = 'No graphics adapter was offered, so there is nothing to check.'; out.skipped = true; return out; }
+    var info = adapter.info || {}; out.adapter = [info.vendor, info.architecture, info.description || info.device].filter(Boolean).join(' / '); out.software = !!adapter.isFallbackAdapter || /swiftshader|llvmpipe|software|lavapipe/i.test(out.adapter + ' ' + (info.vendor === 'google' ? 'swiftshader' : ''));
+    var device = await adapter.requestDevice(), g = netGraph(out.kind, a.n), dg = C.derive(g), L = E.build(dg, { view: 'network', arrange: 'stress', colorBy: 'group' });
+    var ids = L.nodes.map(function (nd) { return nd.nodeId || nd.id; }), k = ids.length, idx = new Map(ids.map(function (id, i) { return [id, i]; })), adj = ids.map(function () { return []; }), i, j;
+    g.edges.forEach(function (e) { var p = idx.get(e.from), q = idx.get(e.to); if (p !== undefined && q !== undefined && p !== q) { adj[p].push(q); adj[q].push(p); } });
+    var D = new Uint8Array(k * k), dist = new Int32Array(k), queue = new Int32Array(k), wsum = new Float32Array(k);
+    for (i = 0; i < k; i++) {
+      dist.fill(-1); dist[i] = 0; queue[0] = i; var head = 0, tail = 1;
+      while (head < tail) { var u = queue[head++]; for (var e2 = 0; e2 < adj[u].length; e2++) { var w2 = adj[u][e2]; if (dist[w2] < 0) { dist[w2] = dist[u] + 1; queue[tail++] = w2; } } }
+      for (j = 0; j < k; j++) { var dv = dist[j] > 255 ? 255 : dist[j]; D[i * k + j] = dv > 0 ? dv : 0; if (dv > 0) wsum[i] += 1 / (dv * dv); }
+    }
+    var P0 = new Float32Array(2 * k); L.nodes.forEach(function (nd, q) { P0[2 * q] = nd.cx; P0[2 * q + 1] = nd.cy; });
+    var t0 = now(), Pc = majCpu(P0, D, k, EDGE, out.steps, wsum); out.cpuMs = r1(now() - t0);
+    var mk = function (size, usage, data) { var b = device.createBuffer({ size: size, usage: usage, mappedAtCreation: !!data }); if (data) { new data.constructor(b.getMappedRange()).set(data); b.unmap(); } return b; };
+    var S = GPUBufferUsage, words = Math.ceil(k * k / 4), dmw = new Uint32Array(words); new Uint8Array(dmw.buffer).set(D);
+    var bP = mk(16, S.UNIFORM, new Uint32Array([k, new Uint32Array(new Float32Array([EDGE]).buffer)[0], 0, 0])), bD = mk(words * 4, S.STORAGE, dmw), bA = mk(8 * k, S.STORAGE | S.COPY_SRC, P0), bB = mk(8 * k, S.STORAGE | S.COPY_SRC), bW = mk(4 * k, S.STORAGE, wsum), bR = mk(8 * k, S.COPY_DST | S.MAP_READ);
+    var mod = device.createShaderModule({ code: MAJ_WGSL }), pipe = device.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint: 'step' } });
+    var bg = function (pin, pout) { return device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: bP } }, { binding: 1, resource: { buffer: bD } }, { binding: 2, resource: { buffer: pin } }, { binding: 3, resource: { buffer: pout } }, { binding: 4, resource: { buffer: bW } }] }); };
+    var g1 = bg(bA, bB), g2 = bg(bB, bA), enc = device.createCommandEncoder(), pass = enc.beginComputePass();
+    pass.setPipeline(pipe); for (var s = 0; s < out.steps; s++) { pass.setBindGroup(0, s % 2 ? g2 : g1); pass.dispatchWorkgroups(Math.ceil(k / 64)); }
+    pass.end(); enc.copyBufferToBuffer(out.steps % 2 ? bB : bA, 0, bR, 0, 8 * k); var t1 = now(); device.queue.submit([enc.finish()]); await bR.mapAsync(GPUMapMode.READ);
+    var Pg = new Float32Array(bR.getMappedRange().slice(0)); bR.unmap(); out.gpuMs = r1(now() - t1);
+    var s0 = allStress(P0, D, k, EDGE), sc = allStress(Pc, D, k, EDGE), sg = allStress(Pg, D, k, EDGE), dsum = 0;
+    for (i = 0; i < k; i++) dsum += Math.hypot(Pc[2 * i] - Pg[2 * i], Pc[2 * i + 1] - Pg[2 * i + 1]);
+    out.items = k; out.stressStart = r1(s0); out.stressCpu = r1(sc); out.stressGpu = r1(sg); out.stressDiffPct = Math.round(Math.abs(sg - sc) / sc * 1000) / 10; out.meanMoveVsLink = Math.round(dsum / k / EDGE * 1000) / 1000;
+    var same = out.stressDiffPct < 1 && out.meanMoveVsLink < 0.05;
+    out.verdict = (same ? 'The graphics-card version gives the same picture as the CPU version' : 'The graphics-card version differs from the CPU version') + ' (distance error ' + out.stressGpu + ' against ' + out.stressCpu + ', started from ' + out.stressStart + '; items differ by ' + (out.meanMoveVsLink * 100).toFixed(1) + '% of a link length on average).' + (out.software ? ' The adapter is a software one, so the times say nothing about a real card.' : '');
+    out.ok = same;
+    return out;
+  };
+
   /* ================= checker, ingestion, memory ================= */
   SUITES.check = function (a) { var g = GEN.graph(a.kind || 'moderate', a.n, 3), t = T(function () { return K.run(g, {}); }, 800); return { n: a.n, m: g.edges.length, ms: t.ms, findings: t.value.findings.length }; };
   SUITES.ingest = function (a) {   // import the same network from JSON, CSV and "A -> B" lines
