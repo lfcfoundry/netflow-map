@@ -27,6 +27,39 @@ var NFMTune = (function () {
   function law(n0, t0, n1, t1) { var p = Math.max(1, Math.min(2.5, Math.log(Math.max(t1, 1e-3) / Math.max(t0, 1e-3)) / Math.log(n1 / n0))); return { n0: n0, t0: r3(t0), p: r3(p) }; }
   function lawAt(l, n) { return l.t0 * Math.pow(n / l.n0, l.p); }
 
+  /** Whole-build time and distance error for one network size: the processor, then (if the card passed its test) the card path. c: a started private client. */
+  async function measure(c, card, opts, o, n, step, stop) {
+    var g = o.makeGraph(n), S = csr(g), place = function (L) { var X = new Float64Array(2 * S.k); L.nodes.forEach(function (nd) { var q = S.idx.get(nd.nodeId || nd.id); if (q !== undefined) { X[2 * q] = nd.cx; X[2 * q + 1] = nd.cy; } }); return X; };
+    c.setGraph(g); await new Promise(function (r) { setTimeout(r, 0); });
+    await step('The processor, ' + n.toLocaleString('en-US') + ' items…');
+    c.cardOff = true; var t0 = now(), b0 = await c.build(opts), tcpu = now() - t0;
+    var row = { n: n, cpuMs: Math.round(tcpu), cpuTruth: r3(typeof NFMGpuStress === 'undefined' ? 0 : NFMGpuStress.stress(S.off, S.nbr, S.k, place(b0.L), 20)), cardMs: null, cardTruth: null, cardUsed: false };
+    if (stop()) return null;
+    if (card.state === 'ready') {
+      await step('The graphics card, ' + n.toLocaleString('en-US') + ' items…');
+      c.cardOff = false; c.tune = null; card.prof = null; t0 = now(); var b1 = await c.build(opts), tgpu = now() - t0;
+      if (b1.card) { row.cardMs = Math.round(tgpu); row.cardTruth = r3(NFMGpuStress.stress(S.off, S.nbr, S.k, place(b1.L), 20)); row.cardUsed = true; }
+    } else await step('(no graphics card to try)');
+    return row;
+  }
+  /**
+   * The device check's graphics-card test: does the card path work and pay off for a map of about n items here?
+   * Resolves { state: 'none', why } | { state: 'ready', info, row, verdict: 'good' | 'slower' | 'worse' | 'unused', text }.
+   */
+  async function checkCard(o) {
+    var n = o.n || 6000, c = new o.Client(o.engineSrc, o.getEngine), steps = 0;
+    try {
+      await c.start(); if (c.mode !== 'worker') return { state: 'none', why: 'the background helper is not available' };
+      var card = typeof NFMGpuStress === 'undefined' ? { state: 'none', why: 'no graphics-card code on this page' } : await NFMGpuStress.probe(20000);
+      c.card = card; c.cardP = Promise.resolve(card);
+      var row = await measure(c, card, { view: 'network', arrange: 'stressBest', colorBy: 'group' }, o, n, function (t) { steps++; if (o.onStep) o.onStep(t); return Promise.resolve(); }, function () { return false; });
+      if (card.state !== 'ready') return { state: 'none', why: card.why || 'none offered', row: row };
+      var x = row.cardMs === null ? null : row.cpuMs / row.cardMs, tw = row.cardTruth !== null && row.cardTruth > row.cpuTruth * 1.05 + 0.003;
+      var verdict = !row.cardUsed ? 'unused' : tw ? 'worse' : x >= 1.3 ? 'good' : 'slower';
+      return { state: 'ready', info: card.info, max: card.max, row: row, speedup: x, verdict: verdict, why: c.cardWhy || '' };
+    } finally { try { if (c.w) c.w.terminate(); } catch (e) { /* gone */ } }
+  }
+
   /**
    * o: { Client (NFMEngineClient.Client), engineSrc, getEngine, makeGraph(n) -> graph, sizes ([5000, 10000]), big (20000), onStep(text, fraction), cancelled() }
    * Resolves { profile, rows, verdict, steps } (profile is what to save), or { cancelled: true }.
@@ -45,23 +78,10 @@ var NFMTune = (function () {
       c.card = card; c.cardP = Promise.resolve(card);
       var opts = { view: 'network', arrange: 'stressBest', colorBy: 'group' }, cpu = [], gpu = [], truthCpu = [], truthGpu = [];
       for (var si = 0; si < sizes.length; si++) {
-        var n = sizes[si], g = o.makeGraph(n), S = csr(g);
-        c.setGraph(g); await new Promise(function (r) { setTimeout(r, 0); });
         if (stop()) return { cancelled: true };
-        await step('The processor, ' + n.toLocaleString('en-US') + ' items…');
-        c.cardOff = true; var t0 = now(), b0 = await c.build(opts), tcpu = now() - t0;
-        var X0 = new Float64Array(2 * S.k); b0.L.nodes.forEach(function (nd) { var q = S.idx.get(nd.nodeId || nd.id); if (q !== undefined) { X0[2 * q] = nd.cx; X0[2 * q + 1] = nd.cy; } });
-        cpu.push(tcpu); truthCpu.push(typeof NFMGpuStress === 'undefined' ? 0 : NFMGpuStress.stress(S.off, S.nbr, S.k, X0, 20));
-        if (stop()) return { cancelled: true };
-        if (card.state === 'ready') {
-          await step('The graphics card, ' + n.toLocaleString('en-US') + ' items…');
-          c.cardOff = false; c.tune = null; card.prof = null; t0 = now(); var b1 = await c.build(opts), tgpu = now() - t0;
-          if (b1.card) {
-            var X1 = new Float64Array(2 * S.k); b1.L.nodes.forEach(function (nd) { var q = S.idx.get(nd.nodeId || nd.id); if (q !== undefined) { X1[2 * q] = nd.cx; X1[2 * q + 1] = nd.cy; } });
-            gpu.push(tgpu); truthGpu.push(NFMGpuStress.stress(S.off, S.nbr, S.k, X1, 20));
-          } else { gpu.push(null); truthGpu.push(null); }
-        } else await step('(no graphics card to try)');
-        rows.push({ n: n, cpuMs: Math.round(tcpu), cpuTruth: r3(truthCpu[si]), cardMs: gpu[si] ? Math.round(gpu[si]) : null, cardTruth: truthGpu[si] === null || truthGpu[si] === undefined ? null : r3(truthGpu[si]) });
+        var row = await measure(c, card, opts, o, sizes[si], step, stop);
+        if (!row) return { cancelled: true };
+        cpu.push(row.cpuMs); gpu.push(row.cardMs); truthCpu.push(row.cpuTruth); truthGpu.push(row.cardTruth); rows.push(row);
       }
       var prof = { v: VERSION, key: deviceKey(card.state === 'ready' ? card.info : ''), when: new Date().toISOString(), threads: navigator.hardwareConcurrency || 0, card: { use: false, info: card.state === 'ready' ? card.info : '', why: card.state === 'ready' ? '' : card.why || '', max: card.state === 'ready' ? card.max : 0, minItems: 4001, sgdMax: 12500, sweeps: 2 }, secs: { cpu: law(sizes[0], cpu[0] / 1000, sizes[sizes.length - 1], cpu[cpu.length - 1] / 1000) }, rows: rows };
       var variants = [];
@@ -112,6 +132,6 @@ var NFMTune = (function () {
       return { profile: prof, rows: rows, variants: variants, verdict: verdict };
     } finally { try { if (c.w) c.w.terminate(); } catch (e) { /* gone */ } }
   }
-  return { run: run, deviceKey: deviceKey, lawAt: lawAt, VERSION: VERSION };
+  return { run: run, checkCard: checkCard, measure: measure, deviceKey: deviceKey, lawAt: lawAt, VERSION: VERSION };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMTune;
