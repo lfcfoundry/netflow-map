@@ -25,6 +25,8 @@ module.exports = {
     return jobs;
   },
   pack: () => [10000, 30000, 100000].map((n) => J('pack', { kind: 'moderate', n }, { timeout: 900000 })),
+  gifprof4: () => [1, 2, 3, 4].map((rep) => J('gifprof', { frames: 4, rep })),
+  gifprof: () => [1, 2, 3].map((rep) => J('gifprof', { frames: 4, rep })).concat([1, 2].map((rep) => J('gifprof', { frames: 31, rep }))),
   refresh: () => [J('draws', { N: 1000000 }, { timeout: 600000 }), J('gif', { frames: 4 }), J('gif', { frames: 31 }, { timeout: 600000 })],
   typed: () => {   // what typed arrays cost and save
     const jobs = [];

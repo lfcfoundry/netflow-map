@@ -188,6 +188,21 @@ var SUITES = (function () {
     return out;
   };
 
+  /* GIF profile: where the time goes, run by run (the first run is cold, the later ones are warmer). Needs an instrumented src/gif.js (bench/gif-profile.sh swaps one in); without it only the outer times appear. */
+  SUITES.gifprof = function (a) {
+    var W = a.w || 960, H = a.h || 540, N = a.frames || 31, cv = document.createElement('canvas'); cv.width = W; cv.height = H; var cx = cv.getContext('2d', { willReadFrequently: true }), frames = [], i, j;
+    for (i = 0; i < N; i++) { cx.fillStyle = '#f6f5f1'; cx.fillRect(0, 0, W, H); for (j = 0; j < 13; j++) { cx.fillStyle = ['#4a78b0', '#e08a3c', '#5aa05a', '#d04a4a', '#6ab0a8'][j % 5]; var x = 60 + (j % 5) * 170 + Math.sin(i / 5 + j) * 14, y = 60 + Math.floor(j / 5) * 150 + Math.cos(i / 4 + j) * 10; cx.beginPath(); cx.roundRect(x, y, 140, 52, 10); cx.fill(); cx.strokeStyle = 'rgba(40,50,80,' + (0.3 + 0.4 * ((i + j) % 5) / 5) + ')'; cx.lineWidth = 3 + (i % 4); cx.beginPath(); cx.moveTo(x + 140, y + 26); cx.bezierCurveTo(x + 200, y + 26, x + 160, y + 140, x + 230, y + 140); cx.stroke(); } frames.push(cx.getImageData(0, 0, W, H).data); }
+    var runs = [], r, lap = function () { return window.__laps ? window.__laps.splice(0) : []; };
+    for (r = 0; r < 3; r++) {
+      window.__laps = []; var t0 = now(), pal = G.makePalette([frames[0], frames[(N / 4) | 0], frames[(N / 2) | 0], frames[N - 1]], 255), t1 = now(), enc = G.createEncoder(W, H, pal), adds = [];
+      frames.forEach(function (f) { var q = now(); enc.add(f, 100); adds.push(r1(now() - q)); });
+      var t2 = now(), bytes = enc.finish().length, t3 = now(), laps = lap();
+      var g0 = now(), ge = LIBS.gifenc, enc2 = ge.GIFEncoder(), pal2 = ge.quantize(frames[0], 256), g1 = now(); frames.forEach(function (f) { enc2.writeFrame(ge.applyPalette(f, pal2), W, H, { palette: pal2, delay: 100 }); }); enc2.finish(); var g2 = now();
+      runs.push({ total: r1(t3 - t0), palette: r1(t1 - t0), adds: adds, finish: r1(t3 - t2), laps: laps.map(function (l) { return [l[0], r1(l[1])]; }), gifenc_total: r1(g2 - g0), gifenc_quantize: r1(g1 - g0) });
+    }
+    return { frames: N, runs: runs };
+  };
+
   /* ================= checker, ingestion, memory ================= */
   SUITES.check = function (a) { var g = GEN.graph(a.kind || 'moderate', a.n, 3), t = T(function () { return K.run(g, {}); }, 800); return { n: a.n, m: g.edges.length, ms: t.ms, findings: t.value.findings.length }; };
   SUITES.ingest = function (a) {   // import the same network from JSON, CSV and "A -> B" lines
