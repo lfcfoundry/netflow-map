@@ -1075,6 +1075,22 @@ Version 2 of the kernel (in the tester built after this result) answers each of 
 
 The 30,000-item run is the one that matters (the processor cannot do best quality there) and it failed: the steps diverged (truth 0.206 at 20 steps, 0.222 at 40, 0.796 at 60). The cause is the over-relaxation factor 1.6 used in that run: the simultaneous (Jacobi) update has iteration-matrix eigenvalues down to some negative number, and a factor of 1.6 overshoots once that number is below about -0.25; it was fine up to 20,000 items and not above. Version 2's default is now 1.2 (safe to about -0.8), and the tester runs 30,000 items with factors 1.0 and 1.2 and flags a run-away. The old-against-new comparison step also failed on the laptop ("Invalid buffer", before any row): the old kernel's run is the likely cause and is now caught per variant with the card's own message and any device-lost reason recorded. Complex 9,999 items still ends at 0.155 against 0.147; the 150-step variant in the next run shows how far more steps close that. Cold start is 244 ms against 186 ms at 500 items and 1.34 s against 1.28 s at 2,000.
 
+**Third run (version 2 with gentler pacing; `bench/results/laptop-8845HS-780M-firefox159-tester4.md`).** Stable at every size, including 30,000 items, which the app cannot do at best quality today:
+
+| network | items | processor | graphics card | faster by | truth, processor / card |
+|---|---:|---:|---:|---:|---:|
+| moderate | 2,000 | 0.42 s | 0.33 s | 1.3× | 0.149 / 0.152 |
+| moderate | 5,000 | 0.53 s | 0.33 s | 1.6× | 0.159 / 0.155 |
+| moderate | 10,000 | 1.69 s | 0.54 s | 3.1× | 0.164 / 0.164 |
+| complex | 5,000 | 0.42 s | 0.40 s | 1.0× | 0.144 / 0.143 |
+| complex | 9,999 | 1.59 s | 0.53 s | 3.0× | 0.147 / 0.156 |
+| moderate | 20,000 | 5.2 s | 2.1 s | 2.5× | 0.162 / 0.164 |
+| moderate | 30,000 | 2.6 s (quick sample) | 5.5 s | | **0.211 / 0.164** |
+
+At 30,000 items best quality is 22% truer than the quick sample the app uses there, and 30,000 is not the limit: the hop table needs k x k bytes, so a 2 GB buffer allows about 46,000 items. Variants at 10,000 items (60 steps): plain steps 0.165 in 534 ms, relaxed 1.2 0.164 in 547 ms, relaxed 1.6 0.163 in 647 ms, the no-table version 0.164 in 675 ms (so the tables version stays), 30 steps 0.166 in 544 ms. Complex 9,999 items: 60 steps 0.156, 150 steps 0.153 (844 ms), against 0.147 for the processor, so on hub-heavy networks the card's plain steps stay about 0.006 to 0.009 short; the processor's random-order sweeps escape a local minimum that these steps do not. Parts of one 10,000-item job: sketch 0.1 s, hop table and weights 0.15 s, 60 steps 0.30 s, read-back 0.1 s (a flat wait in Firefox). Cold start is 245 against 182 ms at 500 items and nothing at 2,000.
+
+Version 3 (next tester) overlaps the processor's sketch with the card's table, uses 40 steps (0.165 against 0.164 at 60), paces with fewer waits, and times how many start items to walk together (32 to 512) at 20,000 items, since the table is now the largest part at big sizes (about 1.0 s of 2.1 s at 20,000 and 2.7 s of 5.5 s at 30,000).
+
 **The laptop tester.** `node tools/build-tester.mjs` writes one self-contained page, `bench/net-flow-map-tester.html`. Opened in a browser it starts by itself, runs five checks (the computer and its graphics adapter; whether the graphics-card hop table and steps match the processor's; time and truth of the processor's best quality against the graphics card at 2,000 to 20,000 items; first run against later runs; random draws, CSV reading and Force repeated), explains each in plain words, and offers a results file (`net-flow-map-tester-results.md`) to hand back. `?quick=1` makes it small enough to try anywhere; `?plan=moderate:5000` picks the sizes. `node bench/tester/run-local.js <firefox|chromium> [quick]` runs it in this machine's browsers.
 
 ## Reproduce
