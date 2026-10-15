@@ -36,6 +36,19 @@ Flow, Top-down, Choke-point spine, Lanes (one band per group), Shape (the stretc
 
 The map is drawn by WebGPU if this browser can really use it, otherwise WebGL 2, otherwise basic 2D drawing. "Can really use it" means a small test runs at startup (it does not just ask the browser what it claims). All three draw the same picture (they agree to within about 0.2 out of 255 on average). The layout work runs in a background helper so big maps do not freeze the page. The **Check this device** button runs all of this again, times a large map, and says in plain words what to expect.
 
+## No two items touch
+
+Most layout tools place points. d3-force and ForceAtlas2 do not know how big an item is, so at the sizes this app draws, **70 to 100% of their items end up on top of another item** (ForceAtlas2 on a plain tree: 9%). Every network arrangement here ends with a step that guarantees that **no two items touch**: push-apart passes, then (if a pair still touches) a stretch of the whole picture, which does not change how true it is, then each leftover item moves to the nearest free spot. A test checks it (`test/layout.test.js`), and 40 layouts per browser were checked in Chromium and Firefox.
+
+| 5,000 items, moderate network (Node, one run) | Time | Truth (lower = truer) | Items touching |
+|---|---:|---:|---:|
+| **Ours (Stress)** | **0.8 s** | 0.198 | **0%** |
+| d3-force | 11 s | 0.182 | 98.5% |
+| d3-force + forceCollide | 16 s | 0.182 | 12% |
+| ForceAtlas2 | 9.8 s | 0.183 | 98% |
+
+That guarantee costs a little truth (the score ignores item size, so it favors the others), and the benchmarks count ours with that cost included. Through 3,000 items ours is still the truest; at 10,000 items it is 10% truer to 9% less true than d3-force. `docs/BENCHMARKS.md` section 12 has the full table, how it was measured, and what the numbers do not show; `docs/RESEARCH-r-packages.md` compares the same problem across R packages.
+
 ## Build and test
 
 ```
@@ -45,6 +58,10 @@ node tools/build.mjs --pack          # also writes index.packed.html, a self-ext
 node test/archive.test.js            # zips, Excel and graph files, including zip bombs, bad checksums and cut-off files
 node --expose-gc test/fuzz.test.js 90  # about 90 s of random and hostile input, layout shapes, dense links and leak loops
 node test/importers.test.js          # 19 quick checks of the readers, including 6,000 random tables against a plain reader
+node test/layout.test.js             # network layouts must leave no two items touching (the guarantee above)
+node test/pack.test.js               # a layout sent from the helper to the page comes back exactly as the engine made it
+node test/gif.test.js && node test/sim.test.js   # GIF writer (byte-identical fast path) and the random draws
+node bench/overlap.js moderate 1000 3000 5000    # Node only: items left touching, ours against d3-force and ForceAtlas2 (needs bench/npm install)
 node test/oracle.test.mjs            # new engine versus the older story-map package, 40 random stories
 node test/limits.test.js             # a 20,000-page chain, 1,500 stacked diamonds, a 3,000-item network
 node test/browser.test.js chromium   # real browser run (see the file header for the browser programs it needs)
@@ -62,6 +79,7 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - `src/engine-client.js`: runs the engine in a background helper, with a fallback
 - `src/columns.js`, `src/sim.js`, `src/check.js`: column types, calculated columns and states, the walker simulation, the data checks
 - `src/gif.js`: the animated GIF writer (palette, frame differencing, LZW)
+- `src/pack.js`: sends a big layout from the helper to the page as typed-array columns instead of copying every object
 - `src/app/*.js` (joined in file-name order into one function), `src/app.css`, `src/index.template.html`: the page (00 core, 10 data, 20 nodes, 30 map, 32 interact, 35 rail, 40 states, 50 check, 60 advanced, 61 simulation, 70 export, 72 gif, 99 boot)
 - `vendor/`: `env-probes.js` and `back-close.js` from [JS-modules](https://github.com/JNFoo/JS-modules); `story-map.global.js` is only the test oracle, it is not shipped in `index.html`
 
@@ -76,3 +94,12 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 ## Benchmarks
 
 `bench/` runs the same jobs in Firefox and ungoogled-chromium against Papa Parse, d3-force, ForceAtlas2, dagre, ELK, Louvain, expr-eval, gifenc and more, up to 1,000,000 items. Results and findings are in `docs/BENCHMARKS.md`; the raw numbers are in `bench/results/`. `node bench/report.js` rebuilds the tables.
+
+
+Headlines (both browsers; `docs/BENCHMARKS.md` has every table, the losses included):
+
+- Stress layout: 2.4 to 12× faster than d3-force up to 3,000 items and 14 to 23× faster at 10,000, truer through 3,000 items, and the only one of the three with no overlapping items (section 12). At 10,000 items it is 10% truer to 9% less true than d3-force.
+- Sending a big layout from the helper to the page as columns: 2.5× faster end to end at 100,000 items in Chromium (1.8× in Firefox). Section 14.
+- GIF export: 12 to 18× lower color error than gifenc; 1.3 to 1.7× faster at 31 frames; but 1.85× slower on a cold 4-frame run in Chromium, and files 6 to 8% larger. Section 14.
+- Random draws: faster in every Chromium row (normal 2.3 to 2.5×); in Firefox a tie or a small loss on normal draws. Section 14.
+- Methods read from the R packages `graphlayouts`, `igraph`, `packcircles` and `ggrepel`, and what was tried from them: `docs/RESEARCH-r-packages.md`.

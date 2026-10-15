@@ -34,6 +34,7 @@ for (const b of ['chromium', 'firefox']) {
   cmp.filter((r) => r.suite === 'formula' && r.ok).forEach((r) => add('Formulas', 'speed', b, `${r.ok.rows} rows`, 'expr-eval', r.ok.ours, r.ok.exprEval));
   cmp.filter((r) => r.suite === 'gif' && r.ok).forEach((r) => add('GIF export', 'speed', b, `${r.ok.frames} frames`, 'gifenc', r.ok.ours.ms, r.ok.gifenc_shared_palette.ms));
   cmp.filter((r) => r.suite === 'gif' && r.ok).forEach((r) => add('GIF export', 'memory', b, `${r.ok.frames} frames file size`, 'gifenc', r.ok.ours.bytes, r.ok.gifenc_shared_palette.bytes));
+  cmp.filter((r) => r.suite === 'gif' && r.ok && r.ok.ours.mse > 0 && r.ok.gifenc_shared_palette.mse > 0).forEach((r) => add('GIF export truth', 'truth', b, `${r.ok.frames} frames color error`, 'gifenc', r.ok.ours.mse, r.ok.gifenc_shared_palette.mse));   // mean squared color error of the decoded animation, lower is truer
   if (b === 'chromium') {
     const mem = (what) => { const r = cmp.find((x) => x.suite === 'memory' && x.args.what === what && x.ok); return r && r.ok.heapMB; };
     add('Network memory', 'memory', b, '10,000 items held', 'graphology', mem('prepare'), mem('graphology'));

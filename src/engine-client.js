@@ -49,8 +49,9 @@ var NFMEngineClient = (function () {
     'if(d.type==="graph"){__st.G=NFMColumns.derive(d.graph);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
     'if(d.type==="ping"){self.postMessage({id:d.id,ok:true,result:"pong"});return;}' +
     'if(d.ver!==__st.ver)throw new Error("The worker has an older copy of the data.");' +
-    'var t0=Date.now();var r=dispatch(d,__st,__API);' +
-    'self.postMessage({id:d.id,ok:true,result:r,ms:Date.now()-t0});' +
+    'var t0=Date.now();var r=dispatch(d,__st,__API);var tr=[];' +
+    'try{var pk=NFMPack.packResult(r,tr);r=pk;}catch(pe){tr=[];}' +   // big layouts travel as typed arrays (src/pack.js); any trouble: send the objects as they are
+    'self.postMessage({id:d.id,ok:true,result:r,ms:Date.now()-t0},tr);' +
     '}catch(err){self.postMessage({id:d.id,ok:false,error:String(err&&err.message||err)});}};';
 
   function Client(engineSrc, onMain) {
@@ -76,7 +77,7 @@ var NFMEngineClient = (function () {
     var p = this.pending.get(d.id);
     if (!p) return;
     this.pending.delete(d.id);
-    if (d.ok) p.resolve(d.result === true || d.result === 'pong' ? d.result : { L: d.result, ms: d.ms }); else p.reject(new Error(d.error));
+    if (d.ok) p.resolve(d.result === true || d.result === 'pong' ? d.result : { L: typeof NFMPack !== 'undefined' ? NFMPack.unpackResult(d.result) : d.result, ms: d.ms }); else p.reject(new Error(d.error));
   };
   Client.prototype.call = function (msg) {
     var self = this, id = ++this.seq;

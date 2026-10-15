@@ -40,4 +40,26 @@ ok(sw.ok && sw.rows.length >= 2 && sw.rows[0].shift >= sw.rows[sw.rows.length - 
 const lg = mk(['s', 'a', 'e'], [['s', 'a', 1], ['a', 's', 9], ['a', 'e', 1]]);
 const PL = E.prepare(lg, { weights: true }), sl = S.create(PL, { seed: 1, trials: 5000, rule: 'weights', weights: PL.w, stepCap: 400 }); sl.run(1e9, 1e9);
 ok(sl.snapshot().endpoints[0].share > 0.99, 'walkers escape a loop');
+// the normal generator (ziggurat): moments and tails of 4 million draws, and the run never repeats across trials
+{
+  const r = S.rngFor(7, 3), N = 4e6; let m1 = 0, m2 = 0, m4 = 0, t3 = 0, t4 = 0;
+  for (let i = 0; i < N; i++) { const x = r.normal(); m1 += x; m2 += x * x; m4 += x * x * x * x; const a = Math.abs(x); if (a > 3) t3++; if (a > 4) t4++; }
+  const e3 = 0.0026998 * N, e4 = 6.334e-5 * N;
+  ok(Math.abs(m1 / N) < 0.004 && Math.abs(m2 / N - 1) < 0.006 && Math.abs(m4 / N - 3) < 0.05, 'normal draws: mean ' + (m1 / N).toFixed(4) + ', variance ' + (m2 / N).toFixed(4) + ', fourth moment ' + (m4 / N).toFixed(3));
+  ok(Math.abs(t3 - e3) < 5 * Math.sqrt(e3) && Math.abs(t4 - e4) < 5 * Math.sqrt(e4), 'normal draws: tails beyond 3 and 4 standard deviations are ' + t3 + ' and ' + t4 + ' (expected ' + Math.round(e3) + ' and ' + Math.round(e4) + ')');
+  ok(S.rngFor(7, 3).normal() === S.rngFor(7, 3).normal() && S.rngFor(7, 3).normal() !== S.rngFor(7, 4).normal(), 'normal draws repeat for the same seed and trial and differ across trials');
+}
+{   // the exponential ziggurat and the Poisson walk along the cumulative odds
+  const r = S.makeRng(99), N = 4e6; let s = 0, q = 0, t1 = 0, t3 = 0, t8 = 0, neg = 0;
+  for (let i = 0; i < N; i++) { const x = r.exponential(); s += x; q += x * x; if (x > 1) t1++; if (x > 3) t3++; if (x > 8) t8++; if (x < 0) neg++; }
+  const m = s / N, v = q / N - m * m, e1 = N * Math.exp(-1), e3 = N * Math.exp(-3), e8 = N * Math.exp(-8);
+  ok(Math.abs(m - 1) < 0.004 && Math.abs(v - 1) < 0.02 && neg === 0, 'exponential draws: mean ' + m.toFixed(4) + ', variance ' + v.toFixed(4));
+  ok(Math.abs(t1 - e1) < 5 * Math.sqrt(e1) && Math.abs(t3 - e3) < 5 * Math.sqrt(e3) && Math.abs(t8 - e8) < 5 * Math.sqrt(e8) + 3, 'exponential draws: tails beyond 1, 3 and 8 are ' + t1 + ', ' + t3 + ', ' + t8 + ' (expected ' + Math.round(e1) + ', ' + Math.round(e3) + ', ' + Math.round(e8) + ')');
+  ok(S.rngFor(7, 3).exponential() === S.rngFor(7, 3).exponential(), 'exponential draws repeat for the same seed and trial');
+  for (const lam of [0.2, 1, 7, 29.5]) {
+    const rp = S.makeRng(5), M = 1e6; let ps = 0, pq = 0, p0 = 0; for (let i = 0; i < M; i++) { const x = S.DRAW.poisson(rp, lam); ps += x; pq += x * x; if (x === 0) p0++; }
+    const pm = ps / M, pv = pq / M - pm * pm, e0 = M * Math.exp(-lam);
+    ok(Math.abs(pm - lam) < 5 * Math.sqrt(lam / M) && Math.abs(pv - lam) < 0.02 * lam + 0.01 && Math.abs(p0 - e0) < 5 * Math.sqrt(e0) + 3, 'poisson ' + lam + ': mean ' + pm.toFixed(3) + ', variance ' + pv.toFixed(3) + ', zeros ' + p0 + ' (expected ' + Math.round(e0) + ')');
+  }
+}
 console.log(bad ? bad + ' FAILED' : 'sim: all passed'); process.exit(bad ? 1 : 0);
