@@ -12,7 +12,7 @@ async function open(which, opts) {
     return { b, page, version: await b.version(), close: () => b.close().catch(() => {}), eval: (fn, arg) => page.evaluate(fn, arg), goto: (u) => page.goto(u, { waitUntil: 'load', timeout: 120000 }) };
   }
   const pw = require(process.env.NFM_PLAYWRIGHT || '/opt/npm-tools/node_modules/playwright-core');
-  const b = await pw.chromium.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--js-flags=--max-old-space-size=8192', '--enable-precise-memory-info'].concat(opts.args || []) });
+  const b = await pw.chromium.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--js-flags=--max-old-space-size=8192', '--enable-precise-memory-info'].concat((process.env.NFM_CHROME_ARGS || '').split(' ').filter(Boolean), opts.args || []) });
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } }), page = await ctx.newPage(); page.setDefaultTimeout(opts.timeout || 600000);
   return { b, page, version: 'chromium ' + b.version(), close: () => b.close().catch(() => {}), eval: (fn, arg) => page.evaluate(fn, arg), goto: (u) => page.goto(u, { waitUntil: 'load', timeout: 120000 }) };
 }
