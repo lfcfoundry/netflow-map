@@ -12,7 +12,7 @@ var NFMSankey = (function () {
   var EPS = 1e-9;
   function rng(seed) { var s = seed | 0; return function () { s = (s + 0x6d2b79f5) | 0; var t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
-  /** Weighted crossings between two neighbouring layers: links as [posTop, posBottom, weight]. Sum of w1*w2 over crossing pairs, in n log n. */
+  /** Weighted crossings between two neighboring layers: links as [posTop, posBottom, weight]. Sum of w1*w2 over crossing pairs, in n log n. */
   function crossWeight(links, nb) {
     if (links.length < 2) return 0;
     var idx = links.slice().sort(function (p, q) { return p[0] - q[0] || p[1] - q[1]; }), bit = new Float64Array(nb + 2), total = 0, i = 0, j, k;
@@ -96,7 +96,7 @@ var NFMSankey = (function () {
       } else { loops.push(ei); a.outAll += e.flow; b.inAll += e.flow; }
     });
     V.forEach(function (v) { if (!v.dummy) v.size = Math.max(v.inAll, v.outAll, EPS); });
-    /* ---- order inside each layer: weighted barycentre sweeps and weighted neighbour swaps, best of a few restarts ---- */
+    /* ---- order inside each layer: weighted barycenter sweeps and weighted neighbor swaps, best of a few restarts ---- */
     var nbOf = function (list) { return list.length + 1; }, ow = opts.unweighted ? function () { return 1; } : function (w) { return w; };
     var setPos = function () { layers.forEach(function (list) { list.forEach(function (v, j) { v.pos = j; }); }); };
     var total = function () {
