@@ -1135,6 +1135,19 @@ Five clean-up steps after the sweeps change little (complex 9,999: 0.148; modera
 
 Variants at about 10,000 items (complex / moderate): two smooth sweeps 0.48 s, truth 0.147 / 0.163 (the processor's 0.147 / 0.164); three smooth sweeps 0.163 on moderate (no gain); three old-style sweeps 0.58 s, 0.149 / 0.161; five clean-up steps after one sweep change nothing; a bigger first step (0.1) the same, smaller steps (0.02) worse (0.155). The sweep part at 10,000 items is 0.30 s including the flat read-back wait. The card now matches the processor's truth on hub-heavy networks and beats it on moderate ones, 3 to 5 times faster, up to about 12,000 items. Above that the pair lookups are random reads from a table of hundreds of megabytes (2.0 s at 20,000 and 6.1 s at 30,000 for a gain of 0.003 to 0.004), so the old 40 steps stay the choice there. Policy that follows: two smooth sweeps up to about 12,000 items, the old 40 steps above.
 
+**Eighth run (the whole app path, including the app's own overlap clean-up; `bench/results/laptop-8845HS-780M-firefox159-tester9.md`).** The engine got a small hook (`stressTuning.external`): when it reaches the arrangement of a big piece it can be handed a finished picture, and then runs its own spread, push-apart and settle on it as usual. The tester captures the piece, has the card make the picture (two smooth sweeps up to 12,500 items, 40 old steps above), hands it back, and times and scores the whole build. Whole build, processor against the card's picture through the app's clean-up (truth measured after the clean-up on both):
+
+| network | items | processor | with the card | faster by | truth, processor / card |
+|---|---:|---:|---:|---:|---:|
+| moderate | 5,000 | 0.55 s | 0.20 s | 2.8× | 0.159 / 0.153 |
+| moderate | 10,000 | 1.92 s | 0.53 s | 3.7× | 0.164 / 0.159 |
+| complex | 5,000 | 0.44 s | 0.18 s | 2.4× | 0.144 / 0.143 |
+| complex | 9,999 | 1.69 s | 0.74 s | 2.3× | 0.147 / 0.147 |
+| moderate | 20,000 | 5.5 s | 1.2 s | 4.5× | 0.162 / 0.162 |
+| moderate | 30,000 | 2.8 s (quick sample) | 2.0 s | 1.4× | 0.211 / 0.165 |
+
+The clean-up costs the card's picture about 0.004 of truth (the processor's own picture goes through the same clean-up), and the card's picture is at least as true as the processor's everywhere, equal on the hub-heavy network (0.147). At 2,000 items the hook is not used (pieces of 4,000 items or fewer take the engine's normal path). Everything needed for the integration is now measured; what remains is the asynchronous step in the app, the processor fallback and the plain-words note.
+
 **The laptop tester.** `node tools/build-tester.mjs` writes one self-contained page, `bench/net-flow-map-tester.html`. Opened in a browser it starts by itself, runs five checks (the computer and its graphics adapter; whether the graphics-card hop table and steps match the processor's; time and truth of the processor's best quality against the graphics card at 2,000 to 20,000 items; first run against later runs; random draws, CSV reading and Force repeated), explains each in plain words, and offers a results file (`net-flow-map-tester-results.md`) to hand back. `?quick=1` makes it small enough to try anywhere; `?plan=moderate:5000` picks the sizes. `node bench/tester/run-local.js <firefox|chromium> [quick]` runs it in this machine's browsers.
 
 ## Reproduce
