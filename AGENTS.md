@@ -21,7 +21,8 @@ Rules for anyone (person or AI) changing this repository.
 - Speed must not cost looks. Keep the three drawing backends visually identical (parity check in `test/browser.test.js`).
 - Pick a drawing backend by a real startup test, never by `'gpu' in navigator`.
 - A diagnostic page is one button and a plain-words verdict.
-- Keep checks cheap: run the Node tests while working, the browser test once when a design is settled.
+- Keep checks cheap: run the Node tests while working (`importers`, `archive`, `columns`, `sim`, `gif`; `fuzz.test.js 20` is a 20-second spot check), the browser test and the 70-second-per-seed fuzz run once when a design is settled.
+- Anything that reads a user's file (zip, xlsx, XML, GML, DOT, CSV, JSON) must have a limit counted on what is really read, a plain-words message when it refuses, and a case in `test/archive.test.js` or `test/fuzz.test.js`. Writes past the end of a typed array are silently ignored in JavaScript: guard them.
 - Never edit a file in place that the user attached or dropped in; the app works on copies.
 - Imported text is untrusted: no `innerHTML` without `esc()`, CSV export neutralizes leading `= + - @`.
 

@@ -2,11 +2,27 @@
  * Net Flow Map app, part 2: the Data tab (bring in, what I found, columns workbench). Copyright (c) 2026 JNFoo. MIT License.
  */
 /* ---------------------------------------------------------------- intake */
-var TEXT_EXT = /\.(md|markdown|txt|csv|tsv|json|canvas|jsonl|ndjson|dot|gv|tab)$/i, NOTE_EXT = /\.(md|markdown|txt)$/i;
-var MAX_FILES = 5000, MAX_NOTE = 1500000, MAX_ONE = 60000000, skippedCount = 0;
+var TEXT_EXT = /\.(md|markdown|txt|text|csv|tsv|tab|psv|dsv|prn|json|canvas|jsonl|ndjson|dot|gv|gml|graphml|gexf|xml)$/i, ARCHIVE_EXT = /\.(zip|xlsx|xlsm)$/i, NOTE_EXT = /\.(md|markdown|txt)$/i;
+var MAX_FILES = 5000, MAX_NOTE = 1500000, MAX_ONE = 60000000, MAX_ZIP = 300000000, skippedCount = 0, archiveNotes = [];
+function asBytes(file) {
+  if (file.arrayBuffer) return file.arrayBuffer().then(function (b) { return new Uint8Array(b); });
+  return new Promise(function (ok, no) { var fr = new FileReader(); fr.onload = function () { ok(new Uint8Array(fr.result)); }; fr.onerror = no; fr.readAsArrayBuffer(file); });
+}
+/** A .zip or .xlsx: opened here (safely, with limits) into several text files. */
+function readArchive(file, path) {
+  var name = file.name;
+  if (file.size > MAX_ZIP) { archiveNotes.push('"' + name + '" is larger than ' + Math.round(MAX_ZIP / 1e6) + ' MB and was not opened.'); return Promise.resolve(null); }
+  busy('Opening ' + name + '…');
+  return asBytes(file).then(function (u8) { return NFMUnpack.expand(u8, name); }).then(function (r) {
+    r.notes.forEach(function (n) { archiveNotes.push(n); });
+    var base = (path && path.indexOf('/') > 0 ? path.replace(/[^\/]*$/, '') : '');
+    return r.files.map(function (f) { return { name: f.name, path: base + name + '!/' + f.path, text: f.text }; });
+  }, function (err) { archiveNotes.push('"' + name + '": ' + (err && err.message || 'could not be opened') ); return null; });
+}
 function readFile(file, path) {
   return new Promise(function (resolve) {
     var name = file.name, isNote = NOTE_EXT.test(name);
+    if (ARCHIVE_EXT.test(name) || file.type === 'application/zip' || file.type === 'application/x-zip-compressed' || /spreadsheetml/.test(file.type || '')) return resolve(readArchive(file, path));
     if (!TEXT_EXT.test(name) && file.type && !/text|json|csv/.test(file.type)) { skippedCount++; return resolve(null); }
     if (file.size > MAX_ONE || (path && path.indexOf('/') > 0 && isNote && file.size > MAX_NOTE)) { skippedCount++; return resolve(null); }
     var done = function (t) { resolve({ name: name, path: path || file.webkitRelativePath || name, text: t }); };
@@ -20,7 +36,7 @@ function walkEntry(entry, path, acc) {
     if (acc.count >= MAX_FILES) return resolve();
     if (entry.isFile) {
       if (hiddenPath(path + entry.name)) return resolve();
-      entry.file(function (f) { acc.count++; readFile(f, path + entry.name).then(function (r) { if (r) acc.files.push(r); resolve(); }); }, function () { resolve(); });
+      entry.file(function (f) { acc.count++; readFile(f, path + entry.name).then(function (r) { if (r) acc.files.push.apply(acc.files, [].concat(r)); resolve(); }); }, function () { resolve(); });
     } else if (entry.isDirectory) {
       if (hiddenPath(path + entry.name + '/')) return resolve();
       var reader = entry.createReader(), all = [];
@@ -41,11 +57,12 @@ function filesFromDrop(dt) {
     for (var i = 0; i < items.length; i++) { var en = items[i].webkitGetAsEntry(); if (en) entries.push(en); }
     return Promise.all(entries.map(function (e) { return walkEntry(e, '', acc); })).then(function () { return acc.files; });
   }
-  return Promise.all(Array.prototype.slice.call(dt.files).map(function (f) { return readFile(f, f.name); })).then(function (r) { return r.filter(Boolean); });
+  return Promise.all(Array.prototype.slice.call(dt.files).map(function (f) { return readFile(f, f.name); })).then(flatten);
 }
+function flatten(list) { var out = []; list.forEach(function (r) { if (r) out.push.apply(out, [].concat(r)); }); return out; }
 function filesFromInput(list) {
   var arr = Array.prototype.slice.call(list).filter(function (f) { return !hiddenPath(f.webkitRelativePath || f.name); }).slice(0, MAX_FILES);
-  return Promise.all(arr.map(function (f) { return readFile(f, f.webkitRelativePath || f.name); })).then(function (r) { return r.filter(Boolean); });
+  return Promise.all(arr.map(function (f) { return readFile(f, f.webkitRelativePath || f.name); })).then(flatten);
 }
 function importMode() { return document.querySelector('input[name=mode]:checked').value; }
 function importOptions() { return { format: $('fmt').value, outlineSeparate: $('o-sep').checked, keepDuplicates: $('o-dups').checked }; }
@@ -54,7 +71,10 @@ function renderError(msg) { var c = $('report'); c.hidden = false; $('stats').te
 
 /** Everything that brings data in goes through here. */
 function ingest(files, extra) {
-  if (!files.length) { toast('Nothing readable was found. Tables, JSON, outlines and Markdown notes work.'); return Promise.resolve(); }
+  if (!files.length) {
+    if (archiveNotes.length) { var why = archiveNotes.join(' '); archiveNotes = []; skippedCount = 0; renderError(why); return Promise.resolve(); }
+    toast('Nothing readable was found. Tables, JSON, graph files, outlines, notes, Excel and zips of these work.'); return Promise.resolve();
+  }
   busy('Reading ' + plural(files.length, 'file') + '…');
   return nextFrame().then(function () {
     var opts = Object.assign(importOptions(), extra || {}), res;
@@ -65,6 +85,7 @@ function ingest(files, extra) {
     g.name = merged ? base.name : res.graph.name;
     if (skippedCount) res.report.notes.push(plural(skippedCount, 'file was', 'files were') + ' skipped (not text, too large, or hidden).');
     skippedCount = 0;
+    if (archiveNotes.length) { archiveNotes.forEach(function (n) { res.report.notes.push(n); }); archiveNotes = []; }
     LS.del('nfm-v:' + g.name);
     setGraph(g, true, merged);
     $('report').scrollIntoView({ behavior: 'auto', block: 'nearest' });
