@@ -213,6 +213,29 @@
     s.finish(out.length >= 2 ? 'ok' : 'warn', say); return { level: 'ok', say: say };
   } });
 
+  /* ------------------------------------------------------------- where the drawing time goes: WebGPU phases, several loop shapes, WebGL 2 as the control */
+  STEPS.push({ name: 'Where the drawing time goes (WebGPU)', run: async function () {
+    var s = addSection('Where the drawing time goes: WebGPU against WebGL 2'), n = params.get('plan3d') ? Number(params.get('plan3d').split(',')[0]) : QUICK ? 600 : 1000;
+    s.head = ['Way of drawing', 'Pictures per second', 'New angle (ms)', 'Copy to card (ms)', 'Draw commands (ms)', 'Wait for card (ms)', 'Wait for refresh (ms)'];
+    setStatus('Where the drawing time goes: building a ' + n.toLocaleString() + '-item 3D map…'); await yieldUI();
+    var g = graphFor('moderate', n), dg = C.derive(JSON.parse(JSON.stringify(g))), L3 = E.build(dg, { view: 'network', arrange: 'force3d', colorBy: 'group' });
+    var mk = function (yaw, pitch) { return NFMScene.make(L3, { colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); };
+    var c = await NFMProbe.canary(), gpu = null, ctl = null, row = function (nm, w) { return [nm + ': ' + w.label, r1(w.fps), r1(w.scene), r1(w.upload), r1(w.draw), r1(w.fence), r1(w.raf)]; };
+    if (!c.webgpu.ok) { var why = 'WebGPU is not usable here' + (c.webgpu.why ? ' (' + c.webgpu.why + ')' : '') + ', so there is nothing to time. Nothing is wrong with the app: it draws with WebGL 2 or basic drawing instead.'; ctx.timing = { skipped: why }; s.finish('warn', why); return { level: 'warn', say: why }; }
+    setStatus('Where the drawing time goes: timing WebGPU (about 8 seconds)…'); await yieldUI();
+    gpu = await NFMProbe.frameTiming({ backend: 'webgpu', W: 900, H: 600, makeScene: mk });
+    if (c.webgl2.ok) { setStatus('Where the drawing time goes: timing WebGL 2 as the control…'); await yieldUI(); ctl = await NFMProbe.frameTiming({ backend: 'webgl2', W: 900, H: 600, makeScene: mk }); }
+    if (gpu.ways) gpu.ways.forEach(function (w) { s.rows.push(row('WebGPU', w)); });
+    if (ctl && ctl.ways) ctl.ways.forEach(function (w) { s.rows.push(row('WebGL 2', w)); });
+    var ex = NFMProbe.explainTiming(gpu, ctl && ctl.ways ? ctl : null);
+    ex.lines.forEach(function (t) { s.notes.push(t); });
+    if (ctl && ctl.skipped) s.notes.push('The WebGL 2 control was skipped: ' + ctl.skipped + '.');
+    if (ctl && c.webgl2.software) s.notes.push('WebGL 2 here runs on the processor, so it is not a fair control.');
+    s.notes.push('Each row draws the same ' + n.toLocaleString() + '-item 3D map, one picture per screen refresh from a new angle, for up to 60 pictures or 0.7 seconds; the times are averages per picture. "New angle" is working the picture out on the main thread, "Copy to card" is putting it into graphics memory, "Draw commands" is encoding and handing them over, "Wait for card" is how long the loop waited for the graphics card to report it was done (or, for "up to 3 pictures in flight", for the oldest picture), and "Wait for refresh" is the wait for the next screen refresh. "Blank picture" draws nothing at all: it is the least a browser can do per picture. Run the step twice and trust only what repeats.');
+    ctx.timing = { items: n, device: gpu.device || '', software: !!gpu.software, webgpu: gpu.ways || gpu.skipped, webgl2: ctl && (ctl.ways || ctl.skipped) || null, fastest: ex.fastest, dominant: ex.dominant };
+    s.finish(ex.level, ex.say); return { level: ex.level, say: ex.say };
+  } });
+
   (params.get('extras') ? STEPS : []).push({ name: 'Hop table groups', run: async function () {
     var s = addSection('Hop table: how many start items to walk together');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
@@ -325,7 +348,7 @@
   function buildMd(elapsed) {
     var L = ['# Net Flow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
-    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, turn: ctx.turn || null, small: ctx.small || null }, null, 1), '```', '');
+    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, turn: ctx.turn || null, timing: ctx.timing || null, small: ctx.small || null }, null, 1), '```', '');
     return L.join('\n');
   }
   function offerResults(md, elapsed) {
