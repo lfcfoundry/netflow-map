@@ -13,7 +13,7 @@ function touching(L) {
   return pairs;
 }
 const random = (n, m, seed) => { let s = seed; const r = () => (s = (s * 16807) % 2147483647) / 2147483647, e = []; for (let i = 1; i < n; i++) e.push([Math.floor(r() * i), i]); for (let i = 0; i < m - n + 1; i++) e.push([Math.floor(r() * n), Math.floor(r() * n)]); return e; };
-['stress', 'force', 'radial'].forEach((arr) => t(arr + ': 2,000 items, 6,000 links: no two items touch', () => {
+['stress', 'force', 'radial', 'closeness'].forEach((arr) => t(arr + ': 2,000 items, 6,000 links: no two items touch', () => {
   const L = E.build(mk(2000, random(2000, 6000, 7)), { view: 'network', arrange: arr }); const p = touching(L); if (p) throw new Error(p + ' touching pairs'); return '0 touching';
 }));
 t('stress: 600 leaves on one hub (all want the same spot): no two touch', () => {
@@ -36,5 +36,11 @@ t('stressBest: a small network (already every pair) and a pair with loners still
 });
 t('stressBest: a 5,000-item chain (longer than a byte can count) falls back to the pivot version, no two touch', () => {
   const e = []; for (let i = 1; i < 5000; i++) e.push([i - 1, i]); const L = E.build(mk(5000, e), { view: 'network', arrange: 'stressBest' }); const p = touching(L); if (p) throw new Error(p + ' touching pairs'); return L.nodes.length + ' items';
+});
+t('closeness: several pieces, loners and 600 leaves on one hub: no two touch, and the same data gives the same picture', () => {
+  const e = random(400, 1200, 6).concat([[400, 401], [402, 403]]); for (let i = 1; i < 600; i++) e.push([410, 410 + i]);
+  const g = mk(1015, e), A = E.build(g, { view: 'network', arrange: 'closeness' }), B = E.build(g, { view: 'network', arrange: 'closeness' }); const p = touching(A); if (p) throw new Error(p + ' touching pairs');
+  for (let i = 0; i < A.nodes.length; i++) if (A.pos[A.nodes[i].id][0] !== B.pos[B.nodes[i].id][0]) throw new Error('not repeatable');
+  return '0 touching, repeatable';
 });
 process.exitCode = bad ? 1 : 0;

@@ -24,6 +24,7 @@ Libraries we compare against (all current npm releases, bundled into the benchma
 | **Items left touching (section 12)** | **0 in all 40 test layouts per browser; d3-force and ForceAtlas2 leave 70 to 100% of items overlapping at the same item sizes (ForceAtlas2 on a plain tree: 9%)** | same (the rule is in the code, and a test checks it) | **Vital advantage**: the picture can be read; the others need a zoom of 2.6× to 48× to separate their worst pair, or a slower collision pass |
 | **Neighborhood preservation (section 15; 4 networks, Node, single runs)** | **Stress is below d3-force, d3-force + forceCollide and ForceAtlas2 in all four** | not run | **Weakness**: distance truth and local closeness disagree; Force is closer to the competitors |
 | **Best-quality Stress (section 16; 6 networks, 10,000 items)** | **truer than d3-force and ForceAtlas2 in all 3 (0.137 to 0.158 against 0.18 to 0.21), 4.4 to 5.5× faster than the faster of them** | **same (0.137 to 0.159), 3.9 to 4.3× faster than the faster of them** | **Win, opt-in: 4 to 6 s at 10,000 items against 1.5 s for the normal arrangement; no overlaps** |
+| **Closeness arrangement (section 17; 9 networks, 1,000 to 10,000 items, Node)** | **neighborhood score 1.3 to 4× the best of ForceAtlas2 and d3-force in all 9; distance truth 8 to 37% worse on moderate and complex networks, level or better on trees** | 18 browser runs: 0.4 to 5.3 s, nothing touching | **Win on the neighborhood question, loss on distances: a separate choice, not a replacement** |
 | Force layout vs d3-force | faster in 20 of 20 | faster in 20 of 20 | Consistent win |
 | Layered drawing vs dagre / ELK | 7 to 13× faster than dagre, but 7 to 117% more crossings | same | Speed win, quality loss (unchanged) |
 | Formulas vs expr-eval | 3.8× faster | 5.0× faster | Consistent win |
@@ -502,10 +503,10 @@ Notes: GIF compares our encoder with gifenc using one shared palette on four syn
 
 ## 6. Left for the next round
 
-Done in the last rounds (sections 12 to 16): the 10,000+ Stress gap (7 to 28% down to 10% truer to 9% less true than d3-force), layout results as columns (about 2.5× faster end to end at 100,000 items, not the 70 to 100× estimated before the object rebuild was counted), the GIF encoder (now faster than gifenc from about 30 frames, and far truer in color) and the normal / lognormal draws (Chromium win; Firefox tie).
+Done in the last rounds (sections 12 to 17): the 10,000+ Stress gap (7 to 28% down to 10% truer to 9% less true than d3-force), layout results as columns (about 2.5× faster end to end at 100,000 items, not the 70 to 100× estimated before the object rebuild was counted), the GIF encoder (now faster than gifenc from about 30 frames, and far truer in color) and the normal / lognormal draws (Chromium win; Firefox tie).
 
 1. Stress at 10,000 items and above, normal arrangement: the last 5 to 9% of distance truth stays open for the quick arrangement (section 13, four rounds, all within noise). The slower **best quality** arrangement closes it (section 16). Open: making best quality faster still (the sweeps and the table of hop counts are each about half of the 4 to 5 s at 10,000 items); a graphics-card version of the sweeps is checked for correctness (end of section 16) but not built into the page.
-2. Stress on neighborhood preservation (section 15): four ways of adding a local term were tried and none helped (section 13, fourth round). Open: a different objective, not a correction on top of Stress.
+2. Neighborhood preservation (section 15): four corrections on top of Stress failed (section 13); a separate arrangement with its own objective works (section 17). Open: its distance truth on networks with hubs (23 to 37% worse than ForceAtlas2), and checking the neighborhood score of the browsers' own runs (Node only so far).
 3. GIF: the palette is a fixed cost that four frames cannot spread out (section 14). The histogram and the k-means step are what is left to trim.
 4. Reading text over 512 million characters in Chromium needs a chunked reader; the import cap of 200,000 items / 800,000 links is still the app default.
 5. A faster Force layout above 100,000 items; at that size it takes over a minute.
@@ -942,6 +943,43 @@ Reading it:
 
 **The graphics-card question, with a check instead of a guess.** Majorization (every item moving at once to the weighted mean of where each other item wants it) is the form of this calculation a graphics card can run in parallel, and on the CPU it reaches the same truth as the sweeps, not a better one (section 13, fourth round). `bench/suites.js` now has a check, `gpumaj`, that runs 20 such steps in a WebGPU compute shader and again on the CPU from the same start and reports whether the two pictures agree, in plain words (`NFM_CHROME_ARGS='--enable-unsafe-webgpu ...' node bench/run.js chromium gpumaj`; the flags are in the plan). In Chromium 154 on the adapter available here, it agrees at 500, 1,500 and 3,000 items: the distance error is identical to the digit shown (2092.1, 2414.1 and 2570.2, from starts of 5,911, 32,407 and 71,986) and items differ by less than 0.05% of a link length. So the shader is right. What it does not tell is how fast a real card would be: that adapter is a software one, and its times (106, 638 and 2,450 ms against 53, 350 and 1,256 ms on the CPU) are not evidence either way. It is not part of the page. After the changes above, the sweeps are about half of the time at 10,000 items (roughly 2.2 of 4.5 s, the rest is the table of hop counts and the overlap step), so the most a card could save is about half, and only on a card that is fast enough to beat the CPU on a table of 100 MB moved across.
 
+## 17. "Closeness (nearest are linked)": an arrangement for the neighborhood question
+
+Section 15 showed that Stress is weak when the question is "are my linked items the ones nearest to me?", and section 13 (fourth round) that bolting a closeness term onto Stress does not work. So closeness is its own arrangement in the Arrangement list, **Closeness (nearest are linked)**, with its own objective instead of a correction:
+- It starts from the Stress picture, so the overall shape is right.
+- Then, for 150 rounds, every link pulls its two items together and each linked item is pushed away from 10 randomly chosen other items. The force falls off slowly with distance (the shape used by t-SNE and UMAP; the random pushes are the sampling used by LargeVis), the step shrinks to zero, and big pieces (over 20,000 items) use fewer rounds.
+- The same steps as for Stress then stretch a crowded picture and separate any items that touch, so nothing touches.
+- Seeded: the same data gives the same picture.
+
+**Node, one run each** (neighborhood score / distance truth; higher neighborhood score is better, lower truth is truer; competitors from sections 12 and 15 and the runs of section 16, so the sizes differ by row):
+
+| network | items | closeness | ForceAtlas2 | d3-force | our Force | normal Stress |
+|---|---:|---:|---:|---:|---:|---:|
+| simple tree | 1,000 | **0.208** / 0.154 | 0.159 / 0.197 | 0.109 / 0.208 | 0.082 / 0.172 | 0.012 / 0.121 |
+| complex | 1,000 | **0.129** / 0.188 | 0.045 / 0.147 | 0.034 / 0.187 | 0.026 / 0.140 | 0.020 / 0.124 |
+| moderate | 3,000 | **0.068** / 0.199 | 0.031 / 0.178 | 0.027 / 0.194 | 0.011 / 0.168 | 0.007 / 0.152 |
+| simple tree | 5,000 | **0.165** / 0.195 | 0.091 / 0.205 | 0.072 / 0.206 | – | 0.000 / 0.184 |
+| moderate | 5,000 | **0.047** / 0.197 | 0.020 / 0.182 | 0.014 / 0.182 | – | 0.001 / 0.198 |
+| complex | 5,000 | **0.044** / 0.234 | 0.011 / 0.171 | 0.006 / 0.187 | – | 0.001 / 0.201 |
+| simple tree | 10,000 | **0.143** / 0.202 | 0.061 / 0.199 | 0.067 / 0.210 | – | 0.002 / 0.199 |
+| moderate | 10,000 | **0.028** / 0.200 | 0.011 / 0.184 | 0.008 / 0.190 | – | 0.000 / 0.203 |
+| complex | 10,000 | **0.024** / 0.221 | 0.008 / 0.179 | 0.005 / 0.195 | – | 0.000 / 0.198 |
+
+**In the browsers** (time / distance truth, one run each; nothing touched in any of the 18 runs):
+
+| network | items | Chromium 154 | Firefox 158 |
+|---|---:|---:|---:|
+| simple tree | 1,000 / 5,000 / 10,000 | 0.4 s / 0.151, 1.2 s / 0.186, 2.6 s / 0.198 | 0.5 s / 0.153, 1.1 s / 0.186, 1.9 s / 0.192 |
+| moderate | 1,000 / 5,000 / 10,000 | 0.7 s / 0.188, 2.8 s / 0.194, 4.5 s / 0.193 | 0.5 s / 0.191, 1.6 s / 0.197, 3.3 s / 0.194 |
+| complex | 1,000 / 5,000 / 10,000 | 0.7 s / 0.202, 2.7 s / 0.225, 5.3 s / 0.246 | 0.5 s / 0.188, 2.0 s / 0.225, 3.3 s / 0.269 |
+
+Reading it:
+- **On the neighborhood question it wins every row**: 1.3 to 2.9× the neighborhood score of the best of ForceAtlas2 and d3-force at 1,000 to 3,000 items, and 1.8 to 4× at 5,000 and 10,000, while taking 1 to 5 s where the others take 10 to 35 s at 5,000 and 10,000 items.
+- **It is not the choice for distances.** On the plain tree its distance truth is level with or better than ForceAtlas2 and d3-force (0.154 against 0.197 at 1,000 items, 0.195 against 0.205 at 5,000, 0.202 against 0.199 at 10,000); on moderate networks it is 8 to 12% less true, and on complex networks with hubs 23 to 37% less true (0.221 to 0.246 against 0.179 at 10,000 items). For distances use Distances (section 16 for big networks).
+- **Runs differ between engines.** The same data scored 0.221 in Node and 0.246 and 0.269 in Chromium and Firefox for the complex network at 10,000 items; the optimization is sensitive to the last digits of the number routines. Single runs; differences under about 0.01 are noise.
+- **What did not matter.** Starting step size 0.1 to 0.5, 80 to 600 rounds, 2 to 10 random pushes (more pushes raised the score a little at 5,000 items and were kept), and dividing each item's steps by its number of links, all moved the results by less than the run-to-run difference or in the wrong direction. A first version that started from the spiral instead of the Stress picture scored 0.202 on the 1,000-item tree but only 0.25 to 0.37 in distance truth.
+- **A bug found on the way:** the step that stretches a crowded picture before separating items was only applied to Stress; without it the complex network at 5,000 items scored 0.225 even with zero rounds of the new method. Closeness now gets it too.
+
 ## Reproduce
 
 ```
@@ -950,12 +988,14 @@ node run.js chromium csv                             # or: firefox
 node run.js chromium stress
 node run.js chromium typed
 node run.js chromium compare
+node run.js chromium closeness                      # or: firefox; the closeness arrangement in the browser (section 17)
 node run.js chromium stressBest                    # or: firefox; the best-quality arrangement next to the normal one (section 16)
 NFM_CHROME_ARGS='--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan=swiftshader --use-gl=angle --use-angle=swiftshader --ignore-gpu-blocklist' node run.js chromium gpumaj   # does a WebGPU majorization agree with the CPU one? (section 16)
 node run.js chromium stressOurs                      # or: firefox; only our Stress, quick re-run after a change
 node run.js chromium refresh                         # or: firefox; the parts of the compare suite that changed (draws, GIF)
 node run.js chromium pack                            # or: firefox; sending a layout from the worker, packed or not
 node merge.js /tmp/new.jsonl results/chromium-stress.jsonl   # fold a partial re-run (new, then old) into the results file
+ARR=closeness ONLY=ours node overlap.js moderate 5000   # also ARR=stressBest; the neighborhood score and truth of one of our arrangements
 node overlap.js moderate 1000 3000 5000 10000        # Node only: items left touching and neighborhood preservation, ours against d3-force and ForceAtlas2 (ARR=force for our Force arrangement)
 sh gif-profile.sh firefox /tmp/out.jsonl             # GIF phase timings (instruments src/gif.js for the run, then restores it; section 14)
 node ../test/archive.test.js && node --expose-gc ../test/fuzz.test.js 70   # zips, Excel, graph files; random and hostile input

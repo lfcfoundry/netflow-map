@@ -55,7 +55,8 @@ function rescale(ids, edges, pos, target) {
   const len = edges.filter((e) => e.from !== e.to && pos[e.from] && pos[e.to]).map((e) => Math.hypot(pos[e.from][0] - pos[e.to][0], pos[e.from][1] - pos[e.to][1]));
   const f = target / median(len), out = {}; ids.forEach((id) => { out[id] = [pos[id][0] * f, pos[id][1] * f]; }); return out;
 }
-if (process.env.TUNE) Object.assign(E.stressTuning, JSON.parse(process.env.TUNE));   // e.g. TUNE='{"sepPasses":60}'
+if (process.env.TUNE) Object.assign(E.stressTuning, JSON.parse(process.env.TUNE));
+if (process.env.CTUNE) Object.assign(E.closeTuning, JSON.parse(process.env.CTUNE));   // e.g. TUNE='{"sepPasses":60}'
 const ONLY = process.env.ONLY, [kind, ...ns] = process.argv.slice(2);
 const rows = [];
 for (const n of ns.map(Number)) {
