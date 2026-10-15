@@ -94,6 +94,7 @@ function refreshMap(reason) {
     if (seq !== S.mapSeq) return;
     clearTimeout(busyT); hideMsg();
     S.L = res.L; S.ms = res.ms; S.totalMs = performance.now() - t0;
+    var hadCard = !!S.cardUsed; S.cardUsed = res.card || null; if (hadCard !== !!S.cardUsed || (client && client.cardWhy)) renderMapUI();
     if (S.L.is3d === false) S.L.is3d = false;
     var fk = [V.view, V.arrange, S.gver, V.dir, V.laneBy, V.block.length, V.hideKinds.length, V.strongest, JSON.stringify(V.facets), JSON.stringify(V.around)].join('|');
     makeScene(fk !== lastFitKey && reason !== 'look'); lastFitKey = fk;
