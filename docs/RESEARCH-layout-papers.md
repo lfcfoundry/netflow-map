@@ -36,3 +36,9 @@ Copyright (c) 2026 LFC Foundry. MIT License. Written 2026-10-15. Nothing was cop
 - [Resistance distance for stress-based drawing, RDMDS / Omega (arXiv 2512.21901)](https://arxiv.org/html/2512.21901v1)
 - [GraphWaGu: GPU Powered Large Scale Graph Layout Computation and Rendering for the Web](https://par.nsf.gov/biblio/10384648)
 - [SNAP-tFDP: Massively Scalable Graph Layouts via Sparse Negative Sampling (arXiv 2608.01907, not readable here)](https://arxiv.org/pdf/2608.01907)
+
+## What came of it (Oct 15, later round)
+
+- The papers' advice for the 10,000+ gap was tried in full (BENCHMARKS section 13, three rounds) and the sampled-pair model stayed on its plateau of about 0.20.
+- The (SGD)² idea of a neighborhood term next to stress was tried four ways and did not lift the neighborhood score (section 13, fourth round).
+- Using every pair, as the Börsig-Brandes-Pásztor comparison implies is the reference, did close the gap, and could be made affordable with one-byte hop counts and a pair order that reads memory in straight lines: section 16, the "best quality" arrangement.

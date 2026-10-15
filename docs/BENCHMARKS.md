@@ -23,6 +23,7 @@ Libraries we compare against (all current npm releases, bundled into the benchma
 | Stress layout truth vs d3-force and ForceAtlas2 | as true or truer in 17 of 20 (both) | 17 of 20 (both) | Win up to 3,000 items (15 to 58% truer); at 10,000 items 10% truer to 9% less true than d3-force and 4% truer to 17% less true than ForceAtlas2 (was 7 to 28% less true) |
 | **Items left touching (section 12)** | **0 in all 40 test layouts per browser; d3-force and ForceAtlas2 leave 70 to 100% of items overlapping at the same item sizes (ForceAtlas2 on a plain tree: 9%)** | same (the rule is in the code, and a test checks it) | **Vital advantage**: the picture can be read; the others need a zoom of 2.6× to 48× to separate their worst pair, or a slower collision pass |
 | **Neighborhood preservation (section 15; 4 networks, Node, single runs)** | **Stress is below d3-force, d3-force + forceCollide and ForceAtlas2 in all four** | not run | **Weakness**: distance truth and local closeness disagree; Force is closer to the competitors |
+| **Best-quality Stress (section 16; 6 networks, 10,000 items)** | **truer than d3-force and ForceAtlas2 in all 3 (0.136 to 0.162 against 0.18 to 0.21), 4.4 to 4.8× faster than the faster of them** | **same (0.136 to 0.160), 2.9 to 4.4× faster than the faster of them** | **Win, opt-in: 5 to 8 s at 10,000 items against 1.5 s for the normal arrangement; no overlaps** |
 | Force layout vs d3-force | faster in 20 of 20 | faster in 20 of 20 | Consistent win |
 | Layered drawing vs dagre / ELK | 7 to 13× faster than dagre, but 7 to 117% more crossings | same | Speed win, quality loss (unchanged) |
 | Formulas vs expr-eval | 3.8× faster | 5.0× faster | Consistent win |
@@ -501,10 +502,10 @@ Notes: GIF compares our encoder with gifenc using one shared palette on four syn
 
 ## 6. Left for the next round
 
-Done in the last round (sections 12 to 14): the 10,000+ Stress gap (7 to 28% down to 10% truer to 9% less true than d3-force), layout results as columns (about 2.5× faster end to end at 100,000 items, not the 70 to 100× estimated before the object rebuild was counted), the GIF encoder (now faster than gifenc from about 30 frames, and far truer in color) and the normal / lognormal draws (Chromium win; Firefox tie).
+Done in the last rounds (sections 12 to 16): the 10,000+ Stress gap (7 to 28% down to 10% truer to 9% less true than d3-force), layout results as columns (about 2.5× faster end to end at 100,000 items, not the 70 to 100× estimated before the object rebuild was counted), the GIF encoder (now faster than gifenc from about 30 frames, and far truer in color) and the normal / lognormal draws (Chromium win; Firefox tie).
 
-1. Stress at 10,000 items and above: the last 5 to 9% of distance truth (6 to 17% against ForceAtlas2). Every setting of the pivot-plus-neighbors model that was tried (section 13, three rounds) lands within noise, so the open routes are a different pair model or a different machine: all-pairs majorization on the graphics chip, which would reach about 0.16 and cannot be tested here, or a cheaper way to approximate all pairs on the processor.
-2. Stress on neighborhood preservation (section 15): a hybrid with a local term, tried against the same measure. Needs a decision on how much distance truth to trade for it.
+1. Stress at 10,000 items and above, normal arrangement: the last 5 to 9% of distance truth stays open for the quick arrangement (section 13, four rounds, all within noise). The slower **best quality** arrangement closes it (section 16). Open: making best quality faster still (its sweeps are about two thirds of the time at 10,000 items; a graphics-card version is a possible project, not started), and a middle option between 1.5 s and 5 s.
+2. Stress on neighborhood preservation (section 15): four ways of adding a local term were tried and none helped (section 13, fourth round). Open: a different objective, not a correction on top of Stress.
 3. GIF: the palette is a fixed cost that four frames cannot spread out (section 14). The histogram and the k-means step are what is left to trim.
 4. Reading text over 512 million characters in Chromium needs a chunked reader; the import cap of 200,000 items / 800,000 links is still the app default.
 5. A faster Force layout above 100,000 items; at that size it takes over a minute.
@@ -772,6 +773,24 @@ Link pairs weighted 3× and 8× (to pull linked items closer) moved nothing that
 
 What the papers say, in short, and how it fits. Börsig, Brandes and Pásztor's re-test of the stochastic-gradient claim finds no significant difference in final stress between gradient descent and majorization once majorization is started well, and the start matters for majorization only; that matches our majorization and pivot-MDS-start results. The 2025 resistance-distance paper reports that random pair sampling beats pivot sampling on small graphs (100 to 1,000 items), but at 10,000 items our random pivots were not better (0.202 against 0.203), and giving far pairs more weight made things worse, not better. DRGraph, the t-distribution force layout and its sparse-negative-sampling successor optimize neighborhood preservation, not distances, and report worse stress than the stress methods; they are answers to a different question (section 15). The one clear lever left is the pair model itself: all pairs at 10,000 items scores 0.160 but takes 18.6 s, so the open question is a cheaper way to get most of that. The paper-backed route is a parallel majorization over all pairs on the graphics chip (about 100 MB for a 10,000 by 10,000 byte matrix of hop counts), which this environment cannot test.
 
+**A fourth round: a neighborhood term, and majorization on every pair** (Node, single runs; the moderate network of 3,000 items unless noted). The aim was to lift neighborhood preservation (section 15) without giving up distance truth. Each row is truth then neighborhood score, against 0.152 and 0.007 for the engine as it stands.
+
+| Idea | Truth | Neighborhood |
+|---|---:|---:|
+| Six gentle extra sweeps over the link and near pairs only | 0.155 | 0.001 |
+| The same, link pairs weighted 3× | 0.157 | 0.000 |
+| Twelve such sweeps, larger steps, link pairs 3×, near pairs 0.3× | 0.161 | 0.000 |
+| A short-range push between items that are not linked (reach 1× the link length), 8 rounds | 0.566 | 0.006 |
+| The same with reach 0.8×, 8 rounds | 0.206 | 0.005 |
+| Push at 1.2× plus pulling long links in twice as hard, 15 rounds | 0.763 | 0.000 |
+| A short cool Force run after Stress, 20 steps | 0.155 | 0.007 |
+| The same, 40 steps, warmer | 0.161 | 0.007 |
+| The same, 40 steps, warmest | 0.163 | 0.010 |
+
+Nothing lifted the neighborhood score by more than noise, and the stronger versions cost distance truth. The reading: the score is low because of what Stress asks for (distances), and a correction on top of it fights the distances instead of improving the picture. None of this code was kept. Whoever wants closeness should pick Force, which was built for it.
+
+On the same network at 5,000 items, majorization on every pair (all items moving together, a calculation a graphics card could run in parallel) reached 0.152 after 3 sweeps of the normal method plus 30 majorization steps, the same as 12 normal sweeps on every pair (0.152) or 30 (0.153), and 80 steps gave 0.152 again. Started right after a single sweep it stuck at 0.210. So majorization buys no truth over the sweeps once every pair is used; at most it could make the same result faster. That is the evidence behind the graphics-card question in section 16.
+
 **What is left.** Against d3-force the gap at 10,000 items is 10% truer to 9% less true; against ForceAtlas2 it is 4% truer to 17% less true (section 2). The three ideas that were still untried last round (a pivot-MDS start, k-means pivots, majorization) have now been tried, above. A note on the limits of this evidence: the truth score is the quantity Stress minimizes, so it favors Stress over methods that do not optimize it; a different measure, such as how many of an item's nearest neighbors stay nearest on the page, could rank the methods differently, and was not measured.
 
 ## 14. Layout results as columns, the GIF encoder and the random draws
@@ -878,6 +897,49 @@ Each cell is the neighborhood score with the distance truth in parentheses. Read
 - All scores are small on the networks with random cross links, because no two-dimensional picture can keep every item's links among its nearest items.
 - **What this does not show.** It is one local measure on four networks and single runs. It says that "truest layout" depends on what is being asked: Stress for how far apart things really are, Force or ForceAtlas2 for who sits next to whom. The in-app wording for the arrangements should say so (it already points Stress at distances). A hybrid that adds a local term to the stress model, as the (SGD)² paper does for neighborhood preservation, is the natural next experiment and was not tried.
 
+## 16. "Distances, best quality (slower)": every pair, for networks of 4,001 to 20,000 items
+
+The normal Stress layout samples pairs (pivots, links and near neighbors) once a network has more than 4,000 items. That is fast, and it is the plateau described in section 13: about 0.20 at 10,000 items whatever was tuned. The remaining route was to use every pair of items, which is what the layout does up to 4,000 items. It is now available above that size as its own choice in the Arrangement list, **Distances, best quality (slower)**. Nothing else changes: the normal arrangement stays the default, and both guarantee that no two items touch.
+
+How it fits in memory and time:
+- Hop counts between all pairs are kept in one byte each, and only one of each pair (half a byte per pair on average for 10,000 items: 50 MB; for 20,000 items 200 MB). The old way, 16 bytes per pair, would need 800 MB at 10,000 items.
+- Pairs are visited one offset at a time in a random order (item 1 against the item 7 places on, then item 2 against the item 7 places on, and so on). That is as good as a fully random order for the result, and memory is read in straight lines, which is what makes it fast. A first version that took each item against its next neighbors in turn reached only 0.19 to 0.21 at 5,000 items; the offset order reached 0.152.
+- Building the table of hop counts is done 32 searches at a time (each item carries a 32-bit mask of the searches that reached it), which cut that step at 10,000 items from 4.8 s to 1.8 s with byte-for-byte identical tables.
+- A piece with a path longer than 254 hops (a long chain) is left to the normal method, because one byte cannot count that far; so is a device that cannot give the memory.
+- 12 sweeps up to 6,000 items, 6 up to 12,000, 4 above that (up to 20,000). More sweeps gave nothing: 0.153 after 30 against 0.152 after 12 at 5,000 items; at 10,000 items 0.160 after 12 against 0.162 after 6.
+
+**Node, same machine, one run each** (time / truth, lower truth is truer; same item sizes for all; ours leave no items touching, d3-force and ForceAtlas2 leave 10 to 100% of items overlapping at these sizes, section 12):
+
+| network | items | normal Stress | best quality | d3-force | ForceAtlas2 |
+|---|---:|---:|---:|---:|---:|
+| simple tree | 5,000 | 0.6 s / 0.184 | **2.2 s / 0.133** | 12.2 s / 0.206 | 9.6 s / 0.205 |
+| simple tree | 10,000 | 1.0 s / 0.199 | **4.7 s / 0.136** | 27.4 s / 0.210 | 22.2 s / 0.199 |
+| moderate | 5,000 | 0.9 s / 0.198 | **2.2 s / 0.152** | 10.5 s / 0.182 | 10.2 s / 0.182 |
+| moderate | 10,000 | 1.8 s / 0.203 | **5.1 s / 0.162** | 26.3 s / 0.190 | 22.9 s / 0.184 |
+| complex | 5,000 | 0.9 s / 0.201 | **2.3 s / 0.143** | 10.9 s / 0.187 | 10.9 s / 0.171 |
+| complex | 10,000 | 1.6 s / 0.198 | **5.2 s / 0.146** | 27.1 s / 0.195 | 24.9 s / 0.179 |
+
+At 20,000 items on the moderate network: 28 s, truth 0.160.
+
+**In the browsers, 10,000 items** (time / truth, one run each; d3-force and ForceAtlas2 from section 2):
+
+| network | browser | normal Stress | best quality | d3-force | ForceAtlas2 |
+|---|---|---:|---:|---:|---:|
+| simple | Chromium 154 | 1.1 s / 0.192 | 6.1 s / 0.136 | 25.6 s / 0.210 | 22.6 s / 0.201 |
+| simple | Firefox 158 | 1.4 s / 0.190 | 6.6 s / 0.136 | 31.6 s / 0.210 | 20.4 s / 0.198 |
+| moderate | Chromium 154 | 1.5 s / 0.207 | 6.4 s / 0.159 | 21.7 s / 0.190 | 24.0 s / 0.180 |
+| moderate | Firefox 158 | 1.9 s / 0.204 | 7.1 s / 0.160 | 29.6 s / 0.190 | 21.0 s / 0.175 |
+| complex | Chromium 154 | 1.6 s / 0.205 | 5.6 s / 0.146 | 24.5 s / 0.195 | 26.7 s / 0.179 |
+| complex | Firefox 158 | 2.0 s / 0.207 | 7.8 s / 0.146 | 34.5 s / 0.195 | 22.6 s / 0.179 |
+
+At 5,000 items the browsers took 2.3 to 3.3 s (truth 0.133, 0.153, 0.143), raw numbers in `bench/results/*-best.jsonl`.
+
+Reading it:
+- **At 5,000 to 20,000 items this closes the gap.** It is truer than d3-force and ForceAtlas2 on every network tried (12 to 32% truer at 10,000 items in Node, 9 to 31% in the browsers) and 4.4 to 4.8× faster than the faster of them in Node (2.9 to 4.4× in the browsers), and nothing touches. The normal arrangement remains the quick choice: 3.5 to 5.5× faster again, and about 0.20 true.
+- **Neighborhood preservation is not helped** (0.002 to 0.005 here against 0.008 to 0.02 for the others on the moderate networks): the same weakness as section 15.
+- **Single runs, one machine, one generator.** Differences under about 0.005 are noise. The competitors were run with the settings used in section 2 and are not tuned further.
+- **What was left alone: a graphics card.** The normal sweeps take about two thirds of the time at 10,000 items now (3.8 s of 5.8 s); majorization is the part a graphics card can do in parallel (section 13, fourth round), and it reaches the same truth, not a better one. The most it could save is that share of the time, on hardware that is not here to measure, so it is not built into the page. The first step toward it would be a test page that checks a graphics-card version against the CPU one.
+
 ## Reproduce
 
 ```
@@ -886,6 +948,7 @@ node run.js chromium csv                             # or: firefox
 node run.js chromium stress
 node run.js chromium typed
 node run.js chromium compare
+node run.js chromium stressBest                    # or: firefox; the best-quality arrangement next to the normal one (section 16)
 node run.js chromium stressOurs                      # or: firefox; only our Stress, quick re-run after a change
 node run.js chromium refresh                         # or: firefox; the parts of the compare suite that changed (draws, GIF)
 node run.js chromium pack                            # or: firefox; sending a layout from the worker, packed or not
