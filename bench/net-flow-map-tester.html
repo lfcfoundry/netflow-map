@@ -17,7 +17,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1625.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1641.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
@@ -4648,11 +4648,11 @@ var NFMGpuStress = (function () {
     for (i = k - 1; i > 0; i--) { s = (s + 0x6d2b79f5) | 0; var z = Math.imul(s ^ (s >>> 15), 1 | s); z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z; j = Math.floor((((z ^ (z >>> 14)) >>> 0) / 4294967296) * (i + 1)); w = p[i]; p[i] = p[j]; p[j] = w; }
     return p;
   }
-  /** The sweeps: in each, every offset 1..k/2 once in a fresh random order, with a step size shrinking from sweep to sweep (the processor's schedule: 3 sweeps 0.3/0.3, 2 sweeps 0.1/0.5). */
-  function sgdSchedule(k, sweeps, maxD, seed) {
-    var half = k >> 1, hi = sweeps <= 2 ? 0.1 : 0.3, lo = sweeps <= 2 ? 0.5 : 0.3, etaMax = maxD * maxD * hi, lam = Math.log(etaMax / lo) / Math.max(1, sweeps - 1), n = sweeps * half, m = new Uint32Array(n), eta = new Float32Array(n), t, i, j, w, s = ((seed | 0) || 1) + 7777;
+  /** The sweeps: in each, every offset 1..k/2 once in a fresh random order. Step size from maxD^2 * hi down to lo: smooth = shrinking a little with every dispatch (default: 1 sweep, 0.05 / 0.05), otherwise only from sweep to sweep (the processor's schedule: 3 sweeps 0.3 / 0.3, 2 sweeps 0.1 / 0.5). */
+  function sgdSchedule(k, sweeps, maxD, seed, hi, lo, smooth) {
+    var half = k >> 1, etaMax = maxD * maxD * hi, lam = Math.log(etaMax / lo) / (smooth ? sweeps : Math.max(1, sweeps - 1)), n = sweeps * half, m = new Uint32Array(n), eta = new Float32Array(n), t, i, j, w, s = ((seed | 0) || 1) + 7777;
     for (t = 0; t < sweeps; t++) {
-      for (i = 0; i < half; i++) { m[t * half + i] = i + 1; eta[t * half + i] = etaMax * Math.exp(-lam * t); }
+      for (i = 0; i < half; i++) { m[t * half + i] = i + 1; eta[t * half + i] = etaMax * Math.exp(-lam * (smooth ? t + i / half : t)); }
       for (i = half - 1; i > 0; i--) { s = (s + 0x6d2b79f5) | 0; var z = Math.imul(s ^ (s >>> 15), 1 | s); z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z; j = Math.floor((((z ^ (z >>> 14)) >>> 0) / 4294967296) * (i + 1)); w = m[t * half + i]; m[t * half + i] = m[t * half + j]; m[t * half + j] = w; }
     }
     return { m: m, eta: eta, n: n };
@@ -4739,11 +4739,11 @@ var NFMGpuStress = (function () {
     if (prof || k >= 12000) { await wait(); ms.table = now() - t2; } else ms.table = null;   // big sizes wait once here so the card is never given more than a moment of queued work
     RB.destroy(); FA.destroy(); FB.destroy();
     /* the steps */
-    var t4 = now(), PBdata, sp, spReduce = null, jchunk = 0, split = 1, sg, perm = null, sch = null, maxD = 0;
+    var t4 = now(), PBdata, sp, spReduce = null, jchunk = 0, split = 1, sg, perm = null, sch = null, maxD = 0, sched = null;
     var f32bits = function (v) { return new Uint32Array(new Float32Array([v]).buffer)[0]; };
     var XA = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST, st.X), XB = mk(8 * k, GB.STORAGE | GB.COPY_SRC | GB.COPY_DST), PART = null, PB = null, stepBG1, stepBG2;
     if (method === 'sgd') {
-      var sweeps = opts.sweeps || (k <= 12000 ? 3 : 2), seed = opts.seed || 12345; maxD = Math.max(2, st.maxEcc); perm = permFor(k, seed); sch = sgdSchedule(k, sweeps, maxD, seed);
+      var smooth = !opts.classic, sweeps = opts.sweeps || (smooth ? 1 : k <= 12000 ? 3 : 2), seed = opts.seed || 12345, hi = opts.hi || (smooth ? 0.05 : sweeps <= 2 ? 0.1 : 0.3), lo = opts.lo || (smooth ? 0.05 : sweeps <= 2 ? 0.5 : 0.3); maxD = Math.max(2, st.maxEcc); perm = permFor(k, seed); sch = sgdSchedule(k, sweeps, maxD, seed, hi, lo, smooth); sched = { sweeps: sweeps, hi: hi, lo: lo, smooth: smooth };
       var Xp = new Float32Array(2 * k); for (var r0 = 0; r0 < k; r0++) { Xp[2 * r0] = st.X[2 * perm[r0]]; Xp[2 * r0 + 1] = st.X[2 * perm[r0] + 1]; }
       device.queue.writeBuffer(XA, 0, Xp);
       var PERM = mk(4 * k, GB.STORAGE, perm), sbuf = new ArrayBuffer(sch.n * ua), su = new Uint32Array(sbuf), sf = new Float32Array(sbuf), ev = (k % 2 === 0) ? (k >> 1) : -1;
@@ -4819,7 +4819,7 @@ var NFMGpuStress = (function () {
     [offB, nbrB, DM, WS, UB, PB, XA, XB, RD].forEach(function (bf) { if (bf) bf.destroy(); }); if (PART) PART.destroy();
     if (oom || val) return { error: 'The graphics card reported ' + (oom ? 'out of memory: ' + oom.message : 'an error: ' + val.message).slice(0, 200), oom: !!oom };
     ms.total = now() - T0; snapOut[steps] = X;
-    return { X: X, X0: st.X, ms: ms, levels: L, stride: Sx, dTable: dTable, snapshots: snapOut, split: split, kernel: kernel, omega: omega, method: method, maxD: maxD, seed: opts.seed || 12345, sweeps: sch ? sch.n / (k >> 1) : 0 };
+    return { X: X, X0: st.X, ms: ms, levels: L, stride: Sx, dTable: dTable, snapshots: snapOut, split: split, kernel: kernel, omega: omega, method: method, maxD: maxD, seed: opts.seed || 12345, sweeps: sch ? sch.n / (k >> 1) : 0, sched: sched };
   }
 
   /** Same as layoutInner, but any thrown error or message the card reports comes back as { error } instead of an exception. */
@@ -4861,7 +4861,7 @@ var NFMGpuStress = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.15.1625', EDGE = 130;
+  var VERSION = '2026.10.15.1641', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -4962,7 +4962,7 @@ var NFMGpuStress = (function () {
     var r2 = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd', keepTable: true }), okSgd = false, sgdRows = [], sdiff = 0, smove = 0;
     if (r2.error) { sgdRows.push(['Parallel pairs: failed', r2.error.slice(0, 80)]); }
     else {
-      var sch0 = G.sgdSchedule(P.k, r2.sweeps, r2.maxD, r2.seed), pm0 = G.permFor(P.k, r2.seed), Xq = G.sgdCpu(r2.X0, D, P.k, S, EDGE, sch0, pm0), sg2 = pairStress(r2.X, D, P.k, S), sq = pairStress(Xq, D, P.k, S);
+      var sch0 = G.sgdSchedule(P.k, r2.sched.sweeps, r2.maxD, r2.seed, r2.sched.hi, r2.sched.lo, r2.sched.smooth), pm0 = G.permFor(P.k, r2.seed), Xq = G.sgdCpu(r2.X0, D, P.k, S, EDGE, sch0, pm0), sg2 = pairStress(r2.X, D, P.k, S), sq = pairStress(Xq, D, P.k, S);
       sdiff = Math.abs(sg2 - sq) / sq * 100; for (i = 0; i < P.k; i++) smove += Math.hypot(r2.X[2 * i] - Xq[2 * i], r2.X[2 * i + 1] - Xq[2 * i + 1]); smove = smove / P.k / EDGE;
       okSgd = sdiff < 2;   // positions can drift apart (many tiny steps, 32-bit against 64-bit), the distance error is what must agree sgdRows.push(['Parallel pairs (' + r2.sweeps + ' sweeps): CPU math / graphics card', r3(sq) + ' / ' + r3(sg2)], ['Parallel pairs: difference / average item difference', r1(sdiff) + '% / ' + r3(smove)]);
     }
@@ -4978,7 +4978,7 @@ var NFMGpuStress = (function () {
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var plan = QUICK ? [['moderate', 800], ['complex', 800]] : [['moderate', 2000], ['moderate', 5000], ['moderate', 10000], ['complex', 5000], ['complex', 10000], ['moderate', 20000], ['moderate', 30000]];
     if (params.get('plan')) plan = params.get('plan').split(',').map(function (x) { var a = x.split(':'); return [a[0], +a[1]]; });
-    s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Old steps time', 'Old steps truth', 'Parallel pairs time', 'truth', '+ 5 clean-up steps time', 'truth', 'Best card faster by']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
+    s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Old steps time', 'Old steps truth', 'Parallel pairs time', 'truth', 'Three-sweep version time', 'truth', 'Best card faster by']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
     for (var pi = 0; pi < plan.length; pi++) {
       var kind = plan[pi][0], n = plan[pi][1]; setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: processor…'); await yieldUI();
       var g = graphFor(kind, n), P = piece(g), cb = cpuBest(g), Xc = new Float64Array(2 * P.k);
@@ -4988,12 +4988,12 @@ var NFMGpuStress = (function () {
       if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', '-', '-', '-', String(res.error).slice(0, 60)]); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
       setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card, parallel pairs…'); await yieldUI();
       var rs = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd' });
-      var rq = rs.error ? rs : await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd', polish: 5 });
+      var rq = rs.error || P.k > 12500 ? { error: 'skipped' } : await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd', classic: true });
       var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t30 = truth(P, res.snapshots[30]), ts = rs.error ? null : truth(P, rs.X), tq = rq.error ? null : truth(P, rq.X);
       var bestMs = Math.min(res.ms.total, rs.error ? 1e12 : rs.ms.total), ratio = cb.ms / bestMs; tried++; ratios.push(ratio); if (ratio > 1) wins++;
       var bestT = Math.min(tg, ts === null ? 9 : ts, tq === null ? 9 : tq); if (bestT <= tc * 1.03) truthOk++;
       if (tg > Math.min(t20, t30) * 1.05) s.notes.push('At ' + P.k.toLocaleString() + ' items the old steps ran away (truth ' + r3(t20) + ' at 20 steps, ' + r3(t30) + ' at 30, ' + r3(tg) + ' at 40).');
-      s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), rs.error ? 'failed' : fmtMs(rs.ms.total), ts === null ? '-' : r3(ts), rq.error ? 'failed' : fmtMs(rq.ms.total), tq === null ? '-' : r3(tq), r1(ratio) + '×']);
+      s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), rs.error ? 'failed' : fmtMs(rs.ms.total), ts === null ? '-' : r3(ts), rq.error ? (rq.error === 'skipped' ? '-' : 'failed') : fmtMs(rq.ms.total), tq === null ? '-' : r3(tq), r1(ratio) + '×']);
       summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), sgdMs: rs.error ? null : r1(rs.ms.total), sgdTruth: ts === null ? null : r3(ts), sgdError: rs.error || null, sgdPolishMs: rq.error ? null : r1(rq.ms.total), sgdPolishTruth: tq === null ? null : r3(tq), sweeps: rs.sweeps || null, parts: { sketch: r1(res.ms.start), setup: r1(res.ms.upload), stepsAndTable: r1(res.ms.steps), read: r1(res.ms.read) }, sgdParts: rs.error ? null : { stepsAndTable: r1(rs.ms.steps), read: r1(rs.ms.read) }, split: res.split, levels: res.levels, t20: r3(t20), t30: r3(t30) });
       doneSteps += 0.1; setBar();
     }
@@ -5014,18 +5014,20 @@ var NFMGpuStress = (function () {
     var s = addSection('Parallel-pairs variants');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var n = QUICK ? 800 : 10000, big = QUICK ? 1200 : 30000, variants = [
-      ['complex', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }],
-      ['complex', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }],
-      ['complex', 'parallel pairs, 3 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 3, polish: 5 }],
-      ['complex', 'parallel pairs, 3 sweeps + 15 clean-up steps', { method: 'sgd', sweeps: 3, polish: 15 }],
-      ['complex', 'old steps, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60 }],
-      ['moderate', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }],
-      ['moderate', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }],
-      ['moderate', 'parallel pairs, 3 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 3, polish: 5 }],
-      ['moderate', 'parallel pairs, 4 sweeps', { method: 'sgd', sweeps: 4 }],
-      ['moderate', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }, big],
-      ['moderate', 'parallel pairs, 2 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 2, polish: 5 }, big],
-      ['moderate', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }, big]];
+      ['complex', 'one smooth sweep (new default)', { method: 'sgd' }],
+      ['complex', 'two smooth sweeps', { method: 'sgd', sweeps: 2 }],
+      ['complex', 'one smooth sweep + 5 clean-up steps', { method: 'sgd', polish: 5 }],
+      ['complex', 'one smooth sweep, bigger first step (0.1)', { method: 'sgd', hi: 0.1 }],
+      ['complex', 'one smooth sweep, smaller steps (0.02)', { method: 'sgd', hi: 0.02, lo: 0.02 }],
+      ['complex', 'three sweeps, steps shrink per sweep', { method: 'sgd', classic: true, sweeps: 3 }],
+      ['complex', 'old steps, relaxed 1.2, 40', { kernel: 'v2', omega: 1.2, steps: 40 }],
+      ['moderate', 'one smooth sweep (new default)', { method: 'sgd' }],
+      ['moderate', 'two smooth sweeps', { method: 'sgd', sweeps: 2 }],
+      ['moderate', 'three smooth sweeps', { method: 'sgd', sweeps: 3 }],
+      ['moderate', 'one smooth sweep + 5 clean-up steps', { method: 'sgd', polish: 5 }],
+      ['moderate', 'three sweeps, steps shrink per sweep', { method: 'sgd', classic: true, sweeps: 3 }],
+      ['moderate', 'one smooth sweep', { method: 'sgd' }, big],
+      ['moderate', 'old steps, relaxed 1.2, 40', { kernel: 'v2', omega: 1.2, steps: 40 }, big]];
     s.head = ['Network', 'Variant', 'Total time', 'Truth']; var cache = {}, out = [];
     for (var vi = 0; vi < variants.length; vi++) {
       var kind = variants[vi][0], name = variants[vi][1], o = variants[vi][2], nn = variants[vi][3] || n; setStatus('Program comparison: ' + kind + ' ' + name + '…'); await yieldUI();

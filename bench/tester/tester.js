@@ -108,7 +108,7 @@
     var r2 = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd', keepTable: true }), okSgd = false, sgdRows = [], sdiff = 0, smove = 0;
     if (r2.error) { sgdRows.push(['Parallel pairs: failed', r2.error.slice(0, 80)]); }
     else {
-      var sch0 = G.sgdSchedule(P.k, r2.sweeps, r2.maxD, r2.seed), pm0 = G.permFor(P.k, r2.seed), Xq = G.sgdCpu(r2.X0, D, P.k, S, EDGE, sch0, pm0), sg2 = pairStress(r2.X, D, P.k, S), sq = pairStress(Xq, D, P.k, S);
+      var sch0 = G.sgdSchedule(P.k, r2.sched.sweeps, r2.maxD, r2.seed, r2.sched.hi, r2.sched.lo, r2.sched.smooth), pm0 = G.permFor(P.k, r2.seed), Xq = G.sgdCpu(r2.X0, D, P.k, S, EDGE, sch0, pm0), sg2 = pairStress(r2.X, D, P.k, S), sq = pairStress(Xq, D, P.k, S);
       sdiff = Math.abs(sg2 - sq) / sq * 100; for (i = 0; i < P.k; i++) smove += Math.hypot(r2.X[2 * i] - Xq[2 * i], r2.X[2 * i + 1] - Xq[2 * i + 1]); smove = smove / P.k / EDGE;
       okSgd = sdiff < 2;   // positions can drift apart (many tiny steps, 32-bit against 64-bit), the distance error is what must agree sgdRows.push(['Parallel pairs (' + r2.sweeps + ' sweeps): CPU math / graphics card', r3(sq) + ' / ' + r3(sg2)], ['Parallel pairs: difference / average item difference', r1(sdiff) + '% / ' + r3(smove)]);
     }
@@ -124,7 +124,7 @@
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var plan = QUICK ? [['moderate', 800], ['complex', 800]] : [['moderate', 2000], ['moderate', 5000], ['moderate', 10000], ['complex', 5000], ['complex', 10000], ['moderate', 20000], ['moderate', 30000]];
     if (params.get('plan')) plan = params.get('plan').split(',').map(function (x) { var a = x.split(':'); return [a[0], +a[1]]; });
-    s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Old steps time', 'Old steps truth', 'Parallel pairs time', 'truth', '+ 5 clean-up steps time', 'truth', 'Best card faster by']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
+    s.head = ['Network', 'Items', 'Processor time', 'Processor truth', 'Old steps time', 'Old steps truth', 'Parallel pairs time', 'truth', 'Three-sweep version time', 'truth', 'Best card faster by']; var summary = [], wins = 0, tried = 0, ratios = [], truthOk = 0;
     for (var pi = 0; pi < plan.length; pi++) {
       var kind = plan[pi][0], n = plan[pi][1]; setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: processor…'); await yieldUI();
       var g = graphFor(kind, n), P = piece(g), cb = cpuBest(g), Xc = new Float64Array(2 * P.k);
@@ -134,12 +134,12 @@
       if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', '-', '-', '-', String(res.error).slice(0, 60)]); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
       setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card, parallel pairs…'); await yieldUI();
       var rs = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd' });
-      var rq = rs.error ? rs : await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd', polish: 5 });
+      var rq = rs.error || P.k > 12500 ? { error: 'skipped' } : await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd', classic: true });
       var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t30 = truth(P, res.snapshots[30]), ts = rs.error ? null : truth(P, rs.X), tq = rq.error ? null : truth(P, rq.X);
       var bestMs = Math.min(res.ms.total, rs.error ? 1e12 : rs.ms.total), ratio = cb.ms / bestMs; tried++; ratios.push(ratio); if (ratio > 1) wins++;
       var bestT = Math.min(tg, ts === null ? 9 : ts, tq === null ? 9 : tq); if (bestT <= tc * 1.03) truthOk++;
       if (tg > Math.min(t20, t30) * 1.05) s.notes.push('At ' + P.k.toLocaleString() + ' items the old steps ran away (truth ' + r3(t20) + ' at 20 steps, ' + r3(t30) + ' at 30, ' + r3(tg) + ' at 40).');
-      s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), rs.error ? 'failed' : fmtMs(rs.ms.total), ts === null ? '-' : r3(ts), rq.error ? 'failed' : fmtMs(rq.ms.total), tq === null ? '-' : r3(tq), r1(ratio) + '×']);
+      s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), rs.error ? 'failed' : fmtMs(rs.ms.total), ts === null ? '-' : r3(ts), rq.error ? (rq.error === 'skipped' ? '-' : 'failed') : fmtMs(rq.ms.total), tq === null ? '-' : r3(tq), r1(ratio) + '×']);
       summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), sgdMs: rs.error ? null : r1(rs.ms.total), sgdTruth: ts === null ? null : r3(ts), sgdError: rs.error || null, sgdPolishMs: rq.error ? null : r1(rq.ms.total), sgdPolishTruth: tq === null ? null : r3(tq), sweeps: rs.sweeps || null, parts: { sketch: r1(res.ms.start), setup: r1(res.ms.upload), stepsAndTable: r1(res.ms.steps), read: r1(res.ms.read) }, sgdParts: rs.error ? null : { stepsAndTable: r1(rs.ms.steps), read: r1(rs.ms.read) }, split: res.split, levels: res.levels, t20: r3(t20), t30: r3(t30) });
       doneSteps += 0.1; setBar();
     }
@@ -160,18 +160,20 @@
     var s = addSection('Parallel-pairs variants');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var n = QUICK ? 800 : 10000, big = QUICK ? 1200 : 30000, variants = [
-      ['complex', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }],
-      ['complex', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }],
-      ['complex', 'parallel pairs, 3 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 3, polish: 5 }],
-      ['complex', 'parallel pairs, 3 sweeps + 15 clean-up steps', { method: 'sgd', sweeps: 3, polish: 15 }],
-      ['complex', 'old steps, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60 }],
-      ['moderate', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }],
-      ['moderate', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }],
-      ['moderate', 'parallel pairs, 3 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 3, polish: 5 }],
-      ['moderate', 'parallel pairs, 4 sweeps', { method: 'sgd', sweeps: 4 }],
-      ['moderate', 'parallel pairs, 2 sweeps', { method: 'sgd', sweeps: 2 }, big],
-      ['moderate', 'parallel pairs, 2 sweeps + 5 clean-up steps', { method: 'sgd', sweeps: 2, polish: 5 }, big],
-      ['moderate', 'parallel pairs, 3 sweeps', { method: 'sgd', sweeps: 3 }, big]];
+      ['complex', 'one smooth sweep (new default)', { method: 'sgd' }],
+      ['complex', 'two smooth sweeps', { method: 'sgd', sweeps: 2 }],
+      ['complex', 'one smooth sweep + 5 clean-up steps', { method: 'sgd', polish: 5 }],
+      ['complex', 'one smooth sweep, bigger first step (0.1)', { method: 'sgd', hi: 0.1 }],
+      ['complex', 'one smooth sweep, smaller steps (0.02)', { method: 'sgd', hi: 0.02, lo: 0.02 }],
+      ['complex', 'three sweeps, steps shrink per sweep', { method: 'sgd', classic: true, sweeps: 3 }],
+      ['complex', 'old steps, relaxed 1.2, 40', { kernel: 'v2', omega: 1.2, steps: 40 }],
+      ['moderate', 'one smooth sweep (new default)', { method: 'sgd' }],
+      ['moderate', 'two smooth sweeps', { method: 'sgd', sweeps: 2 }],
+      ['moderate', 'three smooth sweeps', { method: 'sgd', sweeps: 3 }],
+      ['moderate', 'one smooth sweep + 5 clean-up steps', { method: 'sgd', polish: 5 }],
+      ['moderate', 'three sweeps, steps shrink per sweep', { method: 'sgd', classic: true, sweeps: 3 }],
+      ['moderate', 'one smooth sweep', { method: 'sgd' }, big],
+      ['moderate', 'old steps, relaxed 1.2, 40', { kernel: 'v2', omega: 1.2, steps: 40 }, big]];
     s.head = ['Network', 'Variant', 'Total time', 'Truth']; var cache = {}, out = [];
     for (var vi = 0; vi < variants.length; vi++) {
       var kind = variants[vi][0], name = variants[vi][1], o = variants[vi][2], nn = variants[vi][3] || n; setStatus('Program comparison: ' + kind + ' ' + name + '…'); await yieldUI();
