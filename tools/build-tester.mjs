@@ -9,7 +9,7 @@ const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', y
 const g = (t) => parts.find((p) => p.type === t).value;
 const version = process.env.NFM_VERSION || `${g('year')}.${+g('month')}.${+g('day')}.${g('hour')}${g('minute')}`;
 const clean = (s) => s.replace(/if \(typeof module !== 'undefined' && module\.exports\) module\.exports = \w+;\n?/g, '');
-const files = ['src/columns.js', 'src/importers.js', 'src/engine.js', 'src/sim.js', 'src/check.js', 'bench/gen.js', 'src/gpustress.js', 'bench/tester/tester.js'];
+const files = ['src/columns.js', 'src/importers.js', 'src/engine.js', 'src/sim.js', 'src/check.js', 'bench/gen.js', 'src/gpustress.js', 'src/scene.js', 'src/render.js', 'src/probe.js', 'bench/tester/tester.js'];
 const code = files.map((f) => { const s = clean(rd(f)).replace(/__VERSION__/g, version); if (/<\/script|<!--/i.test(s)) throw new Error(f + ' contains a sequence that would break the page'); return `/* ---- ${f} ---- */\n${s}`; }).join('\n');
 const html = rd('bench/tester/template.html').replace(/__VERSION__/g, version).replace('__SCRIPTS__', () => code);
 writeFileSync(join(root, 'bench/net-flow-map-tester.html'), html);

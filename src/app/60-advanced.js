@@ -49,13 +49,17 @@ function deviceCard() {
     NFMProbe.check({
       onStep: function (t) { var el = $('chk-step'); if (el) el.textContent = t; },
       cardCheck: cardCheckForDevice,
+      makeTurnScene: function () {   // a 3D arrangement of the sample network, rebuilt for each angle exactly as the map does when you drag
+        var E = getEngine(), g = NFMExamples.bigNetwork(1500, 9, 7), L3 = E.build(g, { view: 'network', arrange: 'force3d', colorBy: 'group' });
+        return function (yaw, pitch) { return NFMScene.make(L3, { colorBy: 'group', theme: themeName(), cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); };
+      },
       makeScene: function (kind) {
         if (kind === 'stress') return syntheticScene(1600, 3600, 5);
         var E = getEngine(), x = NFMExamples.LIST[0].load(), L = E.build(x.graph, { view: 'flow', colorBy: 'odds', wantFlow: true });
         return NFMScene.make(L, { colorBy: 'odds', theme: 'light' });
       }
     }).then(function (r) {
-      mount(out, [h('div', { class: 'verdict ' + r.verdict }, r.headline), h('ul', { class: 'checks', style: { marginTop: '10px' } }, r.lines.map(function (l) { return h('li', { class: l.ok === true ? 'ok' : l.ok === false ? 'no' : 'meh' }, l.text); })), h('p', { class: 'muted small' }, 'Took ' + r.data.seconds.toFixed(1) + ' seconds. Version ' + APP_VERSION + '.')]);
+      mount(out, [h('div', { class: 'verdict ' + r.verdict }, r.headline), h('ul', { class: 'checks', style: { marginTop: '10px' } }, r.lines.map(function (l) { return h('li', { class: l.ok === true ? 'ok' : l.ok === false ? 'no' : 'meh' }, tintErrors(l.text)); })), h('p', { class: 'muted small' }, 'Took ' + r.data.seconds.toFixed(1) + ' seconds. Version ' + APP_VERSION + '.')]);
       S.checkResult = r;
     }).catch(function (err) { mount(out, h('div', { class: 'verdict limited' }, 'The check itself ran into a problem: ' + err.message)); }).then(function () { btn.disabled = false; });
   });

@@ -193,3 +193,9 @@ body.touch #rail .tabsrow button{min-height:40px}body.touch .tabs button{min-hei
 body.touch :is(input,select,textarea):not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]){font-size:16px;min-height:40px}
 body.touch input[type=checkbox],body.touch input[type=radio]{width:22px;height:22px}body.touch table.t input,body.touch table.t select{min-height:36px}
 body.touch .chip button.x{min-height:28px;min-width:28px}body.touch #key button{min-height:36px;min-width:36px}
+
+/* distance error colors (lower is truer): excellent, very good, good, fair, poor */
+:root{--e1:#14803f;--e2:#6fa615;--e3:#a98600;--e4:#d9690a;--e5:#cf2a3a}
+:root[data-theme=dark]{--e1:#3fcf7b;--e2:#a6dd4a;--e3:#f2cf3a;--e4:#ff9a3d;--e5:#ff6b7a}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--e1:#3fcf7b;--e2:#a6dd4a;--e3:#f2cf3a;--e4:#ff9a3d;--e5:#ff6b7a}}
+.e1{color:var(--e1)}.e2{color:var(--e2)}.e3{color:var(--e3)}.e4{color:var(--e4)}.e5{color:var(--e5)}.e1,.e2,.e3,.e4,.e5{font-weight:600}
