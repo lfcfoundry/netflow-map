@@ -12,6 +12,8 @@ var NFMProbe = (function () {
     return new Promise(function (res) { var done = false, t = setTimeout(function () { if (!done) { done = true; res(false); } }, 1000); requestAnimationFrame(function () { if (!done) { done = true; clearTimeout(t); res(true); } }); });
   }
   function nowMs() { return typeof performance !== 'undefined' ? performance.now() : Date.now(); }
+  /** What a one-picture-per-refresh loop waits on after draw(): WebGPU lets up to three pictures be in flight (pace); the others have only flush(). */
+  function wait(r) { return r.pace ? r.pace(3) : r.flush(); }
 
   function testCanvas2D() {
     try {
@@ -100,7 +102,8 @@ var NFMProbe = (function () {
   /**
    * Speed of turning a 3D map: one picture per screen refresh, each from a new angle and zoom, for about 1.3 seconds.
    * opts: { backend: 'webgpu'|'webgl2'|'canvas2d', makeScene(yaw, pitch) -> scene (built the way the page builds it for a new angle), W, H, ms }
-   * Resolves to { backend, fps, sceneMs, drawMs, frames } (sceneMs: working out the new picture, drawMs: handing it to the screen, both per picture), or { backend, skipped }.
+   * Resolves to { backend, fps, sceneMs, drawMs, uploadMs, frames } (sceneMs: working out the new picture; drawMs: handing it to the screen, which includes uploadMs, the copy into graphics memory; all per picture), or { backend, skipped }.
+   * The loop does not wait for the graphics card after every picture (see wait()), only when more than three pictures are still being worked on.
    */
   function turning(opts) {
     var W = opts.W || 900, H = opts.H || 600, n = opts.backend, host = document.createElement('div');
@@ -109,14 +112,14 @@ var NFMProbe = (function () {
     var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
     return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
       r.resize(W, H, 1);
-      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, hidden = false, budget = opts.ms || 1300;
+      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, upT = 0, hidden = false, budget = opts.ms || 1300;
       var loop = function () {
         var f = frames / 90, yaw = 0.6 + 6.2832 * f, pitch = 0.35 + 0.3 * Math.sin(6.2832 * f), z = 1 + 0.35 * Math.sin(6.2832 * f * 0.5);
         var a = nowMs(), sc = opts.makeScene(yaw, pitch), b = nowMs();
-        r.setScene(sc); var v = fitView(sc, W, H); v.k *= z; v.tx = W / 2 - (W / 2 - v.tx) * z; v.ty = H / 2 - (H / 2 - v.ty) * z; r.draw(v);
+        r.setScene(sc); var u = nowMs(); var v = fitView(sc, W, H); v.k *= z; v.tx = W / 2 - (W / 2 - v.tx) * z; v.ty = H / 2 - (H / 2 - v.ty) * z; r.draw(v);
         var c = nowMs(); frames++;
-        if (frames > 3) { sceneT += b - a; drawT += c - b; }
-        return r.flush().then(function () { return nextRefresh(); }).then(function (ok) {
+        if (frames > 3) { sceneT += b - a; drawT += c - b; upT += u - b; }
+        return wait(r).then(function () { return nextRefresh(); }).then(function (ok) {
           if (!ok) { hidden = true; return; }
           if (frames === 3) t1 = nowMs(); else if (frames > 3) counted++;
           if (nowMs() - start < budget && frames < 600) return loop();
@@ -124,9 +127,105 @@ var NFMProbe = (function () {
       };
       return loop().then(function () {
         var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
-        return gone(hidden || counted < 4 ? { backend: n, skipped: 'the page was in the background' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, frames: counted });
+        return gone(hidden || counted < 4 ? { backend: n, skipped: 'the page was in the background' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted });
       });
     }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
+  }
+  /**
+   * Where the time goes when one picture per screen refresh is drawn: the diagnostic behind the tester's "Where the drawing time goes" step.
+   * opts: { backend, makeScene(yaw, pitch) -> scene, W, H, frames (default 60), ms (time cap per way, default 700) }
+   * Runs the same turning loop several ways on one renderer and times each phase of every picture:
+   *   scene = working out the new angle (main thread), upload = scene copied into graphics memory (setScene), draw = encoding and handing over the commands,
+   *   fence = waiting for the card's "done" signal (or for the oldest of three pictures in flight), raf = waiting for the next screen refresh.
+   * WebGPU ways: old (new buffers every picture, wait for the card after every picture), reuse (buffers kept, wait every picture), nowait (no wait), every4 (wait every 4th),
+   *   pace (up to 3 pictures in flight, what the loops in this file use), blank (nothing drawn, no wait: the cost of just putting a picture on screen), half (half-size picture, no wait).
+   * Other backends: wait, nowait, blank.
+   * Resolves to { backend, device, software, ways: [{ id, label, fps, frames, scene, upload, draw, fence, raf }] } or { backend, skipped }.
+   */
+  var WAYS = {
+    old: 'Old way: new buffers and a wait for the card after every picture',
+    reuse: 'Buffers kept, wait for the card after every picture',
+    nowait: 'Buffers kept, never wait for the card',
+    every4: 'Buffers kept, wait for the card every 4th picture',
+    pace: 'Buffers kept, up to 3 pictures in flight (the new default)',
+    blank: 'Blank picture, never wait (cost of the screen step alone)',
+    half: 'Half-size picture, never wait',
+    wait: 'Wait for the card after every picture',
+    cnowait: 'Never wait for the card'
+  };
+  function frameTiming(opts) {
+    var W = opts.W || 900, H = opts.H || 600, n = opts.backend, gpu = n === 'webgpu', host = document.createElement('div'), maxFrames = opts.frames || 60, cap = opts.ms || 700;
+    host.style.cssText = 'position:fixed;left:0;top:0;width:' + W + 'px;height:' + H + 'px;opacity:.01;pointer-events:none;z-index:-1'; document.body.appendChild(host);
+    var make = n === 'webgpu' ? NFMRender.createWebGPU : n === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D;
+    var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
+    var plan = gpu ? [['old', { legacy: true, wait: 'every' }], ['reuse', { wait: 'every' }], ['nowait', { wait: 'none' }], ['every4', { wait: 4 }], ['pace', { wait: 'pace' }], ['blank', { wait: 'none', blank: true }], ['half', { wait: 'none', half: true }]]
+      : [['wait', { wait: 'every' }], ['nowait', { wait: 'none' }], ['blank', { wait: 'none', blank: true }]];
+    return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
+      var base = opts.makeScene(0.6, 0.35), blank = Object.assign({}, base, { rects: [], dots: [], curves: [], ribbons: [], polys: [], labels: [], icons: [] });
+      var runWay = async function (cfg, frames, ms) {
+        var w = cfg.half ? Math.round(W / 2) : W, h = cfg.half ? Math.round(H / 2) : H, settle = 2, acc = { scene: 0, upload: 0, draw: 0, fence: 0, raf: 0 }, counted = 0, tStart = 0, tEnd = 0;
+        if ('legacyBuffers' in r) r.legacyBuffers = !!cfg.legacy;
+        r.resize(w, h, 1); await r.flush();
+        for (var i = 0; i < 400; i++) {
+          var f = i / 90, z = 1 + 0.35 * Math.sin(6.2832 * f * 0.5), t0 = nowMs();
+          var sc = cfg.blank ? blank : opts.makeScene(0.6 + 6.2832 * f, 0.35 + 0.3 * Math.sin(6.2832 * f)), t1 = nowMs();
+          r.setScene(sc); var t2 = nowMs(), v = fitView(sc, w, h); v.k *= z; v.tx = w / 2 - (w / 2 - v.tx) * z; v.ty = h / 2 - (h / 2 - v.ty) * z; r.draw(v); var t3 = nowMs();
+          var p = cfg.wait === 'every' ? r.flush() : cfg.wait === 'pace' ? (r.pace ? r.pace(3) : r.flush()) : typeof cfg.wait === 'number' ? (i % cfg.wait === 0 ? r.flush() : null) : null;
+          if (p) await p;
+          var t4 = nowMs(), ok = await nextRefresh(), t5 = nowMs();
+          if (!ok) return null;
+          if (i === settle) tStart = t5;
+          else if (i > settle) { counted++; tEnd = t5; acc.scene += t1 - t0; acc.upload += t2 - t1; acc.draw += t3 - t2; acc.fence += t4 - t3; acc.raf += t5 - t4; }
+          if (counted >= frames || (i > settle && t5 - tStart >= ms)) break;
+        }
+        if (counted < 3) return null;
+        var secs = Math.max(0.001, (tEnd - tStart) / 1000);
+        return { fps: counted / secs, frames: counted, scene: acc.scene / counted, upload: acc.upload / counted, draw: acc.draw / counted, fence: acc.fence / counted, raf: acc.raf / counted };
+      };
+      return (async function () {
+        var ways = [], hidden = false;
+        await runWay({ wait: 'none' }, 5, 500);   /* warm-up: compile the programs, fill the caches; not reported */
+        for (var q = 0; q < plan.length && !hidden; q++) {
+          var res = await runWay(plan[q][1], maxFrames, cap);
+          if (!res) { hidden = true; break; }
+          res.id = plan[q][0]; res.label = WAYS[!gpu && res.id === 'nowait' ? 'cnowait' : res.id]; ways.push(res);
+        }
+        var info = { device: r.device || '', software: !!r.software };
+        r.destroy();
+        return gone(hidden ? { backend: n, skipped: 'the page was in the background' } : { backend: n, device: info.device, software: info.software, ways: ways });
+      })();
+    }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
+  }
+  /**
+   * Turns frameTiming results into plain words. gpu = result for WebGPU, ctl = result for WebGL 2 (or null).
+   * Returns { level: 'ok'|'warn'|'bad', say, lines: [text], dominant: { phase, ms, share } | null, fastest: id | null }.
+   */
+  var PHASES = { scene: 'working out each new angle on the main thread', upload: 'copying the new picture into graphics memory', draw: 'handing the drawing commands over', fence: 'waiting for the graphics card to say it had finished', raf: 'waiting for the next screen refresh', other: 'other waiting inside the browser' };
+  function explainTiming(gpu, ctl) {
+    var lines = [], f0 = function (v) { return v >= 100 ? String(Math.round(v / 10) * 10) : v >= 10 ? String(Math.round(v)) : (Math.round(v * 10) / 10).toFixed(1); }, ms1 = function (v) { return (Math.round(v * 10) / 10).toFixed(1); };
+    if (!gpu || gpu.skipped || !gpu.ways || !gpu.ways.length) return { level: 'warn', say: 'WebGPU timing was skipped: ' + ((gpu && gpu.skipped) || 'WebGPU is not usable here') + '.', lines: lines, dominant: null, fastest: null };
+    var by = {}; gpu.ways.forEach(function (w) { by[w.id] = w; });
+    var old = by.old || gpu.ways[0], real = gpu.ways.filter(function (w) { return w.id !== 'blank' && w.id !== 'half'; });
+    var fast = real.slice().sort(function (a, b) { return b.fps - a.fps; })[0], say = '';
+    var period = 1000 / old.fps, parts = { scene: old.scene, upload: old.upload, draw: old.draw, fence: old.fence, raf: old.raf };
+    parts.other = Math.max(0, period - parts.scene - parts.upload - parts.draw - parts.fence - parts.raf);
+    var dom = Object.keys(parts).sort(function (a, b) { return parts[b] - parts[a]; })[0], share = parts[dom] / period;
+    if (gpu.software) say += 'This WebGPU runs on the processor (a software stand-in), so these numbers show the code path, not your graphics chip. ';
+    say += 'The old way drew ' + f0(old.fps) + ' pictures per second, ' + ms1(period) + ' ms each; most of that time (' + ms1(parts[dom]) + ' ms, ' + Math.round(100 * share) + '%) was spent ' + PHASES[dom] + '. ';
+    say += 'The fastest way on this computer was "' + fast.label.toLowerCase() + '" at ' + f0(fast.fps) + ' pictures per second' + (fast.id === old.id ? '.' : (fast.fps > old.fps * 1.1 ? ', ' + (fast.fps / old.fps).toFixed(1) + ' times the old way.' : ', about the same as the old way.'));
+    if (by.blank && fast.fps < 40 && by.blank.fps <= fast.fps * 1.3) say += ' Even a blank picture only reaches ' + f0(by.blank.fps) + ' per second, so the limit is the browser\'s own step of putting a WebGPU picture on screen, not how much is drawn.';
+    else if (by.half && by.nowait && by.half.fps >= by.nowait.fps * 1.5 && by.nowait.fps < 40) say += ' A half-size picture runs at ' + f0(by.half.fps) + ' per second, so the cost follows the number of pixels.';
+    if (ctl && ctl.ways && ctl.ways.length) {
+      var cw = ctl.ways.slice().sort(function (a, b) { return b.fps - a.fps; })[0], cb = ctl.ways.filter(function (w) { return w.id === 'blank'; })[0];
+      say += ' For comparison WebGL 2 reached ' + f0(cw.fps) + ' per second' + (cb ? ' (blank: ' + f0(cb.fps) + ')' : '') + '.' + (cw.fps > fast.fps * 1.5 && !gpu.software ? ' WebGL 2 is the better choice on this computer.' : '');
+    }
+    if (by.old && by.reuse) lines.push('Keeping the buffers instead of making new ones: ' + f0(by.old.fps) + ' to ' + f0(by.reuse.fps) + ' pictures per second.');
+    if (by.reuse && by.nowait) lines.push('Not waiting for the card after every picture: ' + f0(by.reuse.fps) + ' to ' + f0(by.nowait.fps) + ' pictures per second. The card\'s "done" signal took ' + ms1(by.reuse.fence) + ' ms to come back on average.');
+    if (by.pace) lines.push('Letting up to three pictures be in flight (the new default): ' + f0(by.pace.fps) + ' pictures per second.');
+    if (fast.id === 'nowait' && by.pace) say += ' Never waiting lets pictures pile up on a slow card, so the app loops allow three at a time instead; that reached ' + f0(by.pace.fps) + ' per second.';
+    var level = fast.fps >= 45 ? 'ok' : fast.fps >= 20 ? 'warn' : 'bad';
+    if (gpu.software) level = 'warn';
+    return { level: level, say: say, lines: lines, dominant: { phase: dom, ms: parts[dom], share: share }, fastest: fast.id };
   }
   /**
    * env: { makeScene(kind: 'sample'|'stress') -> scene, onStep(text), makeTurnScene() -> function (yaw, pitch) -> scene [optional: adds the 3D turning test] }
@@ -187,7 +286,7 @@ var NFMProbe = (function () {
             var v = fitView(stress, W, H), frames = 0, counted = 0, start = nowMs(), t1 = 0, hidden = false;
             var loop = function () {
               v.tx += (frames % 2 ? 3 : -3); r.draw(v); frames++;
-              return r.flush().then(function () { return nextRefresh(); }).then(function (ok) {
+              return wait(r).then(function () { return nextRefresh(); }).then(function (ok) {
                 if (!ok) { hidden = true; return; }
                 if (frames === 3) t1 = nowMs(); else if (frames > 3) counted++;
                 if (nowMs() - start < 1300 && frames < 600) return loop();
@@ -241,6 +340,6 @@ var NFMProbe = (function () {
     });
   }
 
-  return { canary: canary, check: check, turning: turning, fitView: fitView, testCanvas2D: testCanvas2D, testWebGL2: testWebGL2, testWebGPU: testWebGPU, testWorker: testWorker };
+  return { canary: canary, check: check, turning: turning, frameTiming: frameTiming, explainTiming: explainTiming, fitView: fitView, testCanvas2D: testCanvas2D, testWebGL2: testWebGL2, testWebGPU: testWebGPU, testWorker: testWorker };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMProbe;

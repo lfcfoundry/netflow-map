@@ -148,6 +148,26 @@ async function open() {
   }
   await ev(() => NFM.manager().use('auto'));
 
+  /* WebGPU keeps its graphics-memory buffers between pictures: a smaller scene drawn over a bigger one, and the old make-new-buffers way, must give exactly the pictures a fresh drawing gives */
+  const kept = await ev(async () => {
+    const m = NFM.manager(); m.canary.webgpu = { ok: true };
+    try { await m.use('webgpu'); } catch (e) { return { err: e.message }; }
+    if (m.r.name !== 'webgpu') return { err: 'not available here (fell back to ' + m.r.name + ')' };
+    const A = NFM.state.scene, v = { k: 0.6, tx: 20, ty: 20 };
+    const B = Object.assign({}, A, { dots: A.dots.slice(0, 5), curves: A.curves.slice(0, 3), ribbons: A.ribbons.slice(0, 1), rects: A.rects.slice(0, 2), labels: A.labels.slice(0, 4) });
+    const shot = async (r, sc) => { r.setScene(sc); r.draw(v); const s = r.snapshot(); await r.flush(); return s.data; };
+    const same = (a, b) => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
+    const r1 = m.r, freshB = await shot(r1, B), freshA = await shot(r1, A);        /* first drawings of each */
+    const keptB = await shot(r1, B), keptA = await shot(r1, A);                     /* big, small, big on the same buffers */
+    r1.legacyBuffers = true; const oldB = await shot(r1, B), oldA = await shot(r1, A); r1.legacyBuffers = false;
+    await m.use('webgpu'); const secondB = await shot(m.r, B);                      /* a brand-new renderer */
+    const px = A.dots.length + A.curves.length + A.rects.length;
+    return { keptB: same(freshB, keptB), keptA: same(freshA, keptA), oldB: same(freshB, oldB), oldA: same(freshA, oldA), fresh: same(freshB, secondB), differ: !same(freshA, freshB), items: px };
+  });
+  if (kept.err) say(strict ? false : null, 'WebGPU buffer reuse: ' + kept.err);
+  else say(kept.keptB && kept.keptA && kept.oldB && kept.oldA && kept.fresh && kept.differ, 'WebGPU with kept buffers draws exactly the same pictures as new buffers each time (small over big, big over small, old way, new renderer): ' + JSON.stringify(kept));
+  await ev(() => NFM.manager().use('auto'));
+
   /* styled shapes, icons and group blobs draw the same in every backend */
   await ev(() => { NFM.state.V.rules = [{ id: 1, target: 'nodes', on: true, when: { type: 'all' }, set: { shape: 'hexagon', scale: 1.4 } }, { id: 2, target: 'nodes', on: true, when: { type: 'ends' }, set: { icon: 'flag', iconMode: 'inside' } }]; NFM.setV({ hulls: true }, 'look'); }); await sleep(300);
   const styled = async (be) => ev(async (be) => { const m = NFM.manager(); if (be !== 'canvas2d') m.canary[be] = { ok: true }; await m.use(be); if (m.r.name !== be) return { err: 'n/a' }; NFM.state.view = { k: 0.9, tx: 40, ty: 40 }; m.r.draw(NFM.state.view); const s = m.r.snapshot(); await m.r.flush(); return { data: Array.from(s.data) }; }, be);

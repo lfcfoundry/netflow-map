@@ -350,17 +350,24 @@ var NFMRender = (function () {
       var ubuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
       var bgS = device.createBindGroup({ layout: pShape.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
       var bgM = device.createBindGroup({ layout: pMesh.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
-      var T = null, S = null, bufs = {}, W = 1, Hh = 1, dpr = 1, ud = new Float32Array(8);
+      var T = null, S = null, bufs = {}, W = 1, Hh = 1, dpr = 1, ud = new Float32Array(8), fences = [], maxBuf = (device.limits && device.limits.maxBufferSize) || 268435456;
+      /* One graphics-memory buffer per kind of shape, kept between pictures: a new picture is written over the old one with writeBuffer, and a buffer is only made
+         again when the picture outgrows it (or has shrunk to under a quarter of it). Making and destroying three buffers for every picture was the old way (legacyBuffers). */
       var mk = function (name, data, usage) {
-        if (bufs[name]) { bufs[name].destroy(); bufs[name] = null; }
-        if (!data.byteLength) return;
-        var b = device.createBuffer({ size: Math.ceil(data.byteLength / 4) * 4, usage: usage | GPUBufferUsage.COPY_DST });
+        var b = bufs[name], need = Math.ceil(data.byteLength / 4) * 4;
+        if (out.legacyBuffers && b) { b.destroy(); b = bufs[name] = null; }
+        if (!need) { if (b && b.size > 65536) { b.destroy(); b = bufs[name] = null; } return; }   /* nothing to draw; the draw counts are zero. Keep a small buffer, free a big one */
+        if (!b || b.size < need || (b.size > 4 * need && b.size > 65536)) {
+          if (b) b.destroy();
+          var cap = out.legacyBuffers ? need : Math.min(maxBuf, Math.max(need, Math.ceil(need * 1.25 / 256) * 256));
+          b = bufs[name] = device.createBuffer({ size: cap, usage: usage | GPUBufferUsage.COPY_DST });
+        }
         device.queue.writeBuffer(b, 0, data.buffer, data.byteOffset, data.byteLength);
-        bufs[name] = b;
       };
       var load = function () { T = tessellate(S); mk('back', T.back, GPUBufferUsage.VERTEX); mk('front', T.front, GPUBufferUsage.VERTEX); mk('mesh', T.mesh, GPUBufferUsage.VERTEX); };
+      var noop = function () { /* a fence that failed (device lost) is not a reason to wait */ };
       var out = {
-        name: 'webgpu', label: 'WebGPU', device: (r.adapter.info && (r.adapter.info.description || r.adapter.info.device)) || '', software: !!r.adapter.isFallbackAdapter,
+        name: 'webgpu', label: 'WebGPU', device: (r.adapter.info && (r.adapter.info.description || r.adapter.info.device)) || '', software: !!r.adapter.isFallbackAdapter, legacyBuffers: false,
         setScene: function (s) { S = s; if (S) load(); },
         restyle: function () { if (S) load(); },
         resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
@@ -370,16 +377,26 @@ var NFMRender = (function () {
           device.queue.writeBuffer(ubuf, 0, ud);
           var bg = S.theme.bg, enc = device.createCommandEncoder();
           var pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }] });
-          if (bufs.back) { pass.setPipeline(pShape); pass.setBindGroup(0, bgS); pass.setVertexBuffer(0, bufs.back); pass.draw(6, T.nBack); }
-          if (bufs.mesh) { pass.setPipeline(pMesh); pass.setBindGroup(0, bgM); pass.setVertexBuffer(0, bufs.mesh); pass.draw(T.nMesh); }
-          if (bufs.front) { pass.setPipeline(pShape); pass.setBindGroup(0, bgS); pass.setVertexBuffer(0, bufs.front); pass.draw(6, T.nFront); }
+          if (T.nBack && bufs.back) { pass.setPipeline(pShape); pass.setBindGroup(0, bgS); pass.setVertexBuffer(0, bufs.back); pass.draw(6, T.nBack); }
+          if (T.nMesh && bufs.mesh) { pass.setPipeline(pMesh); pass.setBindGroup(0, bgM); pass.setVertexBuffer(0, bufs.mesh); pass.draw(T.nMesh); }
+          if (T.nFront && bufs.front) { pass.setPipeline(pShape); pass.setBindGroup(0, bgS); pass.setVertexBuffer(0, bufs.front); pass.draw(6, T.nFront); }
           pass.end();
           device.queue.submit([enc.finish()]);
           drawLabels(H.ctx2, S, view, W, Hh, dpr);
         },
+        /* waits until the graphics card has finished everything sent so far (used where the picture is read back, and by the diagnostics) */
         flush: function () { return device.queue.onSubmittedWorkDone(); },
+        /* for loops that draw one picture per screen refresh: resolves at once while fewer than `lag` (default 3) pictures are still being worked on, otherwise when the oldest is done.
+           Waiting for the card after every single picture made each picture wait for the browser's slowest round trip to the card. Call once after each draw(). */
+        pace: function (lag) {
+          var f = { p: device.queue.onSubmittedWorkDone(), done: false }, fin = function () { f.done = true; };
+          f.p.then(fin, fin); fences.push(f);
+          fences = fences.filter(function (x) { return !x.done; });
+          var keep = lag > 0 ? lag : 3;
+          return fences.length > keep ? fences[fences.length - 1 - keep].p.then(noop, noop) : Promise.resolve();
+        },
         snapshot: function () { return copyViaCanvas(H.main); },
-        destroy: function () { destroyed = true; try { Object.keys(bufs).forEach(function (k) { if (bufs[k]) bufs[k].destroy(); }); device.destroy(); } catch (e) { /* gone */ } host.textContent = ''; }
+        destroy: function () { destroyed = true; fences = []; try { Object.keys(bufs).forEach(function (k) { if (bufs[k]) bufs[k].destroy(); }); device.destroy(); } catch (e) { /* gone */ } host.textContent = ''; }
       };
       device.addEventListener && device.addEventListener('uncapturederror', function (ev) { if (hooks && hooks.onError) hooks.onError('webgpu', ev.error && ev.error.message); });
       return out;
