@@ -30,12 +30,17 @@ var NFMRender = (function () {
       list.push(cx, cy, hw, hh, rad, kind, sw, 0, fill[0], fill[1], fill[2], fill[3] * a, stroke[0], stroke[1], stroke[2], stroke[3] * a);
     };
     S.rects.forEach(function (r) { shape(r.layer === 0 ? back : front, r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, Math.min(r.r, r.w / 2, r.h / 2), 0, r.sw, r.fill, r.stroke, r.a === undefined ? 1 : r.a); });
-    S.dots.forEach(function (d) { shape(front, d.cx, d.cy, d.r, d.r, d.r, 1, d.sw, d.fill, d.stroke, d.a === undefined ? 1 : d.a); });
+    S.dots.forEach(function (d) { var k = d.kind === undefined ? 1 : d.kind; shape(front, d.cx, d.cy, d.r, d.r, k === 0 ? Math.min(3, d.r) : d.r, k, d.sw, d.fill, d.stroke, d.a === undefined ? 1 : d.a); });
     /* mesh */
     var verts = 0, plan = [];
     S.ribbons.forEach(function (r) { var n = Math.max(10, Math.min(40, Math.ceil(Math.abs(r.x1 - r.x0) / 10))); plan.push(r); verts += n * 6; });
+    var polyTris = 0;
+    (S.polys || []).forEach(function (p) { polyTris += p.pts.length / 2; });
+    verts += polyTris * 3;
     S.curves.forEach(function (c) {
-      var pts = c.pts || (c.pts = bezPts(c.P, c.line)), n = pts.length / 2 - 1;
+      var pts = c.pts || (c.pts = bezPts(c.P, c.line));
+      c.dashed = c.dash ? dashPieces(pts, c.w, c.dash) : null;
+      var n = c.dashed ? c.dashed.reduce(function (a, q) { return a + q.length / 2 - 1; }, 0) : pts.length / 2 - 1;
       verts += n * 6 + (c.arrow ? 3 : 0);
     });
     var mesh = new Float32Array(verts * MESH_STRIDE), o = 0;
@@ -49,8 +54,12 @@ var NFMRender = (function () {
         put(t1[0], t1[1], 0, 0, -1, 0, c, a); put(b0[0], b0[1], 0, 0, -1, 0, c, a); put(b1[0], b1[1], 0, 0, -1, 0, c, a);
       }
     });
-    S.curves.forEach(function (c) {
-      var pts = c.pts, n = pts.length / 2, a = c.a === undefined ? 1 : c.a, hw = c.w / 2, col = c.color, nr = new Array(n * 2);
+    (S.polys || []).forEach(function (p) {
+      var a = (p.a === undefined ? 1 : p.a), n = p.pts.length / 2, cx = p.c[0], cy = p.c[1];
+      for (var q = 0; q < n; q++) { var q2 = (q + 1) % n; put(cx, cy, 0, 0, -1, 0, p.fill, a); put(p.pts[q * 2], p.pts[q * 2 + 1], 0, 0, -1, 0, p.fill, a); put(p.pts[q2 * 2], p.pts[q2 * 2 + 1], 0, 0, -1, 0, p.fill, a); }
+    });
+    var strip = function (pts, hw, col, a) {
+      var n = pts.length / 2, nr = new Array(n * 2), i;
       for (i = 0; i < n; i++) {
         var p0 = Math.max(0, i - 1), p1 = Math.min(n - 1, i + 1), tx = pts[p1 * 2] - pts[p0 * 2], ty = pts[p1 * 2 + 1] - pts[p0 * 2 + 1], d = Math.hypot(tx, ty) || 1;
         nr[i * 2] = -ty / d; nr[i * 2 + 1] = tx / d;
@@ -60,9 +69,30 @@ var NFMRender = (function () {
         put(xa, ya, nr[i * 2], nr[i * 2 + 1], hw, -1, col, a); put(xa, ya, nr[i * 2], nr[i * 2 + 1], hw, 1, col, a); put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hw, -1, col, a);
         put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hw, -1, col, a); put(xa, ya, nr[i * 2], nr[i * 2 + 1], hw, 1, col, a); put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hw, 1, col, a);
       }
+    };
+    S.curves.forEach(function (c) {
+      var a = c.a === undefined ? 1 : c.a, hw = c.w / 2, col = c.color;
+      if (c.dashed) c.dashed.forEach(function (q) { strip(q, hw, col, a); }); else strip(c.pts, hw, col, a);
       if (c.arrow) { var t = NFMScene.arrowTri(c); for (i = 0; i < 3; i++) put(t[i * 2], t[i * 2 + 1], 0, 0, -1, 0, col, a); }
     });
     return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE };
+  }
+  /** Cuts a polyline into dashes: kind 1 = dots, 2 = short dashes, 3 = long dashes. Returns a list of flat polylines. */
+  function dashPieces(pts, w, kind) {
+    var on = kind === 1 ? Math.max(0.6, w * 0.5) : kind === 3 ? w * 6 + 6 : w * 3 + 4, off = kind === 1 ? Math.max(3, w * 2.2) : kind === 3 ? w * 3 + 5 : w * 2 + 4, out = [], cur = [], draw = true, left = on;
+    cur.push(pts[0], pts[1]);
+    for (var i = 2; i < pts.length; i += 2) {
+      var x0 = pts[i - 2], y0 = pts[i - 1], dx = pts[i] - x0, dy = pts[i + 1] - y0, len = Math.hypot(dx, dy), pos = 0;
+      while (len - pos > left) {
+        pos += left; var px = x0 + dx * pos / len, py = y0 + dy * pos / len;
+        if (draw) { cur.push(px, py); out.push(cur); cur = []; } else { cur = [px, py]; }
+        draw = !draw; left = draw ? on : off;
+      }
+      left -= len - pos;
+      if (draw) cur.push(pts[i], pts[i + 1]);
+    }
+    if (draw && cur.length >= 4) out.push(cur);
+    return out;
   }
 
   /* ---------------------------------------------------------------- labels (2D overlay, used by every backend) */
@@ -71,6 +101,7 @@ var NFMRender = (function () {
     ctx.clearRect(0, 0, w, h);
     var k = view.k, T = S.theme, drawn = 0, lastFont = '', bg = css(NFMScene.alpha(T.bg, 0.82));
     ctx.textBaseline = 'alphabetic';
+    drawIcons(ctx, S, view);
     for (var i = 0; i < S.labels.length && drawn < 2500; i++) {
       var l = S.labels[i], px = l.size * k;
       if (k < l.minK || px < 6.5) continue;
@@ -87,6 +118,33 @@ var NFMRender = (function () {
       ctx.fillText(l.t, x, y);
       if (l.rot) ctx.restore();
       drawn++;
+    }
+    ctx.globalAlpha = 1;
+    if (S.overlayDraw) { ctx.save(); S.overlayDraw(ctx, view); ctx.restore(); }
+  }
+  /* pictures and icons on the node positions; drawn on the 2D overlay with the labels */
+  var IMG_CACHE = new Map(), PATH_CACHE = {};
+  function imageFor(url, invalidate) {
+    var im = IMG_CACHE.get(url);
+    if (!im) { im = new Image(); im.decoding = 'async'; im.onload = function () { im._ok = true; if (invalidate) invalidate(); }; im.onerror = function () { im._bad = true; }; im.src = url; IMG_CACHE.set(url, im); if (IMG_CACHE.size > 200) IMG_CACHE.delete(IMG_CACHE.keys().next().value); }
+    return im;
+  }
+  function drawIcons(ctx, S, view) {
+    if (!S.icons || !S.icons.length) return;
+    var k = view.k, w = view.w || 99999, h = view.h || 99999;
+    for (var i = 0; i < S.icons.length; i++) {
+      var ic = S.icons[i], px = ic.cx * k + view.tx, py = ic.cy * k + view.ty, r = ic.r * k;
+      if (k < (ic.minK || 0) || r < 4 || px < -r || py < -r || px > w + r || py > h + r) continue;
+      ctx.globalAlpha = ic.a === undefined ? 1 : ic.a;
+      if (ic.img) {
+        var im = imageFor(ic.img, view.invalidate);
+        if (im._ok) { var iw = im.naturalWidth || 1, ih = im.naturalHeight || 1, sc = Math.min(2 * r / iw, 2 * r / ih); ctx.drawImage(im, px - iw * sc / 2, py - ih * sc / 2, iw * sc, ih * sc); }
+      } else if (NFMScene.ICONS[ic.icon]) {
+        var path = PATH_CACHE[ic.icon] || (PATH_CACHE[ic.icon] = new Path2D(NFMScene.ICONS[ic.icon]));
+        ctx.save(); ctx.translate(px - r, py - r); ctx.scale(r * 2 / 24, r * 2 / 24); ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = css([ic.color[0], ic.color[1], ic.color[2], 1]); ctx.stroke(path); ctx.restore();
+      } else if (ic.icon) {
+        ctx.font = Math.round(r * 1.25) + 'px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = css([ic.color[0], ic.color[1], ic.color[2], 1]); ctx.fillText(ic.icon, px, py + r * 0.05); ctx.textBaseline = 'alphabetic';
+      }
     }
     ctx.globalAlpha = 1;
   }
@@ -133,6 +191,11 @@ var NFMRender = (function () {
           if (r.sw > 0 && r.stroke[3] > 0) { ctx.globalAlpha = a * r.stroke[3]; ctx.lineWidth = r.sw; ctx.strokeStyle = css([r.stroke[0], r.stroke[1], r.stroke[2], 1]); ctx.stroke(); }
         };
         S.rects.forEach(function (r) { if (r.layer === 0) rect(r); });
+        (S.polys || []).forEach(function (p) {
+          ctx.beginPath(); for (var q = 0; q < p.pts.length; q += 2) { if (q) ctx.lineTo(p.pts[q], p.pts[q + 1]); else ctx.moveTo(p.pts[q], p.pts[q + 1]); } ctx.closePath();
+          var pa = p.a === undefined ? 1 : p.a; ctx.globalAlpha = pa * p.fill[3]; ctx.fillStyle = css([p.fill[0], p.fill[1], p.fill[2], 1]); ctx.fill();
+          ctx.globalAlpha = pa * p.stroke[3]; ctx.lineWidth = 1.5 / k; ctx.strokeStyle = css([p.stroke[0], p.stroke[1], p.stroke[2], 1]); ctx.stroke();
+        });
         ctx.globalAlpha = 1;
         S.ribbons.forEach(function (r) {
           if (Math.max(r.x0, r.x1) < vx0 || Math.min(r.x0, r.x1) > vx1) return;
@@ -144,16 +207,19 @@ var NFMRender = (function () {
           var bb = c.bb; if (bb[0] > vx1 || bb[2] < vx0 || bb[1] > vy1 || bb[3] < vy0) return;
           var P = c.P, a = (c.a === undefined ? 1 : c.a) * c.color[3], col = css([c.color[0], c.color[1], c.color[2], 1]);
           ctx.globalAlpha = a; ctx.strokeStyle = col; ctx.lineWidth = Math.max(c.w, 1.4 / k);
+          if (c.dash) { var lw = ctx.lineWidth; ctx.setLineDash(c.dash === 1 ? [0.01, lw * 2.2 + 2] : c.dash === 3 ? [lw * 6 + 6, lw * 3 + 5] : [lw * 3 + 4, lw * 2 + 4]); ctx.lineCap = c.dash === 1 ? 'round' : 'butt'; }
           ctx.beginPath(); ctx.moveTo(P[0], P[1]);
           for (var i = 2; i < P.length; i += 6) ctx.bezierCurveTo(P[i], P[i + 1], P[i + 2], P[i + 3], P[i + 4], P[i + 5]);
           ctx.stroke();
+          if (c.dash) { ctx.setLineDash([]); ctx.lineCap = 'butt'; }
           if (c.arrow) { var t = NFMScene.arrowTri(c); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(t[0], t[1]); ctx.lineTo(t[2], t[3]); ctx.lineTo(t[4], t[5]); ctx.closePath(); ctx.fill(); }
         });
         S.rects.forEach(function (r) { if (r.layer === 1) rect(r); });
         S.dots.forEach(function (d) {
           if (d.cx + d.r < vx0 || d.cx - d.r > vx1 || d.cy + d.r < vy0 || d.cy - d.r > vy1) return;
           var a = d.a === undefined ? 1 : d.a;
-          ctx.beginPath(); ctx.arc(d.cx, d.cy, d.r, 0, 6.2832);
+          ctx.beginPath(); var kd = d.kind === undefined ? 1 : d.kind;
+          if (kd === 1) ctx.arc(d.cx, d.cy, d.r, 0, 6.2832); else if (kd === 0) rrect(ctx, d.cx - d.r, d.cy - d.r, 2 * d.r, 2 * d.r, Math.min(3, d.r)); else { var sp = NFMScene.shapePts(kd, d.cx, d.cy, d.r); ctx.moveTo(sp[0], sp[1]); for (var q = 2; q < sp.length; q += 2) ctx.lineTo(sp[q], sp[q + 1]); ctx.closePath(); }
           ctx.globalAlpha = a * d.fill[3]; ctx.fillStyle = css([d.fill[0], d.fill[1], d.fill[2], 1]); ctx.fill();
           if (d.sw > 0 && d.stroke[3] > 0) { ctx.globalAlpha = a * d.stroke[3]; ctx.lineWidth = d.sw; ctx.strokeStyle = css([d.stroke[0], d.stroke[1], d.stroke[2], 1]); ctx.stroke(); }
         });
@@ -174,7 +240,10 @@ var NFMRender = (function () {
     'vec2 q=c*2.-1.;float pad=iB.z*.5+2./uV.x;vec2 loc=q*(iA.zw+pad);vec2 w=iA.xy+loc;vec2 px=w*uV.x+uV.yz;\n' +
     'gl_Position=vec4(px.x/uRes.x*2.-1.,1.-px.y/uRes.y*2.,0.,1.);vL=loc;vA=iA;vB=iB;vF=iFill;vS=iStroke;}';
   var GL_SHAPE_FS = '#version 300 es\nprecision highp float;in vec2 vL;flat in vec4 vA;flat in vec4 vB;flat in vec4 vF;flat in vec4 vS;uniform vec4 uV;out vec4 o;\n' +
-    'void main(){float d;if(vB.y>.5){d=length(vL)-vA.z;}else{vec2 q=abs(vL)-(vA.zw-vB.x);d=length(max(q,0.))+min(max(q.x,q.y),0.)-vB.x;}\n' +
+    'void main(){float d;int kd=int(vB.y+.5);float r=vA.z;if(kd==1){d=length(vL)-r;}else if(kd==2){d=(abs(vL.x)+abs(vL.y)-r)*.70710678;}\n' +
+    'else if(kd==3){vec2 p=abs(vL);const vec3 k=vec3(-.866025404,.5,.577350269);float ri=r*.866025404;p-=2.*min(dot(k.xy,p),0.)*k.xy;p-=vec2(clamp(p.x,-k.z*ri,k.z*ri),ri);d=length(p)*sign(p.y);}\n' +
+    'else if(kd==4){float kk=1.7320508;float ri=r*.866025404;vec2 p=vec2(vL.x,-vL.y);p.x=abs(p.x)-ri;p.y=p.y+ri/kk;if(p.x+kk*p.y>0.)p=vec2(p.x-kk*p.y,-kk*p.x-p.y)/2.;p.x-=clamp(p.x,-2.*ri,0.);d=-length(p)*sign(p.y);}\n' +
+    'else{vec2 q=abs(vL)-(vA.zw-vB.x);d=length(max(q,0.))+min(max(q.x,q.y),0.)-vB.x;}\n' +
     'float px=1./uV.x;float fc=clamp(.5-d/px,0.,1.);float sc=vB.z>0.?clamp(.5-(abs(d)-vB.z*.5)/px,0.,1.):0.;\n' +
     'vec4 f=vec4(vF.rgb*vF.a,vF.a)*fc;vec4 s=vec4(vS.rgb*vS.a,vS.a)*sc;o=s+f*(1.-s.a);}';
   var GL_MESH_VS = '#version 300 es\nprecision highp float;layout(location=0) in vec2 aP;layout(location=1) in vec2 aN;layout(location=2) in vec2 aHS;layout(location=3) in vec4 aC;\n' +
@@ -246,7 +315,12 @@ var NFMRender = (function () {
     ' let q = cs[vi]*2.-1.; let pad = b.z*.5 + 2./u.v.x; let loc = q*(a.zw+pad); let w = a.xy+loc; let px = w*u.v.x + u.v.yz;\n' +
     ' var o: VO; o.pos = vec4<f32>(px.x/u.res.x*2.-1., 1.-px.y/u.res.y*2., 0., 1.); o.loc = loc; o.a=a; o.b=b; o.f=f; o.s=s; return o; }\n' +
     '@fragment fn fs(i: VO) -> @location(0) vec4<f32> {\n' +
-    ' var d: f32; if (i.b.y > .5) { d = length(i.loc) - i.a.z; } else { let q = abs(i.loc) - (i.a.zw - i.b.x); d = length(max(q, vec2<f32>(0.))) + min(max(q.x,q.y),0.) - i.b.x; }\n' +
+    ' var d: f32; let kd = i32(i.b.y + .5); let r = i.a.z;\n' +
+    ' if (kd == 1) { d = length(i.loc) - r; }\n' +
+    ' else if (kd == 2) { d = (abs(i.loc.x) + abs(i.loc.y) - r) * .70710678; }\n' +
+    ' else if (kd == 3) { let k = vec3<f32>(-.866025404, .5, .577350269); let ri = r * .866025404; var p = abs(i.loc); p = p - 2. * min(dot(k.xy, p), 0.) * k.xy; p = p - vec2<f32>(clamp(p.x, -k.z * ri, k.z * ri), ri); d = length(p) * sign(p.y); }\n' +
+    ' else if (kd == 4) { let kk = 1.7320508; let ri = r * .866025404; var p = vec2<f32>(i.loc.x, -i.loc.y); p.x = abs(p.x) - ri; p.y = p.y + ri / kk; if (p.x + kk * p.y > 0.) { p = vec2<f32>(p.x - kk * p.y, -kk * p.x - p.y) / 2.; } p.x = p.x - clamp(p.x, -2. * ri, 0.); d = -length(p) * sign(p.y); }\n' +
+    ' else { let q = abs(i.loc) - (i.a.zw - i.b.x); d = length(max(q, vec2<f32>(0.))) + min(max(q.x,q.y),0.) - i.b.x; }\n' +
     ' let px = 1./u.v.x; let fc = clamp(.5 - d/px, 0., 1.); var sc = 0.; if (i.b.z > 0.) { sc = clamp(.5 - (abs(d) - i.b.z*.5)/px, 0., 1.); }\n' +
     ' let f = vec4<f32>(i.f.rgb*i.f.a, i.f.a)*fc; let s = vec4<f32>(i.s.rgb*i.s.a, i.s.a)*sc; return s + f*(1.-s.a); }\n';
   var WGSL_MESH = WGSL_COMMON +
