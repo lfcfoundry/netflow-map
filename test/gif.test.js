@@ -10,7 +10,7 @@ function decode(buf) {
   while (buf[p] !== 0x3B) {
     if (buf[p] === 0x21) {
       const label = buf[p + 1]; p += 2;
-      if (label === 0xF9) { gce = { packed: buf[p + 1], delay: (buf[p + 2] | buf[p + 3] << 8) * 10, trans: buf[p + 5] }; }
+      if (label === 0xF9) { gce = { packed: buf[p + 1], delay: (buf[p + 2] | buf[p + 3] << 8) * 10, trans: buf[p + 4] }; }
       if (label === 0xFF && buf[p] === 11 && String.fromCharCode(...buf.slice(p + 1, p + 12)) === 'NETSCAPE2.0') loops = true;
       while (buf[p] !== 0) p += buf[p] + 1; p++;  // skip blocks (the first byte of GCE is its size 4)
       if (label === 0xF9) { /* already read */ }
@@ -65,4 +65,17 @@ ok(d2.loops === null, 'no loop block when loop is off');
 // a long flat picture exercises table resets
 const big = new Uint8Array(400 * 300); for (let i = 0; i < big.length; i++) big[i] = (i * 7 + (i >> 5)) % 200;
 const code = G.lzw(big, 8); ok(code.length > 100, 'LZW runs over a long stream through table resets');
+// the run shortcut in the LZW coder must give exactly the bytes of the item-by-item coder (G.lzw(x, n, true))
+{
+  let sd = 1; const rr = () => (sd = (sd * 16807) % 2147483647) / 2147483647; let diff = 0, runs = 0;
+  const mk = (kind, n) => { const a = new Uint8Array(n); let i = 0;
+    if (kind === 0) for (; i < n; i++) a[i] = (rr() * 256) | 0;
+    else if (kind === 1) a.fill(255);
+    else if (kind === 2) { a.fill(255); for (; i < n / 20; i++) a[(rr() * n) | 0] = (rr() * 255) | 0; }
+    else while (i < n) { const v = (rr() * (rr() < 0.5 ? 3 : 256)) | 0, l = 1 + Math.floor(Math.pow(rr(), 3) * (rr() < 0.1 ? 100000 : 300)); for (let q = 0; q < l && i < n; q++) a[i++] = v; }
+    return a; };
+  for (let kind = 0; kind < 4; kind++) for (const n of [1, 2, 3, 17, 1000, 5000, 70000, 400000]) for (let rep = 0; rep < (n > 70000 ? 1 : 4); rep++) { const a = mk(kind, n), x = G.lzw(a, 8, true), y = G.lzw(a, 8); runs++; if (Buffer.compare(Buffer.from(x), Buffer.from(y)) !== 0) diff++; }
+  for (const mc of [2, 3, 4, 5]) for (let rep = 0; rep < 8; rep++) { const n = 2 + Math.floor(rr() * 20000), a = new Uint8Array(n); let i = 0; while (i < n) { const v = (rr() * (1 << mc)) | 0, l = 1 + Math.floor(rr() * (rr() < 0.2 ? 500 : 6)); for (let q = 0; q < l && i < n; q++) a[i++] = v; } runs++; if (Buffer.compare(Buffer.from(G.lzw(a, mc, true)), Buffer.from(G.lzw(a, mc))) !== 0) diff++; }
+  ok(diff === 0, 'LZW run shortcut gives the same bytes as the plain coder on ' + runs + ' inputs (' + diff + ' differ)');
+}
 if (fails) { console.log(fails + ' FAILED'); process.exit(1); } else console.log('gif: all passed');

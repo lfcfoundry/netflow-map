@@ -6,6 +6,7 @@ global.NFMColumns = require('../src/columns.js');
 const load = (f, g) => (0, eval)(fs.readFileSync(path.join(__dirname, f), 'utf8') + '\n;' + g);
 const E = require('../src/engine.js'), C = require('../src/columns.js'), GEN = load('gen.js', 'NFMGen');
 const EB = load('engine-before.js', 'NFMEngineBefore');
+const XM = require('../src/examples.js'), makeGraph = (kind, n) => (kind === 'planted' ? XM.bigNetwork(n, Math.max(6, Math.round(Math.sqrt(n) / 4)), 7) : GEN.graph(kind, n, 11));   // same graphs as bench/suites.js
 function hop(ids, edges, pos) {
   const idx = new Map(ids.map((id, i) => [id, i])), n = ids.length, adj = ids.map(() => []);
   edges.forEach((e) => { const a = idx.get(e.from), b = idx.get(e.to); if (a !== undefined && b !== undefined && a !== b) { adj[a].push(b); adj[b].push(a); } });
@@ -19,7 +20,7 @@ function hop(ids, edges, pos) {
   return Math.round(st / pairs.length * 1000) / 1000;
 }
 const [kind, n, ...settings] = process.argv.slice(2);
-const g = GEN.graph(kind, +n, 11), ids = g.nodes.map((x) => x.id);
+const g = makeGraph(kind, +n), ids = g.nodes.map((x) => x.id);
 const defaults = Object.assign({}, E.stressTuning);
 for (const st of settings) {
   const eng = st === 'before' ? EB : E, tun = st === 'before' ? {} : JSON.parse(st);

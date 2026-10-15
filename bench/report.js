@@ -80,7 +80,7 @@ const sections = {
   compare() {
     const out = [];
     for (const b of BR) {
-      const L = load(b + '-compare'), parts = [];
+      const L = load(b + '-compare').concat(load(b + '-pack')), parts = [];
       const lay = L.filter((r) => r.suite === 'layered' && r.ok).map((r) => { const o = r.ok; return [o.n, sec(o.ours.ms), o.ours.cross, o.dagre ? sec(o.dagre.ms) : '–', o.dagre ? o.dagre.cross : '–', o.elk ? sec(o.elk.ms) : '–', o.elk ? o.elk.cross : '–']; });
       if (lay.length) parts.push('Layered drawing (time, crossings)\n\n' + table(['items', 'ours', 'crossings', 'dagre', 'crossings', 'ELK', 'crossings'], lay));
       const gr = L.filter((r) => r.suite === 'groups' && r.ok).map((r) => { const o = r.ok; return [o.n, o.planted, sec(o.ours.ms), o.ours.groups, o.ours.nmi, o.louvain ? sec(o.louvain.ms) : '–', o.louvain ? o.louvain.groups : '–', o.louvain ? o.louvain.nmi : '–']; });
@@ -89,8 +89,10 @@ const sections = {
       if (dr) parts.push('Random draws, 1,000,000 each (ms)\n\n' + table(['distribution', 'ours', 'd3-random', 'jStat'], Object.keys(dr.ok).map((k) => [k, f0(dr.ok[k].ours.ms), dr.ok[k].d3 ? f0(dr.ok[k].d3.ms) : '–', dr.ok[k].jstat ? f0(dr.ok[k].jstat.ms) : '–'])));
       const fo = L.find((r) => r.suite === 'formula' && r.ok);
       if (fo) parts.push('Formulas, ' + fo.ok.rows.toLocaleString('en-US') + ' rows: ours ' + sec(fo.ok.ours) + ', expr-eval ' + sec(fo.ok.exprEval) + ' (' + ratio(fo.ok.exprEval, fo.ok.ours) + ' faster)');
-      const gf = L.filter((r) => r.suite === 'gif' && r.ok).map((r) => { const o = r.ok; return [o.frames, o.w + '×' + o.h, sec(o.ours.ms), (o.ours.bytes / 1024).toFixed(0) + ' KB', sec(o.gifenc_shared_palette.ms), (o.gifenc_shared_palette.bytes / 1048576).toFixed(1) + ' MB']; });
-      if (gf.length) parts.push('GIF export\n\n' + table(['frames', 'size', 'ours', 'file', 'gifenc', 'file'], gf));
+      const gf = L.filter((r) => r.suite === 'gif' && r.ok).map((r) => { const o = r.ok, g = o.gifenc_shared_palette; return [o.frames, o.w + '×' + o.h, sec(o.ours.ms), (o.ours.bytes / 1024).toFixed(0) + ' KB', o.ours.mse === undefined ? '–' : o.ours.mse.toFixed(3) + ' / ' + o.ours.psnr.toFixed(1) + ' dB', sec(g.ms), (g.bytes / 1024).toFixed(0) + ' KB', g.mse === undefined ? '–' : g.mse.toFixed(3) + ' / ' + g.psnr.toFixed(1) + ' dB']; });
+      if (gf.length) parts.push('GIF export\n\n' + table(['frames', 'size', 'ours', 'file', 'ours: color error (MSE / PSNR)', 'gifenc', 'file', 'gifenc: color error'], gf));
+      const pk = L.filter((r) => r.suite === 'pack' && r.ok).map((r) => { const o = r.ok; return [o.n.toLocaleString('en-US'), o.links.toLocaleString('en-US'), sec(o.objects_clone), sec(o.pack), sec(o.clone_packed), sec(o.unpack), sec(o.page_waits_objects), sec(o.page_waits_packed)]; });
+      if (pk.length) parts.push('Sending a layout from the worker to the page (moderate network)\n\n' + table(['items', 'links', 'send as objects (write + read)', 'pack (worker)', 'send packed', 'unpack (page)', 'page waits, objects (half of the send)', 'page waits, packed'], pk));
       const ck = L.filter((r) => r.suite === 'check' && r.ok).map((r) => [r.args.kind, r.ok.n.toLocaleString('en-US'), r.ok.m.toLocaleString('en-US'), sec(r.ok.ms), r.ok.findings]);
       if (ck.length) parts.push('Checker\n\n' + table(['structure', 'items', 'links', 'time', 'findings'], ck));
       const ig = L.filter((r) => r.suite === 'ingest' && r.ok).map((r) => [r.ok.n.toLocaleString('en-US'), r.ok.links.toLocaleString('en-US'), sec(r.ok.json), sec(r.ok.csv), sec(r.ok.arrows)]);

@@ -14,19 +14,55 @@ var NFMSim = (function () {
     h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
     return h | 0;
   }
+  /* Normal numbers by the ziggurat method (Marsaglia and Tsang 2000, "The Ziggurat Method for Generating Random Variables", 128 layers):
+     about 98.8% of draws are one integer, one multiply and one compare; the rest fall back to a short exact test (edges of layers) or the exact tail method (Marsaglia 1964). */
+  var ZK = new Float64Array(128), ZW = new Float64Array(128), ZF = new Float64Array(128), ZR = 3.442619855899;
+  (function () {
+    var m1 = 2147483648, dn = ZR, tn = dn, vn = 9.91256303526217e-3, q = vn / Math.exp(-0.5 * dn * dn), i;
+    ZK[0] = (dn / q) * m1; ZK[1] = 0; ZW[0] = q / m1; ZW[127] = dn / m1; ZF[0] = 1; ZF[127] = Math.exp(-0.5 * dn * dn);
+    for (i = 126; i >= 1; i--) { dn = Math.sqrt(-2 * Math.log(vn / dn + Math.exp(-0.5 * dn * dn))); ZK[i + 1] = (dn / tn) * m1; tn = dn; ZF[i] = Math.exp(-0.5 * dn * dn); ZW[i] = dn / m1; }
+  })();
+  var EK = new Float64Array(256), EW = new Float64Array(256), EF = new Float64Array(256), ER = 7.69711747013104972;   // exponential ziggurat (Marsaglia and Tsang 2000), 256 layers
+  (function () {
+    var m2 = 4294967296, de = ER, te = de, ve = 3.949659822581572e-3, q = ve / Math.exp(-de), i;
+    EK[0] = (de / q) * m2; EK[1] = 0; EW[0] = q / m2; EW[255] = de / m2; EF[0] = 1; EF[255] = Math.exp(-de);
+    for (i = 254; i >= 1; i--) { de = -Math.log(ve / de + Math.exp(-de)); EK[i + 1] = (de / te) * m2; te = de; EF[i] = Math.exp(-de); EW[i] = de / m2; }
+  })();
   function makeRng(seed) {
-    var s = seed | 0, spare = NaN;
-    var u = function () {
+    var s = seed | 0;
+    var next = function () {   // a 32-bit integer (mulberry32)
       s = (s + 0x6d2b79f5) | 0;
       var t = Math.imul(s ^ (s >>> 15), 1 | s);
       t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      return t ^ (t >>> 14);
     };
+    var u = function () { return (next() >>> 0) / 4294967296; };
+    var slow = function (hz, iz) {
+      for (;;) {
+        var x = hz * ZW[iz];
+        if (iz === 0) {   // the tail beyond 3.44
+          var y;
+          do { x = -Math.log(u() || 1e-300) * 0.2904764; y = -Math.log(u() || 1e-300); } while (y + y < x * x);
+          return hz > 0 ? ZR + x : -ZR - x;
+        }
+        if (ZF[iz] + u() * (ZF[iz - 1] - ZF[iz]) < Math.exp(-0.5 * x * x)) return x;
+        hz = next(); iz = hz & 127;
+        if (Math.abs(hz) < ZK[iz]) return hz * ZW[iz];
+      }
+    };
+    var slowExp = function (jz, iz) {
+      for (;;) {
+        if (iz === 0) return ER - Math.log(u() || 1e-300);
+        var x = jz * EW[iz];
+        if (EF[iz] + u() * (EF[iz - 1] - EF[iz]) < Math.exp(-x)) return x;
+        jz = next() >>> 0; iz = jz & 255;
+        if (jz < EK[iz]) return jz * EW[iz];
+      }
+    };
+    u.exponential = function () { var jz = next() >>> 0, iz = jz & 255; return jz < EK[iz] ? jz * EW[iz] : slowExp(jz, iz); };
     u.normal = function () {
-      if (spare === spare) { var t = spare; spare = NaN; return t; }
-      var a = u() || 1e-300, b = u(), r = Math.sqrt(-2 * Math.log(a));
-      spare = r * Math.sin(2 * Math.PI * b);
-      return r * Math.cos(2 * Math.PI * b);
+      var hz = next(), iz = hz & 127;
+      return Math.abs(hz) < ZK[iz] ? hz * ZW[iz] : slow(hz, iz);
     };
     return u;
   }
@@ -54,12 +90,21 @@ var NFMSim = (function () {
       if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
     }
   }
+  var POIS = new Map();
   function poisson(r, lam) {
     if (!(lam > 0)) return 0;
-    if (lam < 30) {
-      var L = Math.exp(-lam), k = 0, p = 1;
-      do { k++; p *= r(); } while (p > L);
-      return k - 1;
+    if (lam < 30) {   // one uniform number and a walk along the cumulative odds (kept per average), not about lam + 1 uniform numbers
+      var cdf = POIS.get(lam);
+      if (!cdf) {
+        if (POIS.size > 64) POIS.clear();
+        cdf = []; var pk = Math.exp(-lam), acc = pk, kq = 0;
+        cdf.push(acc);
+        while (acc < 1 - 1e-15 && kq < 200) { kq++; pk *= lam / kq; acc += pk; cdf.push(acc); }
+        POIS.set(lam, cdf);
+      }
+      var uu = r(), kz = 0, nz = cdf.length;
+      while (kz < nz && uu > cdf[kz]) kz++;
+      return kz;
     }
     var smu = Math.sqrt(lam), b = 0.931 + 2.53 * smu, a = -0.059 + 0.02483 * b, invalpha = 1.1239 + 1.1328 / (b - 3.4), vr = 0.9277 - 3.6224 / (b - 2);
     for (;;) {
@@ -132,7 +177,7 @@ var NFMSim = (function () {
       var p = 1 / a;
       return Math.max(1, Math.ceil(Math.log(r() || 1e-300) / Math.log(1 - p)));
     },
-    exponential: function (r, a) { return a > 0 ? -a * Math.log(r() || 1e-300) : 0; },
+    exponential: function (r, a) { return a > 0 ? a * r.exponential() : 0; },
     gamma: function (r, a, b) {
       if (!(a > 0)) return 0;
       if (!(b > 0)) return a;

@@ -19,6 +19,13 @@ module.exports = {
     ['simple', 'moderate', 'complex', 'planted'].forEach((kind) => [200, 600, 1000, 3000, 10000].forEach((n) => jobs.push(J('network', { kind, n }, { timeout: 900000 }))));
     return jobs;
   },
+  stressOurs: () => {   // our own two arrangements only (the libraries' numbers are kept from the stress run); merge with node bench/merge.js
+    const jobs = [];
+    ['simple', 'moderate', 'complex', 'planted'].forEach((kind) => [200, 600, 1000, 3000, 10000].forEach((n) => jobs.push(J('network', { kind, n, libs: false, before: false }, { timeout: 900000 }))));
+    return jobs;
+  },
+  pack: () => [10000, 30000, 100000].map((n) => J('pack', { kind: 'moderate', n }, { timeout: 900000 })),
+  refresh: () => [J('draws', { N: 1000000 }, { timeout: 600000 }), J('gif', { frames: 4 }), J('gif', { frames: 31 }, { timeout: 600000 })],
   typed: () => {   // what typed arrays cost and save
     const jobs = [];
     [300, 600, 1500].forEach((k) => ['arrays', 'typedIndexed', 'typedSeq'].forEach((variant) => jobs.push(J('pairStore', { k, variant }, { timeout: 600000 }))));

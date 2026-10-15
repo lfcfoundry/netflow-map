@@ -61,6 +61,19 @@ var SUITES = (function () {
     return out;
   };
 
+  /** Pairs of items whose discs touch (grid of cells as wide as the largest disc). The same count as bench/overlap.js. */
+  function touching(L) {
+    var nodes = L.nodes, rmax = 0, grid = {}, i, pairs = 0;
+    for (i = 0; i < nodes.length; i++) if (nodes[i].w / 2 > rmax) rmax = nodes[i].w / 2;
+    var cell = 2 * rmax || 1;
+    for (i = 0; i < nodes.length; i++) { var k = Math.floor(nodes[i].cx / cell) + ',' + Math.floor(nodes[i].cy / cell); (grid[k] || (grid[k] = [])).push(i); }
+    for (i = 0; i < nodes.length; i++) {
+      var a = nodes[i], cx = Math.floor(a.cx / cell), cy = Math.floor(a.cy / cell);
+      for (var gx = -1; gx <= 1; gx++) for (var gy = -1; gy <= 1; gy++) { var l = grid[(cx + gx) + ',' + (cy + gy)]; if (!l) continue; for (var q = 0; q < l.length; q++) { var j = l[q]; if (j > i) { var b = nodes[j]; if (Math.hypot(a.cx - b.cx, a.cy - b.cy) < a.w / 2 + b.w / 2) pairs++; } } }
+    }
+    return pairs;
+  }
+
   /* ================= network layouts: ours (stress, force) vs d3-force vs ForceAtlas2 ================= */
   SUITES.network = function (a) {   // a: { kind, n, libs: bool, arranges: [...] }
     var g = netGraph(a.kind, a.n), dg = C.derive(g), out = { n: a.n, m: g.edges.length, kind: a.kind }, per = Math.max(1, Math.ceil(a.n / (a.kind === 'planted' ? Math.max(6, Math.round(Math.sqrt(a.n) / 4)) : 12)));
@@ -69,7 +82,7 @@ var SUITES = (function () {
       var res = T(function () { return E.build(dg, { view: 'network', arrange: arr, colorBy: 'group' }); }, a.fast);
       var st = hopStats(ids, g.edges.map(function (e) { return { from: e.from, to: e.to }; }), res.value.nodes && layoutPos(res.value), comm);
       var posIds = res.value.nodes.map(function (nd) { return nd.nodeId || nd.id; });
-      out['ours_' + arr] = { ms: res.ms, stress: st.stress, sep: st.sep };
+      out['ours_' + arr] = { ms: res.ms, stress: st.stress, sep: st.sep, touch: touching(res.value) };
     });
     if (a.before !== false && typeof NFMEngineBefore !== 'undefined') {   // the engine as committed before the typed-array stress rewrite
       var rb = T(function () { return NFMEngineBefore.build(C.derive(g), { view: 'network', arrange: 'stress', colorBy: 'group' }); }, a.fast);
@@ -82,6 +95,22 @@ var SUITES = (function () {
       if (a.n <= 20000) { var res3 = T(function () { var gr = new LIBS.Graph({ type: 'undirected' }); ids.forEach(function (id, i) { gr.addNode(id, { x: Math.cos(i) * 10 + Math.random(), y: Math.sin(i) * 10 + Math.random() }); }); g.edges.forEach(function (e) { if (e.from !== e.to && !gr.hasEdge(e.from, e.to)) gr.addEdge(e.from, e.to); }); LIBS.fa2.assign(gr, { iterations: 300, settings: Object.assign(LIBS.fa2.inferSettings(gr), { barnesHutOptimize: a.n > 500 }) }); return gr; }, a.fast);
         var pos3 = {}; res3.value.forEachNode(function (id, at) { pos3[id] = [at.x, at.y]; }); var st3 = hopStats(ids, g.edges, pos3, comm); out.forceatlas2 = { ms: res3.ms, stress: st3.stress, sep: st3.sep }; }
     }
+    return out;
+  };
+
+
+  /* ================= sending a layout from the worker to the page: objects (structured clone) vs packed columns ================= */
+  SUITES.pack = function (a) {   // a: { kind, n }; the layout is built once, then the two ways of sending it are timed
+    var g = netGraph(a.kind || 'moderate', a.n), L = E.build(C.derive(g), { view: 'network', arrange: 'force' }), out = { n: a.n, links: L.edges.length };
+    var P = NFMPack, best = function (f) { var ts = [], i; for (i = 0; i < 3; i++) { var t0 = now(); f(); ts.push(now() - t0); } return r1(med(ts)); };
+    out.objects_clone = best(function () { structuredClone(L); });   // write and rebuild every object, all at once (the page waits for about half of it)
+    var packed, tr, cl;
+    out.pack = best(function () { tr = []; packed = P.packResult(L, tr); });
+    out.clone_packed = best(function () { tr = []; packed = P.packResult(L, tr); var t1 = now(); cl = structuredClone(packed, { transfer: tr }); out._t = now() - t1; });
+    out.clone_packed = r1(out._t); delete out._t;
+    out.unpack = best(function () { tr = []; packed = P.packResult(L, tr); cl = structuredClone(packed, { transfer: tr }); var t2 = now(); P.unpackResult(cl); out._u = now() - t2; });
+    out.unpack = r1(out._u); delete out._u;
+    out.page_waits_objects = r1(out.objects_clone / 2); out.page_waits_packed = r1(out.clone_packed + out.unpack);
     return out;
   };
 
@@ -145,6 +174,17 @@ var SUITES = (function () {
     out.ours = { ms: o.ms, bytes: o.value.length };
     var ge = LIBS.gifenc, t1 = T(function () { var enc = ge.GIFEncoder(), pal = ge.quantize(frames[0], 256); frames.forEach(function (f) { enc.writeFrame(ge.applyPalette(f, pal), W, H, { palette: pal, delay: 100 }); }); enc.finish(); return enc.bytes(); }, 800);
     out.gifenc_shared_palette = { ms: t1.ms, bytes: t1.value.length };
+    /* how close is the decoded animation to the original pictures? (mean squared error per color value, 0 to 255 scale; PSNR in dB; read back with omggif) */
+    var mse = function (bytes) {
+      var rd = new LIBS.omggif.GifReader(bytes), px = new Uint8ClampedArray(W * H * 4), sum = 0, f, q;
+      for (f = 0; f < N; f++) { rd.decodeAndBlitFrameRGBA(f, px); var src = frames[f]; for (q = 0; q < px.length; q += 4) { var dr = px[q] - src[q], dg = px[q + 1] - src[q + 1], db = px[q + 2] - src[q + 2]; sum += dr * dr + dg * dg + db * db; } }
+      return sum / (N * W * H * 3);
+    };
+    try {
+      var m1 = mse(o.value), m2 = mse(t1.value);
+      out.ours.mse = Math.round(m1 * 1e4) / 1e4; out.gifenc_shared_palette.mse = Math.round(m2 * 1e4) / 1e4;
+      out.ours.psnr = Math.round(10 * Math.log10(65025 / Math.max(m1, 1e-9)) * 100) / 100; out.gifenc_shared_palette.psnr = Math.round(10 * Math.log10(65025 / Math.max(m2, 1e-9)) * 100) / 100;
+    } catch (e) { out.quality_error = String(e && e.message || e); }
     return out;
   };
 

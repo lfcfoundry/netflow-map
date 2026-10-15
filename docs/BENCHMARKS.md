@@ -9,7 +9,7 @@ Libraries we compare against (all current npm releases, bundled into the benchma
 - Every job runs in a fresh page. Times are the median of up to three runs (seven interleaved runs for the CSV grid); anything slower than 600 ms is run once.
 - A job that passes its time limit (5 minutes in the scale runs) or loses its page is recorded as a failure, and the browser is restarted. A bigger size of the same job is skipped when the smaller one failed, or when even a straight-line projection from it passes the limit.
 - Firefox rounds its timer to 1 ms, so differences under about 3 ms are not meaningful there. Firefox does not report JS heap; its memory is whole-process memory, which is noisy at the MB scale.
-- "Layout score" is the sampled stress of the picture: how far page distances are from hop counts after the best single scale factor (lower is truer). d3-force and ForceAtlas2 place points with no size, while ours keeps sized items from overlapping, so the score slightly favors them.
+- "Layout score" (also called truth) is the sampled stress of the picture: how far page distances are from hop counts after the best single scale factor (lower is truer). d3-force and ForceAtlas2 place points with no size and leave most items lying on top of each other (section 12), while ours keeps every sized item apart. That costs a little truth, so the score favors them; we count it as a standard we hold ourselves to, not a handicap to hide.
 - Three kinds of structure at every scale: **simple** is a plain tree (two columns); **moderate** has communities, about 3 links per item, weights, groups and labels; **complex** adds hubs, cycles, self-links, repeated links, 12 columns, quoted text with commas, doubled quotes and line breaks, four state columns, and about 4 links per item.
 - The earlier Node-only numbers in `RESEARCH-open-source-comparison.md` used a different Chromium (Playwright's 141) for its browser checks; everything here is ungoogled-chromium 154 and Firefox 158.
 
@@ -19,14 +19,15 @@ Libraries we compare against (all current npm releases, bundled into the benchma
 |---|---|---|---|
 | CSV reading vs Papa Parse (21 table shapes) | faster in 20, median 0.70× the time, worst 1.13× | faster in 18, median 0.82×, worst 1.32× | Consistent win on quoted, long-field and wide data; parity on small unquoted data |
 | CSV reading, whole files of each structure (9 files) | at or under Papa in 3, up to 1.5× slower in the rest | at or under Papa in 2, up to 1.4× slower (one 6 ms parse read 2× against Firefox's 1 ms timer) | Parity, within about ±40%, noise-limited |
-| Stress layout vs d3-force (20 cases, 200 to 10,000 items) | faster in 20 of 20 | faster in 20 of 20 | Consistent win: 2 to 8× faster up to 3,000 items, 20 to 58× at 10,000 |
-| Stress layout truth vs d3-force | as true or truer in 16 of 20 | 16 of 20 | Win up to 3,000 items; 7 to 28% less true at 10,000 |
+| Stress layout vs d3-force (20 cases, 200 to 10,000 items) | faster in 20 of 20 | faster in 20 of 20 | Consistent win: 2.4 to 12× faster up to 3,000 items, 14 to 23× at 10,000 (10 to 19× against ForceAtlas2) |
+| Stress layout truth vs d3-force and ForceAtlas2 | as true or truer in 17 of 20 (both) | 17 of 20 (both) | Win up to 3,000 items (15 to 58% truer); at 10,000 items 10% truer to 9% less true than d3-force and 4% truer to 17% less true than ForceAtlas2 (was 7 to 28% less true) |
+| **Items left touching (section 12)** | **0 in all 40 test layouts per browser; d3-force and ForceAtlas2 leave 70 to 100% of items overlapping at the same item sizes (ForceAtlas2 on a plain tree: 9%)** | same (the rule is in the code, and a test checks it) | **Vital advantage**: the picture can be read; the others need a zoom of 2.6× to 48× to separate their worst pair, or a slower collision pass |
 | Force layout vs d3-force | faster in 20 of 20 | faster in 20 of 20 | Consistent win |
 | Layered drawing vs dagre / ELK | 7 to 13× faster than dagre, but 7 to 117% more crossings | same | Speed win, quality loss (unchanged) |
 | Formulas vs expr-eval | 3.8× faster | 5.0× faster | Consistent win |
-| Poisson / binomial draws vs d3-random | 2.2 / 2.6× faster | 2.6 / 1.8× faster | Consistent win |
-| Normal / lognormal draws vs d3-random, jStat | 1.3 to 1.5× slower | equal to 1.3× slower | **Loss or tie** |
-| GIF export vs gifenc (shared palette) | 2.1× slower, same file size | 1.7 to 2.7× slower, same file size | **Loss in both browsers**; the 20×-faster Node result does not carry over |
+| Poisson / binomial draws vs d3-random | 6.4 / 2.4× faster | 3.9 / 1.5× faster | Consistent win |
+| Normal / lognormal draws vs d3-random, jStat | normal 2.3 / 2.5× faster (jStat / d3-random), lognormal 1.3× faster | normal 1.4 / 1.2× slower, lognormal and exponential 1.06 to 1.2× faster | Win in Chromium; tie or small loss in Firefox (section 14) |
+| GIF export vs gifenc (shared palette) | 31 frames 1.3× faster, 4 frames 1.85× slower; color error 12 to 14× lower; files 7 to 8% larger | 31 frames 1.7× faster, 4 frames 1.1× faster; color error 16 to 18× lower; files 6 to 8% larger | Win on speed for longer animations and on quality everywhere; a loss on a cold 4-frame run in Chromium and on file size (section 14) |
 | Found groups vs Louvain | equal or better match at 1,000 and 3,000 items, 1.4 to 1.7× faster; merges planted groups at 300 | same, 1.4 to 2.5× faster | Win at size |
 | Memory at 10,000 items | 5.9 MB heap (1.2 MB typed) vs graphology 11.1 and Cytoscape 56.8 | process memory only, too noisy at this size (graphology +92 MB, Cytoscape +204 MB) | Win in Chromium; Firefox points the same way |
 
@@ -159,63 +160,63 @@ Limits found: the import has always stopped at 200,000 items or 800,000 links as
 **What changed.**
 - Pairs are held in typed arrays (two integer lists, two decimal lists) and swept in memory order; the random order is made once.
 - Distances come from a flat list of neighbors (CSR) instead of per-item arrays and map lookups.
-- All pairs are now used up to 3,000 items (was 700), with fewer passes as the count grows, because the sweep is now cheap enough. This is the largest single gain in layout truth: at 1,000 items the score went from 0.18 to 0.12.
-- Bigger pieces use pivots plus each item's nearest 16 neighbors (the short-range pairs carry most of the score), and the pair count is capped by memory (about 12 million pairs).
-- Overlap removal uses a plain grid with a counting sort, a cell sized to the largest items, and a first stretch of crowded pictures so little is left to push apart. Stress at 20,000 items went from 6.2 s to about 1.4 s (Node measurement).
+- All pairs are now used up to 4,000 items (was 700, then 3,000), with fewer passes as the count grows, because the sweep is now cheap enough. This is the largest single gain in layout truth: at 1,000 items the score went from 0.18 to 0.12.
+- Bigger pieces use pivots plus each item's nearest 100 neighbors (60 above 20,000 items; section 13 explains why this was the change that mattered), and the pair count is capped by memory (about 12 million pairs).
+- Overlap removal (section 12) uses a plain grid with a counting sort, a cell sized to the largest items, and a first stretch of crowded pictures so little is left to push apart. Stress at 20,000 items went from 6.2 s to about 1.4 s (Node measurement).
 
 **Chromium 154** (time / layout score, lower score = truer)
 
 | structure | items | Stress (now) | Stress (before) | Force | d3-force | ForceAtlas2 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| simple | 200 | 24 ms / 0.106 | 48 ms / 0.107 | 100 ms / 0.140 | 189 ms / 0.177 | 94 ms / 0.180 |
-| simple | 600 | 136 ms / 0.121 | 538 ms / 0.120 | 313 ms / 0.151 | 625 ms / 0.204 | 767 ms / 0.195 |
-| simple | 1,000 | 225 ms / 0.121 | 369 ms / 0.184 | 608 ms / 0.171 | 1.3 s / 0.208 | 1.2 s / 0.189 |
-| simple | 3,000 | 1.4 s / 0.130 | 1.2 s / 0.222 | 2.3 s / 0.191 | 4.9 s / 0.217 | 4.8 s / 0.203 |
-| simple | 10,000 | 641 ms / 0.231 | 2.1 s / 0.245 | 5.0 s / 0.260 | 26 s / 0.210 | 23 s / 0.201 |
-| moderate | 200 | 35 ms / 0.087 | 65 ms / 0.087 | 195 ms / 0.116 | 236 ms / 0.176 | 99 ms / 0.164 |
-| moderate | 600 | 123 ms / 0.124 | 573 ms / 0.127 | 395 ms / 0.163 | 745 ms / 0.189 | 714 ms / 0.184 |
-| moderate | 1,000 | 224 ms / 0.137 | 343 ms / 0.224 | 670 ms / 0.162 | 1.2 s / 0.198 | 1.2 s / 0.174 |
-| moderate | 3,000 | 1.9 s / 0.151 | 1.3 s / 0.234 | 2.5 s / 0.168 | 4.7 s / 0.194 | 5.1 s / 0.176 |
-| moderate | 10,000 | 853 ms / 0.213 | 3.5 s / 0.233 | 6.1 s / 0.254 | 22 s / 0.190 | 24 s / 0.180 |
-| complex | 200 | 22 ms / 0.119 | 54 ms / 0.124 | 129 ms / 0.130 | 238 ms / 0.150 | 111 ms / 0.140 |
-| complex | 600 | 168 ms / 0.119 | 799 ms / 0.155 | 443 ms / 0.130 | 848 ms / 0.144 | 874 ms / 0.141 |
-| complex | 1,000 | 275 ms / 0.124 | 359 ms / 0.238 | 782 ms / 0.140 | 1.6 s / 0.187 | 1.5 s / 0.147 |
-| complex | 3,000 | 2.3 s / 0.138 | 1.4 s / 0.243 | 3.4 s / 0.157 | 4.8 s / 0.172 | 5.7 s / 0.185 |
-| complex | 10,000 | 928 ms / 0.233 | 4.3 s / 0.246 | 5.9 s / 0.208 | 24 s / 0.195 | 27 s / 0.179 |
-| planted | 200 | 51 ms / 0.077 | 56 ms / 0.077 | 157 ms / 0.122 | 217 ms / 0.185 | 122 ms / 0.118 |
-| planted | 600 | 135 ms / 0.109 | 666 ms / 0.115 | 431 ms / 0.137 | 765 ms / 0.184 | 710 ms / 0.162 |
-| planted | 1,000 | 310 ms / 0.129 | 480 ms / 0.195 | 808 ms / 0.153 | 1.4 s / 0.192 | 1.3 s / 0.170 |
-| planted | 3,000 | 1.8 s / 0.146 | 1.5 s / 0.215 | 3.3 s / 0.172 | 5.4 s / 0.195 | 5.6 s / 0.180 |
-| planted | 10,000 | 1.1 s / 0.240 | 5.0 s / 0.233 | 6.6 s / 0.276 | 23 s / 0.188 | 24 s / 0.190 |
+| simple | 200 | 28 ms / 0.106 | 48 ms / 0.107 | 129 ms / 0.140 | 189 ms / 0.177 | 94 ms / 0.180 |
+| simple | 600 | 119 ms / 0.121 | 538 ms / 0.120 | 358 ms / 0.151 | 625 ms / 0.204 | 767 ms / 0.195 |
+| simple | 1,000 | 218 ms / 0.121 | 369 ms / 0.184 | 644 ms / 0.171 | 1.3 s / 0.208 | 1.2 s / 0.189 |
+| simple | 3,000 | 1.6 s / 0.130 | 1.2 s / 0.222 | 2.5 s / 0.191 | 4.9 s / 0.217 | 4.8 s / 0.203 |
+| simple | 10,000 | 1.2 s / 0.192 | 2.1 s / 0.245 | 5.3 s / 0.260 | 26 s / 0.210 | 23 s / 0.201 |
+| moderate | 200 | 35 ms / 0.087 | 65 ms / 0.087 | 113 ms / 0.116 | 236 ms / 0.176 | 99 ms / 0.164 |
+| moderate | 600 | 125 ms / 0.124 | 573 ms / 0.127 | 413 ms / 0.163 | 745 ms / 0.189 | 714 ms / 0.184 |
+| moderate | 1,000 | 247 ms / 0.137 | 343 ms / 0.224 | 637 ms / 0.162 | 1.2 s / 0.198 | 1.2 s / 0.174 |
+| moderate | 3,000 | 2.0 s / 0.151 | 1.3 s / 0.234 | 2.7 s / 0.168 | 4.7 s / 0.194 | 5.1 s / 0.176 |
+| moderate | 10,000 | 1.6 s / 0.207 | 3.5 s / 0.233 | 6.2 s / 0.252 | 22 s / 0.190 | 24 s / 0.180 |
+| complex | 200 | 24 ms / 0.119 | 54 ms / 0.124 | 115 ms / 0.130 | 238 ms / 0.150 | 111 ms / 0.140 |
+| complex | 600 | 121 ms / 0.119 | 799 ms / 0.155 | 413 ms / 0.130 | 848 ms / 0.144 | 874 ms / 0.141 |
+| complex | 1,000 | 266 ms / 0.124 | 359 ms / 0.238 | 661 ms / 0.140 | 1.6 s / 0.187 | 1.5 s / 0.147 |
+| complex | 3,000 | 1.8 s / 0.138 | 1.4 s / 0.243 | 2.6 s / 0.157 | 4.8 s / 0.172 | 5.7 s / 0.185 |
+| complex | 10,000 | 1.5 s / 0.205 | 4.3 s / 0.246 | 6.4 s / 0.207 | 24 s / 0.195 | 27 s / 0.179 |
+| planted | 200 | 40 ms / 0.077 | 56 ms / 0.077 | 141 ms / 0.122 | 217 ms / 0.185 | 122 ms / 0.118 |
+| planted | 600 | 186 ms / 0.109 | 666 ms / 0.115 | 476 ms / 0.137 | 765 ms / 0.184 | 710 ms / 0.162 |
+| planted | 1,000 | 275 ms / 0.129 | 480 ms / 0.195 | 690 ms / 0.153 | 1.4 s / 0.192 | 1.3 s / 0.170 |
+| planted | 3,000 | 1.8 s / 0.146 | 1.5 s / 0.215 | 2.7 s / 0.172 | 5.4 s / 0.195 | 5.6 s / 0.180 |
+| planted | 10,000 | 1.5 s / 0.203 | 5.0 s / 0.233 | 6.5 s / 0.275 | 23 s / 0.188 | 24 s / 0.190 |
 
-**Firefox 158** (time / layout score, lower score = truer)
+**Firefox 158**(time / layout score, lower score = truer)
 
 | structure | items | Stress (now) | Stress (before) | Force | d3-force | ForceAtlas2 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| simple | 200 | 33 ms / 0.107 | 78 ms / 0.107 | 159 ms / 0.139 | 257 ms / 0.177 | 115 ms / 0.170 |
-| simple | 600 | 102 ms / 0.121 | 1.4 s / 0.120 | 403 ms / 0.151 | 869 ms / 0.204 | 587 ms / 0.195 |
-| simple | 1,000 | 239 ms / 0.122 | 746 ms / 0.187 | 926 ms / 0.172 | 1.6 s / 0.208 | 1.1 s / 0.203 |
-| simple | 3,000 | 1.5 s / 0.130 | 2.6 s / 0.215 | 4.1 s / 0.191 | 8.0 s / 0.217 | 4.5 s / 0.208 |
-| simple | 10,000 | 548 ms / 0.225 | 3.5 s / 0.253 | 7.7 s / 0.260 | 32 s / 0.210 | 20 s / 0.198 |
-| moderate | 200 | 24 ms / 0.087 | 70 ms / 0.087 | 140 ms / 0.117 | 238 ms / 0.176 | 138 ms / 0.151 |
-| moderate | 600 | 134 ms / 0.124 | 1.5 s / 0.127 | 482 ms / 0.163 | 943 ms / 0.189 | 486 ms / 0.178 |
-| moderate | 1,000 | 249 ms / 0.136 | 827 ms / 0.212 | 951 ms / 0.163 | 1.7 s / 0.198 | 1.2 s / 0.179 |
-| moderate | 3,000 | 2.5 s / 0.151 | 2.7 s / 0.237 | 4.2 s / 0.168 | 6.9 s / 0.194 | 4.0 s / 0.184 |
-| moderate | 10,000 | 818 ms / 0.215 | 6.7 s / 0.229 | 10 s / 0.254 | 30 s / 0.190 | 21 s / 0.175 |
-| complex | 200 | 31 ms / 0.119 | 86 ms / 0.123 | 156 ms / 0.130 | 230 ms / 0.150 | 107 ms / 0.151 |
-| complex | 600 | 167 ms / 0.119 | 1.7 s / 0.151 | 564 ms / 0.130 | 998 ms / 0.144 | 559 ms / 0.140 |
-| complex | 1,000 | 297 ms / 0.124 | 941 ms / 0.247 | 1.2 s / 0.140 | 1.8 s / 0.187 | 1.0 s / 0.146 |
-| complex | 3,000 | 2.2 s / 0.138 | 3.5 s / 0.248 | 4.4 s / 0.158 | 9.6 s / 0.172 | 4.9 s / 0.169 |
-| complex | 10,000 | 1.1 s / 0.228 | 7.7 s / 0.247 | 9.6 s / 0.207 | 34 s / 0.195 | 23 s / 0.179 |
-| planted | 200 | 28 ms / 0.078 | 101 ms / 0.077 | 196 ms / 0.122 | 300 ms / 0.185 | 99 ms / 0.148 |
-| planted | 600 | 137 ms / 0.109 | 1.5 s / 0.115 | 505 ms / 0.137 | 965 ms / 0.184 | 750 ms / 0.152 |
-| planted | 1,000 | 278 ms / 0.129 | 901 ms / 0.200 | 1.2 s / 0.153 | 2.3 s / 0.192 | 1.0 s / 0.172 |
-| planted | 3,000 | 2.2 s / 0.145 | 3.3 s / 0.216 | 4.0 s / 0.172 | 7.7 s / 0.195 | 4.1 s / 0.189 |
-| planted | 10,000 | 905 ms / 0.238 | 6.5 s / 0.243 | 11 s / 0.277 | 34 s / 0.188 | 21 s / 0.187 |
+| simple | 200 | 21 ms / 0.107 | 78 ms / 0.107 | 156 ms / 0.139 | 257 ms / 0.177 | 115 ms / 0.170 |
+| simple | 600 | 168 ms / 0.121 | 1.4 s / 0.120 | 424 ms / 0.151 | 869 ms / 0.204 | 587 ms / 0.195 |
+| simple | 1,000 | 212 ms / 0.122 | 746 ms / 0.187 | 750 ms / 0.172 | 1.6 s / 0.208 | 1.1 s / 0.203 |
+| simple | 3,000 | 1.6 s / 0.130 | 2.6 s / 0.215 | 3.4 s / 0.191 | 8.0 s / 0.217 | 4.5 s / 0.208 |
+| simple | 10,000 | 1.4 s / 0.190 | 3.5 s / 0.253 | 8.6 s / 0.260 | 32 s / 0.210 | 20 s / 0.198 |
+| moderate | 200 | 62 ms / 0.087 | 70 ms / 0.087 | 134 ms / 0.117 | 238 ms / 0.176 | 138 ms / 0.151 |
+| moderate | 600 | 157 ms / 0.124 | 1.5 s / 0.127 | 993 ms / 0.163 | 943 ms / 0.189 | 486 ms / 0.178 |
+| moderate | 1,000 | 641 ms / 0.136 | 827 ms / 0.212 | 1.3 s / 0.163 | 1.7 s / 0.198 | 1.2 s / 0.179 |
+| moderate | 3,000 | 2.4 s / 0.151 | 2.7 s / 0.237 | 4.5 s / 0.168 | 6.9 s / 0.194 | 4.0 s / 0.184 |
+| moderate | 10,000 | 1.8 s / 0.204 | 6.7 s / 0.229 | 10 s / 0.252 | 30 s / 0.190 | 21 s / 0.175 |
+| complex | 200 | 36 ms / 0.119 | 86 ms / 0.123 | 142 ms / 0.130 | 230 ms / 0.150 | 107 ms / 0.151 |
+| complex | 600 | 141 ms / 0.119 | 1.7 s / 0.151 | 497 ms / 0.130 | 998 ms / 0.144 | 559 ms / 0.140 |
+| complex | 1,000 | 255 ms / 0.124 | 941 ms / 0.247 | 1.0 s / 0.140 | 1.8 s / 0.187 | 1.0 s / 0.146 |
+| complex | 3,000 | 2.2 s / 0.138 | 3.5 s / 0.248 | 4.1 s / 0.158 | 9.6 s / 0.172 | 4.9 s / 0.169 |
+| complex | 10,000 | 2.0 s / 0.207 | 7.7 s / 0.247 | 9.4 s / 0.206 | 34 s / 0.195 | 23 s / 0.179 |
+| planted | 200 | 53 ms / 0.078 | 101 ms / 0.077 | 127 ms / 0.122 | 300 ms / 0.185 | 99 ms / 0.148 |
+| planted | 600 | 158 ms / 0.109 | 1.5 s / 0.115 | 502 ms / 0.137 | 965 ms / 0.184 | 750 ms / 0.152 |
+| planted | 1,000 | 303 ms / 0.129 | 901 ms / 0.200 | 1.0 s / 0.153 | 2.3 s / 0.192 | 1.0 s / 0.172 |
+| planted | 3,000 | 2.2 s / 0.145 | 3.3 s / 0.216 | 4.1 s / 0.172 | 7.7 s / 0.195 | 4.1 s / 0.189 |
+| planted | 10,000 | 2.1 s / 0.198 | 6.5 s / 0.243 | 8.9 s / 0.276 | 34 s / 0.188 | 21 s / 0.187 |
 
-Reading it: **time** is lower for Stress in all 40 cases (20 per browser); at 10,000 items it is 20 to 58 times faster than d3-force. **Truth** is better than d3-force's up to 3,000 items; at 10,000 items it is 7 to 28% worse (0.21 to 0.24 against 0.19 to 0.21). The gap is the pivot method, which only sees far-apart items plus near neighbors. More pivots, more rounds and more near neighbors did not close it (the results moved by less than the noise), so the next step is a multilevel layout (lay out a coarse graph first, then refine), not tuning. The "before" column is the engine as committed before this work, loaded in the same page.
+Reading it: **time** is lower for Stress in all 40 cases (20 per browser): 2.4 to 12× faster than d3-force up to 3,000 items, and 14 to 23× faster at 10,000 items (10 to 19× faster than ForceAtlas2). **Truth** is better than both competitors up to 3,000 items (ours scores 0.42 to 0.86 of their score). At 10,000 items it is 10% truer to 9% less true than d3-force and 4% truer to 17% less true than ForceAtlas2; that is 17 of 20 cases as true or truer in each browser, and the three that are not are the moderate, complex and planted networks at 10,000 items. The last round measured 7 to 28% worse at 10,000 items. Section 13 says what closed most of the gap, what was tried and did not help, and what is left. The "before" column is the engine as committed before the first round of this work, loaded in the same page; at 3,000 items in Chromium the engine now takes 1.2 to 1.5× longer than that column (in Firefox it is 1.1 to 1.6× faster) because it now also guarantees that no two items touch (section 12).
 
-Memory trade: at 3,000 items the all-pairs method holds 4.5 million pairs (about 72 MB at peak), roughly 3× the old method's footprint at that one size, and then returns it. Above 3,000 items it uses less memory than before.
+Memory trade: at 4,000 items the all-pairs method holds 8 million pairs (16 bytes each, 128 MB; designed, not separately measured), several times the old method's footprint at that size, and then returns it. Above 3,000 items it uses less memory than before.
 
 ## 3. What typed arrays cost, and what they save
 
@@ -361,20 +362,28 @@ Random draws, 1,000,000 each (ms)
 
 | distribution | ours | d3-random | jStat |
 | --- | ---: | ---: | ---: |
-| normal | 68 | 54 | 46 |
-| lognormal | 138 | 102 | – |
-| poisson | 129 | 283 | 85 |
-| binomial | 230 | 596 | – |
-| exponential | 41 | 44 | – |
+| normal | 21 | 53 | 48 |
+| lognormal | 80 | 103 | – |
+| poisson | 57 | 363 | 84 |
+| binomial | 263 | 635 | – |
+| exponential | 30 | 45 | – |
 
 Formulas, 300,000 rows: ours 70 ms, expr-eval 265 ms (3.80× faster)
 
 GIF export
 
-| frames | size | ours | file | gifenc | file |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 4 | 960×540 | 148 ms | 68 KB | 71 ms | 0.1 MB |
-| 31 | 960×540 | 646 ms | 520 KB | 305 ms | 0.5 MB |
+| frames | size | ours | file | ours: color error (MSE / PSNR) | gifenc | file | gifenc: color error |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 960×540 | 111 ms | 68 KB | 0.013 / 67.1 dB | 60 ms | 63 KB | 0.159 / 56.1 dB |
+| 31 | 960×540 | 202 ms | 519 KB | 0.021 / 65.0 dB | 255 ms | 487 KB | 0.287 / 53.6 dB |
+
+Sending a layout from the worker to the page (moderate network)
+
+| items | links | send as objects (write + read) | pack (worker) | send packed | unpack (page) | page waits, objects (half of the send) | page waits, packed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 29,813 | 160 ms | 40 ms | 6.3 ms | 19 ms | 80 ms | 25 ms |
+| 30,000 | 90,029 | 547 ms | 152 ms | 24 ms | 201 ms | 274 ms | 225 ms |
+| 100,000 | 299,762 | 2.0 s | 471 ms | 124 ms | 221 ms | 1.0 s | 345 ms |
 
 Checker
 
@@ -432,20 +441,28 @@ Random draws, 1,000,000 each (ms)
 
 | distribution | ours | d3-random | jStat |
 | --- | ---: | ---: | ---: |
-| normal | 51 | 51 | 39 |
-| lognormal | 90 | 84 | – |
-| poisson | 117 | 309 | 53 |
-| binomial | 333 | 600 | – |
-| exponential | 47 | 45 | – |
+| normal | 60 | 51 | 42 |
+| lognormal | 82 | 87 | – |
+| poisson | 78 | 308 | 55 |
+| binomial | 364 | 562 | – |
+| exponential | 37 | 45 | – |
 
 Formulas, 300,000 rows: ours 52 ms, expr-eval 258 ms (4.96× faster)
 
 GIF export
 
-| frames | size | ours | file | gifenc | file |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 4 | 960×540 | 148 ms | 67 KB | 55 ms | 0.1 MB |
-| 31 | 960×540 | 625 ms | 515 KB | 364 ms | 0.5 MB |
+| frames | size | ours | file | ours: color error (MSE / PSNR) | gifenc | file | gifenc: color error |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 960×540 | 66 ms | 67 KB | 0.012 / 67.3 dB | 72 ms | 63 KB | 0.191 / 55.3 dB |
+| 31 | 960×540 | 199 ms | 516 KB | 0.019 / 65.2 dB | 347 ms | 485 KB | 0.347 / 52.7 dB |
+
+Sending a layout from the worker to the page (moderate network)
+
+| items | links | send as objects (write + read) | pack (worker) | send packed | unpack (page) | page waits, objects (half of the send) | page waits, packed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 29,813 | 162 ms | 31 ms | 4.0 ms | 45 ms | 81 ms | 49 ms |
+| 30,000 | 90,029 | 644 ms | 186 ms | 18 ms | 225 ms | 322 ms | 243 ms |
+| 100,000 | 299,762 | 1.9 s | 678 ms | 78 ms | 263 ms | 934 ms | 341 ms |
 
 Checker
 
@@ -479,15 +496,17 @@ Memory at 10,000 items
 | cytoscape | 204 MB | – |  |
 | layout | 139 MB | – |  |
 
-Notes: GIF compares our encoder with gifenc using one shared palette on four synthetic frames and then 31; ours is slower in both browsers while the files are the same size, so this is a loss to fix, not a win. The Node result in the earlier research report (ours 0.4 s against 7.6 to 10.7 s) was gifenc with a palette per frame. The draws are 1,000,000 samples each.
+Notes: GIF compares our encoder with gifenc using one shared palette on four synthetic frames and then 31 (section 14 has the reading and the color-error method). The Node result in the earlier research report (ours 0.4 s against 7.6 to 10.7 s) was gifenc with a palette per frame. The draws are 1,000,000 samples each; d3-random is given a fast LCG generator and jStat its own. "Sending a layout" is section 14.
 
 ## 6. Left for the next round
 
-1. A multilevel Stress layout to close the 7 to 28% truth gap at 10,000 items and above.
-2. Layout results as typed arrays (70 to 100 times cheaper to send at 1,000,000 items).
-3. GIF encoder speed (1.7 to 2.7× slower than gifenc in both browsers) and the normal / lognormal draws (up to 1.5× slower than d3-random and jStat in Chromium).
-4. Reading text over 512 million characters in Chromium needs a chunked reader; the import cap of 200,000 items / 800,000 links is still the app default.
-5. A faster Force layout above 100,000 items; at that size it takes over a minute.
+Done in the last round (sections 12 to 14): the 10,000+ Stress gap (7 to 28% down to 10% truer to 9% less true than d3-force), layout results as columns (about 2.5× faster end to end at 100,000 items, not the 70 to 100× estimated before the object rebuild was counted), the GIF encoder (now faster than gifenc from about 30 frames, and far truer in color) and the normal / lognormal draws (Chromium win; Firefox tie).
+
+1. Close the last 5 to 9% (6 to 17% against ForceAtlas2) of Stress truth at 10,000 items and above. Ideas not yet tried: a pivot-MDS start (Brandes and Pich 2006), pivots picked by k-means so each pivot stands for a region (both from the sparse stress paper), and a majorization step instead of gradient descent, which tolerates the region weights that made gradient descent unstable (`docs/RESEARCH-r-packages.md`).
+2. GIF: the palette step is a fixed cost, so a cold 4-frame run in Chromium is 1.85× slower than gifenc, and files are 6 to 8% larger. A cheaper palette for short animations is the open item.
+3. Reading text over 512 million characters in Chromium needs a chunked reader; the import cap of 200,000 items / 800,000 links is still the app default.
+4. A faster Force layout above 100,000 items; at that size it takes over a minute.
+5. Rebuilding objects on the page is now the largest part of what the page itself still waits for when a big layout arrives (221 of 345 ms at 100,000 items in Chromium); handing out lazy views over the columns would remove it but touches about 150 places that read the layout.
 
 ## 7. Scorecard: one geometric mean for all the head-to-head results
 
@@ -502,31 +521,32 @@ How it is counted (you chose: each head-to-head counts once, with speed, memory 
 
 | | comparisons | wins / ties / losses | geometric mean (other ÷ ours) |
 | --- | ---: | ---: | ---: |
-| Speed only, both browsers | 314 | 249 / 8 / 57 | 2.23× |
-| Speed only, Chromium 154 | 157 | 127 / 2 / 28 | 2.30× |
-| Speed only, Firefox 158 | 157 | 122 / 6 / 29 | 2.15× |
-| Speed + memory + layout truth, both browsers | 498 | 378 / 12 / 108 | 1.74× |
-| Speed + memory + layout truth, Chromium 154 | 250 | 192 / 4 / 54 | 1.78× |
-| Speed + memory + layout truth, Firefox 158 | 248 | 186 / 8 / 54 | 1.70× |
+| Speed only, both browsers | 314 | 257 / 7 / 50 | 2.20× |
+| Speed only, Chromium 154 | 157 | 132 / 2 / 23 | 2.37× |
+| Speed only, Firefox 158 | 157 | 125 / 5 / 27 | 2.05× |
+| Speed + memory + layout truth, both browsers | 502 | 394 / 11 / 97 | 1.77× |
+| Speed + memory + layout truth, Chromium 154 | 252 | 201 / 4 / 47 | 1.85× |
+| Speed + memory + layout truth, Firefox 158 | 250 | 193 / 7 / 50 | 1.68× |
 
-**First places on speed:** one benchmark row is one data set in one browser (for example Stress at 3,000 complex items in Firefox, against d3-force and ForceAtlas2 together). We come first, ahead of every competitor in the row, in 108 of 160 rows (Chromium 56 of 80, Firefox 52 of 80).
+**First places on speed:** one benchmark row is one data set in one browser (for example Stress at 3,000 complex items in Firefox, against d3-force and ForceAtlas2 together). We come first, ahead of every competitor in the row, in 116 of 160 rows (Chromium 60 of 80, Firefox 56 of 80).
 
 **By area** (both browsers, all metrics in the area)
 
 | | comparisons | wins / ties / losses | geometric mean (other ÷ ours) |
 | --- | ---: | ---: | ---: |
 | CSV parsing | 116 | 77 / 4 / 35 | 1.17× |
-| Stress layout | 80 | 80 / 0 / 0 | 6.64× |
-| Stress layout truth | 80 | 64 / 0 / 16 | 1.32× |
-| Force layout | 80 | 67 / 3 / 10 | 1.73× |
+| Stress layout | 80 | 80 / 0 / 0 | 5.49× |
+| Stress layout truth | 80 | 68 / 0 / 12 | 1.35× |
+| Force layout | 80 | 66 / 3 / 11 | 1.78× |
 | Force layout truth | 80 | 63 / 0 / 17 | 1.09× |
 | Layered drawing | 12 | 12 / 0 / 0 | 14.8× |
 | Layered drawing truth | 12 | 0 / 0 / 12 | 0.60× |
 | Found groups | 6 | 6 / 0 / 0 | 2.23× |
 | Found groups truth | 6 | 0 / 4 / 2 | 0.96× |
-| Random draws | 14 | 5 / 1 / 8 | 1.06× |
+| Random draws | 14 | 11 / 0 / 3 | 1.62× |
 | Formulas | 2 | 2 / 0 / 0 | 4.34× |
-| GIF export | 8 | 0 / 0 / 8 | 0.66× |
+| GIF export | 8 | 3 / 0 / 5 | 1.00× |
+| GIF export truth | 4 | 4 / 0 / 0 | 14.9× |
 | Network memory | 2 | 2 / 0 / 0 | 4.26× |
 
 **By competitor** (all areas and metrics)
@@ -535,24 +555,26 @@ How it is counted (you chose: each head-to-head counts once, with speed, memory 
 | --- | ---: | ---: | ---: |
 | Papa Parse | 58 | 39 / 2 / 17 | 1.18× |
 | d3-dsv | 58 | 38 / 2 / 18 | 1.16× |
-| d3-force | 160 | 144 / 0 / 16 | 2.24× |
-| ForceAtlas2 | 160 | 130 / 3 / 27 | 1.81× |
+| d3-force | 160 | 145 / 0 / 15 | 2.17× |
+| ForceAtlas2 | 160 | 132 / 3 / 25 | 1.75× |
 | dagre | 6 | 6 / 0 / 0 | 8.85× |
 | dagre (crossings) | 6 | 0 / 0 / 6 | 0.66× |
 | ELK | 6 | 6 / 0 / 0 | 24.8× |
 | ELK (crossings) | 6 | 0 / 0 / 6 | 0.55× |
 | Louvain | 6 | 6 / 0 / 0 | 2.23× |
 | Louvain (match) | 6 | 0 / 4 / 2 | 0.96× |
-| d3-random | 10 | 5 / 1 / 4 | 1.31× |
-| jStat | 4 | 0 / 0 / 4 | 0.63× |
+| d3-random | 10 | 9 / 0 / 1 | 1.86× |
+| jStat | 4 | 2 / 0 / 2 | 1.13× |
 | expr-eval | 2 | 2 / 0 / 0 | 4.34× |
-| gifenc | 8 | 0 / 0 / 8 | 0.66× |
+| gifenc | 12 | 7 / 0 / 5 | 2.46× |
 | graphology | 1 | 1 / 0 / 0 | 1.88× |
 | Cytoscape | 1 | 1 / 0 / 0 | 9.63× |
 
-**Each area counted once:** the geometric mean of the 13 area means is 1.92×. Left out as below timer resolution: 4 comparisons.
+**Each area counted once:** the geometric mean of the 14 area means is 2.33×. Left out as below timer resolution: 4 comparisons.
 
-Reading it plainly: counting every comparison once, we are **1.74× better on average** (378 wins, 12 ties, 108 losses out of 498; 1.78× in Chromium, 1.70× in Firefox), and **2.23× faster on speed alone**. We come first in 108 of the 160 speed rows. The mean is pulled up by Stress (6.6× faster than the two force layouts, with all 80 comparisons won), layered drawing (14.8× faster than dagre and ELK) and formulas (4.3×); it is pulled down by the places that are honestly behind: layered-drawing crossings (0.60×, we draw more crossings), GIF export (0.66×, slower than gifenc), jStat's normal draws (0.63×) and CSV parsing, which is only 1.17× ahead on average with 35 losses out of 116 (mostly small unquoted files and whole-file parses that Papa Parse reads about as fast). Weighting each of the 13 areas equally instead of each comparison gives 1.92×.
+Reading it plainly: counting every comparison once, we are **1.77× better on average** (394 wins, 11 ties, 97 losses out of 502; 1.85× in Chromium, 1.68× in Firefox), and **2.20× faster on speed alone**. We come first in 116 of the 160 speed rows. The mean is pulled up by Stress (5.5× faster than the two force layouts, with all 80 comparisons won), layered drawing (14.8× faster than dagre and ELK), formulas (4.3×) and the GIF encoder's color accuracy (14.9× lower error); it is pulled down by the places that are honestly behind: layered-drawing crossings (0.60×, we draw more crossings), GIF file size and the cold 4-frame run (GIF export overall 1.00×, three wins and five losses), Firefox's normal draws, and CSV parsing, which is only 1.17× ahead on average with 35 losses out of 116 (mostly small unquoted files and whole-file parses that Papa Parse reads about as fast). Weighting each of the 14 areas equally instead of each comparison gives 2.33×.
+
+Two things the scorecard cannot show. First, the Stress truth rows score only distances, so they do not credit what no competitor offers: zero overlapping items (section 12). Second, because of that guarantee the Stress truth rows are scored against pictures where the competitors are allowed to put items on top of each other; if they were made to separate their items as we do, their truth would fall (section 12 measures d3-force with a collision force: it stays about as true, but 3.6 to 17% of its items still touch, and it takes 1.5× longer than d3-force without it and 8 to 29× longer than ours).
 
 Re-create the table: `node bench/geomean.js` (add `--json` for every individual comparison).
 
@@ -582,6 +604,8 @@ Everything below was run on the final code (Node 22.22, Chromium 154, Firefox 15
 |---|---|---|
 | `test/archive.test.js` (Node, 17 checks, 6 s) | Mixed zips, stored and deflated entries, junk in front of a zip, UTF-16 and Latin-1 text, nested zips, path tricks, Excel with dates, booleans, blank rows and a cell at the far corner of the sheet, a 300 MB zip bomb that lies and one that tells the truth, a total-size budget, bad checksums, cut-off data, password flags, odd compression methods, lying offsets and counts, 30,000-entry zips, 60,000-character names, hostile nesting in XML, GML and DOT, entity tricks, 3,000 files merged in linear time | all pass |
 | `test/fuzz.test.js` (Node, three seeds of 70 s each) | about 600,000 random and mutated documents through every importer (tables, JSON shapes, arrows, outlines, notes, DOT, GML, GraphML, GEXF), about 118,000 randomly damaged zips and workbooks, 7 files full of `__proto__` and `constructor` keys, 12 awkward graph shapes through two layouts (empty, one item, self-link, stars, cliques, NaN and infinite weights), 120 random graphs through the Stress layout, then fixed dense-link, leak and bomb-release loops | 0 failures; 0 prototype pollution; every refusal in plain words; no damaged zip took over 2 s |
+| `test/layout.test.js` (Node, 6 checks, 3 s) | Network layouts of 600 leaves on one hub (all wanting the same spot), several pieces, a pair and loners, a radial tree of 2,000 items, and 5,000 items in pivot mode: after layout, a grid search must find **no two items touching** | 0 failures; 0 touching in every case |
+| `test/pack.test.js` (Node, 9 checks, 4 s) | A packed layout, once unpacked, is the same set of plain objects (same fields, order and values) as the original, for NaN, Infinity, -0, huge numbers, odd text, nulls, mixed columns, small results and a field named `__proto__` (never packed) | 0 failures |
 | `test/fuzz.browser.js` (inside the real page) | The same zip damage run through the browser's own `DecompressionStream`, two 150 MB zip bombs, and 600 unzip-and-read laps with the process memory watched | see below |
 | `test/browser.test.js` (both browsers, plus the packed page) | A zip of CSV, JSON, Excel and GraphML dropped through the real file picker, an Excel file alone, a damaged zip, a zip bomb (stopped in about 1.5 s with the rest still read), a GML file | all pass |
 
@@ -645,14 +669,151 @@ What it says:
 
 ## 11. Your questions about definitions and limits
 
-**How is "truest layout" defined and measured?** Truest means: distances on the page match how far apart the items really are in the network. For a layout, take the shortest path (number of links, in either direction) between pairs of items as the real distance `d`, and the distance between the items' centers on the page as `e`. Because a picture can be zoomed freely, find the single best zoom `s = Σ(e/d) / Σ(e²/d²)` and score the layout as the mean of `(d − s·e)² / d²`. Zero is a picture where every pair is exactly proportional; lower is truer. Dividing by `d²` makes neighbors matter most: getting two linked items placed far apart costs much more than misplacing two items that are 12 hops apart. To keep the check cheap, 60 evenly spaced source items are used, and each is compared with every other item (every 7th item above 3,000 items). It is the same number for every competitor, measured on their finished positions (`bench/suites.js`, `bench/stress-tune.js`). Two cautions: it is the quantity Stress minimizes, so Stress is naturally good at it; and it ignores item size, so d3-force and ForceAtlas2, which place points and never make room for boxes, are not penalized for overlaps, while ours remove overlaps (which costs a little truth). Layered-drawing quality is measured separately, as the number of crossing lines, and found groups as how well they match the planted groups.
+**How is "truest layout" defined and measured?** Truest means: distances on the page match how far apart the items really are in the network. For a layout, take the shortest path (number of links, in either direction) between pairs of items as the real distance `d`, and the distance between the items' centers on the page as `e`. Because a picture can be zoomed freely, find the single best zoom `s = Σ(e/d) / Σ(e²/d²)` and score the layout as the mean of `(d − s·e)² / d²`. Zero is a picture where every pair is exactly proportional; lower is truer. Dividing by `d²` makes neighbors matter most: getting two linked items placed far apart costs much more than misplacing two items that are 12 hops apart. To keep the check cheap, 60 evenly spaced source items are used, and each is compared with every other item (every 7th item above 3,000 items). It is the same number for every competitor, measured on their finished positions (`bench/suites.js`, `bench/stress-tune.js`). Two cautions: it is the quantity Stress minimizes, so Stress is naturally good at it; and it ignores item size, so d3-force and ForceAtlas2, which place points and never make room for boxes, are not penalized for overlaps, while ours guarantees that no two items touch. That guarantee is a vital advantage, not a footnote: a picture whose items sit on top of each other cannot be read, and the score gives those pictures credit for it. Keeping items apart costs a little truth, and the benchmark scores ours with that cost included (section 12 has the numbers). Layered-drawing quality is measured separately, as the number of crossing lines, and found groups as how well they match the planted groups.
 
 **Are item counts only nodes? Do they limit how many links an item can have?** The counts are items (nodes) only. Links are limited separately, and one item can have as many links as the file has: a single hub with 150,000 links read whole, and 1,000 items with 330,000 links laid out in about 3 seconds. The app's default import caps are 200,000 items and 800,000 links, whichever comes first, with a plain-words note when reached (the benchmarks lift them to measure 1,000,000 items). The scale tables use about 1 link per item (simple), 3 (moderate) and 4.2 (complex, so the 1,000,000-item complex file holds 4.2 million links). More links per item makes everything cost more (reading is linear in links; the Stress layout's work grows with items times pivots plus links, and its pair memory is capped near 12 million pairs), but the cost is smooth and nothing stops at a link count.
 
 **Did the network-mapping research improve our engine, in speed or quality?** Yes in speed, mixed in quality, and none of it came from copying library code (the research only compares; no code was taken). Measured on the same six-cluster test network (`docs/RESEARCH-open-source-comparison.md`, section 7, and sections 1 to 4 above):
-- Speed: overlap removal was 9.9 of 12 seconds at 10,000 items and is about 4× faster; Stress at 10,000 items went from about 15.6 s to 3.6 s, and with typed arrays it is now 20 to 58× faster than d3-force at that size; the minified build is 31% smaller; layout result memory fell 9% (17.8 to 16.3 MB at 10,000 items) and the pair lists use about a fifth of the memory.
-- Quality: at 3,000 items Stress truth went from 0.286 to 0.224 and Force from 0.222 to 0.154 (d3-force: 0.179), so Force is now truer than d3-force there. Stress remains 7 to 28% less true than d3-force at 10,000 items and above.
-- Not improved: the layered flow drawing still has 60 to 100% more crossings than dagre and ELK (it is 7 to 117× faster), our own Louvain groups were not written, and GIF export is slower than gifenc. The research listed these; they remain on the work list.
+- Speed: overlap removal was 9.9 of 12 seconds at 10,000 items and is about 4× faster; Stress at 10,000 items went from about 15.6 s to 1.2 to 2.1 s (14 to 23× faster than d3-force at that size); the minified build is 31% smaller; layout result memory fell 9% (17.8 to 16.3 MB at 10,000 items) and the pair lists use about a fifth of the memory.
+- Quality: at 3,000 items Stress truth went from 0.286 to 0.224 and Force from 0.222 to 0.154 (d3-force: 0.179), so Force is now truer than d3-force there. Stress at 10,000 items is now 10% truer to 9% less true than d3-force (it was 7 to 28% less true), and, unlike d3-force and ForceAtlas2, it leaves no two items touching.
+- Not improved: the layered flow drawing still has 60 to 100% more crossings than dagre and ELK (it is 7 to 117× faster), our own Louvain groups were not written, and GIF export is slower than gifenc on a short cold run (it is now faster from about 30 frames and far truer in color; section 14). The research listed these; they remain on the work list.
+
+## 12. No two items touch: the comparison that the truth score cannot show
+
+d3-force and ForceAtlas2 place points. They have no idea how big an item is, so at the item sizes this app draws they put most items on top of other items. Our network layouts (Stress and Force) finish with a step that removes every overlap, and that step is guaranteed, not best effort: push-apart passes, then (if any pair still touches) stretch the whole picture by 10% and repeat, up to 12 times (the truth score does not change when a picture is scaled), then move each remaining item to the nearest free spot on an outward spiral, which cannot land on another item. A test checks it (`test/layout.test.js`), and 40 layouts per browser were checked in Chromium and Firefox. This costs some truth and some time, and both costs are inside the numbers in sections 2 and 7. The competitors are scored without any such cost.
+
+**How it was measured** (`node bench/overlap.js moderate 1000 3000 5000 10000`, Node 22, single runs; times indicative). The same network went to every method. Each competitor's picture was scaled so the median link is 130 units long, with every item drawn as a disc of the radius our layout gives it. "Items touching" is the share of items whose disc overlaps another item's disc. "Zoom" is how many times bigger the whole page would have to be for the worst pair to just separate (1 means nothing touches). "d3-force + forceCollide" is the standard way to make d3-force respect size: link distance 130, charge −300, collision radius equal to the item radius. ForceAtlas2 has its own "adjust sizes" switch; an attempt to emulate it here gave a visibly broken picture (truth 0.25, every item overlapping), so it is not shown and not claimed.
+
+| network | items | method | time | truth (lower = truer) | overlapping pairs | items touching | zoom needed |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| moderate | 1,000 | **ours (Stress)** | 269 ms | 0.137 | **0** | **0%** | **1** |
+| moderate | 1,000 | d3-force | 1.4 s | 0.198 | 1,141 | 81% | 7.2 |
+| moderate | 1,000 | d3-force + forceCollide | 2.1 s | 0.195 | 34 | 6.5% | 1 |
+| moderate | 1,000 | ForceAtlas2 | 1.5 s | 0.171 | 917 | 78% | 3.6 |
+| moderate | 3,000 | **ours (Stress)** | 1.7 s | 0.152 | **0** | **0%** | **1** |
+| moderate | 3,000 | d3-force | 6.3 s | 0.194 | 10,786 | 95% | 13 |
+| moderate | 3,000 | d3-force + forceCollide | 8.3 s | 0.193 | 151 | 9.8% | 1 |
+| moderate | 3,000 | ForceAtlas2 | 5.1 s | 0.176 | 9,483 | 95% | 6.4 |
+| moderate | 5,000 | **ours (Stress)** | 782 ms | 0.198 | **0** | **0%** | **1** |
+| moderate | 5,000 | d3-force | 11 s | 0.182 | 29,863 | 98.5% | 34 |
+| moderate | 5,000 | d3-force + forceCollide | 16 s | 0.182 | 317 | 12% | 1 |
+| moderate | 5,000 | ForceAtlas2 | 9.8 s | 0.183 | 27,069 | 98% | 7.4 |
+| moderate | 10,000 | **ours (Stress)** | 1.5 s | 0.203 | **0** | **0%** | **1** |
+| moderate | 10,000 | d3-force | 27 s | 0.190 | 122,584 | 99.6% | 48 |
+| moderate | 10,000 | d3-force + forceCollide | 42 s | 0.189 | 916 | 17% | 1 |
+| moderate | 10,000 | ForceAtlas2 | 25 s | 0.183 | 110,558 | 99.5% | 17 |
+| planted groups | 5,000 | **ours (Stress)** | 813 ms | 0.195 | **0** | **0%** | **1** |
+| planted groups | 5,000 | d3-force | 12 s | 0.195 | 18,402 | 92% | 13 |
+| planted groups | 5,000 | d3-force + forceCollide | 16 s | 0.193 | 297 | 11% | 1 |
+| planted groups | 5,000 | ForceAtlas2 | 10 s | 0.191 | 15,562 | 92% | 6.6 |
+| simple tree | 5,000 | **ours (Stress)** | 696 ms | 0.184 | **0** | **0%** | **1** |
+| simple tree | 5,000 | d3-force | 12 s | 0.206 | 3,021 | 70% | 7.8 |
+| simple tree | 5,000 | d3-force + forceCollide | 18 s | 0.206 | 99 | 3.6% | 1 |
+| simple tree | 5,000 | ForceAtlas2 | 10 s | 0.206 | 242 | 8.8% | 2.6 |
+
+Reading it:
+- **Ours is the only one with nothing touching**, in every row, at every size. d3-force and ForceAtlas2 leave 70 to 100% of items overlapping (the one low value, ForceAtlas2 on a plain tree, is 8.8%, because a tree spreads itself out).
+- **Adding a collision force to d3-force helps but does not finish the job**: 3.6 to 17% of the items still touch after the extra pass, it takes 1.5× longer than d3-force alone, and it is 8 to 29× slower than ours. Its truth stays about the same, so it too pays for separating items, but it pays more and does not get there.
+- **The truth cost of our guarantee is small and visible.** Compared with d3-force and ForceAtlas2 as they come (overlapping), ours is truer through 3,000 items, 7 to 9% less true than d3-force at 5,000 and 10,000 items on the moderate network, level with it on the planted-groups network and truer on the plain tree at 5,000 items. Comparing like with like (both with items apart) is not possible with the competitors as published, which is the point.
+- **How it got here.** The first version of this round still left 2,400 overlapping pairs at 5,000 items and 10,341 at 10,000 (64% of items touching, zoom 187×), and the engine as committed before it left 8,412 at 5,000; no test had looked at this. The fix first moved each leftover item to the nearest free spot; that made the truth at 10,000 items blow up to 0.68 to 0.72, because items in a dense core get moved far. Stretching the whole picture before the spiral step brought it back to 0.20.
+
+## 13. Stress for 10,000+ items: what was tried and what stayed
+
+`docs/RESEARCH-r-packages.md` lists the methods read (graphlayouts sparse stress and pivot MDS, igraph, packcircles, ggrepel) and has the full table of tried ideas. The short result: the change that mattered was giving the short-range pairs more weight in the sample (100 nearest neighbors per item instead of 16, pivot terms at 0.3 of the normal weight), because the truth score divides each pair's error by the squared hop count, so nearby pairs carry most of it and 16 per item under-sampled them. Three ideas that looked promising did not help: a coarse-first multilevel start (same truth at twice the time), the region-size pivot weights of the sparse stress paper (unstable under gradient descent, 0.204 to 0.27), and fresh random source items on every sweep (worse).
+
+**Chromium 154, before this round and now** (time / truth; the "before" engine left items overlapping, the "now" engine does not)
+
+| network | items | before | now |
+| --- | ---: | ---: | ---: |
+| simple | 10,000 | 641 ms / 0.231 | 1.2 s / 0.192 |
+| moderate | 10,000 | 853 ms / 0.213 | 1.6 s / 0.207 |
+| complex | 10,000 | 928 ms / 0.233 | 1.5 s / 0.205 |
+| planted groups | 10,000 | 1.1 s / 0.240 | 1.5 s / 0.203 |
+| moderate | 3,000 | 1.9 s / 0.151 | 2.0 s / 0.151 |
+
+At 10,000 items the engine now spends 1.4 to 1.9 times as long and is 3 to 17% truer, and now guarantees that nothing touches (the "before" engine left overlaps: 8,412 pairs at 5,000 items). Node measurements for the middle sizes: 3,500 items 0.234 to 0.189; 5,000 items 0.235 to 0.199. Raising the all-pairs limit from 3,000 to 4,000 items gives 0.156 at about 3 s, against 0.204 for the sparse method at that size. All pairs at 10,000 items would be 0.160, but takes 18.6 s.
+
+**What is left.** Against d3-force the gap at 10,000 items is 10% truer to 9% less true; against ForceAtlas2 it is 4% truer to 17% less true (section 2). Three untried ideas (a pivot-MDS start, k-means pivots, majorization) are in section 6. A note on the limits of this evidence: the truth score is the quantity Stress minimizes, so it favors Stress over methods that do not optimize it; a different measure, such as how many of an item's nearest neighbors stay nearest on the page, could rank the methods differently, and was not measured.
+
+## 14. Layout results as columns, the GIF encoder and the random draws
+
+**Layout results as columns.** The worker used to send a big layout as one object per item (about 37 fields) and one per link (about 13 fields), which the browser copies field by field twice. Now each field travels as one typed array (text as one long string plus lengths) and the page rebuilds the same plain objects from them, so nothing that reads a layout had to change (`src/pack.js`, `test/pack.test.js`). Lists of objects with an odd shape fall back to being sent as they are, and small results (under 2,000 items) are not packed.
+
+**Chromium 154**
+
+| items | links | send as objects (write + read) | pack (worker) | send packed | unpack (page) | page waits, objects (half of the send) | page waits, packed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 29,813 | 160 ms | 40 ms | 6.3 ms | 19 ms | 80 ms | 25 ms |
+| 30,000 | 90,029 | 547 ms | 152 ms | 24 ms | 201 ms | 274 ms | 225 ms |
+| 100,000 | 299,762 | 2.0 s | 471 ms | 124 ms | 221 ms | 1.0 s | 345 ms |
+
+**Firefox 158**
+
+| items | links | send as objects (write + read) | pack (worker) | send packed | unpack (page) | page waits, objects (half of the send) | page waits, packed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 29,813 | 162 ms | 31 ms | 4.0 ms | 45 ms | 81 ms | 49 ms |
+| 30,000 | 90,029 | 644 ms | 186 ms | 18 ms | 225 ms | 322 ms | 243 ms |
+| 100,000 | 299,762 | 1.9 s | 678 ms | 78 ms | 263 ms | 934 ms | 341 ms |
+
+How to read it: "send as objects" is the browser's own copy of the whole layout (the page waits for about half of that, an estimate). Packing happens in the worker, so the page's own wait is "send packed" plus "unpack". The end-to-end saving (pack + send + unpack against the plain copy) is 2.5× at 100,000 items in Chromium and 1.8× in Firefox (1.5× at 30,000 items in both). The page's own wait falls by 3.2×, 1.2× and 2.9× at 10,000, 30,000 and 100,000 items in Chromium (1.7×, 1.3× and 2.7× in Firefox), so the gain is modest in the middle, where rebuilding the objects dominates. The earlier estimate of 70 to 100× counted only the arrays; rebuilding the objects on the page (the "unpack" column) is a real cost that stays. Handing out lazy views over the columns would remove it but touches about 150 places that read the layout, so it was not done.
+
+**GIF encoder.** The changes: a faster path for runs of one color in the compressor (the output is byte for byte what the plain compressor writes, and a test compares the two), a changed-pixel list so that unchanged parts of a frame cost nothing, a small cache for nearest-palette-color lookups, and a palette made by median cut and refined by k-means. Quality is measured by decoding each GIF (with omggif) and comparing every pixel with the original frame (mean squared error per color channel; PSNR in decibels, higher is better). gifenc is given one palette for all frames (its fastest mode).
+
+**Chromium 154**
+
+| frames | size | ours | file | ours: color error (MSE / PSNR) | gifenc | file | gifenc: color error |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 960×540 | 111 ms | 68 KB | 0.013 / 67.1 dB | 60 ms | 63 KB | 0.159 / 56.1 dB |
+| 31 | 960×540 | 202 ms | 519 KB | 0.021 / 65.0 dB | 255 ms | 487 KB | 0.287 / 53.6 dB |
+
+Sending a layout from the worker to the page (moderate network)
+
+| items | links | send as objects (write + read) | pack (worker) | send packed | unpack (page) | page waits, objects (half of the send) | page waits, packed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 29,813 | 160 ms | 40 ms | 6.3 ms | 19 ms | 80 ms | 25 ms |
+| 30,000 | 90,029 | 547 ms | 152 ms | 24 ms | 201 ms | 274 ms | 225 ms |
+| 100,000 | 299,762 | 2.0 s | 471 ms | 124 ms | 221 ms | 1.0 s | 345 ms |
+
+**Firefox 158**
+
+| frames | size | ours | file | ours: color error (MSE / PSNR) | gifenc | file | gifenc: color error |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 960×540 | 66 ms | 67 KB | 0.012 / 67.3 dB | 72 ms | 63 KB | 0.191 / 55.3 dB |
+| 31 | 960×540 | 199 ms | 516 KB | 0.019 / 65.2 dB | 347 ms | 485 KB | 0.347 / 52.7 dB |
+
+Sending a layout from the worker to the page (moderate network)
+
+| items | links | send as objects (write + read) | pack (worker) | send packed | unpack (page) | page waits, objects (half of the send) | page waits, packed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 29,813 | 162 ms | 31 ms | 4.0 ms | 45 ms | 81 ms | 49 ms |
+| 30,000 | 90,029 | 644 ms | 186 ms | 18 ms | 225 ms | 322 ms | 243 ms |
+| 100,000 | 299,762 | 1.9 s | 678 ms | 78 ms | 263 ms | 934 ms | 341 ms |
+
+Reading it: ours is 12 to 18× lower in color error (+11 to +12.5 dB) in both browsers and at both lengths, which is visible as less banding, and 1.3× (Chromium) to 1.7× (Firefox) faster at 31 frames. On a cold 4-frame run it is 1.85× slower in Chromium (the palette work is a fixed cost that four frames cannot spread out) and 1.1× faster in Firefox. Files are 6 to 8% larger (the reason was not isolated). That is a real trade, not a win on every axis.
+
+**Random draws.** The normal draw is a Marsaglia and Tsang ziggurat with 128 layers, the exponential draw is a 256-layer ziggurat, and Poisson draws with a small mean invert a cached cumulative table (lognormal is the normal draw exponentiated). The same seed always gives the same numbers, and tests check the means, spreads and tail counts (`test/sim.test.js`). One million draws, in milliseconds:
+
+**Chromium 154**
+
+| distribution | ours | d3-random | jStat |
+| --- | ---: | ---: | ---: |
+| normal | 21 | 53 | 48 |
+| lognormal | 80 | 103 | – |
+| poisson | 57 | 363 | 84 |
+| binomial | 263 | 635 | – |
+| exponential | 30 | 45 | – |
+
+**Firefox 158**
+
+| distribution | ours | d3-random | jStat |
+| --- | ---: | ---: | ---: |
+| normal | 60 | 51 | 42 |
+| lognormal | 82 | 87 | – |
+| poisson | 78 | 308 | 55 |
+| binomial | 364 | 562 | – |
+| exponential | 37 | 45 | – |
+
+Reading it: in Chromium ours is faster in every row (normal 2.3 to 2.5×, Poisson 1.5 to 6.4×, binomial 2.4×). In Firefox it is a tie or a loss on normal draws (1.2× slower than d3-random and 1.4× slower than jStat) and slower than jStat on Poisson (1.4×), but still faster than d3-random there (Poisson 3.9×, binomial 1.5×, lognormal and exponential 1.1 to 1.2×). Two honest notes: d3-random was given a fast simple generator (a multiplicative one), and jStat uses the browser's own random numbers, so both are favorable to them; and ours uses a stronger generator (mulberry32) than d3's multiplicative one, so the comparison is not slanted toward us. An attempt to speed up the normal draw further for Firefox did not change the result beyond noise, so it was left alone.
 
 ## Reproduce
 
@@ -662,6 +823,11 @@ node run.js chromium csv                             # or: firefox
 node run.js chromium stress
 node run.js chromium typed
 node run.js chromium compare
+node run.js chromium stressOurs                      # or: firefox; only our Stress, quick re-run after a change
+node run.js chromium refresh                         # or: firefox; the parts of the compare suite that changed (draws, GIF)
+node run.js chromium pack                            # or: firefox; sending a layout from the worker, packed or not
+node merge.js /tmp/new.jsonl results/chromium-stress.jsonl   # fold a partial re-run (new, then old) into the results file
+node overlap.js moderate 1000 3000 5000 10000        # Node only: items left touching, ours against d3-force and ForceAtlas2
 node ../test/archive.test.js && node --expose-gc ../test/fuzz.test.js 70   # zips, Excel, graph files; random and hostile input
 node ../test/fuzz.browser.js chromium 30            # or: firefox
 node wasm/exp.js                                    # WebAssembly experiment (sweep.c is built with clang, see its header)
