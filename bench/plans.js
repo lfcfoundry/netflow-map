@@ -35,6 +35,7 @@ module.exports = {
     ['simple', 'moderate', 'complex'].forEach((kind) => [1000, 5000, 10000].forEach((n) => jobs.push(J('network', { kind, n, libs: false, before: false, fast: true, arranges: ['closeness'] }, { timeout: 900000 }))));
     return jobs;
   },
+  forceOurs: () => ['moderate', 'complex'].flatMap((kind) => [1000, 3000, 10000].map((n) => J('network', { kind, n, libs: false, before: false, fast: true, arranges: ['force'] }, { timeout: 900000 }))),   // our Force arrangement only (Firefox ran it 1.4 to 1.7x slower than Chromium)
   pack: () => [10000, 30000, 100000].map((n) => J('pack', { kind: 'moderate', n }, { timeout: 900000 })),
   gifprof4: () => [1, 2, 3, 4].map((rep) => J('gifprof', { frames: 4, rep })),
   gifprof: () => [1, 2, 3].map((rep) => J('gifprof', { frames: 4, rep })).concat([1, 2].map((rep) => J('gifprof', { frames: 31, rep }))),

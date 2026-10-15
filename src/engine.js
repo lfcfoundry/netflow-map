@@ -951,23 +951,23 @@ var NFMEngine = (function () {
         var sp = 0; stack[sp++] = 0;
         while (sp) {
           var nd = stack[--sp]; if (!tn[nd]) continue;
-          var r2 = 0, dv = [0, 0, 0];
-          for (d = 0; d < dim; d++) { dv[d] = X[i * dim + d] - tcx[nd * dim + d] / tm[nd]; r2 += dv[d] * dv[d]; }
+          var dv0 = X[i * dim] - tcx[nd * dim] / tm[nd], dv1 = X[i * dim + 1] - tcx[nd * dim + 1] / tm[nd], dv2 = dim === 3 ? X[i * dim + 2] - tcx[nd * dim + 2] / tm[nd] : 0;   // plain numbers, not a small array per visit (Firefox pays for those)
+          var r2 = dv0 * dv0 + dv1 * dv1 + dv2 * dv2;
           if (tn[nd] === 1 && tb[nd] === i) continue;
           var leaf = tn[nd] === 1 || tb[nd] === -2 || (4 * th[nd] * th[nd]) / (r2 || 1e-9) < theta2;
           if (leaf) {
-            if (r2 < 1e-6) { for (d = 0; d < dim; d++) dv[d] = (rnd() - 0.5) * 0.1; r2 = 0.01; }
+            if (r2 < 1e-6) { dv0 = (rnd() - 0.5) * 0.1; dv1 = (rnd() - 0.5) * 0.1; if (dim === 3) dv2 = (rnd() - 0.5) * 0.1; r2 = 0.01; }
             var f = K2 * mass[i] * tm[nd] / r2;
-            if (tn[nd] === 1 && tb[nd] >= 0 || true) for (d = 0; d < dim; d++) FX[i * dim + d] += dv[d] * f;
+            FX[i * dim] += dv0 * f; FX[i * dim + 1] += dv1 * f; if (dim === 3) FX[i * dim + 2] += dv2 * f;
           } else for (var cc = 0; cc < NC; cc++) { var ch = tch[nd * NC + cc]; if (ch >= 0 && sp < 250) stack[sp++] = ch; }
         }
       }
       // springs
       for (j = 0; j < pairs.length; j += 2) {
-        var a2 = pairs[j], b2 = pairs[j + 1], dd2 = 0, dvv = [0, 0, 0];
-        for (d = 0; d < dim; d++) { dvv[d] = X[a2 * dim + d] - X[b2 * dim + d]; dd2 += dvv[d] * dvv[d]; }
-        var dist = Math.sqrt(dd2) || 1e-6, fa = dist / K;
-        for (d = 0; d < dim; d++) { FX[a2 * dim + d] -= dvv[d] * fa; FX[b2 * dim + d] += dvv[d] * fa; }
+        var a2 = pairs[j], b2 = pairs[j + 1], e0 = X[a2 * dim] - X[b2 * dim], e1 = X[a2 * dim + 1] - X[b2 * dim + 1], e2 = dim === 3 ? X[a2 * dim + 2] - X[b2 * dim + 2] : 0;
+        var dist = Math.sqrt(e0 * e0 + e1 * e1 + e2 * e2) || 1e-6, fa = dist / K;
+        FX[a2 * dim] -= e0 * fa; FX[b2 * dim] += e0 * fa; FX[a2 * dim + 1] -= e1 * fa; FX[b2 * dim + 1] += e1 * fa;
+        if (dim === 3) { FX[a2 * dim + 2] -= e2 * fa; FX[b2 * dim + 2] += e2 * fa; }
       }
       // gravity and move
       for (i = 0; i < k; i++) {
@@ -986,7 +986,7 @@ var NFMEngine = (function () {
    * time of best quality here (browsers, a typical laptop).
    */
   function arrangeAdvice(arr, n) {
-    var secs = Math.max(1, Math.round(5.5e-8 * n * n)), big = n > STRESS.fullMax && n <= STRESS.exactMax, since = ' (about ' + secs + (secs === 1 ? ' second' : ' seconds') + ' for ' + n.toLocaleString('en-US') + ' items)';
+    var secs = Math.max(1, Math.round(3.5e-8 * n * n)), big = n > STRESS.fullMax && n <= STRESS.exactMax, since = ' (about ' + secs + (secs === 1 ? ' second' : ' seconds') + ' for ' + n.toLocaleString('en-US') + ' items)';
     if (arr === 'stress') return n > STRESS.exactMax ? { text: 'Page distances follow the number of links between items. At this size a quick sample of pairs is used.', offer: '', secs: 0 }
       : big ? { text: 'Page distances follow the number of links between items. At this size a quick sample of pairs is used; "Distances, best quality" uses every pair and is truer' + since + '.', offer: 'stressBest', secs: secs }
       : { text: 'Page distances follow the number of links between items. At this size every pair is used.', offer: '', secs: 0 };
@@ -1168,7 +1168,7 @@ var NFMEngine = (function () {
     var pdT = new Float64Array(256), wT = new Float64Array(256), ord = new Int32Array(nm);
     for (i = 1; i < 256; i++) { pdT[i] = i * EDGE; wT[i] = 1 / (i * i); }
     for (m = 0; m < nm; m++) ord[m] = m + 1;
-    var etaMax = maxD * maxD, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, iters - 1);
+    var sched = iters <= 2 ? [0.1, 0.5] : iters === 3 ? [0.3, 0.3] : [1, 0.1], etaMax = maxD * maxD * (STRESS.exHi || sched[0]), etaMin = STRESS.exLo || sched[1], lambda = Math.log(etaMax / etaMin) / Math.max(1, iters - 1);   // fewer sweeps start from a smaller first step
     for (t = 0; t < iters; t++) {
       var eta = etaMax * Math.exp(-lambda * t);
       for (m = nm - 1; m > 0; m--) { j = (rnd() * (m + 1)) | 0; c = ord[m]; ord[m] = ord[j]; ord[j] = c; }
@@ -1204,7 +1204,7 @@ var NFMEngine = (function () {
     for (i = 0; i < k; i++) { var lst = adj[members[i]], o0 = off[i]; for (j = 0; j < lst.length; j++) nbr[o0 + j] = locArr[lst[j]]; }
     if (exactNow && k > T.fullMax && k <= T.exactMax) {   // 'best quality': every pair; if the device cannot give the memory (k*k/2 bytes), fall through to the pivot version
       var X0 = X.slice();
-      try { if (stressExact(X, k, off, nbr, EDGE, rnd, T.exactIters || (k <= 12000 ? 4 : 3)) !== false) return; } catch (err) { if (!(err instanceof RangeError)) throw err; }
+      try { if (stressExact(X, k, off, nbr, EDGE, rnd, T.exactIters || (k <= 12000 ? 3 : 2)) !== false) return; } catch (err) { if (!(err instanceof RangeError)) throw err; }
       X.set(X0);
     }
     var dist = new Int32Array(k), queue = new Int32Array(k);
