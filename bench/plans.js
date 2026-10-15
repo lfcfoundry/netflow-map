@@ -24,6 +24,11 @@ module.exports = {
     ['simple', 'moderate', 'complex', 'planted'].forEach((kind) => [200, 600, 1000, 3000, 10000].forEach((n) => jobs.push(J('network', { kind, n, libs: false, before: false }, { timeout: 900000 }))));
     return jobs;
   },
+  stressBest: () => {   // the 'best quality' arrangement (every pair) in the browser, next to the normal one at the same sizes
+    const jobs = [];
+    ['simple', 'moderate', 'complex'].forEach((kind) => [5000, 10000].forEach((n) => jobs.push(J('network', { kind, n, libs: false, before: false, fast: true, arranges: ['stress', 'stressBest'] }, { timeout: 900000 }))));
+    return jobs;
+  },
   pack: () => [10000, 30000, 100000].map((n) => J('pack', { kind: 'moderate', n }, { timeout: 900000 })),
   gifprof4: () => [1, 2, 3, 4].map((rep) => J('gifprof', { frames: 4, rep })),
   gifprof: () => [1, 2, 3].map((rep) => J('gifprof', { frames: 4, rep })).concat([1, 2].map((rep) => J('gifprof', { frames: 31, rep }))),

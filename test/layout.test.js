@@ -25,4 +25,16 @@ t('stress: 5,000 items, 15,000 links (pivot mode): no two touch', () => {
 t('stress: several pieces, a pair and loners: no two touch', () => {
   const e = random(300, 900, 5).concat([[300, 301], [302, 303]]); const L = E.build(mk(310, e), { view: 'network', arrange: 'stress' }); const p = touching(L); if (p) throw new Error(p + ' touching pairs');
 });
+t('stressBest: 4,500 items (every pair): no two touch, and the same data gives the same picture', () => {
+  const g = mk(4500, random(4500, 13500, 9)), A = E.build(g, { view: 'network', arrange: 'stressBest' }), B = E.build(g, { view: 'network', arrange: 'stressBest' });
+  const p = touching(A); if (p) throw new Error(p + ' touching pairs');
+  for (let i = 0; i < A.nodes.length; i++) if (A.pos[A.nodes[i].id][0] !== B.pos[B.nodes[i].id][0]) throw new Error('not repeatable');
+  return '0 touching, repeatable';
+});
+t('stressBest: a small network (already every pair) and a pair with loners still work', () => {
+  const e = random(200, 600, 4).concat([[200, 201]]); const L = E.build(mk(205, e), { view: 'network', arrange: 'stressBest' }); const p = touching(L); if (p) throw new Error(p + ' touching pairs');
+});
+t('stressBest: a 5,000-item chain (longer than a byte can count) falls back to the pivot version, no two touch', () => {
+  const e = []; for (let i = 1; i < 5000; i++) e.push([i - 1, i]); const L = E.build(mk(5000, e), { view: 'network', arrange: 'stressBest' }); const p = touching(L); if (p) throw new Error(p + ' touching pairs'); return L.nodes.length + ' items';
+});
 process.exitCode = bad ? 1 : 0;

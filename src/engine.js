@@ -979,7 +979,7 @@ var NFMEngine = (function () {
     }
   }
   /** Where each arrangement puts things. All return centers (dim numbers per item) around the origin. */
-  var ARRANGE_NAMES = { stress: 'Distances (stress)', force: 'Force (springs)', circle: 'Circle', rings: 'Rings by importance', groups: 'Group clusters', radial: 'Radial tree', grid: 'Grid', force3d: '3D force', sphere: 'Sphere', stack: 'Stacked group planes' };
+  var ARRANGE_NAMES = { stress: 'Distances (stress)', stressBest: 'Distances, best quality (slower)', force: 'Force (springs)', circle: 'Circle', rings: 'Rings by importance', groups: 'Group clusters', radial: 'Radial tree', grid: 'Grid', force3d: '3D force', sphere: 'Sphere', stack: 'Stacked group planes' };
   function arrangeAll(kind, nodes, adj, size, rnd, EDGE) {
     var k = nodes.length, i, dim = /3d|sphere|stack/.test(kind) ? 3 : 2, X = new Float64Array(k * dim);
     var deg = nodes.map(function (n, ix) { return adj[ix].length; });
@@ -1051,7 +1051,80 @@ var NFMEngine = (function () {
   }
 
   /* Tuning knobs for the stress layout (the benchmark page changes them to compare settings; the app never does). */
-  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, spread: 0.35 };
+  var exactNow = false;
+  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, spread: 0.35, exactMax: 20000, exactIters: 0 };   // exactIters 0 = by size
+
+  /**
+   * "Best quality" stress for one connected piece: every pair of items is used, with the hop counts kept in one byte each (k*k bytes,
+   * 100 MB for 10,000 items) instead of 16 bytes per pair. Items are numbered in a random order first, so sweeping each item against
+   * the next items in that numbering is a random pair order, and the memory is read in straight lines.
+   */
+  function stressExact(X, k, off, nbr, EDGE, rnd, iters) {
+    var T = STRESS, nm = k >> 1, D = new Uint8Array(nm * k), rp = new Int32Array(k), i, j, t, m, r, c;
+    for (i = 0; i < k; i++) rp[i] = i;
+    for (i = k - 1; i > 0; i--) { j = (rnd() * (i + 1)) | 0; r = rp[i]; rp[i] = rp[j]; rp[j] = r; }
+    var ri = new Int32Array(k), off2 = new Int32Array(k + 1), nbr2 = new Int32Array(nbr.length), dist = new Int32Array(k), queue = new Int32Array(k), maxD = 1;
+    for (r = 0; r < k; r++) ri[rp[r]] = r;
+    for (r = 0; r < k; r++) { off2[r + 1] = off2[r] + off[rp[r] + 1] - off[rp[r]]; for (j = off[rp[r]], c = off2[r]; j < off[rp[r] + 1]; j++, c++) nbr2[c] = ri[nbr[j]]; }   // the same links, in the new numbering
+    // D[(m-1)*k + i] = hops between numbered items i and (i+m) mod k, for offsets m = 1..k/2: each pair once, and one offset lies in a straight line.
+    // 32 searches run side by side: every item holds a 32-bit mask of the searches that have reached it, so one pass over a link moves 32 searches
+    // one step. Rows of a block are kept in a small table and written across in pieces (writing one byte at a time down a column is slow).
+    var BL = 32, tmp = new Uint8Array(BL * nm), reach = new Int32Array(k), fr = new Int32Array(k), fr2 = new Int32Array(k), acc = new Int32Array(k);
+    var list = new Int32Array(k), list2 = new Int32Array(k), touched = new Int32Array(k), seenT = new Uint8Array(k);
+    for (var r0 = 0; r0 < k; r0 += BL) {
+      var nb = Math.min(BL, k - r0), nl = nb, level = 0, bb;
+      reach.fill(0); tmp.fill(0);
+      for (bb = 0; bb < nb; bb++) { reach[r0 + bb] = fr[r0 + bb] = 1 << bb; list[bb] = r0 + bb; }
+      while (nl > 0) {
+        level++; var nt = 0, u, e, e1, v;
+        if (level > 254) return false;   // hop counts are kept in one byte; a piece this stretched out is left to the pivot version
+        for (var li = 0; li < nl; li++) {   // push: every item that just got reached hands its mask to its neighbors
+          u = list[li]; var fu = fr[u];
+          for (e = off2[u], e1 = off2[u + 1]; e < e1; e++) { v = nbr2[e]; if (!seenT[v]) { seenT[v] = 1; touched[nt++] = v; } acc[v] |= fu; }
+        }
+        for (li = 0; li < nl; li++) fr[list[li]] = 0;
+        var nl2 = 0, dv = level > 255 ? 255 : level;
+        for (var ti = 0; ti < nt; ti++) {
+          v = touched[ti]; seenT[v] = 0;
+          var nx = acc[v] & ~reach[v]; acc[v] = 0;
+          if (!nx) continue;
+          reach[v] |= nx; fr[v] = nx; list2[nl2++] = v;
+          if (dv > maxD) maxD = dv;
+          while (nx) {
+            var low = nx & -nx; nx ^= low; bb = 31 - Math.clz32(low);
+            m = v - (r0 + bb); if (m < 0) m += k;
+            if (m > nm || (m + m === k && r0 + bb >= nm)) continue;
+            tmp[bb * nm + m - 1] = dv;
+          }
+        }
+        var sw = list; list = list2; list2 = sw; nl = nl2;
+      }
+      for (m = 0; m < nm; m++) { var ob = m * k + r0; for (var b2 = 0; b2 < nb; b2++) D[ob + b2] = tmp[b2 * nm + m]; }
+    }
+    var Y = new Float64Array(2 * k);
+    for (r = 0; r < k; r++) { Y[2 * r] = X[2 * rp[r]]; Y[2 * r + 1] = X[2 * rp[r] + 1]; }
+    var pdT = new Float64Array(256), wT = new Float64Array(256), ord = new Int32Array(nm);
+    for (i = 1; i < 256; i++) { pdT[i] = i * EDGE; wT[i] = 1 / (i * i); }
+    for (m = 0; m < nm; m++) ord[m] = m + 1;
+    var etaMax = maxD * maxD, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, iters - 1);
+    for (t = 0; t < iters; t++) {
+      var eta = etaMax * Math.exp(-lambda * t);
+      for (m = nm - 1; m > 0; m--) { j = (rnd() * (m + 1)) | 0; c = ord[m]; ord[m] = ord[j]; ord[j] = c; }
+      for (var q = 0; q < nm; q++) {   // one offset at a time, in a random order: successive pairs are far apart in the picture's history
+        m = ord[q];
+        var row = (m - 1) * k, lim = m + m === k ? nm : k;
+        for (i = 0; i < lim; i++) {
+          var dd = D[row + i]; if (dd === 0) continue;
+          j = i + m; if (j >= k) j -= k;
+          var mu = wT[dd] * eta; if (mu > 1) mu = 1;
+          var dx = Y[2 * i] - Y[2 * j], dy = Y[2 * i + 1] - Y[2 * j + 1], mag = Math.sqrt(dx * dx + dy * dy) || 1e-6;
+          var f = (mu * (mag - pdT[dd])) / (2 * mag), rx = f * dx, ry = f * dy;
+          Y[2 * i] -= rx; Y[2 * i + 1] -= ry; Y[2 * j] += rx; Y[2 * j + 1] += ry;
+        }
+      }
+    }
+    for (r = 0; r < k; r++) { X[2 * rp[r]] = Y[2 * r]; X[2 * rp[r] + 1] = Y[2 * r + 1]; }
+  }
 
   /**
    * Stress layout of one connected piece: X (x,y per item) is moved so that the distance on the page follows the hop count.
@@ -1065,6 +1138,11 @@ var NFMEngine = (function () {
     for (i = 0; i < k; i++) { m2 += adj[members[i]].length; off[i + 1] = m2; }
     var nbr = new Int32Array(m2);
     for (i = 0; i < k; i++) { var lst = adj[members[i]], o0 = off[i]; for (j = 0; j < lst.length; j++) nbr[o0 + j] = locArr[lst[j]]; }
+    if (exactNow && k > T.fullMax && k <= T.exactMax) {   // 'best quality': every pair; if the device cannot give the memory (k*k/2 bytes), fall through to the pivot version
+      var X0 = X.slice();
+      try { if (stressExact(X, k, off, nbr, EDGE, rnd, T.exactIters || (k <= 6000 ? 12 : k <= 12000 ? 6 : 4)) !== false) return; } catch (err) { if (!(err instanceof RangeError)) throw err; }
+      X.set(X0);
+    }
     var dist = new Int32Array(k), queue = new Int32Array(k);
     function bfs(src) {
       dist.fill(-1); dist[src] = 0; queue[0] = src;
@@ -1148,6 +1226,8 @@ var NFMEngine = (function () {
     var rnd = mulberry32(12345), EDGE = 130, locArr = new Int32Array(nb);
     var size = function (nd) { if (nd.sizeK !== undefined) return 20 + 52 * nd.sizeK; return 26 + Math.min(26, 8 * Math.sqrt((nd.traffic || 0))) + Math.min(14, Math.sqrt(adj[idxOf[nd.id]].length) * 3); };
     var arr = opts.arrange || 'stress';
+    exactNow = arr === 'stressBest' || !!opts.exact;
+    if (arr === 'stressBest') arr = 'stress';
     if (arr !== 'stress' && arr !== 'force' && arr !== 'radial') return globalNetwork(arr, nodes, G, adj, size, rnd, EDGE, idxOf);
     var packs = [];
     comps.forEach(function (members) {
