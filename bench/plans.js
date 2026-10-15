@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. What to run. Each job: { suite, args, timeout? (ms), label? } */
+/* Copyright (c) 2026 LFC Foundry. MIT License. What to run. Each job: { suite, args, timeout? (ms), label? } */
 'use strict';
 const J = (suite, args, extra) => Object.assign({ suite, args }, extra || {});
 const both = (f) => f; 

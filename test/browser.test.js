@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. One browser session that exercises the built index.html.
+/* Copyright (c) 2026 LFC Foundry. MIT License. One browser session that exercises the built index.html.
  *   node test/browser.test.js chromium|firefox [outdir]
  * chromium: Playwright (NFM_PLAYWRIGHT = path to playwright-core, NFM_CHROME = browser program; ungoogled-chromium 154 is used when found)
  * NFM_PAGE = the page to test (default index.html; index.packed.html tests the self-extracting copy)

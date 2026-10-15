@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Overall scorecard: every head-to-head between our module and other software becomes one ratio
+/* Copyright (c) 2026 LFC Foundry. MIT License. Overall scorecard: every head-to-head between our module and other software becomes one ratio
  * (other ÷ ours, so above 1 means we are better), and the geometric mean of the ratios says by how much on average.
  *   speed    time of the other / time of ours                           (all browsers, all areas)
  *   memory   memory held by the other / memory held by ours             (Chromium heap; Firefox gives no heap number)

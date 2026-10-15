@@ -1,6 +1,6 @@
 # Net Flow Map vs. open-source code: what to keep, what to swap, what to improve
 
-Copyright (c) 2026 JNFoo. MIT License.
+Copyright (c) 2026 LFC Foundry. MIT License.
 Written October 15, 2026 for JNFoo. Plain words on purpose: this file is meant to be handed to a future session as a starting point.
 
 ## 1. Bottom line

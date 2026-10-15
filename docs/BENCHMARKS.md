@@ -502,8 +502,8 @@ Notes: GIF compares our encoder with gifenc using one shared palette on four syn
 
 Done in the last round (sections 12 to 14): the 10,000+ Stress gap (7 to 28% down to 10% truer to 9% less true than d3-force), layout results as columns (about 2.5× faster end to end at 100,000 items, not the 70 to 100× estimated before the object rebuild was counted), the GIF encoder (now faster than gifenc from about 30 frames, and far truer in color) and the normal / lognormal draws (Chromium win; Firefox tie).
 
-1. Close the last 5 to 9% (6 to 17% against ForceAtlas2) of Stress truth at 10,000 items and above. Ideas not yet tried: a pivot-MDS start (Brandes and Pich 2006), pivots picked by k-means so each pivot stands for a region (both from the sparse stress paper), and a majorization step instead of gradient descent, which tolerates the region weights that made gradient descent unstable (`docs/RESEARCH-r-packages.md`).
-2. GIF: the palette step is a fixed cost, so a cold 4-frame run in Chromium is 1.85× slower than gifenc, and files are 6 to 8% larger. A cheaper palette for short animations is the open item.
+1. The last 5 to 9% of Stress truth at 10,000 items and above (6 to 17% against ForceAtlas2). The three ideas listed here last round were tried (section 13): a pivot-MDS start, k-means pivots and a majorization step. None helped, so Stress at this size looks saturated for the pivot-plus-neighbors approach; what is left would be a different kind of method (for example a multilevel solver with exact local refinement), and a GPU version.
+2. GIF: the palette step is a fixed cost, so a cold 4-frame run is 1.85× slower than gifenc in Chromium, and files are 6 to 8% larger. A cheaper palette (section 14) helped Chromium a little and made Firefox slower, so it was not kept.
 3. Reading text over 512 million characters in Chromium needs a chunked reader; the import cap of 200,000 items / 800,000 links is still the app default.
 4. A faster Force layout above 100,000 items; at that size it takes over a minute.
 5. Rebuilding objects on the page is now the largest part of what the page itself still waits for when a big layout arrives (221 of 345 ms at 100,000 items in Chromium); handing out lazy views over the columns would remove it but touches about 150 places that read the layout.
@@ -733,7 +733,23 @@ Reading it:
 
 At 10,000 items the engine now spends 1.4 to 1.9 times as long and is 3 to 17% truer, and now guarantees that nothing touches (the "before" engine left overlaps: 8,412 pairs at 5,000 items). Node measurements for the middle sizes: 3,500 items 0.234 to 0.189; 5,000 items 0.235 to 0.199. Raising the all-pairs limit from 3,000 to 4,000 items gives 0.156 at about 3 s, against 0.204 for the sparse method at that size. All pairs at 10,000 items would be 0.160, but takes 18.6 s.
 
-**What is left.** Against d3-force the gap at 10,000 items is 10% truer to 9% less true; against ForceAtlas2 it is 4% truer to 17% less true (section 2). Three untried ideas (a pivot-MDS start, k-means pivots, majorization) are in section 6. A note on the limits of this evidence: the truth score is the quantity Stress minimizes, so it favors Stress over methods that do not optimize it; a different measure, such as how many of an item's nearest neighbors stay nearest on the page, could rank the methods differently, and was not measured.
+**Tried a second time, and not kept** (Node, moderate network, 10,000 items; the engine as it stands scores 0.203 in 1.5 s):
+
+| Idea | Truth | Time |
+|---|---:|---:|
+| Pivot-MDS start (Brandes and Pich 2006) instead of the spiral | 0.209 | 1.9 s |
+| Pivot-MDS start with 20 sweeps instead of 36 | 0.210 | 1.5 s |
+| Majorization polish after the sweeps, 8 steps | 0.204 | 1.8 s |
+| Majorization polish, 20 steps | 0.206 | 2.4 s |
+| 20 sweeps then 12 majorization steps | 0.210 | 1.6 s |
+| Lighter pivot weight (0.1) plus 6 majorization steps | 0.211 | 1.6 s |
+| Pivots at the centers of k-means groups of a pivot-MDS picture | 0.214 (complex network: 0.197 against 0.198) | 1.8 s (complex: 2.0 s against 1.7 s) |
+| 160 nearest neighbors per item (was 100) | 0.200 | 1.9 s |
+| 50 sweeps (was 36) | 0.204 | 1.6 s |
+
+Single runs, so differences under about 0.005 are noise. A pivot-MDS start gives the right global shape, but the truth score is limited by local detail, which the extra neighbor pairs already supply. Majorization is stable with any weights, but as a polish it does not beat the annealed sweeps. 160 neighbors buys 0.003 for 30% more time. None of this code was kept.
+
+**What is left.** Against d3-force the gap at 10,000 items is 10% truer to 9% less true; against ForceAtlas2 it is 4% truer to 17% less true (section 2). The three ideas that were still untried last round (a pivot-MDS start, k-means pivots, majorization) have now been tried, above. A note on the limits of this evidence: the truth score is the quantity Stress minimizes, so it favors Stress over methods that do not optimize it; a different measure, such as how many of an item's nearest neighbors stay nearest on the page, could rank the methods differently, and was not measured.
 
 ## 14. Layout results as columns, the GIF encoder and the random draws
 
@@ -790,6 +806,8 @@ Sending a layout from the worker to the page (moderate network)
 | 100,000 | 299,762 | 1.9 s | 678 ms | 78 ms | 263 ms | 934 ms | 341 ms |
 
 Reading it: ours is 12 to 18× lower in color error (+11 to +12.5 dB) in both browsers and at both lengths, which is visible as less banding, and 1.3× (Chromium) to 1.7× (Firefox) faster at 31 frames. On a cold 4-frame run it is 1.85× slower in Chromium (the palette work is a fixed cost that four frames cannot spread out) and 1.1× faster in Firefox. Files are 6 to 8% larger (the reason was not isolated). That is a real trade, not a win on every axis.
+
+**A cheaper palette for short animations, tried and not kept.** Two changes: count only the pixels that changed since the first picture when building the color histogram (a still background is counted once), and merge colors that agree in their top 6 bits per channel into one before the median cut and k-means (about 9,600 distinct colors become far fewer). In Node with a cold start on four 960×540 frames the run took 213 ms instead of 238 ms, the file was 10% smaller (75 KB against 84 KB) and the color error moved from 0.130 to 0.154 (gifenc: 1.46). Chromium 154 went from 111 to 103 ms. Firefox 158 went from 74–84 ms to 96–135 ms in four interleaved runs per variant, so it got slower, and since Firefox is the stress test the change was reverted. The committed encoder is unchanged.
 
 **Random draws.** The normal draw is a Marsaglia and Tsang ziggurat with 128 layers, the exponential draw is a 256-layer ziggurat, and Poisson draws with a small mean invert a cached cumulative table (lognormal is the normal draw exponentiated). The same seed always gives the same numbers, and tests check the means, spreads and tail counts (`test/sim.test.js`). One million draws, in milliseconds:
 

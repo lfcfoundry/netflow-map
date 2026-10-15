@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Network layouts must never leave two items on top of each other. */
+/* Copyright (c) 2026 LFC Foundry. MIT License. Network layouts must never leave two items on top of each other. */
 'use strict';
 const E = require('../src/engine.js'); let bad = 0;
 const mk = (n, edges) => ({ start: 'n0', nodes: Array.from({ length: n }, (_, i) => ({ id: 'n' + i, label: 'n' + i, group: '', valence: '', ghost: false, attrs: {} })), edges: edges.map(([a, b]) => ({ from: 'n' + a, to: 'n' + b, weight: 1, label: '', kind: '' })) });

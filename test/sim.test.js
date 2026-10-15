@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Checks the distributions and the Monte Carlo walkers against exact answers. */
+/* Copyright (c) 2026 LFC Foundry. MIT License. Checks the distributions and the Monte Carlo walkers against exact answers. */
 global.NFMColumns = require('../src/columns.js');
 const E = require('../src/engine.js'); global.NFMEngine = E;
 const S = require('../src/sim.js');

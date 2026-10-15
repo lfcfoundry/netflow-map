@@ -1,4 +1,4 @@
-/* Columns and Check tests. Copyright (c) 2026 JNFoo. MIT License. Run: node test/columns.test.js */
+/* Columns and Check tests. Copyright (c) 2026 LFC Foundry. MIT License. Run: node test/columns.test.js */
 var C = require('../src/columns.js'), K = require('../src/check.js'), assert = require('assert');
 var ok = 0; function t(name, f) { try { f(); ok++; } catch (e) { console.error('FAIL', name, e.message); process.exitCode = 1; } }
 

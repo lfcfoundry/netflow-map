@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Fuzz and memory-safety checks for the importers, zip reader and layout engine.
+/* Copyright (c) 2026 LFC Foundry. MIT License. Fuzz and memory-safety checks for the importers, zip reader and layout engine.
  * Run: node --expose-gc test/fuzz.test.js [seconds]   (default 90 s of random cases, then fixed leak and dense-link checks) */
 'use strict';
 const assert = require('assert'), zlib = require('zlib');

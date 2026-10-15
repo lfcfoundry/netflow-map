@@ -1,5 +1,5 @@
 // Builds the one-file app: node tools/build.mjs  ->  index.html
-// Copyright (c) 2026 JNFoo. MIT License.
+// Copyright (c) 2026 LFC Foundry. MIT License.
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';

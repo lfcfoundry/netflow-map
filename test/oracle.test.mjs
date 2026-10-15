@@ -1,4 +1,4 @@
-// Copyright (c) 2026 JNFoo. MIT License.
+// Copyright (c) 2026 LFC Foundry. MIT License.
 // Checks the new engine against the older story-map package (the "oracle") on random story-like graphs:
 // same choke points, same share-of-routes, and odds that agree with the oracle's seeded simulated players.
 import { createRequire } from 'node:module';

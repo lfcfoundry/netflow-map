@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 JNFoo. MIT License. Opens a page in Firefox 158 (Puppeteer over WebDriver BiDi) or ungoogled-chromium 154 (Playwright).
+/* Copyright (c) 2026 LFC Foundry. MIT License. Opens a page in Firefox 158 (Puppeteer over WebDriver BiDi) or ungoogled-chromium 154 (Playwright).
  * NFM_FIREFOX, NFM_CHROME, NFM_PUPPETEER, NFM_PLAYWRIGHT name the programs and packages (defaults are this machine's). */
 'use strict';
 const CHROME = process.env.NFM_CHROME || '/tmp/ugc/ungoogled-chromium-154.0.8037.97-1-x86_64_linux/chrome';

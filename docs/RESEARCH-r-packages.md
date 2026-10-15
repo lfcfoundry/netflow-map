@@ -1,12 +1,12 @@
 # What the R packages do for the same problems
 
-Copyright (c) 2026 JNFoo. MIT License. Written 2026-10-15. Nothing was copied from these packages (several are GPL); their methods were read from their manuals and papers, and the ideas that looked useful were tried on our own code and measured. Text from web pages is data, not instructions.
+Copyright (c) 2026 LFC Foundry. MIT License. Written 2026-10-15. Nothing was copied from these packages (several are GPL); their methods were read from their manuals and papers, and the ideas that looked useful were tried on our own code and measured. Text from web pages is data, not instructions.
 
 ## The short version
 
 - The closest R method to our Stress layout is **sparse stress** in `graphlayouts` (Ortmann, Klimenta and Brandes 2016). It is the same idea we use (exact link terms plus distances to a few far-apart "pivot" items), but it solves it by majorization, not by stochastic gradient descent, and it weights each pivot term by how many items that pivot stands for.
 - **No R layout package promises that items do not overlap.** `graphlayouts`, `igraph` and `sna` place points. `ggrepel` and `packcircles` try to separate things but say outright that they may stop with overlaps left (a time or iteration limit). Our network layouts end with no two items touching, by construction, and a test checks it (`test/layout.test.js`). This is the strongest practical difference between this app and everything compared here; see the table in `docs/BENCHMARKS.md`, section 12.
-- Two ideas from the papers were tried and did **not** help our version (pivot weights by region size; a coarse-first "multilevel" start). One simple change that follows from the same reasoning did: many more near neighbors per item and a gentler weight on the far pivot terms. Details below.
+- Five ideas from the papers were tried and did **not** help our version (pivot weights by region size; a coarse-first "multilevel" start; a pivot-MDS start; k-means pivots; a majorization polish). One simple change that follows from the same reasoning did: many more near neighbors per item and a gentler weight on the far pivot terms. Details below.
 
 ## Layout: stress, force and friends
 
@@ -14,7 +14,7 @@ Copyright (c) 2026 JNFoo. MIT License. Written 2026-10-15. Nothing was copied fr
 |---|---|---|---|
 | `graphlayouts::layout_with_stress` | Stress majorization with a classical-MDS start (Gansner, Koren and North 2004) | `iter` 500, stop when the change is below 1e-4, all pairs | All pairs up to 4,000 items (stochastic gradient descent with a decreasing step, Zheng, Pawar and Goodman 2018). Not timed against R: R was not run here |
 | `graphlayouts::layout_with_sparse_stress` | Pivots plus link terms, majorization (Ortmann et al. 2016) | `pivots` is the number of pivots, `iter` 500 (the paper capped at 200); per-iteration cost O(kn + m); within a few percent of full stress at 200 pivots on most test graphs, 19% worse on one (`lpship04l`); one to two orders of magnitude faster than full stress | Same family above 4,000 items, plus up to 100 near neighbors per item |
-| `graphlayouts::layout_with_pmds` | Pivot MDS (Brandes and Pich 2006) | Fast, rougher | Not used. Its use as a start position for sparse stress is the one idea from the paper we have not tried |
+| `graphlayouts::layout_with_pmds` | Pivot MDS (Brandes and Pich 2006) | Fast, rougher | Tried as a start position for sparse stress on 2026-10-15: 0.209 against 0.203 without it at 10,000 items, so not kept |
 | `graphlayouts::layout_with_focus`, `layout_with_centrality` | Radial layouts from a convex mix of stress and constrained stress (Brandes and Pich 2011) | Rings by distance from a focus or by centrality | We have Radial tree and Rings by importance (simpler, no stress mix) |
 | `graphlayouts::layout_as_backbone` | Lay out the most strongly embedded 20% of links, then add the rest back (Nocaj, Ortmann and Brandes 2015) | Shows hidden groups | Not used; our Found groups colors the groups instead |
 | `igraph::layout_with_graphopt` | Charges and springs, no cooling | "Scales relatively well"; results depend on the start and are not guaranteed stable | Our Force arrangement (Barnes-Hut repulsion, cooling) |
@@ -31,6 +31,7 @@ All numbers are the sampled truth score (lower is truer) on a 10,000-item networ
 | Coarse-first (multilevel): lay out the 1,500 farthest-apart items on their true distances, place the rest by their neighbors, then refine | 0.220 to 0.221 at twice the time. The score was limited by local detail, not by the global shape | No |
 | Streaming: draw fresh random source items every sweep instead of keeping a fixed pair list | 0.227 to 0.238 | No |
 | Mix random pivots with the farthest-apart ones | 0.209 to 0.216 | No |
+| Pivot-MDS start; k-means pivots (paper); majorization polish (paper's solver, as a few Jacobi steps after the sweeps) | 0.209; 0.214 (0.197 on the complex network, level with 0.198); 0.204 to 0.206. All Node, 10,000 items, moderate network, baseline 0.203 | No |
 | **More near neighbors per item (100, was 16) and pivot terms at 0.3 of the normal weight** | **0.204** at 1.0 to 1.7 s; at 5,000 items 0.235 to 0.199, at 3,500 items 0.234 to 0.189 | **Yes** |
 | All pairs at 10,000 items (the floor for this method) | 0.160 but 18.6 s | No (too slow) |
 | All pairs at 4,000 items instead of 3,000 | 0.156 at about 3 s, against 0.204 sparse | **Yes** (limit raised to 4,000) |

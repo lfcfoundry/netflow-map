@@ -1,6 +1,6 @@
 # Net Flow Map
 
-Copyright (c) 2026 JNFoo. MIT License.
+Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry.
 
 One file, `index.html`, that works offline. Bring in a table, a JSON graph, an outline, or a folder of notes, and see how everything connects. It has six tabs:
 

@@ -1,7 +1,7 @@
 /* The engine as committed in ec4be04 (before the typed-array stress rewrite), renamed NFMEngineBefore, so the benchmarks can run old and new side by side. Not used by the app. */
 /*!
  * Net Flow Map engine: pure functions, no page, no DOM. Runs on the main thread or inside a worker.
- * Copyright (c) 2026 JNFoo. MIT License.
+ * Copyright (c) 2026 LFC Foundry. MIT License.
  *
  * Starts from the layered / arc / matrix / shape drawings, choke points, traffic and drawing scores of the Story Editor's
  * map (p-see-story-editor/editor/maplayout.js, MIT, copied and generalized; there is no dependency on it) and adds:
