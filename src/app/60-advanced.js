@@ -15,7 +15,7 @@ function renderAdv() {
   kids.push(h('div', { class: 'card' }, [h('h2', null, 'Layout and fold'),
     h('div', { class: 'maprow' }, [
       field('Direction (Flow view)', seg([['LR', 'Left to right'], ['TB', 'Top to bottom']], V.dir, function (v) { setV({ dir: v }, 'none'); renderAdv(); })),
-      field('Network arrangement', select(Object.keys(ARR).map(function (k) { return [k, ARR[k]]; }), V.arrange, function (v) { setV({ arrange: v }, 'none'); })),
+      field('Network arrangement', select(Object.keys(ARR).map(function (k) { return [k, ARR[k]]; }), V.arrange, function (v) { setV({ arrange: v }, 'none'); renderAdv(); }), getEngine().arrangeAdvice(V.arrange, S.graph.nodes.length).text),
       field('Group lanes by', select([['group', 'The group column'], ['found', 'Found groups']].concat(colsOf('nodes', ['category']).filter(function (c) { return c.key !== 'group'; }).map(function (c) { return [c.key, c.name]; })), V.laneBy, function (v) { setV({ laneBy: v }, 'none'); }))]),
     check('Fold straight runs of ' + word('items') + ' into one box', V.fold, function (on) { setV({ fold: on }, 'none'); }),
     check('Merge parallel arrows', V.merge, function (on) { setV({ merge: on }, 'none'); }),

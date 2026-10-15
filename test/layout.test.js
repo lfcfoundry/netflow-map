@@ -43,4 +43,13 @@ t('closeness: several pieces, loners and 600 leaves on one hub: no two touch, an
   for (let i = 0; i < A.nodes.length; i++) if (A.pos[A.nodes[i].id][0] !== B.pos[B.nodes[i].id][0]) throw new Error('not repeatable');
   return '0 touching, repeatable';
 });
+t('arrangement advice: offers best quality only where the quick sample is used, and says plainly what each choice is for', () => {
+  const A = E.arrangeAdvice, ok = (c, m) => { if (!c) throw new Error(m); };
+  ok(A('stress', 2000).offer === '' && /every pair/.test(A('stress', 2000).text), 'small: no offer');
+  ok(A('stress', 8000).offer === 'stressBest' && A('stress', 8000).secs >= 2 && /8,000 items/.test(A('stress', 8000).text), 'mid: offer with time');
+  ok(A('stress', 30000).offer === '' && /quick sample/.test(A('stress', 30000).text), 'huge: no offer');
+  ok(/already uses every pair/.test(A('stressBest', 2000).text) && /falls back/.test(A('stressBest', 30000).text) && /every pair/.test(A('stressBest', 8000).text), 'best quality notes');
+  ok(/who is next to whom/.test(A('closeness', 500).text) && A('circle', 500).text === '', 'closeness and others');
+  return 'ok';
+});
 process.exitCode = bad ? 1 : 0;
