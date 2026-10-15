@@ -100,6 +100,8 @@ Headlines (both browsers; `docs/BENCHMARKS.md` has every table, the losses inclu
 
 - Stress layout: 2.4 to 12× faster than d3-force up to 3,000 items and 14 to 23× faster at 10,000, truer through 3,000 items, and the only one of the three with no overlapping items (section 12). At 10,000 items it is 10% truer to 9% less true than d3-force.
 - Sending a big layout from the helper to the page as columns: 2.5× faster end to end at 100,000 items in Chromium (1.8× in Firefox). Section 14.
-- GIF export: 12 to 18× lower color error than gifenc; 1.3 to 1.7× faster at 31 frames; but 1.85× slower on a cold 4-frame run in Chromium, and files 6 to 8% larger. Section 14.
+- GIF export: 10 to 16× lower color error than gifenc; 1.24× (Chromium) to 1.5× (Firefox) faster at 31 frames; level with it at 4 frames in Firefox and 1.8× slower in Chromium; files 6 to 8% larger. Section 14.
+- Where Stress is weaker: on neighborhood preservation (are my linked items the ones nearest to me?) it scores below d3-force and ForceAtlas2, because it follows distances, not closeness. Pick Force or Stress for the question you are asking. Section 15.
 - Random draws: faster in every Chromium row (normal 2.3 to 2.5×); in Firefox a tie or a small loss on normal draws. Section 14.
+- Methods read from the recent layout papers: `docs/RESEARCH-layout-papers.md`.
 - Methods read from the R packages `graphlayouts`, `igraph`, `packcircles` and `ggrepel`, and what was tried from them: `docs/RESEARCH-r-packages.md`.

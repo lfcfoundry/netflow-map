@@ -22,12 +22,13 @@ Libraries we compare against (all current npm releases, bundled into the benchma
 | Stress layout vs d3-force (20 cases, 200 to 10,000 items) | faster in 20 of 20 | faster in 20 of 20 | Consistent win: 2.4 to 12× faster up to 3,000 items, 14 to 23× at 10,000 (10 to 19× against ForceAtlas2) |
 | Stress layout truth vs d3-force and ForceAtlas2 | as true or truer in 17 of 20 (both) | 17 of 20 (both) | Win up to 3,000 items (15 to 58% truer); at 10,000 items 10% truer to 9% less true than d3-force and 4% truer to 17% less true than ForceAtlas2 (was 7 to 28% less true) |
 | **Items left touching (section 12)** | **0 in all 40 test layouts per browser; d3-force and ForceAtlas2 leave 70 to 100% of items overlapping at the same item sizes (ForceAtlas2 on a plain tree: 9%)** | same (the rule is in the code, and a test checks it) | **Vital advantage**: the picture can be read; the others need a zoom of 2.6× to 48× to separate their worst pair, or a slower collision pass |
+| **Neighborhood preservation (section 15; 4 networks, Node, single runs)** | **Stress is below d3-force, d3-force + forceCollide and ForceAtlas2 in all four** | not run | **Weakness**: distance truth and local closeness disagree; Force is closer to the competitors |
 | Force layout vs d3-force | faster in 20 of 20 | faster in 20 of 20 | Consistent win |
 | Layered drawing vs dagre / ELK | 7 to 13× faster than dagre, but 7 to 117% more crossings | same | Speed win, quality loss (unchanged) |
 | Formulas vs expr-eval | 3.8× faster | 5.0× faster | Consistent win |
 | Poisson / binomial draws vs d3-random | 6.4 / 2.4× faster | 3.9 / 1.5× faster | Consistent win |
 | Normal / lognormal draws vs d3-random, jStat | normal 2.3 / 2.5× faster (jStat / d3-random), lognormal 1.3× faster | normal 1.4 / 1.2× slower, lognormal and exponential 1.06 to 1.2× faster | Win in Chromium; tie or small loss in Firefox (section 14) |
-| GIF export vs gifenc (shared palette) | 31 frames 1.3× faster, 4 frames 1.85× slower; color error 12 to 14× lower; files 7 to 8% larger | 31 frames 1.7× faster, 4 frames 1.1× faster; color error 16 to 18× lower; files 6 to 8% larger | Win on speed for longer animations and on quality everywhere; a loss on a cold 4-frame run in Chromium and on file size (section 14) |
+| GIF export vs gifenc (shared palette) | 31 frames 1.24× faster, 4 frames 1.8× slower; color error 10 to 12× lower; files 7 to 8% larger | 31 frames 1.5× faster, 4 frames level (84 against 80 ms); color error 13 to 16× lower; files 6 to 7% larger | Win on speed for longer animations and on quality everywhere; a loss on the 4-frame run in Chromium and on file size (section 14) |
 | Found groups vs Louvain | equal or better match at 1,000 and 3,000 items, 1.4 to 1.7× faster; merges planted groups at 300 | same, 1.4 to 2.5× faster | Win at size |
 | Memory at 10,000 items | 5.9 MB heap (1.2 MB typed) vs graphology 11.1 and Cytoscape 56.8 | process memory only, too noisy at this size (graphology +92 MB, Cytoscape +204 MB) | Win in Chromium; Firefox points the same way |
 
@@ -374,8 +375,8 @@ GIF export
 
 | frames | size | ours | file | ours: color error (MSE / PSNR) | gifenc | file | gifenc: color error |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 4 | 960×540 | 111 ms | 68 KB | 0.013 / 67.1 dB | 60 ms | 63 KB | 0.159 / 56.1 dB |
-| 31 | 960×540 | 202 ms | 519 KB | 0.021 / 65.0 dB | 255 ms | 487 KB | 0.287 / 53.6 dB |
+| 4 | 960×540 | 109 ms | 68 KB | 0.016 / 66.1 dB | 61 ms | 63 KB | 0.159 / 56.1 dB |
+| 31 | 960×540 | 238 ms | 521 KB | 0.023 / 64.5 dB | 296 ms | 487 KB | 0.287 / 53.6 dB |
 
 Sending a layout from the worker to the page (moderate network)
 
@@ -453,8 +454,8 @@ GIF export
 
 | frames | size | ours | file | ours: color error (MSE / PSNR) | gifenc | file | gifenc: color error |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 4 | 960×540 | 66 ms | 67 KB | 0.012 / 67.3 dB | 72 ms | 63 KB | 0.191 / 55.3 dB |
-| 31 | 960×540 | 199 ms | 516 KB | 0.019 / 65.2 dB | 347 ms | 485 KB | 0.347 / 52.7 dB |
+| 4 | 960×540 | 84 ms | 67 KB | 0.015 / 66.4 dB | 80 ms | 63 KB | 0.191 / 55.3 dB |
+| 31 | 960×540 | 212 ms | 515 KB | 0.022 / 64.6 dB | 316 ms | 485 KB | 0.347 / 52.7 dB |
 
 Sending a layout from the worker to the page (moderate network)
 
@@ -502,11 +503,12 @@ Notes: GIF compares our encoder with gifenc using one shared palette on four syn
 
 Done in the last round (sections 12 to 14): the 10,000+ Stress gap (7 to 28% down to 10% truer to 9% less true than d3-force), layout results as columns (about 2.5× faster end to end at 100,000 items, not the 70 to 100× estimated before the object rebuild was counted), the GIF encoder (now faster than gifenc from about 30 frames, and far truer in color) and the normal / lognormal draws (Chromium win; Firefox tie).
 
-1. The last 5 to 9% of Stress truth at 10,000 items and above (6 to 17% against ForceAtlas2). The three ideas listed here last round were tried (section 13): a pivot-MDS start, k-means pivots and a majorization step. None helped, so Stress at this size looks saturated for the pivot-plus-neighbors approach; what is left would be a different kind of method (for example a multilevel solver with exact local refinement), and a GPU version.
-2. GIF: the palette step is a fixed cost, so a cold 4-frame run is 1.85× slower than gifenc in Chromium, and files are 6 to 8% larger. A cheaper palette (section 14) helped Chromium a little and made Firefox slower, so it was not kept.
-3. Reading text over 512 million characters in Chromium needs a chunked reader; the import cap of 200,000 items / 800,000 links is still the app default.
-4. A faster Force layout above 100,000 items; at that size it takes over a minute.
-5. Rebuilding objects on the page is now the largest part of what the page itself still waits for when a big layout arrives (221 of 345 ms at 100,000 items in Chromium); handing out lazy views over the columns would remove it but touches about 150 places that read the layout.
+1. Stress at 10,000 items and above: the last 5 to 9% of distance truth (6 to 17% against ForceAtlas2). Every setting of the pivot-plus-neighbors model that was tried (section 13, three rounds) lands within noise, so the open routes are a different pair model or a different machine: all-pairs majorization on the graphics chip, which would reach about 0.16 and cannot be tested here, or a cheaper way to approximate all pairs on the processor.
+2. Stress on neighborhood preservation (section 15): a hybrid with a local term, tried against the same measure. Needs a decision on how much distance truth to trade for it.
+3. GIF: the palette is a fixed cost that four frames cannot spread out (section 14). The histogram and the k-means step are what is left to trim.
+4. Reading text over 512 million characters in Chromium needs a chunked reader; the import cap of 200,000 items / 800,000 links is still the app default.
+5. A faster Force layout above 100,000 items; at that size it takes over a minute.
+6. Rebuilding objects on the page is now the largest part of what the page itself still waits for when a big layout arrives (221 of 345 ms at 100,000 items in Chromium); handing out lazy views over the columns would remove it but touches about 150 places that read the layout.
 
 ## 7. Scorecard: one geometric mean for all the head-to-head results
 
@@ -521,14 +523,14 @@ How it is counted (you chose: each head-to-head counts once, with speed, memory 
 
 | | comparisons | wins / ties / losses | geometric mean (other ÷ ours) |
 | --- | ---: | ---: | ---: |
-| Speed only, both browsers | 314 | 257 / 7 / 50 | 2.20× |
+| Speed only, both browsers | 314 | 256 / 7 / 51 | 2.20× |
 | Speed only, Chromium 154 | 157 | 132 / 2 / 23 | 2.37× |
-| Speed only, Firefox 158 | 157 | 125 / 5 / 27 | 2.05× |
-| Speed + memory + layout truth, both browsers | 502 | 394 / 11 / 97 | 1.77× |
+| Speed only, Firefox 158 | 157 | 124 / 5 / 28 | 2.04× |
+| Speed + memory + layout truth, both browsers | 502 | 393 / 11 / 98 | 1.76× |
 | Speed + memory + layout truth, Chromium 154 | 252 | 201 / 4 / 47 | 1.85× |
-| Speed + memory + layout truth, Firefox 158 | 250 | 193 / 7 / 50 | 1.68× |
+| Speed + memory + layout truth, Firefox 158 | 250 | 192 / 7 / 51 | 1.68× |
 
-**First places on speed:** one benchmark row is one data set in one browser (for example Stress at 3,000 complex items in Firefox, against d3-force and ForceAtlas2 together). We come first, ahead of every competitor in the row, in 116 of 160 rows (Chromium 60 of 80, Firefox 56 of 80).
+**First places on speed:** one benchmark row is one data set in one browser (for example Stress at 3,000 complex items in Firefox, against d3-force and ForceAtlas2 together). We come first, ahead of every competitor in the row, in 115 of 160 rows (Chromium 60 of 80, Firefox 55 of 80).
 
 **By area** (both browsers, all metrics in the area)
 
@@ -545,8 +547,8 @@ How it is counted (you chose: each head-to-head counts once, with speed, memory 
 | Found groups truth | 6 | 0 / 4 / 2 | 0.96× |
 | Random draws | 14 | 11 / 0 / 3 | 1.62× |
 | Formulas | 2 | 2 / 0 / 0 | 4.34× |
-| GIF export | 8 | 3 / 0 / 5 | 1.00× |
-| GIF export truth | 4 | 4 / 0 / 0 | 14.9× |
+| GIF export | 8 | 2 / 0 / 6 | 0.97× |
+| GIF export truth | 4 | 4 / 0 / 0 | 12.5× |
 | Network memory | 2 | 2 / 0 / 0 | 4.26× |
 
 **By competitor** (all areas and metrics)
@@ -566,13 +568,15 @@ How it is counted (you chose: each head-to-head counts once, with speed, memory 
 | d3-random | 10 | 9 / 0 / 1 | 1.86× |
 | jStat | 4 | 2 / 0 / 2 | 1.13× |
 | expr-eval | 2 | 2 / 0 / 0 | 4.34× |
-| gifenc | 12 | 7 / 0 / 5 | 2.46× |
+| gifenc | 12 | 6 / 0 / 6 | 2.27× |
 | graphology | 1 | 1 / 0 / 0 | 1.88× |
 | Cytoscape | 1 | 1 / 0 / 0 | 9.63× |
 
-**Each area counted once:** the geometric mean of the 14 area means is 2.33×. Left out as below timer resolution: 4 comparisons.
+**Each area counted once:** the geometric mean of the 14 area means is 2.30×. Left out as below timer resolution: 4 comparisons.
 
-Reading it plainly: counting every comparison once, we are **1.77× better on average** (394 wins, 11 ties, 97 losses out of 502; 1.85× in Chromium, 1.68× in Firefox), and **2.20× faster on speed alone**. We come first in 116 of the 160 speed rows. The mean is pulled up by Stress (5.5× faster than the two force layouts, with all 80 comparisons won), layered drawing (14.8× faster than dagre and ELK), formulas (4.3×) and the GIF encoder's color accuracy (14.9× lower error); it is pulled down by the places that are honestly behind: layered-drawing crossings (0.60×, we draw more crossings), GIF file size and the cold 4-frame run (GIF export overall 1.00×, three wins and five losses), Firefox's normal draws, and CSV parsing, which is only 1.17× ahead on average with 35 losses out of 116 (mostly small unquoted files and whole-file parses that Papa Parse reads about as fast). Weighting each of the 14 areas equally instead of each comparison gives 2.33×.
+Reading it plainly: counting every comparison once, we are **1.76× better on average** (393 wins, 11 ties, 98 losses out of 502; 1.85× in Chromium, 1.68× in Firefox), and **2.20× faster on speed alone**. We come first in 115 of the 160 speed rows. The mean is pulled up by Stress (5.5× faster than the two force layouts, with all 80 comparisons won), layered drawing (14.8× faster than dagre and ELK), formulas (4.3×) and the GIF encoder's color accuracy (12.5× lower error); it is pulled down by the places that are honestly behind: layered-drawing crossings (0.60×, we draw more crossings), GIF file size and the short 4-frame run (GIF export overall 0.97×, two wins and six losses), Firefox's normal draws, and CSV parsing, which is only 1.17× ahead on average with 35 losses out of 116 (mostly small unquoted files and whole-file parses that Papa Parse reads about as fast). Weighting each of the 14 areas equally instead of each comparison gives 2.30×.
+
+Three things the scorecard cannot show. First, the Stress truth rows score only distances, so they do not credit what no competitor offers: zero overlapping items (section 12). Second, because of that guarantee the Stress truth rows are scored against pictures where the competitors are allowed to put items on top of each other; if they were made to separate their items as we do, their truth would fall (section 12 measures d3-force with a collision force: it stays about as true, but 3.6 to 17% of its items still touch, and it takes 1.5× longer than d3-force without it and 8 to 29× longer than ours). Third, distance truth is not the only way to judge a layout: on neighborhood preservation (are my linked items the ones nearest to me on the page?) our Stress layout is clearly behind d3-force and ForceAtlas2 (section 15).
 
 Two things the scorecard cannot show. First, the Stress truth rows score only distances, so they do not credit what no competitor offers: zero overlapping items (section 12). Second, because of that guarantee the Stress truth rows are scored against pictures where the competitors are allowed to put items on top of each other; if they were made to separate their items as we do, their truth would fall (section 12 measures d3-force with a collision force: it stays about as true, but 3.6 to 17% of its items still touch, and it takes 1.5× longer than d3-force without it and 8 to 29× longer than ours).
 
@@ -669,7 +673,7 @@ What it says:
 
 ## 11. Your questions about definitions and limits
 
-**How is "truest layout" defined and measured?** Truest means: distances on the page match how far apart the items really are in the network. For a layout, take the shortest path (number of links, in either direction) between pairs of items as the real distance `d`, and the distance between the items' centers on the page as `e`. Because a picture can be zoomed freely, find the single best zoom `s = Σ(e/d) / Σ(e²/d²)` and score the layout as the mean of `(d − s·e)² / d²`. Zero is a picture where every pair is exactly proportional; lower is truer. Dividing by `d²` makes neighbors matter most: getting two linked items placed far apart costs much more than misplacing two items that are 12 hops apart. To keep the check cheap, 60 evenly spaced source items are used, and each is compared with every other item (every 7th item above 3,000 items). It is the same number for every competitor, measured on their finished positions (`bench/suites.js`, `bench/stress-tune.js`). Two cautions: it is the quantity Stress minimizes, so Stress is naturally good at it; and it ignores item size, so d3-force and ForceAtlas2, which place points and never make room for boxes, are not penalized for overlaps, while ours guarantees that no two items touch. That guarantee is a vital advantage, not a footnote: a picture whose items sit on top of each other cannot be read, and the score gives those pictures credit for it. Keeping items apart costs a little truth, and the benchmark scores ours with that cost included (section 12 has the numbers). Layered-drawing quality is measured separately, as the number of crossing lines, and found groups as how well they match the planted groups.
+**How is "truest layout" defined and measured?** Truest means: distances on the page match how far apart the items really are in the network. For a layout, take the shortest path (number of links, in either direction) between pairs of items as the real distance `d`, and the distance between the items' centers on the page as `e`. Because a picture can be zoomed freely, find the single best zoom `s = Σ(e/d) / Σ(e²/d²)` and score the layout as the mean of `(d − s·e)² / d²`. Zero is a picture where every pair is exactly proportional; lower is truer. Dividing by `d²` makes neighbors matter most: getting two linked items placed far apart costs much more than misplacing two items that are 12 hops apart. To keep the check cheap, 60 evenly spaced source items are used, and each is compared with every other item (every 7th item above 3,000 items). It is the same number for every competitor, measured on their finished positions (`bench/suites.js`, `bench/stress-tune.js`). Two cautions: it is the quantity Stress minimizes, so Stress is naturally good at it; and it ignores item size, so d3-force and ForceAtlas2, which place points and never make room for boxes, are not penalized for overlaps, while ours guarantees that no two items touch. That guarantee is a vital advantage, not a footnote: a picture whose items sit on top of each other cannot be read, and the score gives those pictures credit for it. Keeping items apart costs a little truth, and the benchmark scores ours with that cost included (section 12 has the numbers). A third caution, found later: it is a distance measure, and on a local measure (do linked items sit nearest to each other?) our Stress layout scores clearly below d3-force and ForceAtlas2 (section 15). Layered-drawing quality is measured separately, as the number of crossing lines, and found groups as how well they match the planted groups.
 
 **Are item counts only nodes? Do they limit how many links an item can have?** The counts are items (nodes) only. Links are limited separately, and one item can have as many links as the file has: a single hub with 150,000 links read whole, and 1,000 items with 330,000 links laid out in about 3 seconds. The app's default import caps are 200,000 items and 800,000 links, whichever comes first, with a plain-words note when reached (the benchmarks lift them to measure 1,000,000 items). The scale tables use about 1 link per item (simple), 3 (moderate) and 4.2 (complex, so the 1,000,000-item complex file holds 4.2 million links). More links per item makes everything cost more (reading is linear in links; the Stress layout's work grows with items times pivots plus links, and its pair memory is capped near 12 million pairs), but the cost is smooth and nothing stops at a link count.
 
@@ -749,6 +753,25 @@ At 10,000 items the engine now spends 1.4 to 1.9 times as long and is 3 to 17% t
 
 Single runs, so differences under about 0.005 are noise. A pivot-MDS start gives the right global shape, but the truth score is limited by local detail, which the extra neighbor pairs already supply. Majorization is stable with any weights, but as a polish it does not beat the annealed sweeps. 160 neighbors buys 0.003 for 30% more time. None of this code was kept.
 
+**A third round, after reading the recent papers** (`docs/RESEARCH-layout-papers.md`). Same network and method as above, truth then time; the baseline row is the engine as it stands. Differences under about 0.005 are noise (the same setting scored 0.199 on the moderate network and 0.208 on the complex one).
+
+| Idea | moderate | complex | planted | simple |
+|---|---:|---:|---:|---:|
+| Engine as it stands | 0.203 | 0.198 | 0.205 | 0.199 |
+| Lower final step size (0.03; the engine uses 0.1) | 0.199 | 0.208 | 0.206 | 0.195 |
+| Lower final step size 0.02 | 0.213 | 0.202 | 0.205 | 0.192 |
+| Lower final step size 0.03 and pivot weight 0.15 | 0.215 | 0.203 | 0.202 | 0.193 |
+| Final step size 0.3 / 0.01 | 0.204 / 0.210 | – | – | – |
+| Pivot terms heavy early, light late (3× to 0.3×) | 0.208 | – | – | – |
+| Pivot terms light early, heavy late (0.3× to 3×) | 0.206 | – | – | – |
+| 300 pivots instead of 30 to 120, weight 0.3 / 0.1 / 1.0 | 0.209 / 0.206 / 0.229 | – | – | – |
+| 120 random pivots instead of the farthest-apart, weight 0.3 / 1.0 | 0.202 / 0.214 | – | – | – |
+| 300 random pivots, weight 1.0 / 0.5 | 0.216 / 0.206 | – | – | – |
+
+Link pairs weighted 3× and 8× (to pull linked items closer) moved nothing that matters: truth 0.123 and 0.125 against 0.121 on a 1,000-item tree, and 0.152 and 0.155 against 0.152 on 3,000 moderate items. None of this code was kept.
+
+What the papers say, in short, and how it fits. Börsig, Brandes and Pásztor's re-test of the stochastic-gradient claim finds no significant difference in final stress between gradient descent and majorization once majorization is started well, and the start matters for majorization only; that matches our majorization and pivot-MDS-start results. The 2025 resistance-distance paper reports that random pair sampling beats pivot sampling on small graphs (100 to 1,000 items), but at 10,000 items our random pivots were not better (0.202 against 0.203), and giving far pairs more weight made things worse, not better. DRGraph, the t-distribution force layout and its sparse-negative-sampling successor optimize neighborhood preservation, not distances, and report worse stress than the stress methods; they are answers to a different question (section 15). The one clear lever left is the pair model itself: all pairs at 10,000 items scores 0.160 but takes 18.6 s, so the open question is a cheaper way to get most of that. The paper-backed route is a parallel majorization over all pairs on the graphics chip (about 100 MB for a 10,000 by 10,000 byte matrix of hop counts), which this environment cannot test.
+
 **What is left.** Against d3-force the gap at 10,000 items is 10% truer to 9% less true; against ForceAtlas2 it is 4% truer to 17% less true (section 2). The three ideas that were still untried last round (a pivot-MDS start, k-means pivots, majorization) have now been tried, above. A note on the limits of this evidence: the truth score is the quantity Stress minimizes, so it favors Stress over methods that do not optimize it; a different measure, such as how many of an item's nearest neighbors stay nearest on the page, could rank the methods differently, and was not measured.
 
 ## 14. Layout results as columns, the GIF encoder and the random draws
@@ -779,8 +802,8 @@ How to read it: "send as objects" is the browser's own copy of the whole layout 
 
 | frames | size | ours | file | ours: color error (MSE / PSNR) | gifenc | file | gifenc: color error |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 4 | 960×540 | 111 ms | 68 KB | 0.013 / 67.1 dB | 60 ms | 63 KB | 0.159 / 56.1 dB |
-| 31 | 960×540 | 202 ms | 519 KB | 0.021 / 65.0 dB | 255 ms | 487 KB | 0.287 / 53.6 dB |
+| 4 | 960×540 | 109 ms | 68 KB | 0.016 / 66.1 dB | 61 ms | 63 KB | 0.159 / 56.1 dB |
+| 31 | 960×540 | 238 ms | 521 KB | 0.023 / 64.5 dB | 296 ms | 487 KB | 0.287 / 53.6 dB |
 
 Sending a layout from the worker to the page (moderate network)
 
@@ -794,8 +817,8 @@ Sending a layout from the worker to the page (moderate network)
 
 | frames | size | ours | file | ours: color error (MSE / PSNR) | gifenc | file | gifenc: color error |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 4 | 960×540 | 66 ms | 67 KB | 0.012 / 67.3 dB | 72 ms | 63 KB | 0.191 / 55.3 dB |
-| 31 | 960×540 | 199 ms | 516 KB | 0.019 / 65.2 dB | 347 ms | 485 KB | 0.347 / 52.7 dB |
+| 4 | 960×540 | 84 ms | 67 KB | 0.015 / 66.4 dB | 80 ms | 63 KB | 0.191 / 55.3 dB |
+| 31 | 960×540 | 212 ms | 515 KB | 0.022 / 64.6 dB | 316 ms | 485 KB | 0.347 / 52.7 dB |
 
 Sending a layout from the worker to the page (moderate network)
 
@@ -805,9 +828,13 @@ Sending a layout from the worker to the page (moderate network)
 | 30,000 | 90,029 | 644 ms | 186 ms | 18 ms | 225 ms | 322 ms | 243 ms |
 | 100,000 | 299,762 | 1.9 s | 678 ms | 78 ms | 263 ms | 934 ms | 341 ms |
 
-Reading it: ours is 12 to 18× lower in color error (+11 to +12.5 dB) in both browsers and at both lengths, which is visible as less banding, and 1.3× (Chromium) to 1.7× (Firefox) faster at 31 frames. On a cold 4-frame run it is 1.85× slower in Chromium (the palette work is a fixed cost that four frames cannot spread out) and 1.1× faster in Firefox. Files are 6 to 8% larger (the reason was not isolated). That is a real trade, not a win on every axis.
+Reading it: ours is 10 to 16× lower in color error (+10 to +12 dB) in both browsers and at both lengths, which is visible as less banding, and 1.24× (Chromium) to 1.5× (Firefox) faster at 31 frames. On a 4-frame run it is 1.8× slower in Chromium (the palette work is a fixed cost that four frames cannot spread out) and level in Firefox (84 against 80 ms). Files are 6 to 8% larger (the reason was not isolated). That is a real trade, not a win on every axis.
 
-**A cheaper palette for short animations, tried and not kept.** Two changes: count only the pixels that changed since the first picture when building the color histogram (a still background is counted once), and merge colors that agree in their top 6 bits per channel into one before the median cut and k-means (about 9,600 distinct colors become far fewer). In Node with a cold start on four 960×540 frames the run took 213 ms instead of 238 ms, the file was 10% smaller (75 KB against 84 KB) and the color error moved from 0.130 to 0.154 (gifenc: 1.46). Chromium 154 went from 111 to 103 ms. Firefox 158 went from 74–84 ms to 96–135 ms in four interleaved runs per variant, so it got slower, and since Firefox is the stress test the change was reverted. The committed encoder is unchanged.
+**Where the 4-frame time goes in Firefox, and what was done about it.** A profile of the encoder (`bench/gif-profile.sh`; the suite is `gifprof`) shows, for the second of three runs in a fresh page (the number this document reports is the median of three runs), about 85 ms in Firefox 158: the palette 48 ms (the color histogram over 2 million pixels about 22 ms, the k-means step about 20 ms while the code is still cold and 5 ms when warm, the median cut 3 ms), mapping and comparing the four frames 22 to 29 ms, compressing 5 to 10 ms. The same run in gifenc is 63 ms: 12 ms to build one palette from one picture and about 13 ms per frame. So our per-frame work is already cheaper (about 7 ms against 13 ms warm) and the whole gap is the palette, which looks at four pictures and then refines the cut. The first run in a fresh page takes 100 to 135 ms and the third 55 to 70 ms (gifenc 56 to 60 ms), so most of the rest is the engine's code warming up.
+
+**A correction.** The previous round reported that two palette changes made the encoder about 30% slower in Firefox and reverted them. That measurement ran the variants one after another; repeated in an interleaved test (five rounds of four fresh-page jobs per variant, three runs each) the committed encoder and the variants were the same within noise (second-run totals 83, 90, 96 and 91 ms), so those changes were neither a Firefox loss nor a Firefox gain. They were still left out.
+
+**What shipped.** For pictures totaling over a million pixels the palette histogram now looks at every other pixel, and the k-means step runs 2 rounds instead of 3. In the same interleaved Firefox test the palette fell from 48 to 35 ms and the second-run total from 83 to 75 ms; the decoded color error in Node moved from 0.130 to 0.135 at 4 frames and from 0.137 to 0.132 at 31 frames, and the file size by about 1%. In the tables above (single runs) the 4-frame run is now level with gifenc in Firefox and 1.8× slower in Chromium (Chromium's timings on this machine swing by 30% from run to run, so that last number is rough). From about four frames on, the lower per-frame cost makes up for the palette.
 
 **Random draws.** The normal draw is a Marsaglia and Tsang ziggurat with 128 layers, the exponential draw is a 256-layer ziggurat, and Poisson draws with a small mean invert a cached cumulative table (lognormal is the normal draw exponentiated). The same seed always gives the same numbers, and tests check the means, spreads and tail counts (`test/sim.test.js`). One million draws, in milliseconds:
 
@@ -833,6 +860,24 @@ Reading it: ours is 12 to 18× lower in color error (+11 to +12.5 dB) in both br
 
 Reading it: in Chromium ours is faster in every row (normal 2.3 to 2.5×, Poisson 1.5 to 6.4×, binomial 2.4×). In Firefox it is a tie or a loss on normal draws (1.2× slower than d3-random and 1.4× slower than jStat) and slower than jStat on Poisson (1.4×), but still faster than d3-random there (Poisson 3.9×, binomial 1.5×, lognormal and exponential 1.1 to 1.2×). Two honest notes: d3-random was given a fast simple generator (a multiplicative one), and jStat uses the browser's own random numbers, so both are favorable to them; and ours uses a stronger generator (mulberry32) than d3's multiplicative one, so the comparison is not slanted toward us. An attempt to speed up the normal draw further for Firefox did not change the result beyond noise, so it was left alone.
 
+## 15. Neighborhood preservation: where the Stress layout is weaker
+
+Distance truth (the score used everywhere above) asks whether page distances follow hop counts. A second, common measure asks something local: for each item, are the items it is linked to the ones nearest to it on the page? This is neighborhood preservation as used by tsNET and DRGraph: for 600 evenly spaced items with k links, the overlap (Jaccard) between the k linked items and the k nearest items on the page; 1 is perfect, higher is better. It was added to `bench/overlap.js` (Node, single runs; `ARR=force` runs our Force arrangement).
+
+| network | items | ours: Stress | ours: Force | d3-force | d3-force + forceCollide | ForceAtlas2 |
+|---|---:|---:|---:|---:|---:|---:|
+| simple tree | 1,000 | 0.012 (truth 0.121) | 0.082 (0.172) | 0.109 (0.208) | 0.089 (0.208) | 0.159 (0.197) |
+| complex | 1,000 | 0.020 (0.124) | 0.026 (0.140) | 0.034 (0.187) | 0.028 (0.197) | 0.045 (0.147) |
+| moderate | 3,000 | 0.007 (0.152) | 0.011 (0.168) | 0.027 (0.194) | 0.024 (0.193) | 0.031 (0.178) |
+| moderate | 5,000 | 0.001 (0.198) | – | 0.014 (0.182) | 0.013 (0.182) | 0.023 (0.179) |
+
+Each cell is the neighborhood score with the distance truth in parentheses. Reading it:
+- **Stress is clearly the weakest here**: 7 to 13× lower than the competitors on the tree, 1.4 to 2.3× on the complex network, 3 to 4× on moderate 3,000 and 13 to 23× on moderate 5,000. Its edge in distance truth is real, and so is this gap; the two measures disagree about which layout is better, which is a known property of the two measures, not a bug in either.
+- **It is not the overlap removal.** With the push-apart, stretch and settle steps switched off the score is the same (0.012 on the tree, 0.006 against 0.007 on moderate 3,000), and it is the same for the all-pairs version used below 4,000 items. It comes from the stress model: it puts linked items at the target length and siblings only a little farther, so around a parent with seven or more children the siblings are nearer to each other than to the parent. Weighting link pairs 3× and 8× did not change it (0.010 and 0.013 on the tree).
+- **Our Force arrangement is nearer the competitors**, and still behind ForceAtlas2, with the overlap guarantee in place.
+- All scores are small on the networks with random cross links, because no two-dimensional picture can keep every item's links among its nearest items.
+- **What this does not show.** It is one local measure on four networks and single runs. It says that "truest layout" depends on what is being asked: Stress for how far apart things really are, Force or ForceAtlas2 for who sits next to whom. The in-app wording for the arrangements should say so (it already points Stress at distances). A hybrid that adds a local term to the stress model, as the (SGD)² paper does for neighborhood preservation, is the natural next experiment and was not tried.
+
 ## Reproduce
 
 ```
@@ -845,7 +890,8 @@ node run.js chromium stressOurs                      # or: firefox; only our Str
 node run.js chromium refresh                         # or: firefox; the parts of the compare suite that changed (draws, GIF)
 node run.js chromium pack                            # or: firefox; sending a layout from the worker, packed or not
 node merge.js /tmp/new.jsonl results/chromium-stress.jsonl   # fold a partial re-run (new, then old) into the results file
-node overlap.js moderate 1000 3000 5000 10000        # Node only: items left touching, ours against d3-force and ForceAtlas2
+node overlap.js moderate 1000 3000 5000 10000        # Node only: items left touching and neighborhood preservation, ours against d3-force and ForceAtlas2 (ARR=force for our Force arrangement)
+sh gif-profile.sh firefox /tmp/out.jsonl             # GIF phase timings (instruments src/gif.js for the run, then restores it; section 14)
 node ../test/archive.test.js && node --expose-gc ../test/fuzz.test.js 70   # zips, Excel, graph files; random and hostile input
 node ../test/fuzz.browser.js chromium 30            # or: firefox
 node wasm/exp.js                                    # WebAssembly experiment (sweep.c is built with clang, see its header)

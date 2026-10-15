@@ -28,7 +28,7 @@ var NFMGif = (function () {
     maxColors = Math.min(255, maxColors || 255);
     var HB = 16, HS = 1 << HB, mask = 0xffffff, attempt, uniq = 0, keys, cnts, p, i;
     var total = 0; for (p = 0; p < pictures.length; p++) total += pictures[p].length >> 2;
-    var stride = total > 600000 * Math.max(1, pictures.length) ? 2 : 1;
+    var stride = total > 1000000 ? 2 : 1;   // big pictures: look at every other pixel (the colors that matter come in runs and areas, so the palette barely changes; the histogram is the largest steady cost)
     for (attempt = 0; attempt < 6; attempt++) {
       keys = new Int32Array(HS).fill(-1); cnts = new Int32Array(HS); uniq = 0;
       var cap = HS * 0.4;
@@ -82,7 +82,7 @@ var NFMGif = (function () {
       cr[k] = r / t; cg[k] = g / t; cb[k] = b / t;
     });
     /* a few rounds of k-means (each color to its nearest center, centers to the pixel-weighted mean); the same eye-weighted distance as the encoder uses */
-    var rounds = uniq * K <= 6e7 ? 3 : uniq * K <= 3e8 ? 1 : 0, assign = new Int32Array(uniq);
+    var rounds = uniq * K <= 6e7 ? 2 : uniq * K <= 3e8 ? 1 : 0, assign = new Int32Array(uniq);
     for (var it = 0; it < rounds; it++) {
       var sr = new Float64Array(K), sg = new Float64Array(K), sb = new Float64Array(K), st = new Float64Array(K);
       for (i = 0; i < uniq; i++) {

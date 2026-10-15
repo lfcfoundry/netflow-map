@@ -21,6 +21,22 @@ function truth(ids, edges, pos) {
   const sc = num / den; let st = 0; pairs.forEach((pr) => { st += Math.pow(pr[0] - sc * pr[1], 2) / (pr[0] * pr[0]); });
   return st / pairs.length;
 }
+/** Neighborhood preservation (as in tsNET and DRGraph): for each sampled item, the share of its direct neighbors that are among its k nearest on the page, with k = its number of neighbors (Jaccard overlap; 1 = perfect, higher is better). 600 evenly spaced items. */
+function np(ids, edges, pos) {
+  const n = ids.length, idx = new Map(ids.map((id, i) => [id, i])), adj = ids.map(() => new Set());
+  edges.forEach((e) => { const a = idx.get(e.from), b = idx.get(e.to); if (a !== undefined && b !== undefined && a !== b) { adj[a].add(b); adj[b].add(a); } });
+  const xs = new Float64Array(n), ys = new Float64Array(n); ids.forEach((id, i) => { xs[i] = pos[id][0]; ys[i] = pos[id][1]; });
+  let sum = 0, cnt = 0; const step = Math.max(1, Math.floor(n / 600)), d = new Float64Array(n), order = new Int32Array(n);
+  for (let v = 0; v < n; v += step) {
+    const k = adj[v].size; if (!k) continue;
+    for (let j = 0; j < n; j++) { d[j] = (xs[j] - xs[v]) ** 2 + (ys[j] - ys[v]) ** 2; order[j] = j; }
+    d[v] = Infinity;
+    const top = Array.from(order).sort((a, b) => d[a] - d[b]).slice(0, k);   // the k nearest on the page
+    let inter = 0; for (const j of top) if (adj[v].has(j)) inter++;
+    sum += inter / (2 * k - inter); cnt++;
+  }
+  return sum / cnt;
+}
 /** Overlapping pairs of discs (grid of cells as wide as the largest disc); items touched; zoom needed to separate the worst pair. */
 function overlaps(ids, pos, rad) {
   const n = ids.length; let rmax = 0; for (const id of ids) rmax = Math.max(rmax, rad[id]);
@@ -46,12 +62,12 @@ for (const n of ns.map(Number)) {
   const g = makeGraph(kind, n), ids = g.nodes.map((x) => x.id), dg = C.derive(JSON.parse(JSON.stringify(g)));
   const run = (name, fn) => { const t = process.hrtime.bigint(); const pos = fn(); const ms = Number(process.hrtime.bigint() - t) / 1e6; return [name, pos, ms]; };
   let rad = {};
-  const ours = run('ours (Stress)', () => { const L = E.build(dg, { view: 'network', arrange: 'stress', colorBy: 'group' }); const pos = {}; L.nodes.forEach((nd) => { const id = nd.nodeId || nd.id; pos[id] = [nd.cx, nd.cy]; rad[id] = nd.w / 2; }); return pos; });
+  const ours = run('ours (' + (process.env.ARR || 'stress') + ')', () => { const L = E.build(dg, { view: 'network', arrange: process.env.ARR || 'stress', colorBy: 'group' }); const pos = {}; L.nodes.forEach((nd) => { const id = nd.nodeId || nd.id; pos[id] = [nd.cx, nd.cy]; rad[id] = nd.w / 2; }); return pos; });
   const res = [ours];
-  if (ONLY === 'ours') { for (const [name, pos, ms] of res) { const o = overlaps(ids, pos, rad); rows.push({ kind, items: n, layout: name, ms: Math.round(ms), truth: +truth(ids, g.edges, pos).toFixed(3), pairs: o.pairs, pctItems: +o.pct.toFixed(1), zoom: +o.zoom.toFixed(1) }); } continue; }
+  if (ONLY === 'ours') { for (const [name, pos, ms] of res) { const o = overlaps(ids, pos, rad); rows.push({ kind, items: n, layout: name, ms: Math.round(ms), truth: +truth(ids, g.edges, pos).toFixed(3), np: +np(ids, g.edges, pos).toFixed(3), pairs: o.pairs, pctItems: +o.pct.toFixed(1), zoom: +o.zoom.toFixed(1) }); } continue; }
   res.push(run('d3-force', () => { const nodes = ids.map((id) => ({ id })), links = g.edges.map((e) => ({ source: e.from, target: e.to })); const sim = d3.forceSimulation(nodes).force('link', d3.forceLink(links).id((d) => d.id).distance(30)).force('charge', d3.forceManyBody().strength(-30)).force('center', d3.forceCenter(0, 0)).stop(); const ticks = Math.ceil(Math.log(sim.alphaMin()) / Math.log(1 - sim.alphaDecay())); for (let i = 0; i < ticks; i++) sim.tick(); const pos = {}; nodes.forEach((q) => { pos[q.id] = [q.x, q.y]; }); return rescale(ids, g.edges, pos, 130); }));
   res.push(run('d3-force + forceCollide', () => { const nodes = ids.map((id) => ({ id })), links = g.edges.map((e) => ({ source: e.from, target: e.to })); const sim = d3.forceSimulation(nodes).force('link', d3.forceLink(links).id((d) => d.id).distance(130)).force('charge', d3.forceManyBody().strength(-300)).force('collide', d3.forceCollide((d) => rad[d.id])).force('center', d3.forceCenter(0, 0)).stop(); const ticks = Math.ceil(Math.log(sim.alphaMin()) / Math.log(1 - sim.alphaDecay())); for (let i = 0; i < ticks; i++) sim.tick(); const pos = {}; nodes.forEach((q) => { pos[q.id] = [q.x, q.y]; }); return pos; }));
   if (n <= 20000) res.push(run('ForceAtlas2', () => { const gr = new Graph({ type: 'undirected' }); ids.forEach((id, i) => gr.addNode(id, { x: Math.cos(i) * 10 + Math.random(), y: Math.sin(i) * 10 + Math.random() })); g.edges.forEach((e) => { if (e.from !== e.to && !gr.hasEdge(e.from, e.to)) gr.addEdge(e.from, e.to); }); fa2.assign(gr, { iterations: 300, settings: Object.assign(fa2.inferSettings(gr), { barnesHutOptimize: n > 500 }) }); const pos = {}; gr.forEachNode((id, at) => { pos[id] = [at.x, at.y]; }); return rescale(ids, g.edges, pos, 130); }));
-  for (const [name, pos, ms] of res) { const o = overlaps(ids, pos, rad); rows.push({ kind, items: n, layout: name, ms: Math.round(ms), truth: +truth(ids, g.edges, pos).toFixed(3), pairs: o.pairs, pctItems: +o.pct.toFixed(1), zoom: +o.zoom.toFixed(1) }); }
+  for (const [name, pos, ms] of res) { const o = overlaps(ids, pos, rad); rows.push({ kind, items: n, layout: name, ms: Math.round(ms), truth: +truth(ids, g.edges, pos).toFixed(3), np: +np(ids, g.edges, pos).toFixed(3), pairs: o.pairs, pctItems: +o.pct.toFixed(1), zoom: +o.zoom.toFixed(1) }); }
 }
 console.table(rows);
