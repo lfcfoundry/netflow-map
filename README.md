@@ -38,8 +38,8 @@ The map is drawn by WebGPU if this browser can really use it, otherwise WebGL 2,
 ```
 node tools/build.mjs                 # writes a minified index.html (version stamp year.month.day.HHMM, US Eastern); needs esbuild
 node tools/build.mjs --dev           # readable, larger file
-node tools/build.mjs --pack          # also writes index.html.xz (LZMA) for local copies
-node test/importers.test.js          # 17 quick checks of the readers
+node tools/build.mjs --pack          # also writes index.packed.html, a self-extracting copy (our lzma-pack module) for downloads outside git
+node test/importers.test.js          # 18 quick checks of the readers, including 6,000 random tables against a plain reader
 node test/oracle.test.mjs            # new engine versus the older story-map package, 40 random stories
 node test/limits.test.js             # a 20,000-page chain, 1,500 stacked diamonds, a 3,000-item network
 node test/browser.test.js chromium   # real browser run (see the file header for the browser programs it needs)
@@ -67,3 +67,7 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - In loops, the map shows expected visits per player, not "share of players who saw it".
 - A layered view stops above 90,000 stops and says so; use Network or Matrix instead.
 - Not yet run on a phone (test phone) or on a real graphics chip. The tests ran on Firefox 158 and ungoogled-chromium 154 with WebGPU, WebGL 2 and basic drawing all matching to about 0.2 out of 255.
+
+## Benchmarks
+
+`bench/` runs the same jobs in Firefox and ungoogled-chromium against Papa Parse, d3-force, ForceAtlas2, dagre, ELK, Louvain, expr-eval, gifenc and more, up to 1,000,000 items. Results and findings are in `docs/BENCHMARKS.md`; the raw numbers are in `bench/results/`. `node bench/report.js` rebuilds the tables.
