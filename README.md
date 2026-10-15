@@ -2,10 +2,14 @@
 
 Copyright (c) 2026 JNFoo. MIT License.
 
-One file, `index.html`, that works offline. Bring in a table, a JSON graph, an outline, or a folder of notes, and see how everything connects. It has two tabs:
+One file, `index.html`, that works offline. Bring in a table, a JSON graph, an outline, or a folder of notes, and see how everything connects. It has six tabs:
 
-- **Data**: drop in files or a folder (or paste text), see in plain words what was found, fix how a table is read, tidy up, edit items and links, undo, and save the result.
-- **Map**: nine views of the same data, with the places everyone must pass through (choke points), exact odds for where simulated players end up, groups found from the links, a details panel, a "what if this item were gone" switch, and a comparison of how well each view draws your data.
+- **Data**: drop in files or a folder (or paste text), see in plain words what was found, and use the columns workbench: every column with its type and what it does on the map (color, size, line width, labels, filters), plus calculated columns.
+- **Nodes**: the items and links as tables you can sort, filter, edit, add to, and delete from.
+- **Map**: nine views, a network view with several arrangements (including 3D you can turn), a floating key you can drag and edit, search, strongest-links slider, facets, route lighting, box and lasso selection, hand-moved items, right-click menus, formatting rules for items and links, saved views, and a poster print.
+- **Check**: findings about the data, each with a plain-words reason, a way to see it on the map or in the table, and a fix where one is safe.
+- **Advanced**: layout settings, walker settings, and the one-button device check.
+- **Export**: JSON, CSV, SVG, PNG, poster, the check report, and saved views.
 
 Nothing is uploaded. Everything runs in the page.
 
@@ -49,7 +53,8 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - `src/render.js`: the three drawing backends
 - `src/probe.js`: the startup test and the one-button device check
 - `src/engine-client.js`: runs the engine in a background helper, with a fallback
-- `src/app.js`, `src/app.css`, `src/index.template.html`: the page
+- `src/columns.js`, `src/sim.js`, `src/check.js`: column types and calculated columns, the walker simulation, the data checks
+- `src/app/*.js` (joined in file-name order into one function), `src/app.css`, `src/index.template.html`: the page (00 core, 10 data, 20 nodes, 30 map, 32 interact, 35 rail, 50 check, 60 advanced, 70 export, 99 boot)
 - `vendor/`: `env-probes.js` and `back-close.js` from [JS-modules](https://github.com/JNFoo/JS-modules); `story-map.global.js` is only the test oracle, it is not shipped in `index.html`
 
 ## Known limits

@@ -325,7 +325,7 @@ var NFMImport = (function () {
       } else throw new Error('This JSON is a list, but not a list of links or of items.');
     } else if (root && typeof root === 'object') {
       if (Array.isArray(root.passages)) {
-        shape = 'story'; var byId = {};
+        shape = 'story'; B.g.flavor = 'story'; var byId = {};
         root.passages.forEach(function (p) { byId[p.id] = p; var nd = B.node(String(p.id), { label: p.name || p.title || p.id, valence: p.ending ? valenceOf(p.valence) || 'neutral' : '', group: p.group || '' }); void nd; });
         root.passages.forEach(function (p) {
           (p.choices || p.links || []).forEach(function (c) {
@@ -582,6 +582,10 @@ var NFMImport = (function () {
       if (!seen.has(k)) { seen.add(k); g.edges.push(JSON.parse(JSON.stringify(e))); }
     });
     if (!g.start && b.start) g.start = b.start;
+    if (!g.flavor && b.flavor) g.flavor = b.flavor;
+    if (!g.calc && b.calc) g.calc = b.calc;
+    if (!g.roles && b.roles) g.roles = b.roles;
+    if (!g.states && b.states) g.states = b.states;
     return g;
   }
   /** Tidying actions. Each returns { graph, changed: number, text }. */
@@ -602,6 +606,11 @@ var NFMImport = (function () {
     }
   };
 
+  function edgeAttrs(e) {
+    var attrs = {};
+    if (e.attrs && typeof e.attrs === 'object') Object.keys(e.attrs).slice(0, MAX_ATTRS).forEach(function (k) { if (!BAD_KEYS[k]) attrs[k] = clip(e.attrs[k], 300); });
+    return attrs;
+  }
   /** Make sure a graph read from storage or a file of ours is safe to use. */
   function sanitizeGraph(raw) {
     if (!raw || typeof raw !== 'object' || !Array.isArray(raw.nodes) || !Array.isArray(raw.edges)) throw new Error('This is not a saved graph.');
@@ -618,9 +627,18 @@ var NFMImport = (function () {
     raw.edges.forEach(function (e) {
       if (!e || !ids.has(String(e.from)) || !ids.has(String(e.to)) || g.edges.length >= MAX_EDGES) return;
       var w = Number(e.weight);
-      g.edges.push({ from: String(e.from), to: String(e.to), label: clip(e.label || '', MAX_LABEL), weight: isFinite(w) && e.weight !== null && e.weight !== '' && e.weight !== undefined ? w : undefined, kind: clip(e.kind || '', 40), attrs: {} });
+      g.edges.push({ from: String(e.from), to: String(e.to), label: clip(e.label || '', MAX_LABEL), weight: isFinite(w) && e.weight !== null && e.weight !== '' && e.weight !== undefined ? w : undefined, kind: clip(e.kind || '', 40), attrs: edgeAttrs(e) });
     });
     if (g.start && !ids.has(g.start)) g.start = null;
+    if (raw.flavor === 'story' || raw.flavor === 'data') g.flavor = raw.flavor;
+    if (Array.isArray(raw.calc)) g.calc = raw.calc.slice(0, 40).filter(function (c) { return c && typeof c.name === 'string' && typeof c.formula === 'string' && c.name; }).map(function (c) { return { scope: c.scope === 'edges' ? 'edges' : 'nodes', name: clip(cleanText(c.name), 60), formula: clip(c.formula, 500) }; });
+    if (raw.roles && typeof raw.roles === 'object') { g.roles = {}; ['colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'orderBy'].forEach(function (k) { if (typeof raw.roles[k] === 'string') g.roles[k] = clip(raw.roles[k], 80); }); }
+    if (raw.states && Array.isArray(raw.states.names) && raw.states.names.length > 1) {
+      g.states = { names: raw.states.names.slice(0, 60).map(function (x) { return clip(cleanText(String(x)), 60); }) };
+      var ns = g.states.names.length, vals = function (a) { return Array.isArray(a) ? a.slice(0, ns).map(function (x) { var v = Number(x); return x === null || x === '' || !isFinite(v) ? null : v; }) : null; };
+      raw.nodes.forEach(function (n) { if (n && n.vals) { var nn = g.nodes.filter(function (q) { return q.id === String(n.id); })[0]; if (nn) nn.vals = vals(n.vals); } });
+      var k2 = 0; raw.edges.forEach(function (e) { if (!e || !ids.has(String(e.from)) || !ids.has(String(e.to))) return; var ge = g.edges[k2++]; if (ge && e.vals) ge.vals = vals(e.vals); });
+    }
     return g;
   }
 

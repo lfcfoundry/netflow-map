@@ -17,12 +17,12 @@ async function open() {
     const env = Object.assign({}, process.env, process.env.NFM_VK_ICD ? { VK_ICD_FILENAMES: process.env.NFM_VK_ICD, VK_DRIVER_FILES: process.env.NFM_VK_ICD } : {}, { LIBGL_ALWAYS_SOFTWARE: '1' });
     const b = await pp.launch({ browser: 'firefox', executablePath: process.env.NFM_FIREFOX || '/tmp/ffdl/firefox/firefox', headless: !process.env.NFM_HEADFUL, protocol: 'webDriverBiDi', env, extraPrefsFirefox: { 'dom.webgpu.enabled': true, 'gfx.webgpu.ignore-blocklist': true, 'webgl.force-enabled': true, 'webgl.enable-webgl2': true } });
     const page = await b.newPage(); await page.setViewport({ width: 1100, height: 720 });
-    return { b, page, close: () => b.close(), size: (w, h) => page.setViewport({ width: w, height: h }), wait: (fn, arg, ms) => page.waitForFunction(fn, { timeout: ms || 20000 }, arg), shot: (p) => page.screenshot({ path: p }), click: (x, y) => page.mouse.click(x, y), press: (k) => page.keyboard.press(k), version: await b.version() };
+    return { b, page, close: () => b.close(), size: (w, h) => page.setViewport({ width: w, height: h }), wait: (fn, arg, ms) => page.waitForFunction(fn, { timeout: ms || 20000 }, arg), shot: (p) => page.screenshot({ path: p }), click: (x, y) => page.mouse.click(x, y), press: (k) => page.keyboard.press(k), drag: async (x0, y0, x1, y1) => { await page.mouse.move(x0, y0); await page.mouse.down(); await page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 }); await page.mouse.move(x1, y1, { steps: 4 }); await page.mouse.up(); }, version: await b.version() };
   }
   const pw = require(process.env.NFM_PLAYWRIGHT || '/opt/npm-tools/node_modules/playwright-core');
   const b = await pw.chromium.launch({ executablePath: process.env.NFM_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', headless: true, args: flags });
   const ctx = await b.newContext({ viewport: { width: 1100, height: 720 }, acceptDownloads: true }), page = await ctx.newPage();
-  return { b, page, close: () => b.close(), size: (w, h) => page.setViewportSize({ width: w, height: h }), wait: (fn, arg, ms) => page.waitForFunction(fn, arg, { timeout: ms || 20000 }), shot: (p) => page.screenshot({ path: p }), click: (x, y) => page.mouse.click(x, y), press: (k) => page.keyboard.press(k), version: b.version() };
+  return { b, page, close: () => b.close(), size: (w, h) => page.setViewportSize({ width: w, height: h }), wait: (fn, arg, ms) => page.waitForFunction(fn, arg, { timeout: ms || 20000 }), shot: (p) => page.screenshot({ path: p }), click: (x, y) => page.mouse.click(x, y), press: (k) => page.keyboard.press(k), drag: async (x0, y0, x1, y1) => { await page.mouse.move(x0, y0); await page.mouse.down(); await page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 }); await page.mouse.move(x1, y1, { steps: 4 }); await page.mouse.up(); }, version: b.version() };
 }
 
 (async () => {
@@ -37,23 +37,30 @@ async function open() {
   await D.wait(() => window.NFM && NFM.client() && NFM.client().mode !== 'starting', null, 20000);
   say(true, 'page loaded; engine runs in the ' + (await ev(() => NFM.client().mode)));
 
+
   /* Data tab */
-  await ev(() => NFM.ingest([{ name: 'e.csv', text: 'source,target,weight\nA,B,2\nB,C,1\nA,C,3\nC,D,1\n' }]));
-  const st = await ev(() => ({ n: NFM.state.graph.nodes.length, m: NFM.state.graph.edges.length }));
+  await ev(() => NFM.ingest([{ name: 'e.csv', text: 'source,target,weight,cost\nA,B,2,5\nB,C,1,7\nA,C,3,1\nC,D,1,9\n' }]));
+  const st = await ev(() => ({ n: NFM.state.graph.nodes.length, m: NFM.state.graph.edges.length, w: NFM.state.V.widthBy }));
   say(st.n === 4 && st.m === 4, `pasted table read: ${st.n} items, ${st.m} links`);
-  await click('#tb-links'); await set('#filter', 'A'); await sleep(400);
+  say(st.w === 'weight', 'weights are used as link width by default');
+  await D.wait(() => document.querySelectorAll('#cols table.cw tbody tr').length >= 2, null, 5000).catch(() => {});
+  say(await ev(() => !document.getElementById('cols').hidden && document.querySelectorAll('#cols table.cw tbody tr').length >= 2), 'the columns workbench lists the columns: ' + (await ev(() => document.querySelectorAll('#cols table.cw tbody tr').length + ' rows, hidden=' + document.getElementById('cols').hidden)));
+  await ev(() => NFM.showTab('nodes')); await sleep(200);
+  await ev(() => Array.from(document.querySelectorAll('#nodes-body .seg button')).find((b) => b.textContent === 'Links').click());
+  await set('#nt-filter', 'A'); await sleep(400);
   say((await ev(() => document.querySelectorAll('#table tbody tr').length)) === 2, 'links table filter works');
-  await set('#filter', ''); await click('#tb-items');
+  await set('#nt-filter', '');
   await ev(() => NFM.ingest([{ name: 'n.md', path: 'v/n.md', text: '# N\n[[M]] and [[Zed]]' }, { name: 'm.md', path: 'v/m.md', text: '[[N]]' }], { format: 'notes' }));
   say((await ev(() => NFM.state.graph.nodes.length)) === 3, 'notes with [[links]] read, one placeholder');
-  await ev(() => NFM.state.hist.length && document.getElementById('b-undo').click());
+  await ev(() => NFM.state.hist.length && NFM.showTab('data'));
+  await click('#b-undo');
 
   /* Examples and every view */
-  await set('#examples', 'story'); await click('#b-example'); await click('#tabbtn-map');
+  await ev(() => NFM.showTab('data')); await set('#examples', 'story'); await click('#b-example'); await click('#tabbtn-map');
   await D.wait(() => NFM.state.scene && NFM.manager() && NFM.manager().r, null, 30000);
   const views = ['flow', 'down', 'spine', 'lanes', 'shape', 'river', 'arc', 'matrix', 'network'];
   for (const v of views) {
-    await set('#view', v);
+    await ev((vv) => NFM.setV({ view: vv }), v);
     await D.wait((vv) => NFM.state.L && NFM.state.L.view === vv && NFM.state.scene && NFM.state.scene.view === vv, v, 20000);
     await sleep(150);
     const r = await ev(() => { const m = NFM.manager().r, s = m.snapshot(), d = s.data; let diff = 0; for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 30) diff++; return { backend: m.name, share: diff / (d.length / 4) }; });
@@ -62,14 +69,39 @@ async function open() {
   }
 
   /* select, details, keyboard */
-  await set('#view', 'flow'); await D.wait(() => NFM.state.L.view === 'flow' && NFM.state.scene.view === 'flow'); await sleep(200);
+  await ev(() => NFM.setV({ view: 'flow' })); await D.wait(() => NFM.state.L.view === 'flow' && NFM.state.scene.view === 'flow'); await sleep(300);
   const pos = await ev(() => { const n = NFM.state.scene.nodes.find((x) => x.nodeId === 'hall'), S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + (n.x + n.w / 2) * S.view.k + S.view.tx, r.top + (n.y + n.h / 2) * S.view.k + S.view.ty]; });
-  await D.click(pos[0], pos[1]); await sleep(200);
-  say((await ev(() => NFM.state.sel)) === 'hall', 'clicking a box selects it');
+  await D.click(pos[0], pos[1]); await sleep(250);
+  say(await ev(() => NFM.state.sel.size === 1 && NFM.state.sel.has('hall')), 'clicking a box selects it');
   say(await ev(() => !document.getElementById('details').hidden), 'details panel shows');
-  await ev(() => document.getElementById('stage').focus()); await D.press('ArrowRight'); await sleep(100);
-  const after = await ev(() => NFM.state.sel); say(!!after && after !== 'hall', 'arrow key follows a link to ' + after);
-  await D.press('Escape'); await sleep(500);
+  await ev(() => document.getElementById('stage').focus()); await D.press('ArrowRight'); await sleep(150);
+  const after = await ev(() => Array.from(NFM.state.sel)[0]); say(!!after && after !== 'hall', 'arrow key follows a link to ' + after);
+  await D.press('Escape'); await sleep(300);
+
+  /* search, zoom, key, filters */
+  await ev(() => NFM.runSearch('lens')); await sleep(200);
+  say(await ev(() => NFM.state.search.hits.has('lens') && NFM.state.search.hits.size >= 1), 'search finds items');
+  await ev(() => NFM.runSearch(''));
+  const k0 = await ev(() => NFM.state.view.k); await ev(() => NFM.zoomAt(500, 400, 2)); await sleep(30);
+  const kMid = await ev(() => NFM.state.view.k); await sleep(700); const k1 = await ev(() => NFM.state.view.k);
+  say(k1 > k0 * 1.8 && kMid < k1 * 0.999, `zoom eases toward its target: ${k0.toFixed(2)} -> ${kMid.toFixed(2)} -> ${k1.toFixed(2)}`);
+  await ev(() => NFM.fitView(true)); await sleep(200);
+  const kb = await ev(() => { const r = document.getElementById('key').getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; });
+  await D.drag(kb[0] + 30, kb[1] + 12, kb[0] + 230, kb[1] - 100); await sleep(150);
+  const kb2 = await ev(() => { const r = document.getElementById('key').getBoundingClientRect(); return [r.left, r.top]; });
+  say(Math.abs(kb2[0] - kb[0] - 200) < 8 && kb2[1] < kb[1] - 60, `the key floats and drags (${Math.round(kb[0])},${Math.round(kb[1])} to ${Math.round(kb2[0])},${Math.round(kb2[1])})`);
+  await ev(() => document.querySelector('#rt-filter').click()); await sleep(150);
+  say(await ev(() => document.querySelectorAll('#railbody details.acc').length >= 1), 'filter panel lists facets with counts');
+
+  /* network: arrangements, 3D, dragging a node */
+  await ev(() => NFM.setV({ view: 'network', arrange: 'force3d' })); await D.wait(() => NFM.state.L.is3d && NFM.state.scene.is3d, null, 20000);
+  const yaw0 = await ev(() => NFM.state.V.cam.yaw); await D.drag(700, 400, 820, 380); await sleep(250);
+  say((await ev(() => NFM.state.V.cam.yaw)) - yaw0 > 0.3, '3D view turns when dragged');
+  await ev(() => NFM.setV({ arrange: 'stress' })); await D.wait(() => NFM.state.L.view === 'network' && !NFM.state.L.is3d && NFM.state.scene.view === 'network', null, 20000); await sleep(250);
+  const np = await ev(() => { const n = NFM.state.scene.nodes[2], S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + (n.x + n.w / 2) * S.view.k + S.view.tx, r.top + (n.y + n.h / 2) * S.view.k + S.view.ty, n.nodeId]; });
+  await D.drag(np[0], np[1], np[0] + 90, np[1] + 40); await sleep(300);
+  say(await ev((id) => !!(NFM.state.V.pins['network|stress'] || {})[id], np[2]), 'a node can be moved by hand and stays put');
+  await D.click(300, 700);
 
   /* backends agree */
   const snap = async (be) => ev(async (be) => {
@@ -89,16 +121,31 @@ async function open() {
   }
   await ev(() => NFM.manager().use('auto'));
 
-  /* one-button check */
-  await click('#btn-check'); await click('#chk-run');
+  /* styled shapes, icons and group blobs draw the same in every backend */
+  await ev(() => { NFM.state.V.rules = [{ id: 1, target: 'nodes', on: true, when: { type: 'all' }, set: { shape: 'hexagon', scale: 1.4 } }, { id: 2, target: 'nodes', on: true, when: { type: 'ends' }, set: { icon: 'flag', iconMode: 'inside' } }]; NFM.setV({ hulls: true }, 'look'); }); await sleep(300);
+  const styled = async (be) => ev(async (be) => { const m = NFM.manager(); if (be !== 'canvas2d') m.canary[be] = { ok: true }; await m.use(be); if (m.r.name !== be) return { err: 'n/a' }; NFM.state.view = { k: 0.9, tx: 40, ty: 40 }; m.r.draw(NFM.state.view); const s = m.r.snapshot(); await m.r.flush(); return { data: Array.from(s.data) }; }, be);
+  const sb = await styled('canvas2d');
+  for (const be of ['webgl2', 'webgpu']) {
+    const r2 = await styled(be); if (r2.err) { say(strict ? false : null, `${be} styled shapes: ${r2.err}`); continue; }
+    let sum = 0, bad = 0; const n = sb.data.length / 4;
+    for (let i = 0; i < sb.data.length; i += 4) { const d = (Math.abs(sb.data[i] - r2.data[i]) + Math.abs(sb.data[i + 1] - r2.data[i + 1]) + Math.abs(sb.data[i + 2] - r2.data[i + 2])) / 3; sum += d; if (d > 40) bad++; }
+    say(sum / n <= 2 && bad / n < 0.015, `${be} matches basic drawing with shapes, icons and blobs: mean ${(sum / n).toFixed(2)}/255, ${(bad / n * 100).toFixed(2)}% far off`);
+  }
+  await ev(() => NFM.manager().use('auto'));
+
+  /* checks tab, advanced tab (one-button device check), export */
+  await click('#tabbtn-check'); await D.wait(() => document.querySelector('#check-body .verdict'), null, 20000);
+  say(await ev(() => document.querySelectorAll('#check-body .find, #check-body .verdict').length >= 1), 'the Check tab reports');
+  await click('#tabbtn-adv'); await click('#chk-run');
   await D.wait(() => document.querySelector('#chk-out .verdict'), null, 120000);
   const verdict = await ev(() => document.getElementById('chk-out').innerText); say(/seconds/.test(verdict), 'device check finished: ' + verdict.slice(0, 150).replace(/\s+/g, ' '));
-  await click('#chk-close');
+  await click('#tabbtn-export'); await sleep(200);
+  say(await ev(() => document.querySelectorAll('#export-body button').length >= 6), 'the Export tab offers its buttons');
 
   /* phone */
   await D.size(412, 800); await sleep(300);
   say((await ev(() => getComputedStyle(document.querySelector('.tabs')).position)) === 'fixed', 'on a phone the tabs move to the bottom');
-  await D.shot(path.join(outDir, `nfm-${which}-phone.png`));
+  await click('#tabbtn-map'); await sleep(600); await D.shot(path.join(outDir, `nfm-${which}-phone.png`));
   say(await ev(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no sideways page scroll on a phone');
 
   say(errs.length === 0, 'no errors in the console' + (errs.length ? ': ' + errs.slice(0, 4).join(' | ') : ''));
