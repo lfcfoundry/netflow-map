@@ -97,11 +97,11 @@
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
     var n = QUICK ? 600 : 1200, g = graphFor('moderate', n), P = piece(g), steps = 20;
     setStatus('Checking the graphics-card hop table and steps on ' + P.k + ' items…'); await yieldUI();
-    var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: steps, keepTable: true, omega: 1.6 });
+    var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: steps, keepTable: true, omega: 1.2 });
     if (res.error) { s.finish('bad', 'The graphics-card version failed: ' + res.error); return { level: 'bad', say: res.error }; }
     var S = res.stride, D = fullTable(P), bad = 0, i, j;
     for (i = 0; i < P.k; i++) for (j = 0; j < P.k; j++) if (D[j * S + i] !== res.dTable[j * S + i]) bad++;
-    var Xc = G.majCpu(res.X0, D, P.k, S, EDGE, steps, 1.6), sg = pairStress(res.X, D, P.k, S), sc = pairStress(Xc, D, P.k, S), s0 = pairStress(res.X0, D, P.k, S);
+    var Xc = G.majCpu(res.X0, D, P.k, S, EDGE, steps, 1.2), sg = pairStress(res.X, D, P.k, S), sc = pairStress(Xc, D, P.k, S), s0 = pairStress(res.X0, D, P.k, S);
     var diff = Math.abs(sg - sc) / sc * 100, move = 0; for (i = 0; i < P.k; i++) move += Math.hypot(res.X[2 * i] - Xc[2 * i], res.X[2 * i + 1] - Xc[2 * i + 1]); move = move / P.k / EDGE;
     var okTable = bad === 0, okSteps = diff < 1 && move < 0.05;
     s.head = ['Check', 'Result']; s.rows = [['Items', String(P.k)], ['Hop table: entries that differ from the CPU table', bad + ' of ' + (P.k * P.k)], ['Distance error at the start (sketch)', r3(s0)], ['After ' + steps + ' steps, CPU math', r3(sc)], ['After ' + steps + ' steps, graphics card', r3(sg)], ['Difference', r1(diff) + '%'], ['Average item difference (share of one link)', r3(move)]];
@@ -124,7 +124,7 @@
       var tc = truth(P, Xc); setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card…'); await yieldUI();
       var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: 60, snapshots: [20, 40] });
       if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', '-']); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
-      var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t40 = truth(P, res.snapshots[40]), ratio = cb.ms / res.ms.total; tried++; ratios.push(ratio); if (ratio > 1) wins++; if (tg <= tc * 1.03) truthOk++;
+      var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t40 = truth(P, res.snapshots[40]), ratio = cb.ms / res.ms.total; tried++; ratios.push(ratio); if (ratio > 1) wins++; if (tg <= tc * 1.03) truthOk++; if (tg > Math.min(t20, t40) * 1.05) s.notes.push('At ' + P.k.toLocaleString() + ' items the steps ran away (truth ' + r3(t20) + ' at 20 steps, ' + r3(t40) + ' at 40, ' + r3(tg) + ' at 60).');
       s.rows.push([kind, P.k.toLocaleString(), fmtMs(cb.ms), r3(tc), fmtMs(res.ms.total), r3(tg), r1(ratio) + '×', r3(t20) + ' / ' + r3(t40)]);
       summary.push({ kind: kind, n: P.k, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuMs: r1(res.ms.total), gpuTruth: r3(tg), parts: { sketch: r1(res.ms.start), setup: r1(res.ms.upload), stepsAndTable: r1(res.ms.steps), read: r1(res.ms.read) }, split: res.split, levels: res.levels, t20: r3(t20), t40: r3(t40) });
       doneSteps += 0.1; setBar();
@@ -145,18 +145,21 @@
   STEPS.push({ name: 'Old kernel against new', run: async function () {
     var s = addSection('Old graphics-card program against the new one');
     if (!ctx.dev) { s.finish('warn', 'Skipped: no graphics-card computing here.'); return { level: 'warn', say: 'skipped' }; }
-    var n = QUICK ? 800 : 10000, variants = [
+    var n = QUICK ? 800 : 10000, big = QUICK ? 1200 : 30000, variants = [
       ['moderate', 'old program, 60 steps', { kernel: 'v1', steps: 60, snapshots: [20, 40] }],
       ['moderate', 'new program, plain steps, 60', { kernel: 'v2', omega: 1, steps: 60, snapshots: [20, 40] }],
-      ['moderate', 'new program, over-relaxed, 60', { kernel: 'v2', omega: 1.6, steps: 60, snapshots: [20, 40] }],
-      ['moderate', 'new program without tables, over-relaxed, 60', { kernel: 'v3', omega: 1.6, steps: 60, snapshots: [20, 40] }],
-      ['moderate', 'new program, over-relaxed, 30', { kernel: 'v2', omega: 1.6, steps: 30, snapshots: [10, 20] }],
-      ['complex', 'new program, over-relaxed, 60', { kernel: 'v2', omega: 1.6, steps: 60, snapshots: [20, 40] }],
-      ['complex', 'new program, over-relaxed, 150', { kernel: 'v2', omega: 1.6, steps: 150, snapshots: [60, 100] }]];
+      ['moderate', 'new program, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60, snapshots: [20, 40] }],
+      ['moderate', 'new program without tables, relaxed 1.2, 60', { kernel: 'v3', omega: 1.2, steps: 60, snapshots: [20, 40] }],
+      ['moderate', 'new program, relaxed 1.6, 60', { kernel: 'v2', omega: 1.6, steps: 60, snapshots: [20, 40] }],
+      ['moderate', 'new program, relaxed 1.2, 30', { kernel: 'v2', omega: 1.2, steps: 30, snapshots: [10, 20] }],
+      ['complex', 'new program, relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60, snapshots: [20, 40] }],
+      ['complex', 'new program, relaxed 1.2, 150', { kernel: 'v2', omega: 1.2, steps: 150, snapshots: [60, 100] }],
+      ['moderate', 'plain steps, 60', { kernel: 'v2', omega: 1, steps: 60, snapshots: [20, 40] }, big],
+      ['moderate', 'relaxed 1.2, 60', { kernel: 'v2', omega: 1.2, steps: 60, snapshots: [20, 40] }, big]];
     s.head = ['Network', 'Variant', 'Total time', 'Truth at 1/3 of the steps', 'at 2/3', 'at the end']; var cache = {}, out = [];
     for (var vi = 0; vi < variants.length; vi++) {
-      var kind = variants[vi][0], name = variants[vi][1], o = variants[vi][2]; setStatus('Program comparison: ' + kind + ' ' + name + '…'); await yieldUI();
-      var P = cache[kind] || (cache[kind] = piece(graphFor(kind, n))), res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, o);
+      var kind = variants[vi][0], name = variants[vi][1], o = variants[vi][2], nn = variants[vi][3] || n; setStatus('Program comparison: ' + kind + ' ' + name + '…'); await yieldUI();
+      var P = cache[kind + nn] || (cache[kind + nn] = piece(graphFor(kind, nn))), res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, o);
       if (res.error) { s.rows.push([kind, name, 'failed: ' + res.error.slice(0, 40), '', '', '']); continue; }
       var sn = Object.keys(res.snapshots).map(Number).sort(function (a, b) { return a - b; }), tt = sn.map(function (k2) { return truth(P, res.snapshots[k2]); });
       s.rows.push([kind + ' ' + P.k.toLocaleString(), name, fmtMs(res.ms.total), r3(tt[0]), r3(tt[1]), r3(tt[2])]);
@@ -164,12 +167,12 @@
     }
     var prof = null;
     if (out.length) {
-      var Pm = cache.moderate; setStatus('Program comparison: timing each part…'); await yieldUI();
-      var rp = await G.layout(ctx.dev, Pm.off, Pm.nbr, Pm.k, EDGE, { kernel: 'v2', omega: 1.6, steps: 60, profile: true });
+      var Pm = cache['moderate' + n]; setStatus('Program comparison: timing each part…'); await yieldUI();
+      var rp = await G.layout(ctx.dev, Pm.off, Pm.nbr, Pm.k, EDGE, { kernel: 'v2', omega: 1.2, steps: 60, profile: true });
       if (!rp.error) { prof = { sketch: r1(rp.ms.start), setup: r1(rp.ms.upload), tableAndWeights: r1(rp.ms.table), steps60: r1(rp.ms.steps), read: r1(rp.ms.read), levels: rp.levels }; s.rows.push(['moderate ' + Pm.k.toLocaleString(), 'parts (new program): sketch / setup / table+weights / 60 steps / read-back', prof.sketch + ' / ' + prof.setup + ' / ' + prof.tableAndWeights + ' / ' + prof.steps60 + ' / ' + prof.read + ' ms', '', '', '']); }
     }
     ctx.kernels = { n: n, variants: out, parts: prof };
-    var oldT = out[0], newT = out[3 - 1], say = out.length >= 3 ? 'At ' + n.toLocaleString() + ' items the new program takes ' + fmtMs(newT.totalMs) + ' against ' + fmtMs(oldT.totalMs) + ' for the old one (' + r1(oldT.totalMs / newT.totalMs) + '× as fast).' : 'Not enough runs finished to compare.';
+    var oldT = out[0], newT = out[2], say = out.length >= 3 ? 'At ' + n.toLocaleString() + ' items the new program takes ' + fmtMs(newT.totalMs) + ' against ' + fmtMs(oldT.totalMs) + ' for the old one (' + r1(oldT.totalMs / newT.totalMs) + '× as fast).' : 'Not enough runs finished to compare.';
     s.finish('ok', say); return { level: 'ok', say: say };
   } });
 
