@@ -53,6 +53,32 @@
     return o.join('') + '</svg>';
   }
 
+  /* ---- a picture inside a fixed frame: fits the whole picture, wheel to zoom, drag to move, buttons, and a link to open it full size ---- */
+  function viewer(svgText, title, hideWhy) {
+    var wrap = document.createElement('div'); wrap.className = 'view';
+    var bar = document.createElement('div'); bar.className = 'vbar'; var cap = document.createElement('b'); cap.textContent = title; bar.appendChild(cap);
+    wrap.appendChild(bar);
+    var m = /viewBox="([-\d. ]+)"/.exec(svgText); var vb0 = m ? m[1].trim().split(/\s+/).map(Number) : [0, 0, 1000, 500];
+    var blobUrl = URL.createObjectURL(new Blob([svgText], { type: 'image/svg+xml' }));
+    var open = document.createElement('a'); open.href = blobUrl; open.target = '_blank'; open.rel = 'noopener'; open.textContent = 'Open full size'; open.className = 'vlink';
+    if (hideWhy) { var p = document.createElement('p'); p.className = 'note'; p.textContent = hideWhy; wrap.appendChild(p); bar.appendChild(open); return wrap; }
+    var frame = document.createElement('div'); frame.className = 'frame'; wrap.appendChild(frame);
+    wrap.fitFrame = function () { var w = Math.max(300, frame.clientWidth || 1000), h = Math.max(150, Math.min(480, w * vb0[3] / vb0[2])); frame.style.height = Math.round(h) + 'px'; };
+    frame.innerHTML = svgText.replace(/<svg ([^>]*?)width="[^"]*"/, '<svg $1').replace(/<svg ([^>]*?)height="[^"]*"/, '<svg $1').replace('<svg ', '<svg width="100%" height="100%" preserveAspectRatio="xMidYMid meet" ');
+    var svg = frame.querySelector('svg'), vb = vb0.slice(), set = function () { svg.setAttribute('viewBox', vb.join(' ')); };
+    var fit = function () { vb = vb0.slice(); set(); };
+    var zoom = function (f, cx, cy) { var nx = cx === undefined ? vb[0] + vb[2] / 2 : cx, ny = cy === undefined ? vb[1] + vb[3] / 2 : cy; vb = [nx - (nx - vb[0]) / f, ny - (ny - vb[1]) / f, vb[2] / f, vb[3] / f]; set(); };
+    var btn = function (t, fn, label) { var b = document.createElement('button'); b.textContent = t; b.title = label; b.setAttribute('aria-label', label); b.onclick = fn; bar.appendChild(b); };
+    btn('Fit', fit, 'Fit the whole picture'); btn('+', function () { zoom(1.5); }, 'Zoom in'); btn('−', function () { zoom(1 / 1.5); }, 'Zoom out'); bar.appendChild(open);
+    var toWorld = function (e) { var r = svg.getBoundingClientRect(), k = Math.max(vb[2] / r.width, vb[3] / r.height), ox = (r.width - vb[2] / k) / 2, oy = (r.height - vb[3] / k) / 2; return [vb[0] + (e.clientX - r.left - ox) * k, vb[1] + (e.clientY - r.top - oy) * k, k]; };
+    frame.addEventListener('wheel', function (e) { e.preventDefault(); var w0 = toWorld(e); zoom(Math.exp(-e.deltaY * 0.0015), w0[0], w0[1]); }, { passive: false });
+    var drag = null; frame.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY }; frame.setPointerCapture(e.pointerId); frame.style.cursor = 'grabbing'; });
+    frame.addEventListener('pointermove', function (e) { if (!drag) return; var k = toWorld(e)[2]; vb[0] -= (e.clientX - drag.x) * k; vb[1] -= (e.clientY - drag.y) * k; drag.x = e.clientX; drag.y = e.clientY; set(); });
+    frame.addEventListener('pointerup', function () { drag = null; frame.style.cursor = 'grab'; });
+    frame.addEventListener('dblclick', fit);
+    return wrap;
+  }
+
   /* ---- one network ---- */
   function build(net) {
     var graph, opts, ex;
@@ -76,9 +102,9 @@
     var cNow = SK.measure(gNow, flowOf, common), cNew = SK.measure(gNew, flowOf, common), cPlain = SK.measure(gPlain, flowOf, common);
     var grp = {}; L.nodes.forEach(function (n, q) { grp[n.id] = n.group !== undefined && n.group !== '' ? String(n.group) : n.id; });
     var keys = Array.from(new Set(Object.values(grp))), colorOf = function (id) { return PAL[(keys.length > 10 ? Math.abs(hash(id)) : keys.indexOf(grp[id])) % PAL.length]; };
-    var card = sec.card, row = document.createElement('div'); row.className = 'pair';
-    row.innerHTML = '<div><div class="cap">Now (the app today)</div><div class="pic">' + Sc.toSvg(scene, net.title).replace(/width="\d+" height="\d+"/, 'width="100%"') + '</div></div><div><div class="cap">Improved</div><div class="pic">' + afterSvg(R, L, colorOf).replace('<svg ', '<svg width="100%" ') + '</div></div>';
-    card.appendChild(row);
+    var card = sec.card, big = L.nodes.length > 100, why = big ? 'Picture not shown: with ' + L.nodes.length + ' items it would be too small to read. Use "Open full size" to look at it, or the table below.' : '';
+    [viewer(Sc.toSvg(scene, net.title), 'Now (the app today)', why), viewer(afterSvg(R, L, colorOf), 'Improved', why)].forEach(function (v) { card.appendChild(v); if (v.fitFrame) v.fitFrame(); });
+    if (!big) { var hint = document.createElement('p'); hint.className = 'note'; hint.textContent = 'Scroll to zoom, drag to move, double-click to fit the whole picture.'; card.appendChild(hint); }
     var pct = function (v) { return Math.round(v * 100) + '%'; }, sp = function (v) { return v < 1.05 ? '1.0 (exact)' : r1(v) + '×'; };
     var rows = [
       ['Flow drawn as bands', pct(mNow.drawnShare), pct(mPlain.drawnShare), pct(mNew.drawnShare)],
