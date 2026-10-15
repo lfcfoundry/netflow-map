@@ -247,7 +247,9 @@ function panelLook() {
   var vdesc = (VIEWS.filter(function (x) { return x[0] === V.view; })[0] || [])[2] || '';
   var k1 = [select(VIEWS.map(function (v) { return [v[0], v[1]]; }), V.view, function (v) { setV({ view: v }); }, { 'aria-label': 'View' }), h('span', { class: 'muted small' }, vdesc)];
   if (V.view === 'network') {
-    k1.push(field('Arrangement', select(Object.keys(ARR).map(function (k) { return [k, ARR[k]]; }), V.arrange, function (v) { setV({ arrange: v }); })));
+    var adv = getEngine().arrangeAdvice(V.arrange, (L && L.n) || S.graph.nodes.length);
+    k1.push(field('Arrangement', select(Object.keys(ARR).map(function (k) { return [k, ARR[k]]; }), V.arrange, function (v) { setV({ arrange: v }); }), adv.text));
+    if (adv.offer) k1.push(h('div', { class: 'row tight' }, [h('button', { class: 'sm', onclick: function () { setV({ arrange: adv.offer }); } }, 'Use ' + ARR[adv.offer].toLowerCase())]));
     k1.push(check('Group shapes (soft blobs around each group)', V.hulls, function (on) { setV({ hulls: on }, 'look'); }));
     k1.push(slider('Curved links', V.curve, 0, 0.6, 0.05, function (x) { V.curve = x; saveView(); scheduleScene(); }, function (x) { return x ? Math.round(x * 100) + '%' : 'straight'; }));
     k1.push(check('Fisheye (magnifies around the mouse)', V.lens.on, function (on) { V.lens.on = on; saveView(); if (on && !S.lens) S.lens = { x: 0, y: 0, r: 0 }; makeScene(false); }));
