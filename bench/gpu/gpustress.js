@@ -208,14 +208,15 @@ var NFMGpuStress = (function () {
     ['maxStorageBufferBindingSize', 'maxBufferSize', 'maxComputeWorkgroupsPerDimension'].forEach(function (n) { if (lim[n]) req[n] = lim[n]; });
     var device;
     try { device = await adapter.requestDevice({ requiredLimits: req }); } catch (e) { device = await adapter.requestDevice(); }
-    return { device: device, adapter: adapter, info: desc || 'unnamed adapter', software: !!adapter.isFallbackAdapter || /swiftshader|llvmpipe|software|lavapipe/i.test(desc), limits: { maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize, maxBufferSize: device.limits.maxBufferSize } };
+    var dv = { device: device, adapter: adapter, lostInfo: '' }; device.lost.then(function (i) { dv.lostInfo = (i.reason || '') + ' ' + (i.message || ''); });
+    return { device: device, adapter: adapter, get lostInfo() { return dv.lostInfo; }, info: desc || 'unnamed adapter', software: !!adapter.isFallbackAdapter || /swiftshader|llvmpipe|software|lavapipe/i.test(desc), limits: { maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize, maxBufferSize: device.limits.maxBufferSize } };
   }
 
-  /** The whole job. opts: { steps (60), kernel ('v2' tables | 'v3' no tables | 'v1' first version), omega (1.6, v2 only), pivots (60), group (batches of 32 start items walked together, 16),
+  /** The whole job. opts: { steps (60), kernel ('v2' tables | 'v3' no tables | 'v1' first version), omega (1.2; the over-relaxation x <- x + omega * (target - x). Above about 1.5 the steps can run away on large networks), pivots (60), group (batches of 32 start items walked together, 16),
    *  keepTable (false), snapshots ([] step counts to also read back), profile (false: wait after each phase to time it; the waits cost about 0.1 s each in Firefox) }.
    *  Returns { X (Float32Array 2k), X0 (the sketch), ms: { start, upload, table, weights, steps, read, total }, levels, stride, dTable?, snapshots } or { error }. */
-  async function layout(dev, off, nbr, k, EDGE, opts) {
-    opts = opts || {}; var device = dev.device, T0 = now(), ms = {}, steps = opts.steps || 60, nd = need(k), lim = dev.limits, kernel = opts.kernel || 'v2', omega = kernel !== 'v1' ? (opts.omega || 1.6) : 1, prof = !!opts.profile;
+  async function layoutInner(dev, off, nbr, k, EDGE, opts) {
+    opts = opts || {}; var device = dev.device, T0 = now(), ms = {}, steps = opts.steps || 60, nd = need(k), lim = dev.limits, kernel = opts.kernel || 'v2', omega = kernel !== 'v1' ? (opts.omega || 1.2) : 1, prof = !!opts.profile;
     if (nd.dBytes > lim.maxStorageBufferBindingSize || nd.dBytes > lim.maxBufferSize) return { error: 'The hop table (' + Math.round(nd.dBytes / 1048576) + ' MB) does not fit in this graphics card\'s largest buffer (' + Math.round(lim.maxStorageBufferBindingSize / 1048576) + ' MB).', tooBig: true };
     var st = pivotStart(off, nbr, k, EDGE, opts.pivots); ms.start = st.ms;
     var L = Math.min(254, 2 * st.minEcc); if (2 * st.minEcc > 254) return { error: 'Some hop counts exceed 254, which one byte cannot hold.', tooLong: true };
@@ -298,6 +299,18 @@ var NFMGpuStress = (function () {
     if (oom || val) return { error: 'The graphics card reported ' + (oom ? 'out of memory: ' + oom.message : 'an error: ' + val.message).slice(0, 200), oom: !!oom };
     ms.total = now() - T0; snapOut[steps] = X;
     return { X: X, X0: st.X, ms: ms, levels: L, stride: Sx, dTable: dTable, snapshots: snapOut, split: split, kernel: kernel, omega: omega };
+  }
+
+  /** Same as layoutInner, but any thrown error or message the card reports comes back as { error } instead of an exception. */
+  async function layout(dev, off, nbr, k, EDGE, opts) {
+    var errs = [], h = function (ev) { errs.push(String(ev.error && ev.error.message || ev.error).slice(0, 220)); }, r;
+    dev.device.addEventListener('uncapturederror', h);
+    try { r = await layoutInner(dev, off, nbr, k, EDGE, opts); }
+    catch (e) { r = { error: 'Stopped: ' + String(e && e.message || e).slice(0, 160), thrown: true }; try { await dev.device.popErrorScope(); await dev.device.popErrorScope(); } catch (e2) { /* scopes already closed */ } }
+    dev.device.removeEventListener('uncapturederror', h);
+    if (r.error && errs.length) r.error += ' | the card said: ' + errs[0];
+    if (r.error && dev.lostInfo) r.error += ' | device lost: ' + dev.lostInfo;
+    return r;
   }
 
   /** The same steps on the CPU in 64-bit numbers from the same start, for the correctness check (small k only). D: k*stride bytes. */
