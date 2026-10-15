@@ -136,6 +136,17 @@ async function open() {
   /* checks tab, advanced tab (one-button device check), export */
   await click('#tabbtn-check'); await D.wait(() => document.querySelector('#check-body .verdict'), null, 20000);
   say(await ev(() => document.querySelectorAll('#check-body .find, #check-body .verdict').length >= 1), 'the Check tab reports');
+  /* simulation: dice agree with the exact odds, and the Map can show the result */
+  await click('#tabbtn-adv'); await sleep(200); await click('#sim-run');
+  await D.wait(() => /Done\./.test(document.getElementById('sim-results').innerText), null, 60000);
+  const simTxt = await ev(() => document.getElementById('sim-results').innerText);
+  say(/exact \d/.test(simTxt) && !/≠/.test(simTxt), 'simulated odds sit inside their ranges around the exact odds');
+  await ev(() => Array.from(document.querySelectorAll('#sim-results button')).find((b) => b.textContent === 'Show on the Map').click());
+  await D.wait(() => NFM.state.tab === 'map' && NFM.state.scene && NFM.state.scene.legendTitle === 'Simulated visits', null, 20000);
+  say(true, 'the Map shows simulated visits as color and traffic as line width');
+  await ev(() => { NFM.state.A.sim.dots = true; NFM.showTab('adv'); NFM.showTab('map'); }); await sleep(500);
+  say(await ev(() => typeof NFM.state.scene.overlayDraw === 'function'), 'flow dots are on');
+  await ev(() => { NFM.state.A.sim.dots = false; NFM.setV({ colorBy: 'group', widthBy: 'weight' }); });
   await click('#tabbtn-adv'); await click('#chk-run');
   await D.wait(() => document.querySelector('#chk-out .verdict'), null, 120000);
   const verdict = await ev(() => document.getElementById('chk-out').innerText); say(/seconds/.test(verdict), 'device check finished: ' + verdict.slice(0, 150).replace(/\s+/g, ' '));
