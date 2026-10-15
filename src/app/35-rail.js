@@ -1,7 +1,7 @@
 /*!
  * Net Flow Map app, part 6: the left rail (Ask, Look, Filter, Find, Style, Views), the top bar and the floating key. Copyright (c) 2026 JNFoo. MIT License.
  */
-var RAIL = { tab: 'ask', open: true };
+var RAIL = { tab: 'ask', open: true, peek: false };
 var VIEW_NOTES = {
   flow: ['Reads left to right, so you can follow how things lead on from the start.', 'Hides how items relate across branches; the same item may sit far from a close neighbor.'],
   down: ['The same drawing as Flow, top to bottom.', 'As Flow.'],
@@ -38,12 +38,12 @@ function buildMapUI() {
   var ui = $('ui');
   var tabs = [['ask', 'Ask'], ['look', 'Look'], ['filter', 'Filter'], ['find', 'Find'], ['style', 'Style'], ['views', 'Views']];
   var rail = h('div', { id: 'rail', class: 'glass', role: 'complementary', 'aria-label': 'Map controls' }, [
-    h('div', { class: 'tabsrow', role: 'tablist' }, tabs.map(function (t) { return h('button', { role: 'tab', id: 'rt-' + t[0], 'aria-selected': String(t[0] === RAIL.tab), onclick: function () { railTab(t[0]); } }, t[1]); }).concat([h('button', { class: 'quiet', style: { flex: '0 0 34px' }, title: 'Hide this panel', 'aria-label': 'Hide this panel', onclick: function () { setRail(false); } }, '‹')])),
+    h('div', { class: 'tabsrow', role: 'tablist' }, tabs.map(function (t) { return h('button', { role: 'tab', id: 'rt-' + t[0], 'aria-selected': String(t[0] === RAIL.tab), onclick: function () { railTab(t[0]); } }, t[1]); }).concat([h('button', { class: 'quiet peekbtn', id: 'peekbtn', style: { flex: '0 0 34px' }, title: 'Make this panel small or large', 'aria-label': 'Make this panel small or large', onclick: function () { setPeek(!RAIL.peek); } }, '⌄'), h('button', { class: 'quiet', style: { flex: '0 0 34px' }, title: 'Hide this panel', 'aria-label': 'Hide this panel', onclick: function () { setRail(false); } }, '‹')])),
     h('div', { class: 'body', id: 'railbody' })
   ]);
   var toggle = h('button', { id: 'railtoggle', class: 'glass icon', title: 'Show the controls', 'aria-label': 'Show the controls', onclick: function () { setRail(true); } }, '☰');
   var bar = h('div', { id: 'bar', class: 'glass' }, [h('div', { class: 'sum', id: 'sum', title: 'Why this view, and what it hides', onclick: function () { railTab('ask'); setRail(true); } }), h('div', { class: 'seg', id: 'tools', role: 'group', 'aria-label': 'Mouse tool' }, [
-    h('button', { 'data-tool': 'hand', title: 'Move and select (drag the background to pan; Shift-drag = box, Alt-drag = lasso)', 'aria-pressed': 'true', onclick: function () { setTool('hand'); } }, '✋'),
+    h('button', { 'data-tool': 'hand', title: T('Move and select (drag the background to pan; Shift-drag = box, Alt-drag = lasso)', 'Move and select (drag the background to pan; use the box or lasso tool to select)'), 'aria-pressed': 'true', onclick: function () { setTool('hand'); } }, '✋'),
     h('button', { 'data-tool': 'box', title: 'Drag a box around items to select them', onclick: function () { setTool('box'); } }, '▭'),
     h('button', { 'data-tool': 'lasso', title: 'Draw around items to select them', onclick: function () { setTool('lasso'); } }, '◌')]),
     h('button', { class: 'sm', title: 'Fit everything on screen', onclick: function () { fitView(); } }, 'Fit'),
@@ -53,15 +53,17 @@ function buildMapUI() {
   var details = h('aside', { id: 'details', class: 'glass', hidden: true, 'aria-label': 'Details' });
   var selbar = h('div', { id: 'selbar', class: 'glass', hidden: true });
   [rail, toggle, bar, zoom, key, details, selbar].forEach(function (e) { ui.appendChild(e); });
-  if (window.matchMedia && matchMedia('(max-width:760px)').matches) RAIL.open = false;
+  if (window.matchMedia && matchMedia('(max-width:820px)').matches) RAIL.open = false;
   setRail(RAIL.open);
   bindKeyDrag();
 }
-function setRail(on) { RAIL.open = on; $('rail').classList.toggle('closed', !on); if (S.scene) { var v = freeBoxChanged(); } renderKey(); }
+function railMode() { var u = $('ui'); if (u) u.dataset.rail = !RAIL.open ? 'closed' : RAIL.peek ? 'peek' : 'open'; }
+function setPeek(on) { RAIL.peek = on; railMode(); var r = $('rail'); r.classList.toggle('peek', on); var b = $('peekbtn'); if (b) b.textContent = on ? '⌃' : '⌄'; if (!on) renderRail(true); }
+function setRail(on) { RAIL.open = on; railMode(); $('rail').classList.toggle('closed', !on); if (S.scene) { var v = freeBoxChanged(); } renderKey(); }
 function freeBoxChanged() { return null; }
 function setTool(t) { S.tool = t; Array.prototype.forEach.call(document.querySelectorAll('#tools button'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.tool === t)); }); stage.classList.toggle('pick', t !== 'hand'); }
 function railTab(t) {
-  RAIL.tab = t; setRail(true);
+  RAIL.tab = t; setRail(true); if (RAIL.peek) setPeek(false);
   Array.prototype.forEach.call(document.querySelectorAll('#rail .tabsrow [role=tab]'), function (b) { b.setAttribute('aria-selected', String(b.id === 'rt-' + t)); });
   renderRail(true);
 }
@@ -84,14 +86,14 @@ function renderBar() {
   if (V.colorBy && V.colorBy !== 'none') parts.push('color = ' + (V.colorBy === 'group' ? 'group' : V.colorBy === 'found' ? 'found groups' : V.colorBy === 'odds' ? word('odds').toLowerCase() : V.colorBy === 'sim' ? 'simulated visits' : chLabel(V.colorBy)));
   if (L.view === 'lanes' && !L.laneNames) parts.push('Lanes needs two or more groups; try coloring by found groups');
   el.textContent = parts.join(' · ');
-  el.title = 'Click for why this view and what it hides';
+  el.title = T('Click', 'Tap') + ' for why this view and what it hides';
 }
 
 /* ---------------------------------------------------------------- the floating key */
 var KEYDRAG = null;
 function keyPos() {
   var k = S.V.key, W = S.stageW, H = S.stageH, el = $('key'), kw = el.offsetWidth || 180, kh = el.offsetHeight || 80;
-  var x = k.x === null ? (RAIL.open && W > 760 ? 332 : 12) : k.x, y = k.y === null ? H - kh - 12 - (hasStates() ? 70 : 0) : k.y;
+  var x = k.x === null ? (RAIL.open && W > 820 ? 332 : 12) : k.x, y = k.y === null ? H - kh - 12 - (hasStates() ? 70 : 0) : k.y;
   return [clamp(x, 4, Math.max(4, W - kw - 4)), clamp(y, 4, Math.max(4, H - 40))];
 }
 function renderKeyPos() { /* the key stays where it is on the screen while the map moves */ }
@@ -385,7 +387,7 @@ function panelFind() {
     S.route = r; applyStyle(); renderMapUI(); setTimeout(function () { var v = fitTarget(Array.from(r.nodes).slice(0, 400)); if (v) viewTo(v, 480); }, 0);
     res.textContent = (ROUTE_UI.mode === 'short' && r.steps ? 'Shortest route: ' + r.steps + ' step' + (r.steps === 1 ? '' : 's') + '. ' : '') + plural(r.nodes.size, word('item')) + ' and ' + plural(r.edges.size, word('link')) + ' lit up.';
   };
-  kids.push(section('Light up routes', [h('p', { class: 'muted small', style: { margin: 0 } }, 'Everything not on the route fades. You can also right-click an item or link.'), dl, a, b, seg([['all', 'Every route'], ['short', 'Shortest only']], ROUTE_UI.mode, function (m) { ROUTE_UI.mode = m; renderRail(true); }),
+  kids.push(section('Light up routes', [h('p', { class: 'muted small', style: { margin: 0 } }, 'Everything not on the route fades. You can also ' + T('right-click', 'press and hold') + ' an item or link.'), dl, a, b, seg([['all', 'Every route'], ['short', 'Shortest only']], ROUTE_UI.mode, function (m) { ROUTE_UI.mode = m; renderRail(true); }),
     h('div', { class: 'row tight' }, [h('button', { class: 'primary', onclick: go }, 'Light up'), h('button', { onclick: function () { S.route = null; ROUTE_UI.a = ROUTE_UI.b = ''; applyStyle(); renderMapUI(); renderRail(true); } }, 'Clear')]), res]));
   return kids;
 }

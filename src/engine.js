@@ -793,16 +793,18 @@ var NFMEngine = (function () {
     }
   }
   function separate(X, k, dim, rad, passes) {
+    var cell = 90, next = new Int32Array(k), head = new Map(), rads = new Float64Array(k), i;
+    for (i = 0; i < k; i++) rads[i] = rad(i);
     for (var pass = 0; pass < (passes || 30); pass++) {
-      var cell = 90, grid = new Map(), moved = false, i;
-      for (i = 0; i < k; i++) { var key = Math.floor(X[i * dim] / cell) + ',' + Math.floor(X[i * dim + 1] / cell); var l = grid.get(key); if (!l) grid.set(key, l = []); l.push(i); }
+      head.clear(); var moved = false;
+      for (i = 0; i < k; i++) { var key = (Math.floor(X[i * dim] / cell) + 4096) * 8192 + Math.floor(X[i * dim + 1] / cell) + 4096; var h0 = head.get(key); next[i] = h0 === undefined ? -1 : h0; head.set(key, i); }
       for (i = 0; i < k; i++) {
-        var cx = Math.floor(X[i * dim] / cell), cy = Math.floor(X[i * dim + 1] / cell), ra = rad(i);
+        var cx = Math.floor(X[i * dim] / cell) + 4096, cy = Math.floor(X[i * dim + 1] / cell) + 4096, ra = rads[i];
         for (var gx = cx - 1; gx <= cx + 1; gx++) for (var gy = cy - 1; gy <= cy + 1; gy++) {
-          var lst = grid.get(gx + ',' + gy); if (!lst) continue;
-          for (var q = 0; q < lst.length; q++) {
-            var o = lst[q]; if (o <= i) continue;
-            var dx = X[o * dim] - X[i * dim], dy = X[o * dim + 1] - X[i * dim + 1], dd = Math.sqrt(dx * dx + dy * dy) || 0.01, need = ra + rad(o);
+          var o = head.get(gx * 8192 + gy); if (o === undefined) continue;
+          for (; o >= 0; o = next[o]) {
+            if (o <= i) continue;
+            var dx = X[o * dim] - X[i * dim], dy = X[o * dim + 1] - X[i * dim + 1], dd = Math.sqrt(dx * dx + dy * dy) || 0.01, need = ra + rads[o];
             if (dd < need) { var push = (need - dd) / 2, ux = dx / dd || 1, uy = dy / dd; X[i * dim] -= ux * push; X[i * dim + 1] -= uy * push; X[o * dim] += ux * push; X[o * dim + 1] += uy * push; moved = true; }
           }
         }
@@ -978,7 +980,7 @@ var NFMEngine = (function () {
         if (arr === 'force') {
           var lpairs = [], lmass = new Float64Array(k);
           members.forEach(function (g, li) { lmass[li] = 1 + Math.sqrt(adj[g].length); adj[g].forEach(function (w) { var lw = loc.get(w); if (lw > li) lpairs.push(li, lw); }); });
-          forceSim(X, k, 2, lpairs, lmass, k <= 200 ? 300 : k <= 1000 ? 220 : k <= 5000 ? 120 : 60, EDGE * 0.55, rnd);
+          forceSim(X, k, 2, lpairs, lmass, k <= 1000 ? 220 : k <= 5000 ? 240 : k <= 12000 ? 120 : 60, EDGE * 0.55, rnd);
         } else {
           var rpar = new Map([[root, -1]]), rkids = new Map(), rdep = new Map([[root, 0]]), rq = [root], rleaf = new Map(), rcount = [];
           for (var rh = 0; rh < rq.length; rh++) { var ru = rq[rh]; rkids.set(ru, []); adj[ru].forEach(function (w) { if (!rpar.has(w)) { rpar.set(w, ru); rdep.set(w, rdep.get(ru) + 1); rkids.get(ru).push(w); rq.push(w); } }); }
@@ -998,7 +1000,7 @@ var NFMEngine = (function () {
       else {
         pivots = [root];
         var minD = new Int32Array(k).fill(1e9);
-        for (var pc = 1; pc < Math.min(120, k); pc++) {
+        for (var pc = 1; pc < Math.min(Math.max(40, Math.min(120, Math.round(400000 / k))), k); pc++) {
           var last = pivots[pivots.length - 1], dl = hopFrom(last);
           var far = -1, fd = -1;
           members.forEach(function (g) { var li = loc.get(g); if (dl[li] < minD[li]) minD[li] = dl[li]; if (minD[li] > fd) { fd = minD[li]; far = g; } });
@@ -1025,6 +1027,7 @@ var NFMEngine = (function () {
           pairs.push([lp, lg, d[lg]]);
         });
       });
+      if (!full) members.forEach(function (g) { var lg0 = loc.get(g); adj[g].forEach(function (w) { var lw0 = loc.get(w); if (lw0 > lg0) pairs.push([lg0, lw0, 1]); }); });
       var tmax = full ? 30 : 24, wMin = 1 / (maxD * maxD), etaMax = 1 / wMin, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
       for (var t = 0; t < tmax; t++) {
         var eta = etaMax * Math.exp(-lambda * t);
@@ -1038,31 +1041,7 @@ var NFMEngine = (function () {
       }
       }
       /* push overlapping nodes apart (grid buckets, a few passes) */
-      for (var pass = 0; pass < 30; pass++) {
-        var cell = 90, grid = new Map(), moved = false;
-        for (var li2 = 0; li2 < k; li2++) {
-          var key = Math.floor(X[li2 * 2] / cell) + ',' + Math.floor(X[li2 * 2 + 1] / cell);
-          if (!grid.has(key)) grid.set(key, []);
-          grid.get(key).push(li2);
-        }
-        for (var li3 = 0; li3 < k; li3++) {
-          var cx = Math.floor(X[li3 * 2] / cell), cy = Math.floor(X[li3 * 2 + 1] / cell), ra = size(nodes[members[li3]]) / 2 + 8;
-          for (var gx = cx - 1; gx <= cx + 1; gx++) for (var gy = cy - 1; gy <= cy + 1; gy++) {
-            var lst = grid.get(gx + ',' + gy);
-            if (!lst) continue;
-            for (var lj = 0; lj < lst.length; lj++) {
-              var o = lst[lj];
-              if (o <= li3) continue;
-              var rb = size(nodes[members[o]]) / 2 + 8, ddx = X[o * 2] - X[li3 * 2], ddy = X[o * 2 + 1] - X[li3 * 2 + 1], dd = Math.sqrt(ddx * ddx + ddy * ddy) || 0.01, need = ra + rb;
-              if (dd < need) {
-                var push = (need - dd) / 2, ux = ddx / dd || 1, uy = ddy / dd;
-                X[li3 * 2] -= ux * push; X[li3 * 2 + 1] -= uy * push; X[o * 2] += ux * push; X[o * 2 + 1] += uy * push; moved = true;
-              }
-            }
-          }
-        }
-        if (!moved) break;
-      }
+      separate(X, k, 2, function (li) { return size(nodes[members[li]]) / 2 + 8; }, 30);
       var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
       for (var li4 = 0; li4 < k; li4++) { var rr = size(nodes[members[li4]]) / 2; x0 = Math.min(x0, X[li4 * 2] - rr); x1 = Math.max(x1, X[li4 * 2] + rr); y0 = Math.min(y0, X[li4 * 2 + 1] - rr); y1 = Math.max(y1, X[li4 * 2 + 1] + rr); }
       for (var li5 = 0; li5 < k; li5++) { X[li5 * 2] -= x0; X[li5 * 2 + 1] -= y0; }
@@ -1467,6 +1446,10 @@ var NFMEngine = (function () {
         s.pageIds = s.pages.map(function (pi) { return P.nodes[pi].id; });
       });
     }
+    /* the drawing does not need the engine's working lists: free them so a big result stays small */
+    var NOLIST = [];
+    (Lr.edges || []).forEach(function (ed) { ed.srcs = NOLIST; if (ed.pts && !ed.pts.length) ed.pts = NOLIST; });
+    (Lr.nodes || []).forEach(function (nd) { nd.pages = nd.pages.length === 1 ? [nd.pages[0]] : nd.pages; });
     Lr.ms = now() - t0;
     return Lr;
   }

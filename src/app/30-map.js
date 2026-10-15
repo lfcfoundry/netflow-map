@@ -80,6 +80,7 @@ function refreshMap(reason) {
   if (S.tab !== 'map') return;
   stateAbort();
   clearTimeout(busyT);
+  $('stage').classList.toggle('empty', !S.graph.nodes.length);
   if (!S.graph.nodes.length) {
     S.L = null; S.scene = null; if (mgr && mgr.r) mgr.r.setScene(null);
     showMsg(h('div', { style: { display: 'grid', gap: '6px' } }, [h('b', null, 'Nothing to draw yet.'), h('span', { class: 'muted small' }, 'Bring in a table, a JSON file, an outline or a folder of notes on the Data tab.')]), [['Go to Data', function () { showTab('data'); }, true]]);
