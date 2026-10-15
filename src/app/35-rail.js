@@ -247,7 +247,11 @@ function panelLook() {
   var vdesc = (VIEWS.filter(function (x) { return x[0] === V.view; })[0] || [])[2] || '';
   var k1 = [select(VIEWS.map(function (v) { return [v[0], v[1]]; }), V.view, function (v) { setV({ view: v }); }, { 'aria-label': 'View' }), h('span', { class: 'muted small' }, vdesc)];
   if (V.view === 'network') {
-    var adv = getEngine().arrangeAdvice(V.arrange, (L && L.n) || S.graph.nodes.length);
+    var nItems = (L && L.n) || S.graph.nodes.length;
+    if ((V.arrange === 'stress' || V.arrange === 'stressBest') && nItems > getEngine().stressTuning.fullMax && client && !client.cardP) client.cardProbe().then(function () { if (S.tab === 'map' && S.V.view === 'network') renderMapUI(); });   // one start-up test of the graphics card, then the advice text can say what it will do
+    var adv = adviceFor(V.arrange, nItems);
+    if (V.arrange === 'stressBest' && S.cardUsed) adv.text += ' The graphics card made this picture' + (S.cardUsed.ms ? ' in ' + (S.cardUsed.ms >= 1000 ? (S.cardUsed.ms / 1000).toFixed(1) + ' s' : S.cardUsed.ms + ' ms') : '') + '.';
+    else if (V.arrange === 'stressBest' && client && client.cardWhy && nItems > getEngine().stressTuning.fullMax) adv.text += ' The graphics card was not used (' + client.cardWhy.replace(/\.$/, '') + '), so the processor did it.';
     k1.push(field('Arrangement', select(Object.keys(ARR).map(function (k) { return [k, ARR[k]]; }), V.arrange, function (v) { setV({ arrange: v }); }), adv.text));
     if (adv.offer) k1.push(h('div', { class: 'row tight' }, [h('button', { class: 'sm', onclick: function () { setV({ arrange: adv.offer }); } }, 'Use ' + ARR[adv.offer].toLowerCase())]));
     k1.push(check('Group shapes (soft blobs around each group)', V.hulls, function (on) { setV({ hulls: on }, 'look'); }));

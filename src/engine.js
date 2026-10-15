@@ -985,9 +985,9 @@ var NFMEngine = (function () {
    * what a different choice would give. Returns { text, offer, secs }; offer is the arrangement worth suggesting (or ''), secs the rough
    * time of best quality here (browsers, a typical laptop).
    */
-  function arrangeAdvice(arr, n) {
-    var secs = Math.max(1, Math.round(3.5e-8 * n * n)), big = n > STRESS.fullMax && n <= STRESS.exactMax, since = ' (about ' + secs + (secs === 1 ? ' second' : ' seconds') + ' for ' + n.toLocaleString('en-US') + ' items)';
-    if (arr === 'stress') return n > STRESS.exactMax ? { text: 'Page distances follow the number of links between items. At this size a quick sample of pairs is used.', offer: '', secs: 0 }
+  function arrangeAdvice(arr, n, card, est) {
+    var cardOk = !!(card && card.max >= n && n >= (card.min || 0) && n > STRESS.fullMax), secs = Math.max(1, Math.round(cardOk ? (est && est.card ? est.card(n) : 0.07 * n / 1000 + 0.3) : (est && est.cpu ? est.cpu(n) : 3.5e-8 * n * n))), big = n > STRESS.fullMax && (n <= STRESS.exactMax || cardOk), since = ' (about ' + secs + (secs === 1 ? ' second' : ' seconds') + ' for ' + n.toLocaleString('en-US') + ' items' + (cardOk ? ', with your graphics card' : '') + ')';
+    if (arr === 'stress') return n > STRESS.exactMax && !cardOk ? { text: 'Page distances follow the number of links between items. At this size a quick sample of pairs is used.', offer: '', secs: 0 }
       : big ? { text: 'Page distances follow the number of links between items. At this size a quick sample of pairs is used; "Distances, best quality" uses every pair and is truer' + since + '.', offer: 'stressBest', secs: secs }
       : { text: 'Page distances follow the number of links between items. At this size every pair is used.', offer: '', secs: 0 };
     if (arr === 'stressBest') return big ? { text: 'Uses every pair of items for the truest distances' + since + '.', offer: '', secs: secs }

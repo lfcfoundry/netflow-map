@@ -17,7 +17,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1647.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1711.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
@@ -2529,9 +2529,9 @@ var NFMEngine = (function () {
    * what a different choice would give. Returns { text, offer, secs }; offer is the arrangement worth suggesting (or ''), secs the rough
    * time of best quality here (browsers, a typical laptop).
    */
-  function arrangeAdvice(arr, n) {
-    var secs = Math.max(1, Math.round(3.5e-8 * n * n)), big = n > STRESS.fullMax && n <= STRESS.exactMax, since = ' (about ' + secs + (secs === 1 ? ' second' : ' seconds') + ' for ' + n.toLocaleString('en-US') + ' items)';
-    if (arr === 'stress') return n > STRESS.exactMax ? { text: 'Page distances follow the number of links between items. At this size a quick sample of pairs is used.', offer: '', secs: 0 }
+  function arrangeAdvice(arr, n, card, est) {
+    var cardOk = !!(card && card.max >= n && n >= (card.min || 0) && n > STRESS.fullMax), secs = Math.max(1, Math.round(cardOk ? (est && est.card ? est.card(n) : 0.07 * n / 1000 + 0.3) : (est && est.cpu ? est.cpu(n) : 3.5e-8 * n * n))), big = n > STRESS.fullMax && (n <= STRESS.exactMax || cardOk), since = ' (about ' + secs + (secs === 1 ? ' second' : ' seconds') + ' for ' + n.toLocaleString('en-US') + ' items' + (cardOk ? ', with your graphics card' : '') + ')';
+    if (arr === 'stress') return n > STRESS.exactMax && !cardOk ? { text: 'Page distances follow the number of links between items. At this size a quick sample of pairs is used.', offer: '', secs: 0 }
       : big ? { text: 'Page distances follow the number of links between items. At this size a quick sample of pairs is used; "Distances, best quality" uses every pair and is truer' + since + '.', offer: 'stressBest', secs: secs }
       : { text: 'Page distances follow the number of links between items. At this size every pair is used.', offer: '', secs: 0 };
     if (arr === 'stressBest') return big ? { text: 'Uses every pair of items for the truest distances' + since + '.', offer: '', secs: secs }
@@ -4402,9 +4402,9 @@ var NFMGen = (function () {
   return { rng: rng, links: links, csv: csv, graph: graph, KINDS: ['simple', 'moderate', 'complex'] };
 })();
 
-/* ---- bench/gpu/gpustress.js ---- */
+/* ---- src/gpustress.js ---- */
 /* Copyright (c) 2026 LFC Foundry. MIT License.
- * Research prototype (not in the app): the "best quality" Distances arrangement done on the graphics card with WebGPU.
+ * The "best quality" Distances arrangement done on the graphics card with WebGPU (used by the app through probe(); the tester page uses the pieces).
  *   1. CPU, about 0.1 s: a 60-pivot sketch (Pivot MDS: breadth-first walks from 60 spread-out items, double-centered, top two directions).
  *   2. GPU: the hop-count table of every pair (bit-parallel breadth-first walks, 32 starting items per word, one byte per pair).
  *   3. GPU: stress majorization steps (SMACOF, Jacobi form): every item moves to the weighted mean of where each other item wants it,
@@ -4413,7 +4413,7 @@ var NFMGen = (function () {
  */
 var NFMGpuStress = (function () {
   'use strict';
-  var now = function () { return performance.now(); };
+  var now = function () { return performance.now(); }, settings = { allowSoftware: false };   // allowSoftware is for tests on machines without a real card
 
   /* ------------------------------------------------------------------ CPU: the sketch */
   /** off/nbr: compressed adjacency of one connected piece with k items. Returns { X (2k floats, page units), minEcc (a bound: no hop count exceeds 2 * minEcc), ms }. */
@@ -4678,7 +4678,17 @@ var NFMGpuStress = (function () {
   }
 
   /** The choice the app would make for k items: two smooth sweeps up to about 12,000 items, the 40 majorization steps above. */
-  function recommend(k) { return k <= 12500 ? { method: 'sgd', sweeps: 2 } : { method: 'smacof', steps: 40 }; }
+  function recommend(k, prof) { var mx = prof && prof.sgdMax !== undefined ? prof.sgdMax : 12500, sw = prof && prof.sweeps || 2; return k <= mx ? { method: 'sgd', sweeps: sw } : { method: 'smacof', steps: 40 }; }
+  /** The distance error of a picture (the benchmarks' "truth", lower is truer): from nsrc spread-out start items, best-scale fit of mean((d - s*e)^2 / d^2). */
+  function stress(off, nbr, k, X, nsrc) {
+    var dist = new Int32Array(k), q = new Int32Array(k), n = Math.min(nsrc || 20, k), a = 0, b = 0, cnt = 0, c, j, step = k > 3000 ? 3 : 1;
+    for (c = 0; c < n; c++) {
+      var src = Math.floor(c * k / n), h = 0, t = 1; dist.fill(-1); dist[src] = 0; q[0] = src;
+      while (h < t) { var u = q[h++]; for (var e = off[u]; e < off[u + 1]; e++) { var w = nbr[e]; if (dist[w] < 0) { dist[w] = dist[u] + 1; q[t++] = w; } } }
+      for (j = 0; j < k; j += step) { var d = dist[j]; if (d <= 0) continue; var r = Math.hypot(X[2 * j] - X[2 * src], X[2 * j + 1] - X[2 * src + 1]) / d; a += r; b += r * r; cnt++; }
+    }
+    return b > 0 ? 1 - a * a / (cnt * b) : 1;
+  }
 
   /** How much memory the tables need for k items: { dBytes, workBytes }. */
   function need(k) { var S = Math.ceil(k / 4) * 4, nb = Math.ceil(k / 32); return { S: S, nb: nb, dBytes: k * S, workBytes: 3 * nb * k * 4 }; }
@@ -4833,9 +4843,38 @@ var NFMGpuStress = (function () {
     try { r = await layoutInner(dev, off, nbr, k, EDGE, opts); }
     catch (e) { r = { error: 'Stopped: ' + String(e && e.message || e).slice(0, 160), thrown: true }; try { await dev.device.popErrorScope(); await dev.device.popErrorScope(); } catch (e2) { /* scopes already closed */ } }
     dev.device.removeEventListener('uncapturederror', h);
+    if (!r.error && opts && opts.verify && !r.thrown) { var why = sane(off, nbr, k, r.X, r.X0); if (why) r = { error: 'The picture failed its sanity check (' + why + ').', insane: true }; }
     if (r.error && errs.length) r.error += ' | the card said: ' + errs[0];
     if (r.error && dev.lostInfo) r.error += ' | device lost: ' + dev.lostInfo;
     return r;
+  }
+
+  /** A cheap check of a finished picture: every number is finite and the distance error (from 6 spread-out start items) is no worse than the sketch it started from. Returns '' or the reason. */
+  function sane(off, nbr, k, X, X0) {
+    for (var i = 0; i < 2 * k; i++) if (!isFinite(X[i])) return 'a position is not a number';
+    return stress(off, nbr, k, X, 6) <= stress(off, nbr, k, X0, 6) * 1.05 + 1e-6 ? '' : 'it is further from the link distances than its own starting sketch';
+  }
+
+  /** Real start-up test of the graphics card: gets a device, lays out a small known network and checks it. Resolves { state: 'ready', max, info, layout(piece) } or { state: 'none', why }. */
+  async function probe(timeoutMs) {
+    var t0 = now();
+    try {
+      var dv = await Promise.race([getDevice(), new Promise(function (res) { setTimeout(function () { res({ error: 'The graphics card did not answer in time.', slow: true }); }, timeoutMs || 15000); })]);
+      if (dv.error) return { state: 'none', why: dv.error, retry: !!dv.slow };
+      if (dv.software && !settings.allowSoftware) return { state: 'none', why: 'Only a software stand-in for a graphics card is available.' };
+      var k = 600, off = new Uint32Array(k + 1), nb = [], i, m = 0;
+      for (i = 0; i < k; i++) { var a = [(i + 1) % k, (i + k - 1) % k]; if (i % 7 === 0) a.push((i * 5 + 11) % k === i ? (i + 2) % k : (i * 5 + 11) % k); a.forEach(function (w) { nb.push(w); m++; }); off[i + 1] = m; }
+      var sym = [], adj = []; for (i = 0; i < k; i++) adj.push(new Set());
+      for (i = 0; i < k; i++) for (var e = off[i]; e < off[i + 1]; e++) { adj[i].add(nb[e]); adj[nb[e]].add(i); }
+      var off2 = new Uint32Array(k + 1), nbr2 = []; for (i = 0; i < k; i++) { adj[i].forEach(function (w) { nbr2.push(w); }); off2[i + 1] = nbr2.length; }
+      var r = await layout(dv, off2, Uint32Array.from(nbr2), k, 130, Object.assign({ verify: true }, recommend(k)));
+      if (r.error) return { state: 'none', why: r.error };
+      var maxItems = Math.min(40000, Math.floor(Math.sqrt(Math.min(dv.limits.maxStorageBufferBindingSize, dv.limits.maxBufferSize))));
+      var card = { state: 'ready', max: maxItems, info: dv.info, testMs: Math.round(now() - t0), prof: null };
+      card.layout = function (piece) { return layout(dv, piece.off, piece.nbr, piece.k, piece.edge || 130, Object.assign({ verify: true }, recommend(piece.k, card.prof))); };
+      card.layoutWith = function (piece, o) { return layout(dv, piece.off, piece.nbr, piece.k, piece.edge || 130, Object.assign({ verify: true }, o)); };   // for the tuning test: explicit settings
+      return card;
+    } catch (err) { return { state: 'none', why: String(err && err.message || err).slice(0, 160) }; }
   }
 
   /** The same steps on the CPU in 64-bit numbers from the same start, for the correctness check (small k only). D: k*stride bytes. */
@@ -4852,7 +4891,7 @@ var NFMGpuStress = (function () {
     }
     return cur;
   }
-  return { pivotStart: pivotStart, getDevice: getDevice, layout: layout, majCpu: majCpu, sgdCpu: sgdCpu, recommend: recommend, sgdSchedule: sgdSchedule, permFor: permFor, need: need };
+  return { pivotStart: pivotStart, getDevice: getDevice, layout: layout, majCpu: majCpu, sgdCpu: sgdCpu, recommend: recommend, probe: probe, sane: sane, stress: stress, settings: settings, sgdSchedule: sgdSchedule, permFor: permFor, need: need };
 })();
 
 /* ---- bench/tester/tester.js ---- */
@@ -4865,7 +4904,7 @@ var NFMGpuStress = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.15.1647', EDGE = 130;
+  var VERSION = '2026.10.15.1711', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
