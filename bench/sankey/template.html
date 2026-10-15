@@ -11,14 +11,14 @@ h1{font-size:1.5rem;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 16px}
 #status{color:var(--mut);min-height:1.5em}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
 .card h2{font-size:1.05rem;margin:0 0 4px}.verdict{margin:4px 0 8px}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
-.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:8px 0}@media (max-width:800px){.pair{grid-template-columns:1fr}}
-.cap{font-weight:600;font-size:.9rem;margin:0 0 4px}.pic{border:1px solid var(--line);border-radius:8px;overflow:auto;background:#fbfaf7;max-height:520px}.pic svg{display:block;min-width:900px}
+.view{margin:10px 0}.vbar{display:flex;align-items:center;gap:6px;margin:0 0 4px;flex-wrap:wrap}.vbar b{margin-right:auto;font-size:.95rem}.vbar button{padding:2px 10px;margin:0;font-size:.85rem}.vlink{font-size:.85rem;color:var(--acc)}
+.frame{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fbfaf7;cursor:grab;touch-action:none;width:100%}.frame svg{display:block}
 .tw{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:.88rem;font-variant-numeric:tabular-nums}th,td{text-align:right;padding:3px 8px;border-bottom:1px solid var(--line)}th:first-child,td:first-child{text-align:left}th{color:var(--mut);font-weight:600}
 button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:8px;cursor:pointer;margin:4px 8px 4px 0}button.p{background:var(--acc);color:#fff;border-color:var(--acc)}
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>River before and after</h1>
-<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (left) and with the improved layout (right), then measured the same way. Nothing is sent anywhere. Version __VERSION__.</p>
+<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (first picture) and with the improved layout (second picture), then measured the same way. Each picture fits inside its frame; scroll to zoom, drag to move, or open it full size. Nothing is sent anywhere. Version __VERSION__.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>Summary</h2><p id="finalsay"></p>
