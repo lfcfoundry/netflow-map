@@ -40,6 +40,7 @@ module.exports = {
   gifprof4: () => [1, 2, 3, 4].map((rep) => J('gifprof', { frames: 4, rep })),
   gifprof: () => [1, 2, 3].map((rep) => J('gifprof', { frames: 4, rep })).concat([1, 2].map((rep) => J('gifprof', { frames: 31, rep }))),
   csvCold: () => { const j = []; for (let rep = 0; rep < 4; rep++) ['current', 'sliceSplit', 'linesFirst', 'flat'].forEach((v) => j.push(J('csvvar', { rows: 50000, cols: 6, len: 12, only: [v], rounds: 1 }))); return j; },
+  cold: () => { const j = []; for (let rep = 0; rep < 3; rep++) [[500, 'moderate'], [2000, 'moderate'], [2000, 'complex']].forEach(([n, kind]) => j.push(J('cold', { kind, n }, { timeout: 300000 }))); return j; },
   csvVar: () => [[50000, 6, 12], [50000, 6, 64], [50000, 6, 200], [50000, 12, 12], [10000, 6, 12]].map(([rows, cols, len]) => J('csvvar', { rows, cols, len })),
   drawsVar: () => [J('drawsvar', { N: 1000000 })],
   drawsRun: () => [J('drawsrun', { N: 1000000 })],
