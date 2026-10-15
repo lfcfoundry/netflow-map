@@ -243,16 +243,18 @@ You picked four engine/build items and four layout groups. Results, measured the
 - Stress now also anchors linked pairs directly, which is where the quality gain at 3,000 came from. Force uses 240 rounds up to 5,000 items (was 120), which beats d3-force's truthfulness at 3,000 (0.154 vs 0.179) in about half its time.
 - Stress at 3,000 (0.224) is still behind d3-force (0.179). More rounds did not help; the limit is the pivot method. A multilevel approach would be the next step.
 
-**Build size** (`node tools/build.mjs` now minifies by default; `--dev` keeps it readable; `--pack` also writes `index.html.xz` for local copies):
+**Build size** (`node tools/build.mjs` now minifies by default; `--dev` keeps it readable; `--pack` also writes `index.packed.html`, a self-extracting copy made with our own lzma-pack module, for downloads outside git):
 
 | | Before | After |
 |---|---|---|
-| index.html | 692,648 B | 474,925 B (31% smaller) |
-| gzip | 202,813 B | 168,758 B |
-| LZMA (.xz) | 170,840 B | 148,012 B |
+| index.html | 692,648 B | 478,901 B (31% smaller) |
+| gzip | 202,813 B | 170,389 B |
+| lzma-pack self-extracting page (`--pack`) | – | 156,001 B (the plain .xz was dropped; lzma-pack is our own module) |
 
 **Layout result memory** at 10,000 items / 30,928 links: 17.8 MB to 16.3 MB (about 9%). The rest is one object per item and per link; going lower means storing positions and numbers in typed arrays, which is a bigger change deferred for now.
 
 **Phone and PC layout** (all in the app now): breakpoint 820 px; safe-area padding; 16 px fields and 36 to 40 px targets on touch; key closed on a fresh phone map; icon bottom tabs in six equal columns; one slim docked timeline row with a ⋯ for loop and speed; the controls sheet is 52% and can shrink to one row; the keyboard lifts the page and hides the tab bar; tap-vs-click wording; `NFM.touch(true/false/null)` test hook; the empty map is no longer black. The browser test gained 9 phone checks (Chromium and Firefox pass).
 
 Not done (you did not pick them): your own Louvain groups and the flow-layout crossing reduction.
+
+**After the browser benchmarks (2026-10-15):** the browser checks in this report ran in Playwright's Chromium 141, not ungoogled-chromium. Everything was measured again in ungoogled-chromium 154 and Firefox 158 and is in `BENCHMARKS.md`. That run changed several of the findings above: the CSV reader now matches Papa Parse and d3-dsv; Stress is now faster than d3-force at every size measured (and truer up to 3,000 items; 7 to 28% less true at 10,000), where this report had it behind at 3,000; the GIF encoder is 1.7 to 2.7 times slower than gifenc in both browsers (the Node result above used gifenc with a palette per frame); and normal / lognormal draws are up to 1.5 times slower than d3-random in Chromium.

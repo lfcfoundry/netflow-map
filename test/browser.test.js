@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 JNFoo. MIT License. One browser session that exercises the built index.html.
  *   node test/browser.test.js chromium|firefox [outdir]
- * chromium: Playwright (NFM_PLAYWRIGHT = path to playwright-core, NFM_CHROME = browser program)
+ * chromium: Playwright (NFM_PLAYWRIGHT = path to playwright-core, NFM_CHROME = browser program; ungoogled-chromium 154 is used when found)
+ * NFM_PAGE = the page to test (default index.html; index.packed.html tests the self-extracting copy)
  * firefox:  Puppeteer over WebDriver BiDi (NFM_PUPPETEER = path to puppeteer-core, NFM_FIREFOX = browser program) */
 'use strict';
 const path = require('path');
@@ -20,7 +21,7 @@ async function open() {
     return { b, page, close: () => b.close(), size: (w, h) => page.setViewport({ width: w, height: h }), wait: (fn, arg, ms) => page.waitForFunction(fn, { timeout: ms || 20000 }, arg), shot: (p) => page.screenshot({ path: p }), click: (x, y) => page.mouse.click(x, y), press: (k) => page.keyboard.press(k), drag: async (x0, y0, x1, y1) => { await page.mouse.move(x0, y0); await page.mouse.down(); await page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 }); await page.mouse.move(x1, y1, { steps: 4 }); await page.mouse.up(); }, version: await b.version() };
   }
   const pw = require(process.env.NFM_PLAYWRIGHT || '/opt/npm-tools/node_modules/playwright-core');
-  const b = await pw.chromium.launch({ executablePath: process.env.NFM_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', headless: true, args: flags });
+  const b = await pw.chromium.launch({ executablePath: process.env.NFM_CHROME || ['/tmp/ugc/ungoogled-chromium-154.0.8037.97-1-x86_64_linux/chrome', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'].find((f) => require('fs').existsSync(f)), headless: true, args: flags });
   const ctx = await b.newContext({ viewport: { width: 1100, height: 720 }, acceptDownloads: true }), page = await ctx.newPage();
   return { b, page, close: () => b.close(), size: (w, h) => page.setViewportSize({ width: w, height: h }), wait: (fn, arg, ms) => page.waitForFunction(fn, arg, { timeout: ms || 20000 }), shot: (p) => page.screenshot({ path: p }), click: (x, y) => page.mouse.click(x, y), press: (k) => page.keyboard.press(k), drag: async (x0, y0, x1, y1) => { await page.mouse.move(x0, y0); await page.mouse.down(); await page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 }); await page.mouse.move(x1, y1, { steps: 4 }); await page.mouse.up(); }, version: b.version() };
 }
@@ -33,7 +34,7 @@ async function open() {
   const set = (sel, v) => ev(([s, val]) => { const el = document.querySelector(s); el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }, [sel, v]);
   const click = (sel) => ev((s) => document.querySelector(s).click(), sel);
   console.log('browser', which, D.version);
-  await page.goto('file://' + path.resolve(__dirname, '../index.html'));
+  await page.goto('file://' + path.resolve(__dirname, '..', process.env.NFM_PAGE || 'index.html'));
   await D.wait(() => window.NFM && NFM.client() && NFM.client().mode !== 'starting', null, 20000);
   say(true, 'page loaded; engine runs in the ' + (await ev(() => NFM.client().mode)));
 
@@ -149,7 +150,7 @@ async function open() {
   await click('#tl-play'); await sleep(300);
   say(await ev(() => !document.getElementById('tl-play').textContent.includes('❚')), 'pausing works');
   await click('#tabbtn-export'); await sleep(200); await click('#gif-go');
-  await D.wait(() => document.querySelector('#gif-out img'), null, 120000);
+  await D.wait(() => { const im = document.querySelector('#gif-out img'); return im && im.complete && im.naturalWidth > 0; }, null, 120000);
   const gifInfo = await ev(async () => { const im = document.querySelector('#gif-out img'), b = new Uint8Array(await (await fetch(im.src)).arrayBuffer()); return { head: String.fromCharCode(...b.slice(0, 6)), w: im.naturalWidth, bytes: b.length, text: document.getElementById('gif-out').innerText }; });
   say(gifInfo.head === 'GIF89a' && gifInfo.w === 960 && gifInfo.bytes > 5000, 'the GIF is made: ' + gifInfo.text.split('\n')[0]);
   say(await ev(() => !!Array.from(document.querySelectorAll('#gif-out button')).find((b) => /HTML report/.test(b.textContent))), 'the HTML report is offered');

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Set(process.argv.slice(2));
 /* Smaller file by default (esbuild minify, top-level names kept so the page and the helper share the same globals).
-   node tools/build.mjs --dev  keeps the readable text.   node tools/build.mjs --pack  also writes index.html.xz (LZMA) for local copies. */
+   node tools/build.mjs --dev  keeps the readable text.   node tools/build.mjs --pack  also writes index.packed.html (self-unpacking, LZMA) for local copies; add --tune for the smallest. */
 let esb = null;
 if (!args.has('--dev')) {
   for (const where of [root, process.env.NFM_ESBUILD_FROM, '/opt/npm-tools'].filter(Boolean)) { try { esb = createRequire(join(where, 'x.js'))('esbuild'); break; } catch (e) { /* try the next place */ } }
@@ -35,6 +35,14 @@ html = html.replace('@@CSS@@', () => css).replace('@@ENGINE@@', () => engine).re
 fill('@@VERSION@@', version);
 writeFileSync(join(root, 'index.html'), html);
 if (args.has('--pack')) {
-  try { execFileSync('xz', ['-9e', '-k', '-f', join(root, 'index.html')]); console.log('wrote index.html.xz (LZMA, for local copies; the browser needs the plain .html)'); } catch (e) { console.warn('xz not available: skipped index.html.xz'); }
+  /* Local (non-git) downloads: our own lzma-pack makes a self-unpacking page (LZMA, hash-checked). It lives in the JS-modules repo. */
+  const packers = [process.env.NFM_LZMA_PACK, join(root, '..', 'js-modules/tools/lzma-pack/pack.py'), '/home/claude/js-modules/tools/lzma-pack/pack.py'].filter(Boolean);
+  const pack = packers.find((p) => { try { readFileSync(p); return true; } catch (e) { return false; } });
+  if (!pack) console.warn('lzma-pack not found: clone JNFoo/JS-modules next to this folder or set NFM_LZMA_PACK to its tools/lzma-pack/pack.py');
+  else {
+    const env = Object.assign({}, process.env); if (!env.ESBUILD) { try { const q = createRequire(join('/opt/npm-tools', 'x.js')).resolve('esbuild/package.json'); env.ESBUILD = join(dirname(q), '..', '.bin', 'esbuild'); } catch (e) { /* pack.py will look on the PATH */ } }
+    const out = join(root, 'index.packed.html');
+    try { process.stdout.write(execFileSync('python3', [pack, join(root, 'index.html'), out, '--title', 'Net Flow Map', ...(args.has('--tune') ? ['--tune'] : [])], { env }).toString()); } catch (e) { console.warn('lzma-pack failed: ' + String(e.stderr || e.message).slice(0, 300)); }
+  }
 }
 console.log(`built index.html ${(html.length / 1024).toFixed(0)} KB, version ${version}`);
