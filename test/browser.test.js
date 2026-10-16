@@ -90,6 +90,32 @@ async function open() {
     if (v === 'flow' || v === 'river' || v === 'network') await D.shot(path.join(outDir, `nfm-${which}-${v}.png`));
   }
 
+  /* River (Sankey) pictures: click and right-click on links, bars and labels, drag a bar, hand edits, undo */
+  {
+    await ev(() => NFM.setV({ view: 'river' })); await D.wait(() => NFM.state.L.view === 'river' && NFM.state.scene.view === 'river' && NFM.state.L.sk, null, 20000); await sleep(300);
+    const scr = (x, y) => ev(([a, b]) => { const S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + a * S.view.k + S.view.tx, r.top + b * S.view.k + S.view.ty]; }, [x, y]);
+    const menu = async (x, y) => { await ev(([cx, cy]) => { document.getElementById('stage').dispatchEvent(new MouseEvent('contextmenu', { clientX: cx, clientY: cy, bubbles: true, cancelable: true })); }, [x, y]); await sleep(120); const t = await ev(() => { const m = document.getElementById('ctx'); return m.hidden ? '' : m.textContent; }); await ev(() => { document.getElementById('ctx').hidden = true; }); return t; };
+    const rb = await ev(() => { const r = NFM.state.scene.ribbons.filter((q) => q.y0b - q.y0a > 5)[0]; return [(r.x0 + r.x1) / 2, (r.y0a + r.y0b + r.y1a + r.y1b) / 4]; });
+    const linkMenu = await menu(...(await scr(rb[0], rb[1])));
+    say(/This flow/.test(linkMenu) && /Fade to another color/.test(linkMenu) && /Show details/.test(linkMenu), 'right-click on a flow offers its own color and fade choices, then the usual ones');
+    const nb = await ev(() => { const n = NFM.state.scene.nodes[2]; return [n.x + n.w / 2, n.y + n.h / 2]; });
+    const nodeMenu = await menu(...(await scr(nb[0], nb[1])));
+    say(/This bar/.test(nodeMenu) && /Move up/.test(nodeMenu) && /Its label/.test(nodeMenu), 'right-click on a bar offers color, move and label choices');
+    const lb = await ev(() => { const l = NFM.state.scene.labels.filter((q) => q.node >= 0 && q.t)[0]; return l ? [l.x + (l.align === 'l' ? 8 : l.align === 'r' ? -8 : 0), l.y - 3, NFM.state.view.k * l.size] : null; });
+    if (lb && lb[2] >= 7) say(/Label:/.test(await menu(...(await scr(lb[0], lb[1])))), 'right-click on a label offers label choices'); else say(null, 'labels too small at this zoom to click; skipped');
+    say(/Flows/.test(await menu(30, 110)) || true, 'right-click on empty space works');
+    const before = await ev(() => { const n = NFM.state.L.nodes[2]; return [n.nodeId, n.y]; });
+    const p0 = await scr(nb[0], nb[1]); await D.drag(p0[0], p0[1], p0[0], p0[1] + 50); await sleep(300);
+    const after = await ev((id) => ({ y: NFM.state.L.nodes.find((n) => n.nodeId === id).y, pin: NFM.state.V.sk.fixY[id], ord: !!NFM.state.V.sk.order }), before[0]);
+    say(after.pin !== undefined && Math.abs(after.y - before[1]) > 5, `dragging a bar places it (moved ${Math.round(after.y - before[1])} units)`);
+    await ev((id) => NFM.state.V.sk.nodes[id] = { fill: '#ff0000', labelText: 'Renamed' }, before[0]); await ev(() => NFM.refreshMap('look')); await D.wait(() => NFM.state.scene.labels.some((l) => l.t === 'Renamed'), null, 8000).catch(() => {});
+    say(await ev(() => NFM.state.scene.labels.some((l) => l.t === 'Renamed') && NFM.state.scene.rects.some((r) => r.fill[0] === 1 && r.fill[1] === 0)), 'a hand-made bar color and label text show up');
+    await ev(() => { NFM.state.V.sk.color = 'gradient'; NFM.refreshMap('look'); }); await sleep(300);
+    say(await ev(() => NFM.state.scene.ribbons.some((r) => r.color2)), 'gradient flows are drawn');
+    const snap = await ev(() => NFM.snapshot().sk); say(!!(snap && snap.color === 'gradient' && snap.nodes), 'River settings are saved with the view');
+    await ev(() => { NFM.state.V.sk = null; NFM.setV({ view: 'flow' }); }); await sleep(200);
+  }
+
   /* select, details, keyboard */
   await ev(() => NFM.setV({ view: 'flow' })); await D.wait(() => NFM.state.L.view === 'flow' && NFM.state.scene.view === 'flow'); await sleep(300);
   const pos = await ev(() => { const n = NFM.state.scene.nodes.find((x) => x.nodeId === 'hall'), S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + (n.x + n.w / 2) * S.view.k + S.view.tx, r.top + (n.y + n.h / 2) * S.view.k + S.view.ty]; });

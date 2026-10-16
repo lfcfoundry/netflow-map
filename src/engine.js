@@ -15,6 +15,7 @@
 var NFMEngine = (function () {
   'use strict';
   var C = typeof NFMColumns !== 'undefined' ? NFMColumns : require('./columns.js');
+  var SK = typeof NFMSankey !== 'undefined' ? NFMSankey : (typeof require === 'function' ? require('./sankey.js') : null);
   var MAP_W = 176, MAP_H = 56;
   var LN10 = Math.LN10;
 
@@ -1831,7 +1832,7 @@ var NFMEngine = (function () {
     if (view === 'down') Lr = layered(G, { dir: 'TB', root: root, prev: prev });
     else if (view === 'spine') Lr = layered(G, { dir: 'LR', root: root, prev: prev, spine: true });
     else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, { dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } });
-    else if (view === 'river') Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 });
+    else if (view === 'river') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
     else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow })); }
     else if (view === 'matrix') {
       Lr = matrixLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow }));

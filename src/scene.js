@@ -315,6 +315,10 @@ var NFMScene = (function () {
     S.rects.forEach(function (r) { if (r.x < x0) x0 = r.x; if (r.y < y0) y0 = r.y; if (r.x + r.w > x1) x1 = r.x + r.w; if (r.y + r.h > y1) y1 = r.y + r.h; });
     S.dots.forEach(function (d) { if (d.cx - d.r < x0) x0 = d.cx - d.r; if (d.cy - d.r < y0) y0 = d.cy - d.r; if (d.cx + d.r > x1) x1 = d.cx + d.r; if (d.cy + d.r > y1) y1 = d.cy + d.r; });
     S.polys.forEach(function (p) { for (var i = 0; i < p.pts.length; i += 2) { if (p.pts[i] < x0) x0 = p.pts[i]; if (p.pts[i] > x1) x1 = p.pts[i]; if (p.pts[i + 1] < y0) y0 = p.pts[i + 1]; if (p.pts[i + 1] > y1) y1 = p.pts[i + 1]; } });
+    if (view === 'river' && L.sk) {
+      S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
+      if (L.height && L.height > y1) y1 = L.height;
+    }
     if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 100; y1 = 100; }
     if (L.is3d && L.c3) { var R3 = (L.radius3 || 300) * 1.18; x0 = L.c3[0] - R3; x1 = L.c3[0] + R3; y0 = L.c3[1] - R3; y1 = L.c3[1] + R3; }
     S.x0 = x0 - pad; S.y0 = y0 - pad; S.w = x1 - x0 + 2 * pad; S.h = y1 - y0 + 2 * pad + (view === 'arc' ? 110 : 0);
@@ -382,24 +386,29 @@ var NFMScene = (function () {
         for (var i = 1; i <= steps; i++) { var pt = bez(P.slice(s * 6, s * 6 + 8), i / steps); put({ t: 'c', i: ci }, prev[0], prev[1], pt[0], pt[1]); prev = pt; }
       }
     });
-    S.eidx = { cell: cell, map: map, segs: segs };
+    var maxHw = 0; S.curves.forEach(function (cv) { if (cv.loop && cv.w / 2 > maxHw) maxHw = cv.w / 2; });
+    S.eidx = { cell: cell, map: map, segs: segs, maxHw: maxHw };
     return S.eidx;
   }
   function pickEdge(S, wx, wy, tol) {
-    var I = edgeIndex(S), cs = I.cell, best = null, bd = tol * tol;
-    var c0 = Math.floor((wx - tol - S.x0) / cs), c1 = Math.floor((wx + tol - S.x0) / cs), r0 = Math.floor((wy - tol - S.y0) / cs), r1 = Math.floor((wy + tol - S.y0) / cs), seen = new Set();
+    var I = edgeIndex(S), cs = I.cell, best = null, bd = tol * tol, reach = tol + I.maxHw;
+    var c0 = Math.floor((wx - reach - S.x0) / cs), c1 = Math.floor((wx + reach - S.x0) / cs), r0 = Math.floor((wy - reach - S.y0) / cs), r1 = Math.floor((wy + reach - S.y0) / cs), seen = new Set();
     for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) {
       var a = I.map.get(r * 100003 + c); if (!a) continue;
       for (var j = 0; j < a.length; j++) {
         if (seen.has(a[j])) continue; seen.add(a[j]);
         var sg = I.segs[a[j]], dx = sg[2] - sg[0], dy = sg[3] - sg[1], l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, ((wx - sg[0]) * dx + (wy - sg[1]) * dy) / l2)) : 0, px = sg[0] + t * dx - wx, py = sg[1] + t * dy - wy, d = px * px + py * py;
+        if (I.maxHw) { var hw = S.curves[sg[4].i].loop ? S.curves[sg[4].i].w / 2 : 0; if (hw) { var dr = Math.max(0, Math.sqrt(d) - hw); d = dr * dr; } }
         if (d <= bd) { bd = d; best = sg[4]; }
       }
     }
     if (best) { var cv = S.curves[best.i]; return { edge: cv.edge, from: cv.from, to: cv.to, curve: best.i }; }
     for (var q = 0; q < S.ribbons.length; q++) { /* river ribbons */
       var rb = S.ribbons[q]; if (wx < rb.x0 || wx > rb.x1) continue;
-      var u = (wx - rb.x0) / (rb.x1 - rb.x0 || 1), sm = u * u * (3 - 2 * u), ya = rb.y0a + (rb.y1a - rb.y0a) * sm, yb = rb.y0b + (rb.y1b - rb.y0b) * sm;
+      var lo = 0, hi = 1, u;   // the band's x runs along a cubic; find where it is at wx, then read the height there
+      for (var it = 0; it < 14; it++) { u = (lo + hi) / 2; var m = 1 - u, xx = m * m * m * rb.x0 + 3 * m * m * u * rb.xm + 3 * m * u * u * rb.xm + u * u * u * rb.x1; if (xx < wx) lo = u; else hi = u; }
+      u = (lo + hi) / 2; var m2 = 1 - u, w0 = m2 * m2 * (m2 + 3 * u), w1 = u * u * (3 * m2 + u);
+      var ya = rb.y0a * w0 + rb.y1a * w1, yb = rb.y0b * w0 + rb.y1b * w1;
       if (wy >= Math.min(ya, yb) - tol && wy <= Math.max(ya, yb) + tol) return { edge: rb.edge, from: rb.from, to: rb.to, ribbon: q };
     }
     if (S.matrix) {
@@ -437,7 +446,7 @@ var NFMScene = (function () {
     var slop = (opt.slop || 6) / k, n = pick(S, wx, wy, slop);
     if (n) return { type: 'node', node: n, key: n.key };
     var l = pickLabel(S, wx, wy, k);
-    if (l) { if (l.group !== undefined) return { type: 'group', group: l.group }; if (l.node >= 0 && S.nodes[l.node]) return { type: 'label', node: S.nodes[l.node], key: S.nodes[l.node].key, label: l }; if (l.edge !== undefined && l.edge >= 0) { var cv = S.curves.filter(function (c) { return c.edge === l.edge; })[0]; return { type: 'edge', edge: l.edge, from: cv && cv.from, to: cv && cv.to }; } }
+    if (l) { if (l.group !== undefined) return { type: 'group', group: l.group }; if (l.node >= 0 && S.nodes[l.node]) return { type: 'label', node: S.nodes[l.node], key: S.nodes[l.node].key, label: l }; if (l.edge !== undefined && l.edge >= 0) { var cv = S.curves.filter(function (c) { return c.edge === l.edge; })[0]; return { type: 'edge', edge: l.edge, from: l.from !== undefined ? l.from : cv && cv.from, to: l.to !== undefined ? l.to : cv && cv.to }; } }
     var e = pickEdge(S, wx, wy, (opt.edgeTol || 7) / k);
     if (e) return { type: 'edge', edge: e.edge, from: e.from, to: e.to, cell: e.cell };
     for (var i = S.polys.length - 1; i >= 0; i--) { var p = S.polys[i]; if (p.group !== undefined && inPoly(p.pts, wx, wy)) return { type: 'group', group: p.group }; }
@@ -510,12 +519,13 @@ var NFMScene = (function () {
         if (txt && X.LC.links.show && !many && L.edges.length < 400) { var mid = bez(P, 0.5); lab(mid[0], mid[1] - 4, clip(txt, 28), 10 * X.LC.links.scale, T.muted, { minK: 0.9, edge: ei, bg: true }); }
         else if (!txt && X.o.edgeValueLabels && e.widthV === e.widthV && L.edges.length < 400) { var mid2 = bez(P, 0.5); lab(mid2[0], mid2[1] - 4, fmtNum(e.widthV), 10 * X.LC.links.scale, T.muted, { minK: 0.7, edge: ei, bg: true }); }
       });
-    } else riverRibbons(X);
+    } else if (L.sk) sankeyBands(X); else riverRibbons(X);
 
     order.forEach(function (n) {
       var st = n._st, f = fillOf(n), vc = n.end ? valCol(n.valence) : null;
       if (st && st.hide) return;
       var sc = st && st.scale ? st.scale : 1, nx = n.x - (n.w * (sc - 1)) / 2, ny = n.y - (n.h * (sc - 1)) / 2, nw = n.w * sc, nh = n.h * sc, rr = st && (st.shape === 'dot' || st.shape === 'circle') ? Math.min(nw, nh) / 2 : st && st.shape === 'square' ? 2 : 10;
+      if (river && L.sk) { sankeyNode(X, n); return; }
       if (river) {
         var rec0 = addNode(n, n.x, n.y, n.w, n.h);
         var bc = (X.endCol(n) || (n.end ? valCol(n.valence) : T.neutral));
@@ -535,6 +545,81 @@ var NFMScene = (function () {
       if (ic) { var rr2 = S.rects[S.rects.length - 1]; rr2.fill = alpha(rr2.fill, 0.25); }
       nodeLabel(n, rec, 13);
     });
+  }
+
+  /* ---------------------------------------------------------------- Sankey (river) pictures from NFMSankey.layout */
+  /** Color of one bar: the person's choice, else by group (each item its own color when there are no groups), else what the color mode says. */
+  function sankeyColor(X, n) {
+    var T = X.T, st = n._st, cb = X.o.colorBy || 'group', L = X.L;
+    if (st && st.fill) return hex(st.fill);
+    if (cb === 'odds') return X.endCol(n) || (n.end ? X.valCol(n.valence) : T.neutral);
+    if (cb === 'group') {
+      var gset = X.groupsSeen || (X.groupsSeen = new Set(L.nodes.map(function (q) { return q.group || ''; })));
+      if (gset.size > 1 && n.group && n.group !== '(none)') return X.gcol(n.group);
+      if (!X.idxOf) { X.idxOf = {}; L.nodes.slice().sort(function (a, b) { return a.layer - b.layer || a.y - b.y; }).forEach(function (q, i) { X.idxOf[q.id] = i; }); }
+      return T.groups[X.idxOf[n.id] % T.groups.length];
+    }
+    var f = X.fillOf(n); return [f[0], f[1], f[2], 1];
+  }
+  function sankeyBands(X) {
+    var S = X.S, L = X.L, T = X.T, K = L.sk, sk = X.o.sk || {}, mode = sk.color || 'target', base = sk.opacity === undefined ? 0.45 : sk.opacity, seen = {};
+    var look = function (ei) {
+      if (seen[ei] !== undefined) return seen[ei];
+      var e = L.edges[ei], a = L.pos[e.from], b = L.pos[e.to], r = null;
+      if (e && a && b && !(a._st && a._st.hide) && !(b._st && b._st.hide)) {
+        var lk = X.look(e, ei, { w: 1, color: [0, 0, 0, base], arrow: false });
+        if (!lk.hide) {
+          var ls = X.o.linkStyle ? X.o.linkStyle(e, ei) : null, ca = sankeyColor(X, a), cb = sankeyColor(X, b), c, c2 = null;
+          var md = ls && ls.mode ? ls.mode : mode;
+          if (md === 'source') c = ca; else if (md === 'gradient') { c = ca; c2 = cb; } else if (md === 'solid') c = alpha(T.line, 1); else if (md === 'group') c = ca; else c = cb;
+          if (L.ch && L.ch.ecolor) c = lk.color;
+          if (ls && ls.color) c = hex(ls.color);
+          if (ls && ls.color2) c2 = hex(ls.color2);
+          r = { c: c, c2: c2, a: ls && ls.opacity !== undefined ? ls.opacity : base, e: e };
+        }
+      }
+      seen[ei] = r; return r;
+    };
+    K.bands.forEach(function (bd) {
+      var lk = look(bd.edge); if (!lk) return;
+      S.ribbons.push({ x0: bd.x0, y0a: bd.y0a, y0b: bd.y0b, x1: bd.x1, y1a: bd.y1a, y1b: bd.y1b, xm: bd.xm, color: alpha(lk.c, lk.a), color2: lk.c2 ? alpha(lk.c2, lk.a) : null, edge: bd.edge, from: bd.from, to: bd.to });
+    });
+    K.loops.forEach(function (lp) {
+      var lk = look(lp.edge); if (!lk) return;
+      S.curves.push({ P: lp.P, w: Math.max(lp.w, 1), color: alpha(lk.c, Math.min(1, lk.a + 0.1)), arrow: false, edge: lp.edge, from: lp.from, to: lp.to, back: true, dash: 0, loop: true });
+    });
+    /* amounts on the flows */
+    if (X.o.edgeValueLabels) {
+      var done = {};
+      K.bands.forEach(function (bd) {
+        if (done[bd.edge]) return; var lk = look(bd.edge); if (!lk) return; var e = lk.e;
+        var txt = e.widthV === e.widthV ? fmtNum(e.widthV) : '';
+        var ls = X.o.linkStyle ? X.o.linkStyle(e, bd.edge) : null; if (ls && ls.label !== undefined && ls.label !== '') txt = ls.label;
+        if (!txt) return; done[bd.edge] = 1;
+        var thick = (bd.y0b - bd.y0a);
+        X.lab(bd.x0 + 7, (bd.y0a + bd.y0b) / 2 + 4, clip(txt, 18), Math.max(9, Math.min(13, thick * 0.9)) * X.LC.links.scale, T.fg, { align: 'l', minK: 0.5, edge: bd.edge, from: bd.from, to: bd.to });
+      });
+    }
+  }
+  /** Total flow through an item in the data's own units (sum of the link amounts), or NaN. */
+  function sankeyTotal(L, n) {
+    var a = 0, b = 0, any = false;
+    L.edges.forEach(function (e) { if (e.widthV !== e.widthV || e.kind === 'self') return; if (e.to === n.id) { a += e.widthV; any = true; } if (e.from === n.id) { b += e.widthV; any = true; } });
+    return any ? Math.max(a, b) : NaN;
+  }
+  function sankeyNode(X, n) {
+    var S = X.S, L = X.L, T = X.T, st = n._st, sk = X.o.sk || {}, lastCol = 0;
+    if (st && st.hide) return;
+    L.nodes.forEach(function (q) { if (q.layer > lastCol) lastCol = q.layer; });
+    var rec = X.addNode(n, n.x, n.y, n.w, n.h), bc = sankeyColor(X, n);
+    if (st && st.opacity !== undefined) bc = alpha(bc, st.opacity);
+    S.rects.push({ x: n.x, y: n.y, w: n.w, h: n.h, r: Math.min(3, n.w / 2), fill: bc, stroke: st && st.stroke ? hex(st.stroke) : n.start ? T.accent : [0, 0, 0, 0], sw: st && st.stroke ? (st.sw === undefined ? 1.5 : st.sw) : n.start ? 2 : 0, layer: 1, node: rec.i });
+    var side = (st && st.labelSide) || sk.labels || 'auto';
+    var left = side === 'left' || (side === 'auto' && n.layer === 0 && lastCol > 0);
+    var size = 14, text = X.tx(n), tot = sk.nodeValues ? sankeyTotal(L, n) : NaN, cx = left ? n.x - 7 : n.x + n.w + 7;
+    var col = X.labColor(n, bc), cy = n.y + n.h / 2, two = tot === tot;
+    var l1 = X.lab(cx, cy + (two ? -1 : 4), clip(text, 30), size, col, n.start ? { align: left ? 'r' : 'l', node: rec.i, minK: 0.2, bold: true, bound: true } : { align: left ? 'r' : 'l', node: rec.i, minK: 0.2, bound: true });
+    if (two && l1) X.lab(cx, cy + 12.5, fmtNum(tot), 10.5, T.muted, { align: left ? 'r' : 'l', node: rec.i, minK: 0.4, sub: true, bound: true });
   }
 
   function riverRibbons(X) {
@@ -779,7 +864,9 @@ var NFMScene = (function () {
     out.push('<rect x="' + f(S.x0) + '" y="' + f(S.y0) + '" width="' + f(S.w) + '" height="' + f(S.h) + '" fill="' + css(T.bg) + '"/>');
     S.rects.filter(function (r) { return r.layer === 0; }).forEach(function (r) { out.push(rectSvg(r, css, f)); });
     S.polys.forEach(function (p) { var d = 'M'; for (var i = 0; i < p.pts.length; i += 2) d += (i ? 'L' : '') + f(p.pts[i]) + ' ' + f(p.pts[i + 1]); out.push('<path d="' + d + 'Z" fill="' + css(p.fill) + '" stroke="' + css(p.stroke) + '" stroke-width="1.5"/>'); });
-    S.ribbons.forEach(function (r) { out.push('<path d="M' + f(r.x0) + ' ' + f(r.y0a) + 'C' + f(r.xm) + ' ' + f(r.y0a) + ' ' + f(r.xm) + ' ' + f(r.y1a) + ' ' + f(r.x1) + ' ' + f(r.y1a) + 'L' + f(r.x1) + ' ' + f(r.y1b) + 'C' + f(r.xm) + ' ' + f(r.y1b) + ' ' + f(r.xm) + ' ' + f(r.y0b) + ' ' + f(r.x0) + ' ' + f(r.y0b) + 'Z" fill="' + css(r.color) + '"/>'); });
+    var defs = [];
+    S.ribbons.forEach(function (r, ri) { var fill = css(r.color); if (r.color2) { defs.push('<linearGradient id="rg' + ri + '" gradientUnits="userSpaceOnUse" x1="' + f(r.x0) + '" y1="0" x2="' + f(r.x1) + '" y2="0"><stop offset="0" stop-color="' + css([r.color[0], r.color[1], r.color[2], 1]) + '"/><stop offset="1" stop-color="' + css([r.color2[0], r.color2[1], r.color2[2], 1]) + '"/></linearGradient>'); fill = 'url(#rg' + ri + ')'; } out.push('<path d="M' + f(r.x0) + ' ' + f(r.y0a) + 'C' + f(r.xm) + ' ' + f(r.y0a) + ' ' + f(r.xm) + ' ' + f(r.y1a) + ' ' + f(r.x1) + ' ' + f(r.y1a) + 'L' + f(r.x1) + ' ' + f(r.y1b) + 'C' + f(r.xm) + ' ' + f(r.y1b) + ' ' + f(r.xm) + ' ' + f(r.y0b) + ' ' + f(r.x0) + ' ' + f(r.y0b) + 'Z" fill="' + fill + '"' + (r.color2 ? ' fill-opacity="' + f(r.color[3]) + '"' : '') + '/>'); });
+    if (defs.length) out.splice(out.length - S.ribbons.length, 0, '<defs>' + defs.join('') + '</defs>');
     S.curves.forEach(function (c) {
       var d = 'M' + f(c.P[0]) + ' ' + f(c.P[1]);
       for (var i = 2; i < c.P.length; i += 6) d += 'C' + f(c.P[i]) + ' ' + f(c.P[i + 1]) + ' ' + f(c.P[i + 2]) + ' ' + f(c.P[i + 3]) + ' ' + f(c.P[i + 4]) + ' ' + f(c.P[i + 5]);
