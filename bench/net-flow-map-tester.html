@@ -5944,7 +5944,7 @@ var NFMScene = (function () {
         }
         var rc = recs[M.recOf[iq]], fd = fadeOn ? 0.42 + 0.58 * (1 - (PD[iq] - dmin) / (dmax - dmin)) : 1, np = M.np[iq], nb = S.labels.length;
         M.emitLabel(L.nodes[iq], iq, np, rc, PX[iq], PY[iq], PR[iq], PF[iq], fd);
-        /* a label whose colour does not change with the fade (the usual case) is kept for the next picture */
+        /* a label whose color does not change with the fade (the usual case) is kept for the next picture */
         if (lp === undefined) { var made = S.labels.length > nb ? S.labels[nb] : null; if (made && np.col) { lpool[iq] = made; lk[iq] = made.size / (PF[iq] > 0.7 ? PF[iq] : 0.7); } else lpool[iq] = null; }
       }
       S.labels.forEach(function (l) { var rr = recs[l.node]; l.a = rr && rr.a !== undefined ? rr.a : 1; });
