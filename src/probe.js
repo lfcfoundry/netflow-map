@@ -156,6 +156,8 @@ var NFMProbe = (function () {
     ['still', 'Drawing only (the same angle every time)', { draw: 1, sync: 1 }],
     ['keep', 'Angle math and drawing, paint order not re-sent (wrong order; timing only)', { turn: 1, draw: 1, sync: 1, dbg: { keepOrder: true } }],
     ['tex', 'Everything, with the paint order sent through a texture (WebGL 2 only)', { turn: 1, draw: 1, sync: 1, dbg: { orderVia: 'texture' }, glOnly: 1 }],
+    ['ring', 'Everything, with the paint order sent to a ring of three card buffers (WebGPU only)', { turn: 1, draw: 1, sync: 1, dbg: { orderVia: 'ring' }, gpuOnly: 1 }],
+    ['map', 'Everything, with the paint order written straight into staging buffers (WebGPU only)', { turn: 1, draw: 1, sync: 1, dbg: { orderVia: 'map' }, gpuOnly: 1 }],
     ['g_all', 'Card time per picture: everything', { draw: 1, fence: 1 }],
     ['g_links', 'Card time per picture: links only', { draw: 1, fence: 1, dbg: { noItems: true, noNames: true } }],
     ['g_items', 'Card time per picture: items only', { draw: 1, fence: 1, dbg: { noLinks: true, noNames: true } }],
@@ -206,7 +208,7 @@ var NFMProbe = (function () {
         await runWay({ turn: 1, draw: 1, sync: 1 });   /* warm-up, not reported */
         var ways = [];
         for (var q = 0; q < SPLIT.length; q++) {
-          if (SPLIT[q][2].glOnly && n === 'webgpu') continue;
+          if ((SPLIT[q][2].glOnly && n === 'webgpu') || (SPLIT[q][2].gpuOnly && n !== 'webgpu')) continue;
           var res = await runWay(SPLIT[q][2]);
           if (!res) { r.destroy(); return gone({ backend: n, skipped: 'the page was in the background' }); }
           res.id = SPLIT[q][0]; res.label = SPLIT[q][1]; ways.push(res);
@@ -228,11 +230,16 @@ var NFMProbe = (function () {
     lines.push('Angle math alone: ' + ms1(angle.angleMed) + ' ms of work per angle (slowest ' + ms1(angle.angleMax) + ' ms); with nothing drawn the screen refresh still ran at ' + f0(angle.fps) + ' per second.');
     lines.push('Drawing alone, the same angle each time: ' + f0(still.fps) + ' per second.');
     if (by.tex) lines.push('Sending the paint order through a texture instead: ' + f0(by.tex.fps) + ' per second' + (by.tex.fps > full.fps + 3 ? ' (faster than the current way, ' + f0(full.fps) + ')' : by.tex.fps < full.fps - 3 ? ' (slower than the current way, ' + f0(full.fps) + ')' : ' (about the same as the current way)') + '.');
+    ['ring', 'map'].forEach(function (id) {
+      var w = by[id]; if (!w) return;
+      lines.push('Sending the paint order ' + (id === 'ring' ? 'to a ring of three card buffers' : 'through staging buffers written directly') + ': ' + f0(w.fps) + ' per second, slowest 1 in 20 ' + ms1(w.gapP95) + ' ms, slowest ' + ms1(w.gapMax) + ' ms' + (w.fps > full.fps + 1 || w.gapP95 + 3 < full.gapP95 ? ' (steadier than the current way)' : w.fps < full.fps - 1 || w.gapP95 > full.gapP95 + 3 ? ' (worse than the current way)' : ' (about the same as the current way)') + '.');
+    });
     if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' per second.');
     lines.push('Time the card needs per picture: ' + ms1(all.ms) + ' ms for everything; links alone ' + ms1(links.ms) + ' ms; items alone ' + ms1(itemsW.ms) + ' ms; names alone ' + ms1(names.ms) + ' ms; everything at half size ' + ms1(half.ms) + ' ms.');
     var say = 'Turning the ' + big + ' map with ' + nm + ' ran at ' + f0(full.fps) + ' pictures per second. ', cause, level;
     if (full.fps >= 58) { cause = 'smooth'; level = 'ok'; say += 'That is a steady 60: nothing to fix.'; }
-    else if (angle.fps < 57) { cause = 'angle'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The limit is on the main thread: even with nothing drawn, only ' + f0(angle.fps) + ' pictures per second got through (' + ms1(angle.angleMed) + ' ms of angle work each).'; }
+    else if (keep && keep.fps >= 57 && (keep.fps >= full.fps + 2 || keep.slow + 0.03 < full.slow || keep.gapP95 + 5 < full.gapP95)) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' per second' + (full.slow > 0 ? ' with no pauses' : '') + '. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
+    else if ((keep ? keep.fps : angle.fps) < 57) { cause = 'angle'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The limit is on the main thread: even with the paint order left out, only ' + f0(keep ? keep.fps : angle.fps) + ' pictures per second got through (' + ms1(angle.angleMed) + ' ms of angle work each).'; }
     else if (keep && keep.fps >= full.fps + 5) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' per second. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
     else if (all.ms > 14) {
       cause = 'card'; level = full.fps >= 45 ? 'ok' : 'warn';
