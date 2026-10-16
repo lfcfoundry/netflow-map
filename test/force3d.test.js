@@ -64,4 +64,22 @@ t('turning a 3D map: reusing what each item looks like gives exactly the same pi
   SC.make(L, { colorBy: 'group', theme: 'light', plan, cam: { yaw: 0.3, pitch: 0.2, persp: 2.4 } });
   [0.9, 2.0].forEach((yaw) => { const cam = { yaw, pitch: 0.4, persp: 2.4 }; ok(j(SC.make(L, { colorBy: 'group', theme: 'light', plan, cam })) === j(SC.make(L, { colorBy: 'group', theme: 'light', cam })), 'differs at yaw ' + yaw); });
 });
+t('drawing a map: a plain straight link is written as one quad with the same numbers the general path gives, and the shared buffer is safe to reuse', () => {
+  global.NFMScene = require('../src/scene.js'); const R = require('../src/render.js');
+  const line = (x0, y0, x1, y1, col, a) => ({ P: [x0, y0, x0 + (x1 - x0) / 3, y0 + (y1 - y0) / 3, x0 + 2 * (x1 - x0) / 3, y0 + 2 * (y1 - y0) / 3, x1, y1], w: 3, color: col, arrow: false, line: true, a });
+  const scene = (curves) => ({ rects: [], dots: [], ribbons: [], polys: [], curves });
+  /* the general path (a bent link with two pieces is not a plain segment) gives the reference for a straight one: same endpoints, same normal, same six corners */
+  const A = R.tessellate(scene([line(0, 0, 30, 40, [0.1, 0.2, 0.3, 0.8], 0.5)])), a = Array.from(A.mesh);
+  ok(A.nMesh === 6 && a.length === 60, 'one quad = 6 corners of 10 numbers');
+  const nx = -40 / 50, ny = 30 / 50, corner = (k) => a.slice(k * 10, k * 10 + 10), c0 = corner(0), c1 = corner(1), c2 = corner(2), c5 = corner(5);
+  ok(c0[0] === 0 && c0[1] === 0 && Math.abs(c0[2] - nx) < 1e-6 && Math.abs(c0[3] - ny) < 1e-6 && c0[4] === 1.5 && c0[5] === -1, 'first corner');
+  ok(c1[5] === 1 && c2[0] === 30 && c2[1] === 40 && c2[5] === -1 && c5[0] === 30 && c5[5] === 1, 'other corners');
+  ok(Math.abs(c0[9] - 0.4) < 1e-6 && Math.abs(c0[6] - 0.1) < 1e-6, 'color and item alpha');
+  /* a zero-length link has no direction but must not produce NaN */
+  const Z = Array.from(R.tessellate(scene([line(5, 5, 5, 5, [1, 1, 1, 1])])).mesh); ok(Z.every(isFinite), 'zero-length link is finite');
+  /* the second picture reuses the first one's buffer: the first must have been copied out already, and the second must be complete and clean */
+  const B = R.tessellate(scene([line(0, 0, 10, 0, [1, 0, 0, 1]), line(0, 0, 0, 10, [0, 1, 0, 1])])), b = Array.from(B.mesh);
+  ok(B.nMesh === 12 && b.length === 120 && b.every(isFinite), 'two links, nothing left over from the earlier picture');
+  ok(b[2] === 0 && b[3] === 1 && b[62] === -1 && b[63] === 0, 'normals of a flat and a tall link');
+});
 process.exitCode = bad ? 1 : 0;

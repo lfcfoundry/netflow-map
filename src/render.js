@@ -23,6 +23,9 @@ var NFMRender = (function () {
     }
     return out;
   }
+  var SEG = new Float64Array(18), MESHBUF = null;
+  /** A link that is one straight piece with no dashes (the common case on a big network). */
+  function isSeg(c) { return c.line && !c.dash && c.P.length === 8; }
   /** Turns a scene into flat arrays: back shapes, mesh (lines, arrows, ribbons), front shapes. a = item alpha from restyle. */
   function tessellate(S) {
     var back = [], front = [], i;
@@ -38,12 +41,16 @@ var NFMRender = (function () {
     (S.polys || []).forEach(function (p) { polyTris += p.pts.length / 2; });
     verts += polyTris * 3;
     S.curves.forEach(function (c) {
+      if (isSeg(c)) { verts += 6 + (c.arrow ? 3 : 0); return; }
       var pts = c.pts || (c.pts = bezPts(c.P, c.line));
       c.dashed = c.dash ? dashPieces(pts, c.w, c.dash) : null;
       var n = c.dashed ? c.dashed.reduce(function (a, q) { return a + q.length / 2 - 1; }, 0) : pts.length / 2 - 1;
       verts += n * 6 + (c.arrow ? 3 : 0);
     });
-    var mesh = new Float32Array(verts * MESH_STRIDE), o = 0;
+    /* One buffer kept between pictures (a big map is a couple of megabytes of it, and a new one every picture means a lot to clear and collect). The result is copied to the card at once, so nothing keeps a reference. */
+    var need = verts * MESH_STRIDE;
+    if (!MESHBUF || MESHBUF.length < need) MESHBUF = new Float32Array(need + (need >> 2));
+    var mesh = MESHBUF, o = 0;
     var put = function (x, y, nx, ny, hw, side, c, a) { mesh[o++] = x; mesh[o++] = y; mesh[o++] = nx; mesh[o++] = ny; mesh[o++] = hw; mesh[o++] = side; mesh[o++] = c[0]; mesh[o++] = c[1]; mesh[o++] = c[2]; mesh[o++] = c[3] * a; };
     S.ribbons.forEach(function (r) {
       var a = r.a === undefined ? 1 : r.a, n = Math.max(10, Math.min(40, Math.ceil(Math.abs(r.x1 - r.x0) / 10))), c = r.color, c2 = r.color2, cAt = c2 ? function (u) { return [c[0] + (c2[0] - c[0]) * u, c[1] + (c2[1] - c[1]) * u, c[2] + (c2[2] - c[2]) * u, c[3]]; } : null;
@@ -73,7 +80,13 @@ var NFMRender = (function () {
     };
     S.curves.forEach(function (c) {
       var a = c.a === undefined ? 1 : c.a, hw = c.w / 2, col = c.color;
-      if (c.dashed) c.dashed.forEach(function (q) { strip(q, hw, col, a); }); else strip(c.pts, hw, col, a);
+      if (isSeg(c)) {
+        /* A plain straight link (every link on a big network): one quad written straight into the buffer, the same numbers the general path gives. */
+        var P = c.P, xa = P[0], ya = P[1], xb = P[6], yb = P[7], tx = xb - xa, ty = yb - ya, d = Math.hypot(tx, ty) || 1, nx = -ty / d, ny = tx / d;
+        var r0 = col[0], r1 = col[1], r2 = col[2], r3 = col[3] * a, V = SEG;
+        V[0] = xa; V[1] = ya; V[2] = -1; V[3] = xa; V[4] = ya; V[5] = 1; V[6] = xb; V[7] = yb; V[8] = -1; V[9] = xb; V[10] = yb; V[11] = -1; V[12] = xa; V[13] = ya; V[14] = 1; V[15] = xb; V[16] = yb; V[17] = 1;
+        for (i = 0; i < 18; i += 3) { mesh[o++] = V[i]; mesh[o++] = V[i + 1]; mesh[o++] = nx; mesh[o++] = ny; mesh[o++] = hw; mesh[o++] = V[i + 2]; mesh[o++] = r0; mesh[o++] = r1; mesh[o++] = r2; mesh[o++] = r3; }
+      } else if (c.dashed) c.dashed.forEach(function (q) { strip(q, hw, col, a); }); else strip(c.pts, hw, col, a);
       if (c.arrow) { var t = NFMScene.arrowTri(c); for (i = 0; i < 3; i++) put(t[i * 2], t[i * 2 + 1], 0, 0, -1, 0, col, a); }
     });
     return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE };
