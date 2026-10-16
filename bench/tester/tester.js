@@ -347,7 +347,7 @@
       if (ts.ways) ts.ways.forEach(function (w) { sp.rows.push([nm2 + ': ' + w.label, w.fps === undefined ? '-' : Math.round(w.fps), w.gapMed === undefined ? '-' : r1(w.gapMed), w.gapP95 === undefined ? '-' : r1(w.gapP95), w.gapMax === undefined ? '-' : r1(w.gapMax), w.angleMed === undefined ? '-' : r1(w.angleMed), w.ms === undefined ? '-' : r1(w.ms)]); });
       ex.lines.forEach(function (l) { sp.notes.push(nm2 + ': ' + l); });
     }
-    sp.notes.push('"Typical picture" is the time from one screen refresh to the next; the slowest 1 in 20 and the slowest show whether the speed is steady or has pauses. "Angle math" is the work on the main thread for each new angle; "Card per picture" is the time the graphics card needs for one picture when each is waited for (no screen refresh in it). Links alone, items alone and names alone show which part costs the most.');
+    sp.notes.push('"Typical picture" is the time from one screen refresh to the next; the slowest 1 in 20 and the slowest show whether the speed is steady or has pauses. "Angle math" is the work on the main thread for each new angle; "Card per picture" is the time the graphics card needs for one picture, found by sending ten pictures back to back, waiting once, and taking away the same wait with nothing drawn (so the fixed waits browsers add do not count). The browser rounds its clock to about a millisecond, so small numbers are rough. Links alone, items alone and names alone show which part costs the most.');
     if (!splitSays.length) { sp.finish('warn', 'Could not take the turning apart (no usable way of drawing, or the page was in the background).'); }
     else sp.finish(splitLevel, splitSays.join(' '));
     return { level: level, say: say };
