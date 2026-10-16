@@ -269,6 +269,7 @@ function panelLook() {
   if (['flow', 'down', 'spine', 'lanes', 'river'].indexOf(V.view) >= 0) { k1.push(check('Fold straight runs into one box', V.fold, function (on) { setV({ fold: on }); })); k1.push(check('Merge parallel arrows', V.merge, function (on) { setV({ merge: on }); })); }
   if (V.view === 'lanes') k1.push(field('Group lanes by', select([['group', 'The group column'], ['found', 'Found groups']].concat(colsOf('nodes', ['category']).filter(function (c) { return c.key !== 'group'; }).map(function (c) { return ['col:' + c.key, c.name]; }).map(function (x) { return [x[0].slice(4), x[1]]; })), V.laneBy, function (v) { setV({ laneBy: v }); })));
   kids.push(section('View', k1));
+  if (V.view === 'river') kids.push(skPanel());
   kids.push(section('Colors, sizes and widths', [
     field(cap(word('item')) + ' color', select(colorChoices(), V.colorBy, function (v) { setV({ colorBy: v }); })),
     field(cap(word('item')) + ' size', select(sizeChoices(), V.sizeBy, function (v) { setV({ sizeBy: v }); })),
@@ -482,7 +483,7 @@ function panelStyle() {
 }
 
 /* ---- Views */
-var SNAP_KEYS = ['view', 'arrange', 'colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'labelCol', 'dir', 'fold', 'merge', 'laneBy', 'agg', 'strongest', 'facets', 'around', 'block', 'hideKinds', 'only', 'sets', 'marks', 'rules', 'palette', 'ramp', 'groupColors', 'widthScale', 'widthMul', 'hulls', 'curve', 'valueLabels', 'lab', 'lens', 'cam', 'vocab', 'pins'];
+var SNAP_KEYS = ['view', 'arrange', 'colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'labelCol', 'dir', 'fold', 'merge', 'laneBy', 'agg', 'strongest', 'facets', 'around', 'block', 'hideKinds', 'only', 'sets', 'marks', 'rules', 'palette', 'ramp', 'groupColors', 'widthScale', 'widthMul', 'hulls', 'curve', 'valueLabels', 'lab', 'lens', 'cam', 'vocab', 'pins', 'sk'];
 function snapshot() { var o = {}; SNAP_KEYS.forEach(function (k) { o[k] = JSON.parse(JSON.stringify(S.V[k] === undefined ? null : S.V[k])); }); return o; }
 /** Only known settings of the right kind are accepted from shared text. */
 function cleanSnapshot(o) {
@@ -501,6 +502,7 @@ function cleanSnapshot(o) {
     else if (k === 'marks' || k === 'groupColors' || k === 'vocab') { if (v && typeof v === 'object') { var m = {}; Object.keys(v).slice(0, 500).forEach(function (n) { if (typeof v[n] === 'string' && v[n].length < 80) m[n] = v[n]; }); out[k] = m; } }
     else if (k === 'facets') { if (v && typeof v === 'object') { var f = {}; Object.keys(v).slice(0, 20).forEach(function (n) { if (Array.isArray(v[n])) f[n] = v[n].filter(function (x) { return typeof x === 'string'; }).slice(0, 200); }); out[k] = f; } }
     else if (k === 'pins') { if (v && typeof v === 'object') { var p = {}; Object.keys(v).slice(0, 20).forEach(function (vk) { if (v[vk] && typeof v[vk] === 'object') { p[vk] = {}; Object.keys(v[vk]).slice(0, 5000).forEach(function (id) { var a = v[vk][id]; if (Array.isArray(a) && typeof a[0] === 'number' && typeof a[1] === 'number') p[vk][id] = [a[0], a[1]]; }); } }); out[k] = p; } }
+    else if (k === 'sk') { var sk = cleanSk(v); if (sk) out[k] = sk; }
     else if (k === 'lab' || k === 'lens' || k === 'cam') { if (v && typeof v === 'object') { var q = JSON.parse(JSON.stringify(D[k])); Object.keys(q).forEach(function (a) { if (v[a] && typeof v[a] === 'object' && typeof q[a] === 'object') { Object.keys(q[a]).forEach(function (b) { if (typeof v[a][b] === typeof q[a][b]) q[a][b] = v[a][b]; }); } else if (typeof v[a] === typeof q[a]) q[a] = v[a]; }); out[k] = q; } }
   });
   if (out.view && !VIEWS.some(function (x) { return x[0] === out.view; })) delete out.view;
@@ -519,6 +521,34 @@ function cleanRule(r) {
     else if (t === 'n' && typeof v === 'number' && isFinite(v)) out.set[k] = v; else if (t === 'b' && typeof v === 'boolean') out.set[k] = v;
   });
   return out;
+}
+var SK_NODE_KEYS = { fill: 's', stroke: 's', labelText: 's', labelSize: 'n', labelColor: 's', labelBold: 'b', labelShow: 'b', labelSide: 's', hide: 'b', opacity: 'n' }, SK_LINK_KEYS = { color: 's', color2: 's', mode: 's', opacity: 'n', hide: 'b', label: 's' };
+/** Only known River picture settings of the right kind are accepted from shared text. */
+function cleanSk(v) {
+  if (!v || typeof v !== 'object') return null;
+  var d = defaultView().sk, o = JSON.parse(JSON.stringify(d)), num = function (x, lo, hi, def) { return typeof x === 'number' && isFinite(x) ? Math.max(lo, Math.min(hi, x)) : def; };
+  if (['target', 'source', 'gradient', 'solid'].indexOf(v.color) >= 0) o.color = v.color;
+  if (['auto', 'left', 'right'].indexOf(v.labels) >= 0) o.labels = v.labels;
+  o.opacity = num(v.opacity, 0.05, 1, d.opacity); o.nodeW = num(v.nodeW, 4, 80, d.nodeW); o.gap = num(v.gap, 60, 700, d.gap); o.pad = num(v.pad, 2, 80, d.pad); o.height = num(v.height, 0, 4000, 0);
+  if (typeof v.nodeValues === 'boolean') o.nodeValues = v.nodeValues; if (typeof v.justify === 'boolean') o.justify = v.justify;
+  var colorOk = function (x) { return typeof x === 'string' && /^#[0-9a-f]{3,8}$/i.test(x); };
+  var clean = function (src, keys, max) {
+    var out = {}; if (!src || typeof src !== 'object') return out;
+    Object.keys(src).slice(0, max).forEach(function (id) {
+      var e = src[id], r = {}; if (!e || typeof e !== 'object') return;
+      Object.keys(keys).forEach(function (k) {
+        var x = e[k], t = keys[k]; if (x === undefined) return;
+        if (t === 'n' && typeof x === 'number' && isFinite(x)) r[k] = x; else if (t === 'b' && typeof x === 'boolean') r[k] = x;
+        else if (t === 's' && typeof x === 'string' && x.length < 200) { if ((k === 'fill' || k === 'stroke' || k === 'labelColor' || k === 'color' || k === 'color2') && !colorOk(x)) return; r[k] = x; }
+      });
+      if (Object.keys(r).length) out[String(id).slice(0, 200)] = r;
+    });
+    return out;
+  };
+  o.nodes = clean(v.nodes, SK_NODE_KEYS, 5000); o.links = clean(v.links, SK_LINK_KEYS, 8000);
+  if (v.fixY && typeof v.fixY === 'object') Object.keys(v.fixY).slice(0, 5000).forEach(function (id) { if (typeof v.fixY[id] === 'number' && isFinite(v.fixY[id])) o.fixY[id] = v.fixY[id]; });
+  var ord = v.order; if (ord && Array.isArray(ord.layers) && Array.isArray(ord.loops) && ord.layers.length < 400 && ord.layers.every(function (l) { return Array.isArray(l) && l.length < 5000 && l.every(function (x) { return typeof x === 'string'; }); })) o.order = { layers: ord.layers, loops: ord.loops.filter(function (x) { return typeof x === 'string' && x.length < 400; }) };
+  return o;
 }
 function applySnapshot(snap, camV) {
   var c = cleanSnapshot(snap); if (!c) return false;
