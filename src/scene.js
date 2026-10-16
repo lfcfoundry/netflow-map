@@ -723,7 +723,8 @@ var NFMScene = (function () {
     var P3 = n3 && o.plan ? (o.plan === true ? (L.__plan || (L.__plan = {})) : o.plan) : null, ST = null;
     if (P3) { if (P3.L !== L || !P3.net) { P3.L = L; P3.net = { nodes: new Array(L.nodes.length), edges: new Array(L.edges.length), rk: null, idxOf: null }; } ST = P3.net; }
     var cy3 = Math.cos(cam.yaw), sy3 = Math.sin(cam.yaw), cp3 = Math.cos(cam.pitch), sp3 = Math.sin(cam.pitch), R3 = L.radius3 || 300, D3 = R3 * (cam.persp || 2.4);
-    L.nodes.forEach(function (n) {
+    var recs = new Array(L.nodes.length);
+    L.nodes.forEach(function (n, qi) {
       var st = n._st, r = n.w / 2 * (st && st.scale ? st.scale : 1), px = n.cx, py = n.cy, depth = 0, f = 1;
       if (n3) {
         var x = n.cx - L.c3[0], y = n.cy - L.c3[1], z = n.z || 0, x1 = x * cy3 + z * sy3, z1 = -x * sy3 + z * cy3, y2 = y * cp3 - z1 * sp3, z2 = y * sp3 + z1 * cp3;
@@ -733,11 +734,22 @@ var NFMScene = (function () {
         if (d < lens.r && d > 1e-6) { var u = d / lens.r, g = ((lens.d + 1) * u) / (lens.d * u + 1), nd2 = g * lens.r; px = lens.x + dx / d * nd2; py = lens.y + dy / d * nd2; r *= Math.min(2.6, Math.max(1, nd2 / d) * 0.85 + 0.15); }
       }
       var rec = { n: n, px: px, py: py, r: r, depth: depth, f: f, hide: !!(st && st.hide) };
-      PN.set(n.id, rec); list.push(rec);
+      recs[qi] = rec; if (!ST) PN.set(n.id, rec); list.push(rec);
     });
     if (n3) list.sort(function (p, q) { return q.depth - p.depth; });
     var dmin = Infinity, dmax = -Infinity; list.forEach(function (p) { if (p.depth < dmin) dmin = p.depth; if (p.depth > dmax) dmax = p.depth; });
     var fade = function (p) { return n3 && dmax > dmin ? 0.42 + 0.58 * (1 - (p.depth - dmin) / (dmax - dmin)) : 1; };
+    list.forEach(function (p) { p.fd = fade(p); });
+    /* which two items each link joins, as positions in L.nodes: looked up by name once, not on every picture */
+    var ef = null, et = null;
+    if (ST) {
+      if (!ST.ef) {
+        var im = new Map(); L.nodes.forEach(function (n, q) { im.set(n.id, q); });
+        ST.ef = new Int32Array(m); ST.et = new Int32Array(m); ST.idxOf = im;
+        L.edges.forEach(function (e, ei) { var a = im.get(e.from), b = im.get(e.to); ST.ef[ei] = a === undefined ? -1 : a; ST.et[ei] = b === undefined ? -1 : b; });
+      }
+      ef = ST.ef; et = ST.et;
+    }
     /* group blobs */
     if (o.hulls && !n3) {
       var byG = new Map(); list.forEach(function (p) { if (p.hide) return; var g = p.n.group || ''; if (!byG.has(g)) byG.set(g, []); byG.get(g).push(p); });
@@ -753,7 +765,7 @@ var NFMScene = (function () {
       cg.forEach(function (c, g) { if (c.k > 1 && cg.size <= 40) lab(c.x / c.k, c.y / c.k, g || '(no group)', 18 * X.LC.groups.scale, mix(T.fg, gcol(g), 0.5), { bold: true, minK: 0.05, group: g, fixed: true }); });
     }
     L.edges.forEach(function (e, ei) {
-      var s = PN.get(e.from), t = PN.get(e.to);
+      var s = ef ? (ef[ei] < 0 ? undefined : recs[ef[ei]]) : PN.get(e.from), t = et ? (et[ei] < 0 ? undefined : recs[et[ei]]) : PN.get(e.to);
       if (!s || !t || s === t || s.hide || t.hide) return;
       var sp = ST ? ST.edges[ei] : undefined;
       if (sp === undefined) {
@@ -763,10 +775,10 @@ var NFMScene = (function () {
       }
       if (!sp) return;
       var lk = sp.lk, dx = t.px - s.px, dy = t.py - s.py, d = Math.sqrt(dx * dx + dy * dy) || 1, r = t.r + (arrows ? HEAD * (n3 ? t.f : 1) : 0), ex = t.px - dx / d * r, ey = t.py - dy / d * r;
-      var sx = s.px + dx / d * s.r, sy = s.py + dy / d * s.r, fd = n3 ? (fade(s) + fade(t)) / 2 : 1;
+      var sx = s.px + dx / d * s.r, sy = s.py + dy / d * s.r, fd = n3 ? (s.fd + t.fd) / 2 : 1;
       var bend = lk.bend || 0, nx = -dy / d * bend * d * 0.5, ny = dx / d * bend * d * 0.5;
       var c1x = sx + (ex - sx) / 3 + nx, c1y = sy + (ey - sy) / 3 + ny, c2x = sx + 2 * (ex - sx) / 3 + nx, c2y = sy + 2 * (ey - sy) / 3 + ny;
-      S.curves.push({ P: [sx, sy, c1x, c1y, c2x, c2y, ex, ey], w: n3 ? lk.w * ((s.f + t.f) / 2) : lk.w, color: n3 ? alpha(lk.color, lk.color[3] * fd) : lk.color, arrow: lk.arrow, line: !bend, tip: [t.px - dx / d * t.r, t.py - dy / d * t.r], edge: ei, from: e.from, to: e.to, dash: lk.dash });
+      S.curves.push({ P: [sx, sy, c1x, c1y, c2x, c2y, ex, ey], w: n3 ? lk.w * ((s.f + t.f) / 2) : lk.w, color: n3 ? alpha(lk.color, lk.color[3] * fd) : lk.color, arrow: lk.arrow, line: !bend, tip: lk.arrow ? [t.px - dx / d * t.r, t.py - dy / d * t.r] : undefined, edge: ei, from: e.from, to: e.to, dash: lk.dash });
       var txt = sp.txt;
       if (txt && X.LC.links.show && m < 600) lab((sx + ex) / 2, (sy + ey) / 2 - 4, clip(txt, 24), 10 * X.LC.links.scale, T.muted, { minK: 0.9, edge: ei, bg: true });
       else if (!txt && o.edgeValueLabels && e.widthV === e.widthV && m < 600) lab((sx + ex) / 2, (sy + ey) / 2 - 4, fmtNum(e.widthV), 10 * X.LC.links.scale, T.muted, { minK: 0.7, edge: ei, bg: true });
@@ -776,13 +788,13 @@ var NFMScene = (function () {
     else {
       var rank = L.nodes.map(function (n, q) { return q; }).sort(function (p, q) { return L.nodes[q].deg - L.nodes[p].deg; }); rk = new Array(L.nodes.length);
       rank.forEach(function (q, r) { rk[q] = r; });
-      idxOf = new Map(); L.nodes.forEach(function (n, q) { idxOf.set(n.id, q); });
+      if (ST && ST.idxOf) idxOf = ST.idxOf; else { idxOf = new Map(); L.nodes.forEach(function (n, q) { idxOf.set(n.id, q); }); }
       if (ST) { ST.rk = rk; ST.idxOf = idxOf; }
     }
     var topN = X.LC.items.topN;
     list.forEach(function (p) {
       var n = p.n, st = n._st, r = p.r; if (p.hide) return;
-      var rec = addNode(n, p.px - r, p.py - r, 2 * r, 2 * r), q = idxOf.get(n.id), fd = fade(p), np = ST ? ST.nodes[q] : undefined;
+      var rec = addNode(n, p.px - r, p.py - r, 2 * r, 2 * r), q = idxOf.get(n.id), fd = p.fd, np = ST ? ST.nodes[q] : undefined;
       if (np === undefined) {
         var vc0 = n.end ? valCol(n.valence) : null, fill0 = n.start ? mix(fillOf(n), T.accent, 0.7) : fillOf(n).map(function (v, k) { return k < 3 ? v : Math.max(v, 0.92); }), kind0 = SHAPE_KIND[st && st.shape]; if (kind0 === undefined) kind0 = 1;
         np = { fill: fill0, kind: kind0, replace: !!(st && (st.icon || st.image) && st.iconMode !== 'inside'), stroke: st && st.stroke ? hex(st.stroke) : n.start ? T.accent : vc0 || alpha(T.box, 0.9), sw: st && st.sw !== undefined ? st.sw : n.start ? 3 : vc0 ? 2.5 : 1.2, text: clip(X.tx(n), 24), col: X.LC.items.color === 'fill' ? null : X.labColor(n, fill0) };
