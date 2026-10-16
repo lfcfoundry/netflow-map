@@ -19,7 +19,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.2055.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.2149.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
@@ -5356,6 +5356,7 @@ var NFMScene = (function () {
   /** Which node box is under this world point (topmost = last drawn); slop is in world units. */
   function pick(S, wx, wy, slop) {
     slop = slop || 0;
+    if (S.gridStale) { buildGrid(S); S.gridStale = false; }
     var G = S.grid, best = null, cs = G.cell;
     var c0 = Math.floor((wx - slop - S.x0) / cs), c1 = Math.floor((wx + slop - S.x0) / cs), r0 = Math.floor((wy - slop - S.y0) / cs), r1 = Math.floor((wy + slop - S.y0) / cs);
     for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) {
@@ -5364,7 +5365,7 @@ var NFMScene = (function () {
       for (var j = 0; j < a.length; j++) {
         var n = S.nodes[a[j]];
         if (n.hidden) continue;
-        if (wx >= n.x - slop && wx <= n.x + n.w + slop && wy >= n.y - slop && wy <= n.y + n.h + slop) { if (!best || n.i > best.i) best = n; }
+        if (wx >= n.x - slop && wx <= n.x + n.w + slop && wy >= n.y - slop && wy <= n.y + n.h + slop) { if (!best || (n.o !== undefined ? n.o : n.i) > (best.o !== undefined ? best.o : best.i)) best = n; }
       }
     }
     return best;
@@ -5466,7 +5467,7 @@ var NFMScene = (function () {
     if (n) return { type: 'node', node: n, key: n.key };
     var l = pickLabel(S, wx, wy, k);
     if (l) { if (l.group !== undefined) return { type: 'group', group: l.group }; if (l.node >= 0 && S.nodes[l.node]) return { type: 'label', node: S.nodes[l.node], key: S.nodes[l.node].key, label: l }; if (l.edge !== undefined && l.edge >= 0) { var cv = S.curves.filter(function (c) { return c.edge === l.edge; })[0]; return { type: 'edge', edge: l.edge, from: l.from !== undefined ? l.from : cv && cv.from, to: l.to !== undefined ? l.to : cv && cv.to }; } }
-    var e = pickEdge(S, wx, wy, (opt.edgeTol || 7) / k);
+    var e = S.turn && S.turn.on ? null : pickEdge(S, wx, wy, (opt.edgeTol || 7) / k);   /* while a big 3D map is being turned its links are only on the card */
     if (e) return { type: 'edge', edge: e.edge, from: e.from, to: e.to, cell: e.cell };
     for (var i = S.polys.length - 1; i >= 0; i--) { var p = S.polys[i]; if (p.group !== undefined && inPoly(p.pts, wx, wy)) return { type: 'group', group: p.group }; }
     for (var j = 0; j < S.rects.length; j++) { var r = S.rects[j]; if (r.lane !== undefined && wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h) return { type: 'lane', lane: r.lane }; }
@@ -5810,10 +5811,16 @@ var NFMScene = (function () {
       if (ST && ST.idxOf) idxOf = ST.idxOf; else { idxOf = new Map(); L.nodes.forEach(function (n, q) { idxOf.set(n.id, q); }); }
       if (ST) { ST.rk = rk; ST.idxOf = idxOf; }
     }
-    var topN = X.LC.items.topN;
+    var topN = X.LC.items.topN, recOf = n3 && ST ? new Int32Array(L.nodes.length).fill(-1) : null, dotOf = recOf ? new Int32Array(L.nodes.length).fill(-1) : null;
+    /* one item's name under it: the same call for a normal picture and for a turn frame */
+    var emitLabel = function (n, q, np, rec, px, py, r, f, fd) {
+      var rnk = rk[q], showTop = topN && rnk < topN, fill = n3 ? alpha(np.fill, np.fill[3] * fd) : np.fill;
+      lab(px, py + r + 11 * (n3 ? f : 1), np.text, 11 * (n3 ? Math.max(0.7, f) : 1), np.col || X.labColor(n, fill), { node: rec.i, minK: showTop ? 0.05 : 0.22 * (1 + rnk / 35), bold: rnk < 8 });
+    };
     list.forEach(function (p) {
       var n = p.n, st = n._st, r = p.r; if (p.hide) return;
       var rec = addNode(n, p.px - r, p.py - r, 2 * r, 2 * r), q = idxOf.get(n.id), fd = p.fd, np = ST ? ST.nodes[q] : undefined;
+      if (recOf) { recOf[q] = rec.i; dotOf[q] = S.dots.length; }
       if (np === undefined) {
         var vc0 = n.end ? valCol(n.valence) : null, fill0 = n.start ? mix(fillOf(n), T.accent, 0.7) : fillOf(n).map(function (v, k) { return k < 3 ? v : Math.max(v, 0.92); }), kind0 = SHAPE_KIND[st && st.shape]; if (kind0 === undefined) kind0 = 1;
         np = { fill: fill0, kind: kind0, replace: !!(st && (st.icon || st.image) && st.iconMode !== 'inside'), stroke: st && st.stroke ? hex(st.stroke) : n.start ? T.accent : vc0 || alpha(T.box, 0.9), sw: st && st.sw !== undefined ? st.sw : n.start ? 3 : vc0 ? 2.5 : 1.2, text: clip(X.tx(n), 24), col: X.LC.items.color === 'fill' ? null : X.labColor(n, fill0) };
@@ -5823,9 +5830,115 @@ var NFMScene = (function () {
       S.dots.push({ cx: p.px, cy: p.py, r: r, fill: replace ? alpha(fill, 0.15) : fill, stroke: np.stroke, sw: np.sw, layer: 1, node: rec.i, kind: kind });
       if (n.choke) S.dots.push({ cx: p.px + r * 0.72, cy: p.py - r * 0.72, r: Math.max(2.5, r * 0.3), fill: T.gold, stroke: alpha(T.box, 0.9), sw: 1, layer: 1, node: rec.i });
       X.addIcon(n, rec, p.px, p.py, r);
-      var rnk = rk[q], showTop = topN && rnk < topN;
-      lab(p.px, p.py + r + 11 * (n3 ? p.f : 1), np.text, 11 * (n3 ? Math.max(0.7, p.f) : 1), np.col || X.labColor(n, fill), { node: rec.i, minK: showTop ? 0.05 : 0.22 * (1 + rnk / 35), bold: rnk < 8 });
+      emitLabel(n, q, np, rec, p.px, p.py, r, p.f, fd);
     });
+    if (recOf && o.rig && S.icons.length === 0 && m >= (o.rigMin === undefined ? RIG_MIN_LINKS : o.rigMin)) {
+      if (ST.rig === undefined) ST.rig = makeRig(L, ST, T, idxOf, rk);
+      if (ST.rig) attachTurn(X, ST.rig, { recOf: recOf, dotOf: dotOf, np: ST.nodes, idxOf: idxOf, rk: rk, emitLabel: emitLabel, cam: cam, R3: R3, topN: topN });
+    }
+  }
+
+  /* ---------------------------------------------------------------- turning a big 3D map on the graphics card */
+  var RIG_MIN_LINKS = 1500;
+  /**
+   * The parts of a big 3D map that do not change while it turns: where each item sits in space, how it looks, which two items each link joins and how it looks.
+   * The graphics card is given these once; for each new angle it works out the screen places itself (src/render.js). Returns null when this map cannot be drawn
+   * that way (bent, dashed or arrow-headed links; fewer than a few links), and the ordinary picture is used instead.
+   */
+  var RIG_ID = 0;
+  function makeRig(L, ST, T, idxOf, rk) {
+    var N = L.nodes.length, nodeF = new Float32Array(N * 16), pos = new Float64Array(N * 4), hid = new Uint8Array(N), chk = new Uint8Array(N), c3 = L.c3 || [0, 0], q, ei;
+    for (q = 0; q < N; q++) {
+      var n = L.nodes[q], st = n._st, np = ST.nodes[q], o = q * 16;
+      pos[q * 4] = n.cx - c3[0]; pos[q * 4 + 1] = n.cy - c3[1]; pos[q * 4 + 2] = n.z || 0; pos[q * 4 + 3] = n.w / 2 * (st && st.scale ? st.scale : 1);
+      if (st && st.hide) { hid[q] = 1; continue; }
+      if (!np) return null;
+      for (var i = 0; i < 3; i++) { nodeF[o + i] = pos[q * 4 + i]; }
+      nodeF[o + 3] = pos[q * 4 + 3];
+      for (i = 0; i < 4; i++) { nodeF[o + 4 + i] = np.fill[i]; nodeF[o + 8 + i] = np.stroke[i]; }
+      chk[q] = n.choke ? 1 : 0;
+      nodeF[o + 12] = np.sw; nodeF[o + 13] = np.kind; nodeF[o + 14] = (np.replace ? 1 : 0) + (n.choke ? 2 : 0); nodeF[o + 15] = 0;
+    }
+    var rows = [];
+    for (ei = 0; ei < L.edges.length; ei++) {
+      var e = L.edges[ei], a = idxOf.get(e.from), b = idxOf.get(e.to);
+      if (a === undefined || b === undefined || a === b || hid[a] || hid[b]) continue;
+      var sp = ST.edges[ei];
+      if (sp === undefined) return null;
+      if (!sp) continue;
+      var lk = sp.lk;
+      if (lk.bend || lk.dash || lk.arrow) return null;
+      rows.push(a, b, lk.w, lk.color[0], lk.color[1], lk.color[2], lk.color[3], ei);
+    }
+    var M = rows.length / 8, edgeF = new Float32Array(M * 8), edgeIdx = new Int32Array(M);
+    for (var k = 0; k < M; k++) { var r = k * 8; edgeF[r] = rows[r]; edgeF[r + 1] = rows[r + 1]; edgeF[r + 2] = rows[r + 2]; edgeF[r + 3] = 0; edgeF[r + 4] = rows[r + 3]; edgeF[r + 5] = rows[r + 4]; edgeF[r + 6] = rows[r + 5]; edgeF[r + 7] = rows[r + 6]; edgeIdx[k] = rows[r + 7]; }
+    var byRank = []; for (q = 0; q < N; q++) if (!hid[q]) byRank.push(q);
+    byRank.sort(function (p1, p2) { return rk[p1] - rk[p2]; });
+    return { id: ++RIG_ID, n: N, m: M, pos: pos, nodeF: nodeF, edgeF: edgeF, edgeIdx: edgeIdx, hid: hid, chk: chk, byRank: Int32Array.from(byRank), c3: c3 };
+  }
+  /** What the person has done to the drawing (dimmed, selected, marked), for the graphics card: one row per item and per link, read from the styled lists of the last full picture. */
+  function rigStyle(S) {
+    var rig = S.rig, N = rig.n, M = rig.m, ns = new Float32Array(N * 8), es = new Float32Array(M * 4), q, k;
+    for (q = 0; q < N; q++) {
+      var rec = S.nodes[S.turnMap.recOf[q]];
+      ns[q * 8] = rec && rec.a !== undefined ? rec.a : 1;
+      if (rec && rec.ring) { ns[q * 8 + 1] = 1; ns[q * 8 + 4] = rec.ring[0]; ns[q * 8 + 5] = rec.ring[1]; ns[q * 8 + 6] = rec.ring[2]; ns[q * 8 + 7] = rec.ring[3]; }
+    }
+    for (k = 0; k < M; k++) { var c = S.curves[k]; es[k * 4] = c.a === undefined ? 1 : c.a; es[k * 4 + 1] = c.base && c.color !== c.base.color ? 1 : 0; }
+    return { node: ns, edge: es };
+  }
+  /** Adds S.turnTo(cam, k): puts a picture of the same map from another angle on the graphics card with almost no work here (a depth order and the few visible names). */
+  function attachTurn(X, rig, M) {
+    var S = X.S, L = X.L, T = X.T, o = X.o, N = rig.n, cam = M.cam, R3 = M.R3, c3 = rig.c3, lab = X.lab;
+    var PX = new Float64Array(N), PY = new Float64Array(N), PR = new Float64Array(N), PF = new Float64Array(N), PD = new Float64Array(N);
+    var keys = new Uint32Array(N), ia = new Uint32Array(N), ib = new Uint32Array(N), cnt = new Uint32Array(2048), f32 = new Float32Array(1), u32 = new Uint32Array(f32.buffer);
+    var seq = new Uint32Array(N * 2), mask = new Uint8Array(N), fixedMin = X.LC.items.fixedMin, rankOf = new Uint32Array(N), qOfRec = new Int32Array(S.nodes.length).fill(-1);
+    for (var qi = 0; qi < N; qi++) if (M.recOf[qi] >= 0) qOfRec[M.recOf[qi]] = qi;
+    S.rig = rig; S.turnMap = M; S.styleVer = (S.styleVer || 0);
+    S.turnTo = function (cam2, kmax) {
+      var c = cam2 || cam, cy3 = Math.cos(c.yaw), sy3 = Math.sin(c.yaw), cp3 = Math.cos(c.pitch), sp3 = Math.sin(c.pitch), D3 = R3 * (c.persp || 2.4), pos = rig.pos, q, dmin = Infinity, dmax = -Infinity;
+      for (q = 0; q < N; q++) {
+        var x = pos[q * 4], y = pos[q * 4 + 1], z = pos[q * 4 + 2], x1 = x * cy3 + z * sy3, z1 = -x * sy3 + z * cy3, y2 = y * cp3 - z1 * sp3, z2 = y * sp3 + z1 * cp3, f = D3 / (D3 + z2);
+        PX[q] = c3[0] + x1 * f; PY[q] = c3[1] + y2 * f; PR[q] = pos[q * 4 + 3] * f; PF[q] = f; PD[q] = z2;
+        if (z2 < dmin) dmin = z2; if (z2 > dmax) dmax = z2;
+      }
+      /* back to front, as the ordinary picture sorts (farthest first, ties in item order): a stable radix sort on the depth */
+      for (q = 0; q < N; q++) { f32[0] = -PD[q]; var b = u32[0]; keys[q] = (b & 0x80000000) ? ~b >>> 0 : (b | 0x80000000) >>> 0; ia[q] = q; }
+      var src = ia, dst = ib, pass, sh;
+      for (pass = 0; pass < 3; pass++) {
+        sh = pass * 11; cnt.fill(0);
+        for (q = 0; q < N; q++) cnt[(keys[src[q]] >>> sh) & 2047]++;
+        for (q = 0, b = 0; q < 2048; q++) { var t = cnt[q]; cnt[q] = b; b += t; }
+        for (q = 0; q < N; q++) { var id = src[q]; dst[cnt[(keys[id] >>> sh) & 2047]++] = id; }
+        var sw = src; src = dst; dst = sw;
+      }
+      var ord = src, ns = 0, fadeOn = dmax > dmin, inv = fadeOn ? 1 / (dmax - dmin) : 0, recs = S.nodes;
+      for (q = 0; q < N; q++) {
+        var it = ord[q]; rankOf[it] = q; if (rig.hid[it]) continue;
+        seq[ns++] = it * 2; if (rig.chk[it]) seq[ns++] = it * 2 + 1;
+      }
+      /* the item records (read when something is picked) in their own order, which walks memory in a line instead of jumping about */
+      for (var ri = 0; ri < recs.length; ri++) { var qr = qOfRec[ri]; if (qr < 0) continue; var rc0 = recs[ri], r0 = PR[qr]; rc0.x = PX[qr] - r0; rc0.y = PY[qr] - r0; rc0.w = rc0.h = 2 * r0; rc0.o = rankOf[qr]; }
+      /* the names that can be seen at this zoom (the ordinary picture makes all of them and the drawing skips the small ones) */
+      S.labels = []; mask.fill(0);
+      var byRank = rig.byRank, topN = M.topN, i, kk = kmax || 1;
+      for (i = 0; i < byRank.length; i++) {
+        var qq = byRank[i], rnk = M.rk[qq], mk = topN && rnk < topN ? 0.05 : 0.22 * (1 + rnk / 35);
+        if (fixedMin !== undefined) mk = Math.min(mk, fixedMin);
+        if (mk > kk) { if (fixedMin === undefined) break; else continue; }
+        mask[qq] = 1;
+      }
+      for (q = 0; q < N; q++) {
+        var iq = ord[q]; if (!mask[iq] || rig.hid[iq]) continue;
+        var rc = recs[M.recOf[iq]], fd = fadeOn ? 0.42 + 0.58 * (1 - (PD[iq] - dmin) / (dmax - dmin)) : 1, np = M.np[iq];
+        M.emitLabel(L.nodes[iq], iq, np, rc, PX[iq], PY[iq], PR[iq], PF[iq], fd);
+      }
+      S.labels.forEach(function (l) { var rr = recs[l.node]; l.a = rr && rr.a !== undefined ? rr.a : 1; });
+      S.gridStale = true;
+      var prev = S.turn;
+      S.turn = { on: true, ver: prev ? prev.ver + 1 : 1, seq: seq, nseq: ns, cy: cy3, sy: sy3, cp: cp3, sp: sp3, c3x: c3[0], c3y: c3[1], D3: D3, fadeOn: fadeOn ? 1 : 0, dmin: dmin, inv: inv, kmax: kk, cam: { yaw: c.yaw, pitch: c.pitch, persp: c.persp }, gold: T.gold, boxS: alpha(T.box, 0.9), accent: T.accent };
+      return S.turn;
+    };
   }
 
   /* ---------------------------------------------------------------- story shape */
@@ -5868,7 +5981,8 @@ var NFMScene = (function () {
       if (!focus) return true;
       return focus.has(c.from) && focus.has(c.to);
     };
-    S.nodes.forEach(function (n) { n.a = !focus || focus.has(n.key) ? 1 : dimTo; });
+    S.nodes.forEach(function (n) { n.a = !focus || focus.has(n.key) ? 1 : dimTo; n.ring = sel && sel.has(n.key) ? S.theme.accent : marks && marks.get(n.key) ? hex(marks.get(n.key)) : null; });
+    S.styleVer = (S.styleVer || 0) + 1;
     var remember = function (o, keys) { if (!o.base) { o.base = {}; keys.forEach(function (k) { o.base[k] = o[k]; }); } };
     var ring = function (o, node) {
       remember(o, ['stroke', 'sw']);
@@ -5949,7 +6063,7 @@ var NFMScene = (function () {
   }
 
   return {
-    make: make, pick: pick, hit: hit, pickEdge: pickEdge, pickLabel: pickLabel, inRect: inRect, inLasso: inLasso, restyle: restyle, style: style, toSvg: toSvg, palette: palette, THEMES: THEMES,
+    make: make, rigStyle: rigStyle, pick: pick, hit: hit, pickEdge: pickEdge, pickLabel: pickLabel, inRect: inRect, inLasso: inLasso, restyle: restyle, style: style, toSvg: toSvg, palette: palette, THEMES: THEMES,
     PALETTES: PALETTES, RAMPS: RAMPS, RAMP_NAMES: RAMP_NAMES, rampAt: rampAt, ICONS: ICONS, SHAPE_KIND: SHAPE_KIND, SHAPE_NAMES: SHAPE_NAMES, shapePts: shapePts,
     css: css, hex: hex, toHex: toHex, mix: mix, alpha: alpha, arrowTri: arrowTri, bez: bez, HEAD: HEAD, labelBox: labelBox
   };
@@ -6226,6 +6340,33 @@ var NFMRender = (function () {
   var GL_MESH_FS = '#version 300 es\nprecision highp float;in vec4 vC;in float vSide;in float vHw;in float vSolid;out vec4 o;\n' +
     'void main(){float cov=vSolid>.5?1.:clamp(vHw-abs(vSide)*vHw+.5,0.,1.);o=vec4(vC.rgb*vC.a,vC.a)*cov;}';
 
+
+  /* ---------------------------------------------------------------- turning a big 3D map on the card: the same drawing, with the 3D math done by the vertex shaders.
+     The items and links live in the card (textures in WebGL 2, storage buffers in WebGPU); a new angle is only a few numbers and a depth order. The pixels are
+     worked out by the very same fragment shaders as the ordinary picture, so the two cannot look different. */
+  var GL_RIG_HEAD = '#version 300 es\nprecision highp float;precision highp int;precision highp sampler2D;\nuniform sampler2D tN;uniform sampler2D tNS;uniform sampler2D tE;uniform sampler2D tES;\n' +
+    'uniform vec4 uV;uniform vec2 uRes;uniform vec4 uCam;uniform vec4 uC3;uniform vec4 uFd;uniform vec4 uGold;uniform vec4 uBoxS;uniform vec4 uAcc;\n' +
+    'vec4 F(sampler2D t,int i){return texelFetch(t,ivec2(i&2047,i>>11),0);}\n' +
+    'struct Pn{vec2 p;float r;float f;float fd;};\n' +
+    'Pn proj(int q){vec4 a=F(tN,q*4);float x1=a.x*uCam.x+a.z*uCam.y,z1=-a.x*uCam.y+a.z*uCam.x,y2=a.y*uCam.z-z1*uCam.w,z2=a.y*uCam.w+z1*uCam.z;float f=uC3.z/(uC3.z+z2);\n' +
+    'Pn o;o.p=vec2(uC3.x+x1*f,uC3.y+y2*f);o.r=a.w*f;o.f=f;o.fd=uC3.w>.5?.42+.58*(1.-(z2-uFd.x)*uFd.y):1.;return o;}\n';
+  var GL_RIG_EDGE_VS = GL_RIG_HEAD + 'out vec4 vC;out float vSide;out float vHw;out float vSolid;\n' +
+    'void main(){int e=gl_InstanceID,v=gl_VertexID;vec4 E0=F(tE,e*2),E1=F(tE,e*2+1),ES=F(tES,e);Pn s=proj(int(E0.x)),t=proj(int(E0.y));\n' +
+    'vec2 dv=t.p-s.p;float d=sqrt(dot(dv,dv));if(d==0.)d=1.;vec2 en=t.p-dv/d*t.r,sn=s.p+dv/d*s.r;\n' +
+    'float w=E0.z*(s.f+t.f)*.5;vec4 col=vec4(E1.rgb,E1.a*(s.fd+t.fd)*.5);float a=ES.x;if(ES.y>.5){w=max(w*1.8,w+2.);col=uAcc;a=1.;}\n' +
+    'vec2 tv=en-sn;float dd=length(tv);if(dd==0.)dd=1.;vec2 nn=vec2(-tv.y,tv.x)/dd;\n' +
+    'bool atB=(v==2||v==3||v==5);float side=(v==0||v==2||v==3)?-1.:1.;vec2 b=atB?en:sn;float hw=max(w*.5,.7/uV.x);vec2 wp=b+nn*side*hw;vec2 px=wp*uV.x+uV.yz;\n' +
+    'gl_Position=vec4(px.x/uRes.x*2.-1.,1.-px.y/uRes.y*2.,0.,1.);vC=vec4(col.rgb,col.a*a);vSide=side;vHw=hw*uV.x;vSolid=0.;}';
+  var GL_RIG_DOT_VS = GL_RIG_HEAD + 'layout(location=0) in uint iId;out vec2 vL;flat out vec4 vA;flat out vec4 vB;flat out vec4 vF;flat out vec4 vS;\n' +
+    'void main(){int q=int(iId>>1),which=int(iId&1u);Pn p=proj(q);vec4 N1=F(tN,q*4+1),N2=F(tN,q*4+2),N3=F(tN,q*4+3),S0=F(tNS,q*2),S1=F(tNS,q*2+1);\n' +
+    'vec2 c;float r,kind,sw;vec4 fill,stroke;\n' +
+    'if(which==0){c=p.p;r=p.r;kind=N3.y;sw=N3.x;float fa=mod(N3.z,2.)>.5?.15:N1.a*p.fd;fill=vec4(N1.rgb,fa);stroke=N2;if(S0.y>.5&&r>4.&&fa>.1){stroke=S1;sw=max(sw,4.);}}\n' +
+    'else{c=p.p+vec2(p.r*.72,-p.r*.72);r=max(2.5,p.r*.3);kind=1.;sw=1.;fill=uGold;stroke=uBoxS;if(S0.y>.5&&r>4.&&uGold.a>.1){stroke=S1;sw=max(1.,4.);}}\n' +
+    'float rad=kind<.5?min(3.,r):r;fill.a*=S0.x;stroke.a*=S0.x;\n' +
+    'int id=gl_VertexID;vec2 cc=vec2(0.,0.);if(id==1||id==3)cc=vec2(1.,0.);else if(id==2||id==5)cc=vec2(0.,1.);else if(id==4)cc=vec2(1.,1.);\n' +
+    'vec2 q2=cc*2.-1.;float pad=sw*.5+2./uV.x;vec2 loc=q2*(vec2(r)+pad);vec2 w=c+loc;vec2 px=w*uV.x+uV.yz;\n' +
+    'gl_Position=vec4(px.x/uRes.x*2.-1.,1.-px.y/uRes.y*2.,0.,1.);vL=loc;vA=vec4(c,r,r);vB=vec4(rad,kind,sw,0.);vF=fill;vS=stroke;}';
+
   function glProgram(gl, vs, fs) {
     var mk = function (t, src) { var s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error('shader: ' + gl.getShaderInfoLog(s)); return s; };
     var p = gl.createProgram(); gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
@@ -6249,17 +6390,57 @@ var NFMRender = (function () {
     var vaoMesh = mkVao([[0, 2, 0, 40], [1, 2, 2, 40], [2, 2, 4, 40], [3, 4, 6, 40]], bMesh, false);
     var T = null, S = null, W = 1, Hh = 1, dpr = 1;
     var up = function (buf, data) { gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); };
+    /* turning a big 3D map: items and links stay in textures; each picture sends only the camera numbers and the paint order (see GL_RIG_* above) */
+    var RG = null, rigState = { id: 0, style: -1, ver: -1 };
+    var rigPrepare = function () {
+      if (RG !== null) return !!RG;
+      try {
+        var pe = glProgram(gl, GL_RIG_EDGE_VS, GL_MESH_FS), pd = glProgram(gl, GL_RIG_DOT_VS, GL_SHAPE_FS), names = ['uV', 'uRes', 'uCam', 'uC3', 'uFd', 'uGold', 'uBoxS', 'uAcc', 'tN', 'tNS', 'tE', 'tES'];
+        var loc = function (p) { var o = {}; names.forEach(function (n) { o[n] = gl.getUniformLocation(p, n); }); return o; };
+        var seqBuf = gl.createBuffer(), vaoSeq = gl.createVertexArray();
+        gl.bindVertexArray(vaoSeq); gl.bindBuffer(gl.ARRAY_BUFFER, seqBuf); gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 1, gl.UNSIGNED_INT, 4, 0); gl.vertexAttribDivisor(0, 1); gl.bindVertexArray(null);
+        var tex = function () { var t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+        RG = { pe: pe, pd: pd, le: loc(pe), ld: loc(pd), seqBuf: seqBuf, vaoSeq: vaoSeq, vaoNone: gl.createVertexArray(), tN: tex(), tNS: tex(), tE: tex(), tES: tex() };
+      } catch (e) { RG = false; if (hooks && hooks.onError) hooks.onError('webgl2', 'turning on the card: ' + e.message); }
+      out.rigOK = !!RG; return !!RG;
+    };
+    /* writes `floats` (4 per texel) into a 2048-wide float texture, as many rows as needed */
+    var putTex = function (t, floats) {
+      var texels = Math.max(1, Math.ceil(floats.length / 4)), rows = Math.ceil(texels / 2048), data = floats;
+      if (floats.length !== 2048 * rows * 4) { data = new Float32Array(2048 * rows * 4); data.set(floats); }
+      gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 2048, rows, 0, gl.RGBA, gl.FLOAT, data);
+    };
+    var rigSync = function () {
+      var rig = S.rig;
+      if (rigState.id !== rig.id) { putTex(RG.tN, rig.nodeF); putTex(RG.tE, rig.edgeF); rigState.id = rig.id; rigState.style = -1; }
+      if (rigState.style !== S.styleVer || rigState.sid !== S) { var st = NFMScene.rigStyle(S); putTex(RG.tNS, st.node); putTex(RG.tES, st.edge); rigState.style = S.styleVer; rigState.sid = S; }
+    };
+    var drawRig = function (view) {
+      var tu = S.turn, rig = S.rig; rigSync();
+      if (rigState.ver !== tu.ver || rigState.sid2 !== S) { gl.bindBuffer(gl.ARRAY_BUFFER, RG.seqBuf); gl.bufferData(gl.ARRAY_BUFFER, tu.seq.subarray(0, tu.nseq), gl.DYNAMIC_DRAW); rigState.ver = tu.ver; rigState.sid2 = S; }
+      var bind = function (p, l) {
+        gl.useProgram(p); gl.uniform4f(l.uV, view.k, view.tx, view.ty, 0); gl.uniform2f(l.uRes, W, Hh); gl.uniform4f(l.uCam, tu.cy, tu.sy, tu.cp, tu.sp); gl.uniform4f(l.uC3, tu.c3x, tu.c3y, tu.D3, tu.fadeOn); gl.uniform4f(l.uFd, tu.dmin, tu.inv, 0, 0);
+        gl.uniform4fv(l.uGold, tu.gold); gl.uniform4fv(l.uBoxS, tu.boxS); gl.uniform4fv(l.uAcc, tu.accent);
+        gl.uniform1i(l.tN, 0); gl.uniform1i(l.tNS, 1); gl.uniform1i(l.tE, 2); gl.uniform1i(l.tES, 3);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, RG.tN); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, RG.tNS); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, RG.tE); gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, RG.tES);
+      };
+      if (rig.m) { bind(RG.pe, RG.le); gl.bindVertexArray(RG.vaoNone); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, rig.m); }
+      if (tu.nseq) { bind(RG.pd, RG.ld); gl.bindVertexArray(RG.vaoSeq); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, tu.nseq); }
+      gl.bindVertexArray(null); gl.activeTexture(gl.TEXTURE0);
+    };
     var info = (function () { try { var e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : ''; } catch (x) { return ''; } })();
     var out = {
       name: 'webgl2', label: 'WebGL 2', device: info,
       setScene: function (s) { S = s; T = s ? tessellate(s) : null; if (T) { up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
-      restyle: function () { if (S) { T = tessellate(S); up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
+      restyle: function () { if (S && !(S.turn && S.turn.on)) { T = tessellate(S); up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
+      rigPrepare: rigPrepare, rigOK: false,
       resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
       draw: function (view) {
         if (!S || lost) return;
         gl.viewport(0, 0, H.main.width, H.main.height);
         var bg = S.theme.bg; gl.clearColor(bg[0], bg[1], bg[2], 1); gl.clear(gl.COLOR_BUFFER_BIT);
         gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        if (S.turn && S.turn.on && S.rig && RG) { drawRig(view); drawLabels(H.ctx2, S, view, W, Hh, dpr); return; }
         var shapes = function (vao, n) { if (!n) return; gl.useProgram(pS); gl.uniform4f(uS.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uS.r, W, Hh); gl.bindVertexArray(vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n); };
         shapes(vaoBack, T.nBack);
         if (T.nMesh) { gl.useProgram(pM); gl.uniform4f(uM.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uM.r, W, Hh); gl.bindVertexArray(vaoMesh); gl.drawArrays(gl.TRIANGLES, 0, T.nMesh); }
@@ -6281,8 +6462,8 @@ var NFMRender = (function () {
 
   /* ---------------------------------------------------------------- WebGPU */
   var WGSL_COMMON = 'struct U { v: vec4<f32>, res: vec2<f32>, pad: vec2<f32> };\n@group(0) @binding(0) var<uniform> u: U;\n';
-  var WGSL_SHAPE = WGSL_COMMON +
-    'struct VO { @builtin(position) pos: vec4<f32>, @location(0) loc: vec2<f32>, @location(1) @interpolate(flat) a: vec4<f32>, @location(2) @interpolate(flat) b: vec4<f32>, @location(3) @interpolate(flat) f: vec4<f32>, @location(4) @interpolate(flat) s: vec4<f32> };\n' +
+  var WGSL_SHAPE_VO = 'struct VO { @builtin(position) pos: vec4<f32>, @location(0) loc: vec2<f32>, @location(1) @interpolate(flat) a: vec4<f32>, @location(2) @interpolate(flat) b: vec4<f32>, @location(3) @interpolate(flat) f: vec4<f32>, @location(4) @interpolate(flat) s: vec4<f32> };\n';
+  var WGSL_SHAPE = WGSL_COMMON + WGSL_SHAPE_VO +
     '@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) a: vec4<f32>, @location(1) b: vec4<f32>, @location(2) f: vec4<f32>, @location(3) s: vec4<f32>) -> VO {\n' +
     ' var cs = array<vec2<f32>,6>(vec2<f32>(0.,0.),vec2<f32>(1.,0.),vec2<f32>(0.,1.),vec2<f32>(1.,0.),vec2<f32>(1.,1.),vec2<f32>(0.,1.));\n' +
     ' let q = cs[vi]*2.-1.; let pad = b.z*.5 + 2./u.v.x; let loc = q*(a.zw+pad); let w = a.xy+loc; let px = w*u.v.x + u.v.yz;\n' +
@@ -6303,6 +6484,35 @@ var NFMRender = (function () {
     ' var o: VO; o.pos = vec4<f32>(px.x/u.res.x*2.-1., 1.-px.y/u.res.y*2., 0., 1.); o.c = c; o.side = hs.y; o.hw = hw*u.v.x; o.solid = solid; return o; }\n' +
     '@fragment fn fs(i: VO) -> @location(0) vec4<f32> {\n' +
     ' var cov = 1.; if (i.solid < .5) { cov = clamp(i.hw - abs(i.side)*i.hw + .5, 0., 1.); } return vec4<f32>(i.c.rgb*i.c.a, i.c.a)*cov; }\n';
+
+  /* turning a big 3D map on the card (WebGPU): the same fragment code as above, with vertex shaders that read the items and links from storage buffers */
+  var WGSL_SHAPE_FS = WGSL_SHAPE.slice(WGSL_SHAPE.indexOf('@fragment')), WGSL_MESH_VO = WGSL_MESH.slice(WGSL_MESH.indexOf('struct VO'), WGSL_MESH.indexOf('@vertex')), WGSL_MESH_FS = WGSL_MESH.slice(WGSL_MESH.indexOf('@fragment'));
+  var WGSL_RIG = 'struct RU { v: vec4<f32>, res: vec4<f32>, cam: vec4<f32>, c3: vec4<f32>, fd: vec4<f32>, gold: vec4<f32>, boxs: vec4<f32>, acc: vec4<f32> };\n' +
+    '@group(0) @binding(0) var<uniform> u: RU;\n@group(0) @binding(1) var<storage, read> nodeF: array<vec4<f32>>;\n@group(0) @binding(2) var<storage, read> nodeS: array<vec4<f32>>;\n' +
+    '@group(0) @binding(3) var<storage, read> edgeF: array<vec4<f32>>;\n@group(0) @binding(4) var<storage, read> edgeS: array<vec4<f32>>;\n' +
+    'struct Pn { p: vec2<f32>, r: f32, f: f32, fd: f32 };\n' +
+    'fn proj(q: u32) -> Pn {\n let a = nodeF[q*4u];\n let x1 = a.x*u.cam.x + a.z*u.cam.y; let z1 = -a.x*u.cam.y + a.z*u.cam.x; let y2 = a.y*u.cam.z - z1*u.cam.w; let z2 = a.y*u.cam.w + z1*u.cam.z;\n' +
+    ' let f = u.c3.z/(u.c3.z + z2); var o: Pn; o.p = vec2<f32>(u.c3.x + x1*f, u.c3.y + y2*f); o.r = a.w*f; o.f = f;\n o.fd = 1.; if (u.c3.w > .5) { o.fd = .42 + .58*(1. - (z2 - u.fd.x)*u.fd.y); }\n return o; }\n';
+  var WGSL_RIG_EDGE = WGSL_RIG + WGSL_MESH_VO +
+    '@vertex fn vs(@builtin(vertex_index) v: u32, @builtin(instance_index) e: u32) -> VO {\n' +
+    ' let E0 = edgeF[e*2u]; let E1 = edgeF[e*2u+1u]; let ES = edgeS[e]; let s = proj(u32(E0.x)); let t = proj(u32(E0.y));\n' +
+    ' let dv = t.p - s.p; var d = sqrt(dot(dv,dv)); if (d == 0.) { d = 1.; } let en = t.p - dv/d*t.r; let sn = s.p + dv/d*s.r;\n' +
+    ' var w = E0.z*(s.f+t.f)*.5; var col = vec4<f32>(E1.rgb, E1.a*(s.fd+t.fd)*.5); var a = ES.x; if (ES.y > .5) { w = max(w*1.8, w+2.); col = u.acc; a = 1.; }\n' +
+    ' let tv = en - sn; var dd = length(tv); if (dd == 0.) { dd = 1.; } let nn = vec2<f32>(-tv.y, tv.x)/dd;\n' +
+    ' var side = 1.; if (v == 0u || v == 2u || v == 3u) { side = -1.; } var b = sn; if (v == 2u || v == 3u || v == 5u) { b = en; }\n' +
+    ' let hw = max(w*.5, .7/u.v.x); let wp = b + nn*side*hw; let px = wp*u.v.x + u.v.yz;\n' +
+    ' var o: VO; o.pos = vec4<f32>(px.x/u.res.x*2.-1., 1.-px.y/u.res.y*2., 0., 1.); o.c = vec4<f32>(col.rgb, col.a*a); o.side = side; o.hw = hw*u.v.x; o.solid = 0.; return o; }\n' + WGSL_MESH_FS;
+  var WGSL_RIG_DOT = WGSL_RIG + WGSL_SHAPE_VO +
+    '@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) id: u32) -> VO {\n' +
+    ' let q = id >> 1u; let which = id & 1u; let p = proj(q); let N1 = nodeF[q*4u+1u]; let N2 = nodeF[q*4u+2u]; let N3 = nodeF[q*4u+3u]; let S0 = nodeS[q*2u]; let S1 = nodeS[q*2u+1u];\n' +
+    ' var c: vec2<f32>; var r: f32; var kind: f32; var sw: f32; var fill: vec4<f32>; var stroke: vec4<f32>;\n' +
+    ' if (which == 0u) { c = p.p; r = p.r; kind = N3.y; sw = N3.x; var fa = N1.a*p.fd; if (N3.z - 2.*floor(N3.z*.5) > .5) { fa = .15; } fill = vec4<f32>(N1.rgb, fa); stroke = N2;\n' +
+    '   if (S0.y > .5 && r > 4. && fa > .1) { stroke = S1; sw = max(sw, 4.); } }\n' +
+    ' else { c = p.p + vec2<f32>(p.r*.72, -p.r*.72); r = max(2.5, p.r*.3); kind = 1.; sw = 1.; fill = u.gold; stroke = u.boxs; if (S0.y > .5 && r > 4. && u.gold.w > .1) { stroke = S1; sw = max(1., 4.); } }\n' +
+    ' var rad = r; if (kind < .5) { rad = min(3., r); } fill.w = fill.w*S0.x; stroke.w = stroke.w*S0.x;\n' +
+    ' var cs = array<vec2<f32>,6>(vec2<f32>(0.,0.),vec2<f32>(1.,0.),vec2<f32>(0.,1.),vec2<f32>(1.,0.),vec2<f32>(1.,1.),vec2<f32>(0.,1.));\n' +
+    ' let qq = cs[vi]*2.-1.; let pad = sw*.5 + 2./u.v.x; let loc = qq*(vec2<f32>(r,r)+pad); let w = c + loc; let px = w*u.v.x + u.v.yz;\n' +
+    ' var o: VO; o.pos = vec4<f32>(px.x/u.res.x*2.-1., 1.-px.y/u.res.y*2., 0., 1.); o.loc = loc; o.a = vec4<f32>(c, r, r); o.b = vec4<f32>(rad, kind, sw, 0.); o.f = fill; o.s = stroke; return o; }\n' + WGSL_SHAPE_FS;
 
   function createWebGPU(host, hooks) {
     if (!navigator.gpu) return Promise.reject(new Error('no WebGPU'));
@@ -6338,14 +6548,56 @@ var NFMRender = (function () {
         device.queue.writeBuffer(b, 0, data.buffer, data.byteOffset, data.byteLength);
       };
       var load = function () { T = tessellate(S); mk('back', T.back, GPUBufferUsage.VERTEX); mk('front', T.front, GPUBufferUsage.VERTEX); mk('mesh', T.mesh, GPUBufferUsage.VERTEX); };
+      /* turning a big 3D map: items and links stay in storage buffers, a picture sends the camera numbers and the paint order (see WGSL_RIG_* above) */
+      var RW = null, rs = { id: 0, sid: null, style: -1, ver: -1 }, rbufs = {}, rbg = null, rU = new Float32Array(32);
+      var rigPrepare = function () {
+        if (RW !== null) return !!RW;
+        try {
+          device.pushErrorScope('validation');
+          var bgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }, { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }] });
+          var pl = device.createPipelineLayout({ bindGroupLayouts: [bgl] }), mE = device.createShaderModule({ code: WGSL_RIG_EDGE }), mD = device.createShaderModule({ code: WGSL_RIG_DOT });
+          var pe = device.createRenderPipeline({ layout: pl, vertex: { module: mE, entryPoint: 'vs' }, fragment: { module: mE, entryPoint: 'fs', targets: [{ format: fmt, blend: blend }] }, primitive: { topology: 'triangle-list' } });
+          var pd = device.createRenderPipeline({ layout: pl, vertex: { module: mD, entryPoint: 'vs', buffers: [{ arrayStride: 4, stepMode: 'instance', attributes: [{ shaderLocation: 0, offset: 0, format: 'uint32' }] }] }, fragment: { module: mD, entryPoint: 'fs', targets: [{ format: fmt, blend: blend }] }, primitive: { topology: 'triangle-list' } });
+          var ru = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+          RW = { bgl: bgl, pe: pe, pd: pd, ru: ru };
+          device.popErrorScope().then(function (err) { if (err) { RW = false; out.rigOK = false; if (hooks && hooks.onError) hooks.onError('webgpu', 'turning on the card: ' + err.message); } else out.rigOK = true; }, function () { RW = false; out.rigOK = false; });
+        } catch (e) { RW = false; out.rigOK = false; }
+        return false;
+      };
+      var rbuf = function (name, floats, usage) {
+        var need = Math.max(16, floats.byteLength), b = rbufs[name];
+        if (!b || b.size < need) { if (b) b.destroy(); b = rbufs[name] = device.createBuffer({ size: Math.ceil(need / 4) * 4, usage: usage | GPUBufferUsage.COPY_DST }); rbg = null; }
+        if (floats.byteLength) device.queue.writeBuffer(b, 0, floats.buffer, floats.byteOffset, floats.byteLength);
+      };
+      var rigSync = function () {
+        var rig = S.rig, STO = GPUBufferUsage.STORAGE;
+        if (rs.id !== rig.id) { rbuf('nodeF', rig.nodeF, STO); rbuf('edgeF', rig.edgeF, STO); rs.id = rig.id; rs.style = -1; rbuf('seq', new Float32Array(rig.n * 2), GPUBufferUsage.VERTEX); }
+        if (rs.style !== S.styleVer || rs.sid !== S) { var st = NFMScene.rigStyle(S); rbuf('nodeS', st.node, STO); rbuf('edgeS', st.edge, STO); rs.style = S.styleVer; rs.sid = S; }
+        if (!rbg) rbg = device.createBindGroup({ layout: RW.bgl, entries: [{ binding: 0, resource: { buffer: RW.ru } }, { binding: 1, resource: { buffer: rbufs.nodeF } }, { binding: 2, resource: { buffer: rbufs.nodeS } }, { binding: 3, resource: { buffer: rbufs.edgeF } }, { binding: 4, resource: { buffer: rbufs.edgeS } }] });
+      };
+      var drawRig = function (view) {
+        var tu = S.turn, rig = S.rig; rigSync();
+        if (rs.ver !== tu.ver || rs.sid2 !== S) { var sq = tu.seq.subarray(0, tu.nseq); if (sq.byteLength) device.queue.writeBuffer(rbufs.seq, 0, sq.buffer, sq.byteOffset, sq.byteLength); rs.ver = tu.ver; rs.sid2 = S; }
+        var g = tu.gold, bs = tu.boxS, ac = tu.accent;
+        rU.set([view.k, view.tx, view.ty, 0, W, Hh, 0, 0, tu.cy, tu.sy, tu.cp, tu.sp, tu.c3x, tu.c3y, tu.D3, tu.fadeOn, tu.dmin, tu.inv, 0, 0, g[0], g[1], g[2], g[3], bs[0], bs[1], bs[2], bs[3], ac[0], ac[1], ac[2], ac[3]]);
+        device.queue.writeBuffer(RW.ru, 0, rU);
+        var bg = S.theme.bg, enc = device.createCommandEncoder();
+        var pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }] });
+        if (rig.m) { pass.setPipeline(RW.pe); pass.setBindGroup(0, rbg); pass.draw(6, rig.m); }
+        if (tu.nseq) { pass.setPipeline(RW.pd); pass.setBindGroup(0, rbg); pass.setVertexBuffer(0, rbufs.seq); pass.draw(6, tu.nseq); }
+        pass.end(); device.queue.submit([enc.finish()]);
+        drawLabels(H.ctx2, S, view, W, Hh, dpr);
+      };
       var noop = function () { /* a fence that failed (device lost) is not a reason to wait */ };
       var out = {
         name: 'webgpu', label: 'WebGPU', device: (r.adapter.info && (r.adapter.info.description || r.adapter.info.device)) || '', software: !!r.adapter.isFallbackAdapter, legacyBuffers: false,
         setScene: function (s) { S = s; if (S) load(); },
-        restyle: function () { if (S) load(); },
+        restyle: function () { if (S && !(S.turn && S.turn.on)) load(); },
+        rigPrepare: rigPrepare, rigOK: false,
         resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
         draw: function (view) {
           if (!S || !T) return;
+          if (S.turn && S.turn.on && S.rig && RW) { drawRig(view); return; }
           ud[0] = view.k; ud[1] = view.tx; ud[2] = view.ty; ud[3] = 0; ud[4] = W; ud[5] = Hh;
           device.queue.writeBuffer(ubuf, 0, ud);
           var bg = S.theme.bg, enc = device.createCommandEncoder();
@@ -6369,7 +6621,7 @@ var NFMRender = (function () {
           return fences.length > keep ? fences[fences.length - 1 - keep].p.then(noop, noop) : Promise.resolve();
         },
         snapshot: function () { return copyViaCanvas(H.main); },
-        destroy: function () { destroyed = true; fences = []; try { Object.keys(bufs).forEach(function (k) { if (bufs[k]) bufs[k].destroy(); }); device.destroy(); } catch (e) { /* gone */ } host.textContent = ''; }
+        destroy: function () { destroyed = true; fences = []; try { Object.keys(bufs).forEach(function (k) { if (bufs[k]) bufs[k].destroy(); }); Object.keys(rbufs).forEach(function (k) { if (rbufs[k]) rbufs[k].destroy(); }); device.destroy(); } catch (e) { /* gone */ } host.textContent = ''; }
       };
       device.addEventListener && device.addEventListener('uncapturederror', function (ev) { if (hooks && hooks.onError) hooks.onError('webgpu', ev.error && ev.error.message); });
       return out;
@@ -6526,11 +6778,19 @@ var NFMProbe = (function () {
     var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
     return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
       r.resize(W, H, 1);
-      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, upT = 0, hidden = false, budget = opts.ms || 1300;
+      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, upT = 0, hidden = false, budget = opts.ms || 1300, rigSc = null;
+      /* opts.rigScene(yaw, pitch): the map is put on the card once and each picture is only a new angle (what the app does for a big 3D map) */
+      var ready = opts.rigScene ? new Promise(function (ok) {
+        if (!r.rigPrepare) { ok('this way of drawing cannot turn a map on the card'); return; }
+        var sc0 = opts.rigScene(0.6, 0.35); r.setScene(sc0); r.rigPrepare();
+        if (!sc0.turnTo) { ok('this map cannot be turned on the card (too few links, or arrows, dashes or bends)'); return; }
+        var tries = 0, poll = function () { if (r.rigOK) { rigSc = sc0; ok(null); } else if (++tries > 40) ok('the card could not set up turning'); else setTimeout(poll, 25); }; poll();
+      }) : Promise.resolve(null);
       var loop = function () {
         var f = frames / 90, yaw = 0.6 + 6.2832 * f, pitch = 0.35 + 0.3 * Math.sin(6.2832 * f), z = 1 + 0.35 * Math.sin(6.2832 * f * 0.5);
-        var a = nowMs(), sc = opts.makeScene(yaw, pitch), b = nowMs();
-        r.setScene(sc); var u = nowMs(); var v = fitView(sc, W, H); v.k *= z; v.tx = W / 2 - (W / 2 - v.tx) * z; v.ty = H / 2 - (H / 2 - v.ty) * z; r.draw(v);
+        var a = nowMs(), sc, b;
+        if (rigSc) { sc = rigSc; sc.turnTo({ yaw: yaw, pitch: pitch, persp: 2.4 }, 4); b = nowMs(); } else { sc = opts.makeScene(yaw, pitch); b = nowMs(); r.setScene(sc); }
+        var u = nowMs(); var v = fitView(sc, W, H); v.k *= z; v.tx = W / 2 - (W / 2 - v.tx) * z; v.ty = H / 2 - (H / 2 - v.ty) * z; r.draw(v);
         var c = nowMs(); frames++;
         if (frames > 3) { sceneT += b - a; drawT += c - b; upT += u - b; }
         return wait(r).then(function () { return nextRefresh(); }).then(function (ok) {
@@ -6539,9 +6799,12 @@ var NFMProbe = (function () {
           if (nowMs() - start < budget && frames < 600) return loop();
         });
       };
-      return loop().then(function () {
-        var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
-        return gone(hidden || counted < 4 ? { backend: n, skipped: 'the page was in the background' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted });
+      return ready.then(function (why) {
+        if (why) { r.destroy(); return gone({ backend: n, skipped: why }); }
+        return loop().then(function () {
+          var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
+          return gone(hidden || counted < 4 ? { backend: n, skipped: 'the page was in the background' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc });
+        });
       });
     }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
   }
@@ -6767,7 +7030,7 @@ var NFMProbe = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.15.2055', EDGE = 130;
+  var VERSION = '2026.10.15.2149', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -7060,7 +7323,7 @@ var NFMProbe = (function () {
     (function tick(ts) { if (ts - last > 33 && !document.hidden) { last = ts; previews.forEach(function (p) { if (p.st.visible && !p.st.paused && !p.st.drag) { p.st.yaw += 0.012; p.draw(); } }); } requestAnimationFrame(tick); })(0);
   }
   STEPS.push({ name: '3D arrangements and turning', run: async function () {
-    var s = addSection('3D arrangements: build time, and how smoothly they turn'), sizes = params.get('plan3d') ? params.get('plan3d').split(',').map(Number) : QUICK ? [600] : [1000, 3000], kinds = [['force3d', '3D force'], ['sphere', 'Sphere'], ['stack', 'Stacked group planes']];
+    var s = addSection('3D arrangements: build time, and how smoothly they turn'), sizes = params.get('plan3d') ? params.get('plan3d').split(',').map(Number) : QUICK ? [600] : [1000, 3000, 10000, 30000], kinds = [['force3d', '3D force'], ['sphere', 'Sphere'], ['stack', 'Stacked group planes']];
     s.head = ['Items', 'Arrangement', 'Build time', 'Hop error in 3D']; var scenes = [], previewL = null;
     for (var zi = 0; zi < sizes.length; zi++) for (var ki = 0; ki < kinds.length; ki++) {
       var n = sizes[zi], ar = kinds[ki][0]; setStatus('3D, ' + n.toLocaleString() + ' items: ' + kinds[ki][1] + '…'); await yieldUI();
@@ -7077,17 +7340,25 @@ var NFMProbe = (function () {
     var turnRows = [], best = null; ctx.turn = [];
     for (var si = 0; si < scenes.length; si++) for (var bi = 0; bi < names.length; bi++) {
       setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + '…'); await yieldUI();
-      var Lx = scenes[si].L3, t = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, makeScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
-      var nm = names[bi] === 'webgpu' ? 'WebGPU' : names[bi] === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
-      if (t.fps) { turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm, Math.round(t.fps), r1(t.sceneMs), r1(t.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], fps: r1(t.fps), sceneMs: r1(t.sceneMs), drawMs: r1(t.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || t.fps > best.fps)) best = t; }
-      else turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm, 'skipped', '-', String(t.skipped).slice(0, 40)]);
+      var Lx = scenes[si].L3, nm = names[bi] === 'webgpu' ? 'WebGPU' : names[bi] === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
+      if (names[bi] === 'canvas2d' && scenes[si].n > 3000) continue;   /* far too slow to be worth timing */
+      var t = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, makeScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      if (t.fps) { turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm + ', every angle worked out here', Math.round(t.fps), r1(t.sceneMs), r1(t.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'here', fps: r1(t.fps), sceneMs: r1(t.sceneMs), drawMs: r1(t.drawMs) }); }
+      else turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm + ', every angle worked out here', 'skipped', '-', String(t.skipped).slice(0, 40)]);
+      if (names[bi] === 'canvas2d') continue;
+      /* the way the app turns a big 3D map: the map sits on the graphics card, each picture is only a new angle */
+      setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + ', math on the card…'); await yieldUI();
+      var tc = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, rigScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      if (tc.fps) { turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm + ', math on the card', Math.round(tc.fps), r1(tc.sceneMs), r1(tc.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'card', fps: r1(tc.fps), sceneMs: r1(tc.sceneMs), drawMs: r1(tc.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || tc.fps > best.fps)) best = tc; }
+      else turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm + ', math on the card', 'skipped', '-', String(tc.skipped).slice(0, 60)]);
     }
     s.rows.push(['', '', '', '']); s.rows.push(['Turning speed', 'Pictures per second', 'New angle (ms)', 'Draw (ms)']); turnRows.forEach(function (r) { s.rows.push(r); });
     if (previewL) await addPreview(s.card, previewL.L3, '3D force, ' + previewL.n.toLocaleString() + ' items', names[names.length - 1]);
     s.notes.push('Hop error in 3D uses the same measure as the distance error but with three dimensions; it is lower than a flat map would give and is not colored, because the bands are for flat maps. The sphere and stacked planes are shapes first, so their hop error is higher by design. "New angle" is the time to work out the picture from the new viewing angle (done on the main thread, once per picture); "Draw" is the time to hand it to the screen.');
+    s.notes.push('"Math on the card" is how the app turns a big 3D map: the items and links are put on the graphics card once, and each picture is only a new angle, so "New angle" is just the paint order and the few names that can be seen. "Every angle worked out here" is the older way, kept for comparison.');
     var say, level = 'ok';
     if (!best) { say = 'Built the 3D arrangements, but could not time turning (the page may have been in the background).'; level = 'warn'; }
-    else { say = 'Turning a ' + sizes[sizes.length - 1].toLocaleString() + '-item 3D map ran at about ' + Math.round(best.fps) + ' pictures per second (' + r1(best.sceneMs) + ' ms to work out each new angle, ' + r1(best.drawMs) + ' ms to draw).' + (best.fps >= 45 ? ' Smooth.' : best.fps >= 20 ? ' Usable but a little steppy.' : ' Choppy.'); level = best.fps >= 45 ? 'ok' : best.fps >= 20 ? 'warn' : 'bad'; }
+    else { say = 'Turning a ' + sizes[sizes.length - 1].toLocaleString() + '-item 3D map with the math done on the graphics card ran at about ' + Math.round(best.fps) + ' pictures per second (' + r1(best.sceneMs) + ' ms to work out each new angle, ' + r1(best.drawMs) + ' ms to draw).' + (best.fps >= 45 ? ' Smooth.' : best.fps >= 20 ? ' Usable but a little steppy.' : ' Choppy.'); level = best.fps >= 45 ? 'ok' : best.fps >= 20 ? 'warn' : 'bad'; }
     s.finish(level, say); return { level: level, say: say };
   } });
 

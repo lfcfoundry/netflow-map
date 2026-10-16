@@ -199,7 +199,9 @@ function makeScene(fit) {
   applyPins(S.L);
   var t0 = performance.now();
   S.camPlan = null;
-  S.scene = NFMScene.make(S.L, sceneOpts());
+  var so0 = sceneOpts();
+  if (S.L.is3d && mgr && mgr.r && mgr.r.rigPrepare) { mgr.r.rigPrepare(); S.camPlan = {}; so0.plan = S.camPlan; so0.rig = true; }   /* a big 3D map is ready to turn on the card from the first drag */
+  S.scene = NFMScene.make(S.L, so0);
   editKey(S.scene);
   S.sceneMs = performance.now() - t0;
   applyStyle(true);
@@ -210,7 +212,27 @@ function makeScene(fit) {
 }
 var sceneQueued = false, sceneCamOnly = true;
 /** Redraws on the next frame. camOnly: only the camera of a 3D map changed, so what each item looks like is reused from the last picture. */
-function scheduleScene(camOnly) { sceneCamOnly = sceneCamOnly && camOnly === true; if (sceneQueued) return; sceneQueued = true; requestAnimationFrame(function () { sceneQueued = false; if (S.L) { applyPins(S.L); var so = sceneOpts(); if (sceneCamOnly && S.L.is3d) so.plan = S.camPlan || (S.camPlan = {}); else S.camPlan = null; sceneCamOnly = true; S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (mgr && mgr.r) mgr.r.setScene(S.scene); requestDraw(); } }); }
+function scheduleScene(camOnly) {
+  sceneCamOnly = sceneCamOnly && camOnly === true; if (sceneQueued) return; sceneQueued = true;
+  requestAnimationFrame(function () {
+    sceneQueued = false; if (!S.L) return;
+    var r = mgr && mgr.r, sc = S.scene;
+    /* a big 3D map that is only being turned: the graphics card already holds the items and links, so just give it the new angle (see turnTo in scene.js) */
+    if (sceneCamOnly && S.L.is3d && sc && sc.turnTo && r && r.rigOK && !sc.noTurn) { sc.turnTo(S.V.cam, S.view.k * 2); requestDraw(); armSettle(); return; }
+    applyPins(S.L); var so = sceneOpts();
+    if (sceneCamOnly && S.L.is3d) { so.plan = S.camPlan || (S.camPlan = {}); if (r && r.rigPrepare) { r.rigPrepare(); so.rig = true; } } else S.camPlan = null;
+    sceneCamOnly = true; S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (r) r.setScene(S.scene); requestDraw();
+  });
+}
+/** While a big 3D map turns, the picture lives on the card and the lists in the scene are out of date. A moment after the turning stops (or when something needs them: saving, printing) they are made again. */
+var settleTimer = 0;
+function armSettle() { clearTimeout(settleTimer); settleTimer = setTimeout(settleTurn, 250); }
+function settleTurn() {
+  clearTimeout(settleTimer);
+  var sc = S.scene; if (!S.L || !sc || !sc.turn || !sc.turn.on) return;
+  applyPins(S.L); var so = sceneOpts(); so.plan = S.camPlan || (S.camPlan = {}); so.rig = true;
+  S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (mgr && mgr.r) mgr.r.setScene(S.scene); requestDraw();
+}
 
 /* ---------------------------------------------------------------- selection, dimming, search, route lighting */
 function sceneNodeFor(id) { if (!S.scene || id == null) return null; if (!S.keyMap || S.keyMap.sc !== S.scene) { var m = new Map(); S.scene.nodes.forEach(function (n) { if (n.nodeId !== undefined && !m.has(n.nodeId)) m.set(n.nodeId, n); }); S.keyMap = { sc: S.scene, m: m }; } return S.keyMap.m.get(id) || null; }
@@ -278,11 +300,12 @@ function requestDraw() {
   if (drawQueued) return; drawQueued = true;
   requestAnimationFrame(function () {
     drawQueued = false;
+    var tsc = S.scene; if (tsc && tsc.turn && tsc.turn.on && S.view.k > tsc.turn.kmax) tsc.turnTo(tsc.turn.cam, S.view.k * 2);   /* zoomed in: more names can be seen */
     if (mgr && mgr.r && S.scene) { try { mgr.r.draw({ k: S.view.k, tx: S.view.tx, ty: S.view.ty, invalidate: requestDraw }); } catch (err) { mgr.log.push('draw: ' + err.message); } }
     drawInk();
   });
 }
-function attach(r) { r.resize(S.stageW, S.stageH, S.dpr); if (S.scene) r.setScene(S.scene); requestDraw(); renderMapUI(); }
+function attach(r) { r.resize(S.stageW, S.stageH, S.dpr); if (S.scene) { r.setScene(S.scene); if (S.L && S.L.is3d && r.rigPrepare) r.rigPrepare(); } requestDraw(); renderMapUI(); }
 var mgrStarting = false;
 function startRenderer() {
   if (mgr || mgrStarting) return;
