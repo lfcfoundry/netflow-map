@@ -518,24 +518,50 @@ var NFMRender = (function () {
         if (!b || b.size < need) { if (b) b.destroy(); b = rbufs[name] = device.createBuffer({ size: Math.ceil(need / 4) * 4, usage: usage | GPUBufferUsage.COPY_DST }); rbg = null; }
         if (floats.byteLength) device.queue.writeBuffer(b, 0, floats.buffer, floats.byteOffset, floats.byteLength);
       };
+      /* the other ways of sending the paint order (the tester compares them): a ring of three card buffers, and staging buffers that are written directly */
+      var seqExtras = function (bytes) {
+        var i;
+        if (rbufs.seqR) for (i = 0; i < rbufs.seqR.length; i++) rbufs.seqR[i].destroy();
+        if (rs.stage) for (i = 0; i < rs.stage.length; i++) { try { rs.stage[i].destroy(); } catch (e) { /* already gone */ } }
+        rbufs.seqR = []; rs.stage = []; rs.stageOK = []; rs.ring = 0;
+        for (i = 0; i < 3; i++) rbufs.seqR.push(device.createBuffer({ size: Math.max(16, bytes), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }));
+        rs.bytes = bytes;
+      };
+      var seqStage = function () {   /* made when first asked for */
+        for (var i = 0; i < 4; i++) { rs.stage.push(device.createBuffer({ size: Math.max(16, rs.bytes), usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC, mappedAtCreation: true })); rs.stageOK.push(true); }
+      };
       var rigSync = function () {
         var rig = S.rig, STO = GPUBufferUsage.STORAGE;
-        if (rs.id !== rig.id) { rbuf('nodeF', rig.nodeF, STO); rbuf('edgeF', rig.edgeG, STO); rs.id = rig.id; rs.style = -1; rbuf('seq', new Float32Array(rig.n * 2), GPUBufferUsage.VERTEX); }
+        if (rs.id !== rig.id) { rbuf('nodeF', rig.nodeF, STO); rbuf('edgeF', rig.edgeG, STO); rs.id = rig.id; rs.style = -1; rbuf('seq', new Float32Array(rig.n * 2), GPUBufferUsage.VERTEX); seqExtras(rig.n * 8); }
         if (rs.style !== S.styleVer || rs.sid !== S) { var st = NFMScene.rigStyle(S); rbuf('nodeS', st.node, STO); rbuf('edgeS', st.edge, STO); rs.style = S.styleVer; rs.sid = S; }
         if (!rbg) rbg = device.createBindGroup({ layout: RW.bgl, entries: [{ binding: 0, resource: { buffer: RW.ru } }, { binding: 1, resource: { buffer: rbufs.nodeF } }, { binding: 2, resource: { buffer: rbufs.nodeS } }, { binding: 3, resource: { buffer: rbufs.edgeF } }, { binding: 4, resource: { buffer: rbufs.edgeS } }] });
       };
       var drawRig = function (view) {
         var tu = S.turn, rig = S.rig; rigSync();
-        if ((rs.ver !== tu.ver || rs.sid2 !== S) && !(out.rigDebug && out.rigDebug.keepOrder)) { var sq = tu.seq.subarray(0, tu.nseq); if (sq.byteLength) device.queue.writeBuffer(rbufs.seq, 0, sq.buffer, sq.byteOffset, sq.byteLength); rs.ver = tu.ver; rs.sid2 = S; }
+        var bg = S.theme.bg, enc = device.createCommandEncoder(), mapped = -1, seqBuf = rbufs.seq, via = (out.rigDebug && out.rigDebug.orderVia) || out.orderVia || 'write';
+        if ((rs.ver !== tu.ver || rs.sid2 !== S) && !(out.rigDebug && out.rigDebug.keepOrder)) {
+          var sq = tu.seq.subarray(0, tu.nseq);
+          if (sq.byteLength) {
+            if (via === 'map' && !rs.stage.length) seqStage();
+            if (via === 'map') {                          /* write into a staging buffer the browser already handed over, then copy on the card: no copy made by the browser each picture */
+              for (var si = 0; si < rs.stage.length && mapped < 0; si++) if (rs.stageOK[si]) mapped = si;
+              if (mapped >= 0) { new Uint32Array(rs.stage[mapped].getMappedRange(0, sq.byteLength)).set(sq); rs.stage[mapped].unmap(); rs.stageOK[mapped] = false; enc.copyBufferToBuffer(rs.stage[mapped], 0, rbufs.seq, 0, sq.byteLength); }
+              else device.queue.writeBuffer(rbufs.seq, 0, sq.buffer, sq.byteOffset, sq.byteLength);   /* none free yet: the plain way this once */
+            } else if (via === 'ring') { rs.ring = (rs.ring + 1) % 3; device.queue.writeBuffer(rbufs.seqR[rs.ring], 0, sq.buffer, sq.byteOffset, sq.byteLength); }
+            else device.queue.writeBuffer(rbufs.seq, 0, sq.buffer, sq.byteOffset, sq.byteLength);
+          }
+          rs.ver = tu.ver; rs.sid2 = S;
+        }
+        if (via === 'ring') seqBuf = rbufs.seqR[rs.ring];
         var g = tu.gold, bs = tu.boxS, ac = tu.accent;
         rU.set([view.k, view.tx, view.ty, 0, W, Hh, 0, 0, tu.cy, tu.sy, tu.cp, tu.sp, tu.c3x, tu.c3y, tu.D3, tu.fadeOn, tu.dmin, tu.inv, 0, 0, g[0], g[1], g[2], g[3], bs[0], bs[1], bs[2], bs[3], ac[0], ac[1], ac[2], ac[3]]);
         device.queue.writeBuffer(RW.ru, 0, rU);
-        var bg = S.theme.bg, enc = device.createCommandEncoder();
         var pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }] });
         var dbg = out.rigDebug || NODBG;
         if (rig.m && !dbg.noLinks) { pass.setPipeline(RW.pe); pass.setBindGroup(0, rbg); pass.draw(4, rig.m); }
-        if (tu.nseq && !dbg.noItems) { pass.setPipeline(RW.pd); pass.setBindGroup(0, rbg); pass.setVertexBuffer(0, rbufs.seq); pass.draw(6, tu.nseq); }
+        if (tu.nseq && !dbg.noItems) { pass.setPipeline(RW.pd); pass.setBindGroup(0, rbg); pass.setVertexBuffer(0, seqBuf); pass.draw(6, tu.nseq); }
         pass.end(); device.queue.submit([enc.finish()]);
+        if (mapped >= 0) { var mb = mapped; rs.stage[mb].mapAsync(GPUMapMode.WRITE).then(function () { rs.stageOK[mb] = true; }, noop); }
         if (!dbg.noNames) drawLabels(H.ctx2, S, view, W, Hh, dpr);
       };
       var noop = function () { /* a fence that failed (device lost) is not a reason to wait */ };
