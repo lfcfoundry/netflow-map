@@ -285,6 +285,44 @@ async function open() {
   say(await ev(() => !/right-click|ctrl\+/i.test(document.getElementById('rail').innerText)), 'no right-click or Ctrl words in the controls on touch');
   await ev(() => NFM.touch(null)); await D.size(1100, 720); await sleep(200);
 
+
+  /* turning a big 3D map on the card: the picture while turning is the ordinary picture, labels and selection survive, and the full picture comes back once the turning stops */
+  await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(1800, 9, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'force3d' }); });
+  await D.wait(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length > 1700, null, 90000); await sleep(300);
+  for (const be of ['webgl2', 'webgpu']) {
+    const res = await ev(async (be) => {
+      const m = NFM.manager(), S = NFM.state, raf = () => new Promise((r) => requestAnimationFrame(() => r()));
+      if (!m.canary) m.canary = {}; m.canary[be] = { ok: true };
+      try { await m.use(be); } catch (e) { return { err: e.message }; }
+      if (m.r.name !== be) return { err: 'not available here (fell back to ' + m.r.name + ')' };
+      const setTO = window.setTimeout; window.setTimeout = (f, ms, ...a) => (ms === 250 ? 0 : setTO(f, ms, ...a));   /* hold off the settle while we look */
+      try {
+        const turn = async (yaw, pitch) => { S.V.cam = Object.assign({}, S.V.cam, { yaw, pitch }); NFM.scheduleScene(true); await raf(); await raf(); await raf(); };
+        for (let i = 0; i < 100 && !m.r.rigOK; i++) { m.r.rigPrepare(); await sleep0(100); }   /* WebGPU sets up its turning shaders a moment after the first picture */
+        await turn(0.4, 0.3); await sleep0(100); await turn(0.5, 0.3);                  /* the first angle builds the picture for the card, the next ones only turn it */
+        const sc0 = S.scene, on0 = !!(sc0.turn && sc0.turn.on), ok0 = m.r.rigOK;
+        await turn(1.9, -0.25);
+        const sc = S.scene, on = !!(sc.turn && sc.turn.on), vis = (q, k) => q.labels.filter((l) => l.minK <= k && l.size * k >= 6.5).length, labels = vis(sc, 0.8), shot = (v) => { m.r.draw(v); const s = m.r.snapshot(); return m.r.flush().then(() => ({ w: s.width, h: s.height, d: s.data })); };
+        const view = { k: 0.8, tx: 30, ty: 30, invalidate() {} };
+        S.view = view; let A = await shot(view);                                       /* drawn from the card */
+        sc.turnTo(sc.turn.cam, 1.6); const labels2 = vis(sc, 0.8), A2 = await shot(view);
+        NFM.settleTurn(); const B = await shot(view), full = !(S.scene.turn && S.scene.turn.on), labelsFull = vis(S.scene, 0.8);   /* the ordinary picture of the same angle */
+        let sum = 0, far = 0; const n = A.d.length / 4; for (let i = 0; i < A.d.length; i += 4) { const d = (Math.abs(A.d[i] - B.d[i]) + Math.abs(A.d[i + 1] - B.d[i + 1]) + Math.abs(A.d[i + 2] - B.d[i + 2])) / 3; sum += d; if (d > 40) far++; }
+        /* a selection made while turning */
+        await turn(2.4, -0.2); const id = S.scene.nodes[3].nodeId; NFM.select(id); await raf(); await raf();
+        const sel = S.scene.turn && S.scene.turn.on, dim = S.scene.nodes.some((q) => q.a < 0.5);
+        return { on0, ok0, on, labels: labels2, labelsFull, full, mean: sum / n, far: far / n, sel, dim, w: A.w };
+      } finally { window.setTimeout = setTO; NFM.select(null); }
+      function sleep0(ms) { return new Promise((r) => setTO(r, ms)); }
+    }, be);
+    if (res.err) { say(strict ? false : null, `turning on the card with ${be}: ${res.err}`); continue; }
+    say(res.ok0, `${be}: the card can take a map to turn`);
+    say(res.on0 && res.on, `${be}: turning a big 3D map only sends the new angle to the card`);
+    say(res.labels > 5 && res.labels === res.labelsFull, `${be}: the same names are drawn while turning as in the ordinary picture (${res.labels} and ${res.labelsFull})`);
+    say(res.full && res.mean <= 1.5 && res.far < 0.01, `${be}: the picture from the card matches the ordinary picture: mean ${res.mean.toFixed(2)}/255, ${(res.far * 100).toFixed(2)}% pixels far off`);
+    say(res.sel && res.dim, `${be}: selecting while turning dims the rest at once`);
+  }
+  await ev(() => NFM.manager().use('auto'));
   say(errs.length === 0, 'no errors in the console' + (errs.length ? ': ' + errs.slice(0, 4).join(' | ') : ''));
   await D.close(); console.log(fails ? `${fails} FAILED` : 'browser test: all passed'); process.exitCode = fails ? 1 : 0;
 })().catch((e) => { console.log('crash', e && e.stack || e); process.exit(2); });

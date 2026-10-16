@@ -50,6 +50,7 @@ function sceneToCanvas(sc, w, hh, withKey) {
   });
 }
 function exportPng(scale, withKey) {
+  settleTurn();
   var sc = S.scene; if (!sc) { toast('Nothing to save yet. Open the Map first.'); return; }
   var k = Math.min(scale, 6000 / Math.max(sc.w, sc.h)), w = Math.max(300, Math.round(sc.w * k)), hh = Math.max(300, Math.round(sc.h * k));
   sceneToCanvas(sc, w, hh, withKey).then(function (c) { if (!c) { toast('The picture could not be made.'); return; } c.toBlob(function (b) { if (b) download(fname('-' + S.V.view + '.png'), b); else toast('The picture could not be made.'); }, 'image/png'); });
@@ -65,7 +66,7 @@ function renderExport() {
     h('div', { class: 'card' }, [h('h2', null, 'Picture of the map'), h('p', { class: 'muted small', style: { margin: 0 } }, needMap ? 'Open the Map tab once first, so there is something to save.' : 'Exactly what the Map shows now, with your formatting.'),
       h('div', { class: 'row' }, [check('Include the key', key, function (on) { EXP.key = on; }),
         field('PNG size', select([[1, 'Normal'], [2, 'Sharp (2x)'], [3, 'Poster (3x)']], pngScale, function (v) { EXP.scale = +v; }))]),
-      h('div', { class: 'row' }, [btn('PNG', function () { exportPng(EXP.scale, EXP.key); }, false, needMap), btn('SVG (editable)', function () { download(fname('-' + S.V.view + '.svg'), NFMScene.toSvg(S.scene, S.graph.name + ' (' + S.V.view + ')'), 'image/svg+xml'); }, false, needMap), btn('Poster (print or PDF)', function () { printPoster(S.graph.name, ''); }, false, needMap)])]),
+      h('div', { class: 'row' }, [btn('PNG', function () { exportPng(EXP.scale, EXP.key); }, false, needMap), btn('SVG (editable)', function () { settleTurn(); download(fname('-' + S.V.view + '.svg'), NFMScene.toSvg(S.scene, S.graph.name + ' (' + S.V.view + ')'), 'image/svg+xml'); }, false, needMap), btn('Poster (print or PDF)', function () { printPoster(S.graph.name, ''); }, false, needMap)])]),
     gifCard(),
     h('div', { class: 'card' }, [h('h2', null, 'Reports and views'),
       h('div', { class: 'row' }, [btn('Data check report (Markdown)', function () { if (!CHK.res) { toast('Run the check first (Check tab).'); showTab('check'); return; } download(fname('-check.md'), NFMCheck.toMarkdown(CHK.res, S.graph), 'text/markdown'); }),

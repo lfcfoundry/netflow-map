@@ -337,6 +337,7 @@ var NFMScene = (function () {
   /** Which node box is under this world point (topmost = last drawn); slop is in world units. */
   function pick(S, wx, wy, slop) {
     slop = slop || 0;
+    if (S.gridStale) { buildGrid(S); S.gridStale = false; }
     var G = S.grid, best = null, cs = G.cell;
     var c0 = Math.floor((wx - slop - S.x0) / cs), c1 = Math.floor((wx + slop - S.x0) / cs), r0 = Math.floor((wy - slop - S.y0) / cs), r1 = Math.floor((wy + slop - S.y0) / cs);
     for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) {
@@ -345,7 +346,7 @@ var NFMScene = (function () {
       for (var j = 0; j < a.length; j++) {
         var n = S.nodes[a[j]];
         if (n.hidden) continue;
-        if (wx >= n.x - slop && wx <= n.x + n.w + slop && wy >= n.y - slop && wy <= n.y + n.h + slop) { if (!best || n.i > best.i) best = n; }
+        if (wx >= n.x - slop && wx <= n.x + n.w + slop && wy >= n.y - slop && wy <= n.y + n.h + slop) { if (!best || (n.o !== undefined ? n.o : n.i) > (best.o !== undefined ? best.o : best.i)) best = n; }
       }
     }
     return best;
@@ -447,7 +448,7 @@ var NFMScene = (function () {
     if (n) return { type: 'node', node: n, key: n.key };
     var l = pickLabel(S, wx, wy, k);
     if (l) { if (l.group !== undefined) return { type: 'group', group: l.group }; if (l.node >= 0 && S.nodes[l.node]) return { type: 'label', node: S.nodes[l.node], key: S.nodes[l.node].key, label: l }; if (l.edge !== undefined && l.edge >= 0) { var cv = S.curves.filter(function (c) { return c.edge === l.edge; })[0]; return { type: 'edge', edge: l.edge, from: l.from !== undefined ? l.from : cv && cv.from, to: l.to !== undefined ? l.to : cv && cv.to }; } }
-    var e = pickEdge(S, wx, wy, (opt.edgeTol || 7) / k);
+    var e = S.turn && S.turn.on ? null : pickEdge(S, wx, wy, (opt.edgeTol || 7) / k);   /* while a big 3D map is being turned its links are only on the card */
     if (e) return { type: 'edge', edge: e.edge, from: e.from, to: e.to, cell: e.cell };
     for (var i = S.polys.length - 1; i >= 0; i--) { var p = S.polys[i]; if (p.group !== undefined && inPoly(p.pts, wx, wy)) return { type: 'group', group: p.group }; }
     for (var j = 0; j < S.rects.length; j++) { var r = S.rects[j]; if (r.lane !== undefined && wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h) return { type: 'lane', lane: r.lane }; }
@@ -791,10 +792,16 @@ var NFMScene = (function () {
       if (ST && ST.idxOf) idxOf = ST.idxOf; else { idxOf = new Map(); L.nodes.forEach(function (n, q) { idxOf.set(n.id, q); }); }
       if (ST) { ST.rk = rk; ST.idxOf = idxOf; }
     }
-    var topN = X.LC.items.topN;
+    var topN = X.LC.items.topN, recOf = n3 && ST ? new Int32Array(L.nodes.length).fill(-1) : null, dotOf = recOf ? new Int32Array(L.nodes.length).fill(-1) : null;
+    /* one item's name under it: the same call for a normal picture and for a turn frame */
+    var emitLabel = function (n, q, np, rec, px, py, r, f, fd) {
+      var rnk = rk[q], showTop = topN && rnk < topN, fill = n3 ? alpha(np.fill, np.fill[3] * fd) : np.fill;
+      lab(px, py + r + 11 * (n3 ? f : 1), np.text, 11 * (n3 ? Math.max(0.7, f) : 1), np.col || X.labColor(n, fill), { node: rec.i, minK: showTop ? 0.05 : 0.22 * (1 + rnk / 35), bold: rnk < 8 });
+    };
     list.forEach(function (p) {
       var n = p.n, st = n._st, r = p.r; if (p.hide) return;
       var rec = addNode(n, p.px - r, p.py - r, 2 * r, 2 * r), q = idxOf.get(n.id), fd = p.fd, np = ST ? ST.nodes[q] : undefined;
+      if (recOf) { recOf[q] = rec.i; dotOf[q] = S.dots.length; }
       if (np === undefined) {
         var vc0 = n.end ? valCol(n.valence) : null, fill0 = n.start ? mix(fillOf(n), T.accent, 0.7) : fillOf(n).map(function (v, k) { return k < 3 ? v : Math.max(v, 0.92); }), kind0 = SHAPE_KIND[st && st.shape]; if (kind0 === undefined) kind0 = 1;
         np = { fill: fill0, kind: kind0, replace: !!(st && (st.icon || st.image) && st.iconMode !== 'inside'), stroke: st && st.stroke ? hex(st.stroke) : n.start ? T.accent : vc0 || alpha(T.box, 0.9), sw: st && st.sw !== undefined ? st.sw : n.start ? 3 : vc0 ? 2.5 : 1.2, text: clip(X.tx(n), 24), col: X.LC.items.color === 'fill' ? null : X.labColor(n, fill0) };
@@ -804,9 +811,115 @@ var NFMScene = (function () {
       S.dots.push({ cx: p.px, cy: p.py, r: r, fill: replace ? alpha(fill, 0.15) : fill, stroke: np.stroke, sw: np.sw, layer: 1, node: rec.i, kind: kind });
       if (n.choke) S.dots.push({ cx: p.px + r * 0.72, cy: p.py - r * 0.72, r: Math.max(2.5, r * 0.3), fill: T.gold, stroke: alpha(T.box, 0.9), sw: 1, layer: 1, node: rec.i });
       X.addIcon(n, rec, p.px, p.py, r);
-      var rnk = rk[q], showTop = topN && rnk < topN;
-      lab(p.px, p.py + r + 11 * (n3 ? p.f : 1), np.text, 11 * (n3 ? Math.max(0.7, p.f) : 1), np.col || X.labColor(n, fill), { node: rec.i, minK: showTop ? 0.05 : 0.22 * (1 + rnk / 35), bold: rnk < 8 });
+      emitLabel(n, q, np, rec, p.px, p.py, r, p.f, fd);
     });
+    if (recOf && o.rig && S.icons.length === 0 && m >= (o.rigMin === undefined ? RIG_MIN_LINKS : o.rigMin)) {
+      if (ST.rig === undefined) ST.rig = makeRig(L, ST, T, idxOf, rk);
+      if (ST.rig) attachTurn(X, ST.rig, { recOf: recOf, dotOf: dotOf, np: ST.nodes, idxOf: idxOf, rk: rk, emitLabel: emitLabel, cam: cam, R3: R3, topN: topN });
+    }
+  }
+
+  /* ---------------------------------------------------------------- turning a big 3D map on the graphics card */
+  var RIG_MIN_LINKS = 1500;
+  /**
+   * The parts of a big 3D map that do not change while it turns: where each item sits in space, how it looks, which two items each link joins and how it looks.
+   * The graphics card is given these once; for each new angle it works out the screen places itself (src/render.js). Returns null when this map cannot be drawn
+   * that way (bent, dashed or arrow-headed links; fewer than a few links), and the ordinary picture is used instead.
+   */
+  var RIG_ID = 0;
+  function makeRig(L, ST, T, idxOf, rk) {
+    var N = L.nodes.length, nodeF = new Float32Array(N * 16), pos = new Float64Array(N * 4), hid = new Uint8Array(N), chk = new Uint8Array(N), c3 = L.c3 || [0, 0], q, ei;
+    for (q = 0; q < N; q++) {
+      var n = L.nodes[q], st = n._st, np = ST.nodes[q], o = q * 16;
+      pos[q * 4] = n.cx - c3[0]; pos[q * 4 + 1] = n.cy - c3[1]; pos[q * 4 + 2] = n.z || 0; pos[q * 4 + 3] = n.w / 2 * (st && st.scale ? st.scale : 1);
+      if (st && st.hide) { hid[q] = 1; continue; }
+      if (!np) return null;
+      for (var i = 0; i < 3; i++) { nodeF[o + i] = pos[q * 4 + i]; }
+      nodeF[o + 3] = pos[q * 4 + 3];
+      for (i = 0; i < 4; i++) { nodeF[o + 4 + i] = np.fill[i]; nodeF[o + 8 + i] = np.stroke[i]; }
+      chk[q] = n.choke ? 1 : 0;
+      nodeF[o + 12] = np.sw; nodeF[o + 13] = np.kind; nodeF[o + 14] = (np.replace ? 1 : 0) + (n.choke ? 2 : 0); nodeF[o + 15] = 0;
+    }
+    var rows = [];
+    for (ei = 0; ei < L.edges.length; ei++) {
+      var e = L.edges[ei], a = idxOf.get(e.from), b = idxOf.get(e.to);
+      if (a === undefined || b === undefined || a === b || hid[a] || hid[b]) continue;
+      var sp = ST.edges[ei];
+      if (sp === undefined) return null;
+      if (!sp) continue;
+      var lk = sp.lk;
+      if (lk.bend || lk.dash || lk.arrow) return null;
+      rows.push(a, b, lk.w, lk.color[0], lk.color[1], lk.color[2], lk.color[3], ei);
+    }
+    var M = rows.length / 8, edgeF = new Float32Array(M * 8), edgeIdx = new Int32Array(M);
+    for (var k = 0; k < M; k++) { var r = k * 8; edgeF[r] = rows[r]; edgeF[r + 1] = rows[r + 1]; edgeF[r + 2] = rows[r + 2]; edgeF[r + 3] = 0; edgeF[r + 4] = rows[r + 3]; edgeF[r + 5] = rows[r + 4]; edgeF[r + 6] = rows[r + 5]; edgeF[r + 7] = rows[r + 6]; edgeIdx[k] = rows[r + 7]; }
+    var byRank = []; for (q = 0; q < N; q++) if (!hid[q]) byRank.push(q);
+    byRank.sort(function (p1, p2) { return rk[p1] - rk[p2]; });
+    return { id: ++RIG_ID, n: N, m: M, pos: pos, nodeF: nodeF, edgeF: edgeF, edgeIdx: edgeIdx, hid: hid, chk: chk, byRank: Int32Array.from(byRank), c3: c3 };
+  }
+  /** What the person has done to the drawing (dimmed, selected, marked), for the graphics card: one row per item and per link, read from the styled lists of the last full picture. */
+  function rigStyle(S) {
+    var rig = S.rig, N = rig.n, M = rig.m, ns = new Float32Array(N * 8), es = new Float32Array(M * 4), q, k;
+    for (q = 0; q < N; q++) {
+      var rec = S.nodes[S.turnMap.recOf[q]];
+      ns[q * 8] = rec && rec.a !== undefined ? rec.a : 1;
+      if (rec && rec.ring) { ns[q * 8 + 1] = 1; ns[q * 8 + 4] = rec.ring[0]; ns[q * 8 + 5] = rec.ring[1]; ns[q * 8 + 6] = rec.ring[2]; ns[q * 8 + 7] = rec.ring[3]; }
+    }
+    for (k = 0; k < M; k++) { var c = S.curves[k]; es[k * 4] = c.a === undefined ? 1 : c.a; es[k * 4 + 1] = c.base && c.color !== c.base.color ? 1 : 0; }
+    return { node: ns, edge: es };
+  }
+  /** Adds S.turnTo(cam, k): puts a picture of the same map from another angle on the graphics card with almost no work here (a depth order and the few visible names). */
+  function attachTurn(X, rig, M) {
+    var S = X.S, L = X.L, T = X.T, o = X.o, N = rig.n, cam = M.cam, R3 = M.R3, c3 = rig.c3, lab = X.lab;
+    var PX = new Float64Array(N), PY = new Float64Array(N), PR = new Float64Array(N), PF = new Float64Array(N), PD = new Float64Array(N);
+    var keys = new Uint32Array(N), ia = new Uint32Array(N), ib = new Uint32Array(N), cnt = new Uint32Array(2048), f32 = new Float32Array(1), u32 = new Uint32Array(f32.buffer);
+    var seq = new Uint32Array(N * 2), mask = new Uint8Array(N), fixedMin = X.LC.items.fixedMin, rankOf = new Uint32Array(N), qOfRec = new Int32Array(S.nodes.length).fill(-1);
+    for (var qi = 0; qi < N; qi++) if (M.recOf[qi] >= 0) qOfRec[M.recOf[qi]] = qi;
+    S.rig = rig; S.turnMap = M; S.styleVer = (S.styleVer || 0);
+    S.turnTo = function (cam2, kmax) {
+      var c = cam2 || cam, cy3 = Math.cos(c.yaw), sy3 = Math.sin(c.yaw), cp3 = Math.cos(c.pitch), sp3 = Math.sin(c.pitch), D3 = R3 * (c.persp || 2.4), pos = rig.pos, q, dmin = Infinity, dmax = -Infinity;
+      for (q = 0; q < N; q++) {
+        var x = pos[q * 4], y = pos[q * 4 + 1], z = pos[q * 4 + 2], x1 = x * cy3 + z * sy3, z1 = -x * sy3 + z * cy3, y2 = y * cp3 - z1 * sp3, z2 = y * sp3 + z1 * cp3, f = D3 / (D3 + z2);
+        PX[q] = c3[0] + x1 * f; PY[q] = c3[1] + y2 * f; PR[q] = pos[q * 4 + 3] * f; PF[q] = f; PD[q] = z2;
+        if (z2 < dmin) dmin = z2; if (z2 > dmax) dmax = z2;
+      }
+      /* back to front, as the ordinary picture sorts (farthest first, ties in item order): a stable radix sort on the depth */
+      for (q = 0; q < N; q++) { f32[0] = -PD[q]; var b = u32[0]; keys[q] = (b & 0x80000000) ? ~b >>> 0 : (b | 0x80000000) >>> 0; ia[q] = q; }
+      var src = ia, dst = ib, pass, sh;
+      for (pass = 0; pass < 3; pass++) {
+        sh = pass * 11; cnt.fill(0);
+        for (q = 0; q < N; q++) cnt[(keys[src[q]] >>> sh) & 2047]++;
+        for (q = 0, b = 0; q < 2048; q++) { var t = cnt[q]; cnt[q] = b; b += t; }
+        for (q = 0; q < N; q++) { var id = src[q]; dst[cnt[(keys[id] >>> sh) & 2047]++] = id; }
+        var sw = src; src = dst; dst = sw;
+      }
+      var ord = src, ns = 0, fadeOn = dmax > dmin, inv = fadeOn ? 1 / (dmax - dmin) : 0, recs = S.nodes;
+      for (q = 0; q < N; q++) {
+        var it = ord[q]; rankOf[it] = q; if (rig.hid[it]) continue;
+        seq[ns++] = it * 2; if (rig.chk[it]) seq[ns++] = it * 2 + 1;
+      }
+      /* the item records (read when something is picked) in their own order, which walks memory in a line instead of jumping about */
+      for (var ri = 0; ri < recs.length; ri++) { var qr = qOfRec[ri]; if (qr < 0) continue; var rc0 = recs[ri], r0 = PR[qr]; rc0.x = PX[qr] - r0; rc0.y = PY[qr] - r0; rc0.w = rc0.h = 2 * r0; rc0.o = rankOf[qr]; }
+      /* the names that can be seen at this zoom (the ordinary picture makes all of them and the drawing skips the small ones) */
+      S.labels = []; mask.fill(0);
+      var byRank = rig.byRank, topN = M.topN, i, kk = kmax || 1;
+      for (i = 0; i < byRank.length; i++) {
+        var qq = byRank[i], rnk = M.rk[qq], mk = topN && rnk < topN ? 0.05 : 0.22 * (1 + rnk / 35);
+        if (fixedMin !== undefined) mk = Math.min(mk, fixedMin);
+        if (mk > kk) { if (fixedMin === undefined) break; else continue; }
+        mask[qq] = 1;
+      }
+      for (q = 0; q < N; q++) {
+        var iq = ord[q]; if (!mask[iq] || rig.hid[iq]) continue;
+        var rc = recs[M.recOf[iq]], fd = fadeOn ? 0.42 + 0.58 * (1 - (PD[iq] - dmin) / (dmax - dmin)) : 1, np = M.np[iq];
+        M.emitLabel(L.nodes[iq], iq, np, rc, PX[iq], PY[iq], PR[iq], PF[iq], fd);
+      }
+      S.labels.forEach(function (l) { var rr = recs[l.node]; l.a = rr && rr.a !== undefined ? rr.a : 1; });
+      S.gridStale = true;
+      var prev = S.turn;
+      S.turn = { on: true, ver: prev ? prev.ver + 1 : 1, seq: seq, nseq: ns, cy: cy3, sy: sy3, cp: cp3, sp: sp3, c3x: c3[0], c3y: c3[1], D3: D3, fadeOn: fadeOn ? 1 : 0, dmin: dmin, inv: inv, kmax: kk, cam: { yaw: c.yaw, pitch: c.pitch, persp: c.persp }, gold: T.gold, boxS: alpha(T.box, 0.9), accent: T.accent };
+      return S.turn;
+    };
   }
 
   /* ---------------------------------------------------------------- story shape */
@@ -849,7 +962,8 @@ var NFMScene = (function () {
       if (!focus) return true;
       return focus.has(c.from) && focus.has(c.to);
     };
-    S.nodes.forEach(function (n) { n.a = !focus || focus.has(n.key) ? 1 : dimTo; });
+    S.nodes.forEach(function (n) { n.a = !focus || focus.has(n.key) ? 1 : dimTo; n.ring = sel && sel.has(n.key) ? S.theme.accent : marks && marks.get(n.key) ? hex(marks.get(n.key)) : null; });
+    S.styleVer = (S.styleVer || 0) + 1;
     var remember = function (o, keys) { if (!o.base) { o.base = {}; keys.forEach(function (k) { o.base[k] = o[k]; }); } };
     var ring = function (o, node) {
       remember(o, ['stroke', 'sw']);
@@ -930,7 +1044,7 @@ var NFMScene = (function () {
   }
 
   return {
-    make: make, pick: pick, hit: hit, pickEdge: pickEdge, pickLabel: pickLabel, inRect: inRect, inLasso: inLasso, restyle: restyle, style: style, toSvg: toSvg, palette: palette, THEMES: THEMES,
+    make: make, rigStyle: rigStyle, pick: pick, hit: hit, pickEdge: pickEdge, pickLabel: pickLabel, inRect: inRect, inLasso: inLasso, restyle: restyle, style: style, toSvg: toSvg, palette: palette, THEMES: THEMES,
     PALETTES: PALETTES, RAMPS: RAMPS, RAMP_NAMES: RAMP_NAMES, rampAt: rampAt, ICONS: ICONS, SHAPE_KIND: SHAPE_KIND, SHAPE_NAMES: SHAPE_NAMES, shapePts: shapePts,
     css: css, hex: hex, toHex: toHex, mix: mix, alpha: alpha, arrowTri: arrowTri, bez: bez, HEAD: HEAD, labelBox: labelBox
   };
