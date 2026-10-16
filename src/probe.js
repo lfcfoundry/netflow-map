@@ -135,9 +135,10 @@ var NFMProbe = (function () {
       };
       return ready.then(function (why) {
         if (why) { r.destroy(); return gone({ backend: n, skipped: why }); }
+        start = nowMs();   /* the time budget counts from here: building a big map for the card can take longer than the whole budget */
         return loop().then(function () {
           var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
-          return gone(hidden || counted < 4 ? { backend: n, skipped: 'the page was in the background' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc });
+          return gone(hidden ? { backend: n, skipped: 'the page was in the background' } : counted < 4 ? { backend: n, skipped: 'too few pictures could be drawn to time them' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc });
         });
       });
     }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
@@ -153,6 +154,7 @@ var NFMProbe = (function () {
     ['full', 'Everything, the way the app turns it', { turn: 1, draw: 1, sync: 1 }],
     ['angle', 'Angle math only (nothing drawn)', { turn: 1, sync: 1 }],
     ['still', 'Drawing only (the same angle every time)', { draw: 1, sync: 1 }],
+    ['keep', 'Angle math and drawing, paint order not re-sent (wrong order; timing only)', { turn: 1, draw: 1, sync: 1, dbg: { keepOrder: true } }],
     ['g_all', 'Card time per picture: everything', { draw: 1, fence: 1 }],
     ['g_links', 'Card time per picture: links only', { draw: 1, fence: 1, dbg: { noItems: true, noNames: true } }],
     ['g_items', 'Card time per picture: items only', { draw: 1, fence: 1, dbg: { noLinks: true, noNames: true } }],
@@ -219,14 +221,16 @@ var NFMProbe = (function () {
     var nm = res && res.backend === 'webgpu' ? 'WebGPU' : 'WebGL 2', big = items ? items.toLocaleString() + '-item' : 'largest';
     if (!res || res.skipped || !res.ways) return { level: 'warn', say: nm + ' was skipped: ' + ((res && res.skipped) || 'not usable here') + '.', lines: lines, cause: null };
     var by = {}; res.ways.forEach(function (w) { by[w.id] = w; });
-    var full = by.full, angle = by.angle, still = by.still, all = by.g_all, links = by.g_links, itemsW = by.g_items, names = by.g_names, half = by.g_half;
+    var keep = by.keep, full = by.full, angle = by.angle, still = by.still, all = by.g_all, links = by.g_links, itemsW = by.g_items, names = by.g_names, half = by.g_half;
     lines.push('Turning as the app does it: ' + f0(full.fps) + ' pictures per second; a picture took ' + ms1(full.gapMed) + ' ms in the middle, ' + ms1(full.gapP95) + ' ms for the slower 1 in 20, ' + ms1(full.gapMax) + ' ms for the slowest' + (full.slow > 0 ? ' (' + Math.round(full.slow * 100) + '% took over 20 ms)' : '') + '.');
     lines.push('Angle math alone: ' + ms1(angle.angleMed) + ' ms of work per angle (slowest ' + ms1(angle.angleMax) + ' ms); with nothing drawn the screen refresh still ran at ' + f0(angle.fps) + ' per second.');
     lines.push('Drawing alone, the same angle each time: ' + f0(still.fps) + ' per second.');
+    if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' per second.');
     lines.push('Time the card needs per picture: ' + ms1(all.ms) + ' ms for everything; links alone ' + ms1(links.ms) + ' ms; items alone ' + ms1(itemsW.ms) + ' ms; names alone ' + ms1(names.ms) + ' ms; everything at half size ' + ms1(half.ms) + ' ms.');
     var say = 'Turning the ' + big + ' map with ' + nm + ' ran at ' + f0(full.fps) + ' pictures per second. ', cause, level;
     if (full.fps >= 58) { cause = 'smooth'; level = 'ok'; say += 'That is a steady 60: nothing to fix.'; }
     else if (angle.fps < 57) { cause = 'angle'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The limit is on the main thread: even with nothing drawn, only ' + f0(angle.fps) + ' pictures per second got through (' + ms1(angle.angleMed) + ' ms of angle work each).'; }
+    else if (keep && keep.fps >= full.fps + 5) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' per second. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
     else if (all.ms > 14) {
       cause = 'card'; level = full.fps >= 45 ? 'ok' : 'warn';
       var parts = [['the links', links.ms], ['the items', itemsW.ms], ['the names', names.ms]].sort(function (a, b) { return b[1] - a[1]; });

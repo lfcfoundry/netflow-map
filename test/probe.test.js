@@ -87,6 +87,8 @@ const fence = async () => { for (let i = 0; i < 5; i++) await Promise.resolve();
   await t('the split of a turning picture says what holds it below 60: nothing, the angle math, the card, or pauses', async () => {
     const g0 = { all: 6, links: 4, items: 2, names: 1, half: 3 };
     let e = NFMProbe.explainSplit(split({ fps: 60 }, { fps: 60 }, g0), 30000); ok(e.cause === 'smooth' && e.level === 'ok' && /30,000-item/.test(e.say) && /steady 60/.test(e.say), e.say);
+    const sk = split({ fps: 45 }, { fps: 60 }, g0); sk.ways.push({ id: 'keep', label: 'k', fps: 60, gapMed: 16.7, gapP95: 17, gapMax: 18, slow: 0, angleMed: 5, angleMax: 6 });
+    e = NFMProbe.explainSplit(sk, 100000); ok(e.cause === 'order' && /paint order/.test(e.say), e.say);
     e = NFMProbe.explainSplit(split({ fps: 40 }, { fps: 40, angleMed: 24 }, g0), 30000); ok(e.cause === 'angle' && /main thread/.test(e.say), e.say);
     e = NFMProbe.explainSplit(split({ fps: 40 }, { fps: 60 }, { all: 24, links: 18, items: 5, names: 1, half: 22 }), 30000); ok(e.cause === 'card' && /the links/.test(e.say) && /number of links and items/.test(e.say), e.say);
     e = NFMProbe.explainSplit(split({ fps: 40 }, { fps: 60 }, { all: 24, links: 18, items: 5, names: 1, half: 9 }), 30000); ok(/follows the number of pixels/.test(e.say), e.say);
