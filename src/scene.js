@@ -337,6 +337,7 @@ var NFMScene = (function () {
   /** Which node box is under this world point (topmost = last drawn); slop is in world units. */
   function pick(S, wx, wy, slop) {
     slop = slop || 0;
+    if (S.recStale) S.syncRecs();
     if (S.gridStale) { buildGrid(S); S.gridStale = false; }
     var G = S.grid, best = null, cs = G.cell;
     var c0 = Math.floor((wx - slop - S.x0) / cs), c1 = Math.floor((wx + slop - S.x0) / cs), r0 = Math.floor((wy - slop - S.y0) / cs), r1 = Math.floor((wy + slop - S.y0) / cs);
@@ -354,6 +355,7 @@ var NFMScene = (function () {
   /** Node ids whose centers are inside a rectangle (world units). */
   function inRect(S, ax, ay, bx, by) {
     var x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), y0 = Math.min(ay, by), y1 = Math.max(ay, by), out = [];
+    if (S.recStale) S.syncRecs();
     S.nodes.forEach(function (n) { if (n.hidden || n.key.indexOf('shape:') === 0) return; var cx = n.x + n.w / 2, cy = n.y + n.h / 2; if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) out.push(n.key); });
     return out;
   }
@@ -361,6 +363,7 @@ var NFMScene = (function () {
   function inLasso(S, poly) {
     var out = [], n = poly.length / 2;
     if (n < 3) return out;
+    if (S.recStale) S.syncRecs();
     S.nodes.forEach(function (nd) {
       if (nd.hidden || nd.key.indexOf('shape:') === 0) return;
       var x = nd.x + nd.w / 2, y = nd.y + nd.h / 2, inside = false;
@@ -873,9 +876,15 @@ var NFMScene = (function () {
     var S = X.S, L = X.L, T = X.T, o = X.o, N = rig.n, cam = M.cam, R3 = M.R3, c3 = rig.c3, lab = X.lab;
     var PX = new Float64Array(N), PY = new Float64Array(N), PR = new Float64Array(N), PF = new Float64Array(N), PD = new Float64Array(N);
     var keys = new Uint32Array(N), ia = new Uint32Array(N), ib = new Uint32Array(N), cnt = new Uint32Array(2048), f32 = new Float32Array(1), u32 = new Uint32Array(f32.buffer);
-    var seq = new Uint32Array(N * 2), mask = new Uint8Array(N), fixedMin = X.LC.items.fixedMin, rankOf = new Uint32Array(N), qOfRec = new Int32Array(S.nodes.length).fill(-1);
+    var seq = new Uint32Array(N * 2), mask = new Uint8Array(N), fixedMin = X.LC.items.fixedMin, rankOf = new Uint32Array(N), lpool = new Array(N), lk = new Float64Array(N), qOfRec = new Int32Array(S.nodes.length).fill(-1);
     for (var qi = 0; qi < N; qi++) if (M.recOf[qi] >= 0) qOfRec[M.recOf[qi]] = qi;
     S.rig = rig; S.turnMap = M; S.styleVer = (S.styleVer || 0);
+    /* brings the item records up to date with the last angle (in record order, which walks memory in a line) */
+    S.syncRecs = function () {
+      if (!S.recStale) return; S.recStale = false;
+      var recs = S.nodes;
+      for (var ri = 0; ri < recs.length; ri++) { var qr = qOfRec[ri]; if (qr < 0) continue; var rc0 = recs[ri], r0 = PR[qr]; rc0.x = PX[qr] - r0; rc0.y = PY[qr] - r0; rc0.w = rc0.h = 2 * r0; rc0.o = rankOf[qr]; }
+    };
     S.turnTo = function (cam2, kmax) {
       var c = cam2 || cam, cy3 = Math.cos(c.yaw), sy3 = Math.sin(c.yaw), cp3 = Math.cos(c.pitch), sp3 = Math.sin(c.pitch), D3 = R3 * (c.persp || 2.4), pos = rig.pos, q, dmin = Infinity, dmax = -Infinity;
       for (q = 0; q < N; q++) {
@@ -898,8 +907,7 @@ var NFMScene = (function () {
         var it = ord[q]; rankOf[it] = q; if (rig.hid[it]) continue;
         seq[ns++] = it * 2; if (rig.chk[it]) seq[ns++] = it * 2 + 1;
       }
-      /* the item records (read when something is picked) in their own order, which walks memory in a line instead of jumping about */
-      for (var ri = 0; ri < recs.length; ri++) { var qr = qOfRec[ri]; if (qr < 0) continue; var rc0 = recs[ri], r0 = PR[qr]; rc0.x = PX[qr] - r0; rc0.y = PY[qr] - r0; rc0.w = rc0.h = 2 * r0; rc0.o = rankOf[qr]; }
+      S.recStale = true;   /* the item records (places and paint rank) are brought up to date only when something reads them: picking, selecting, centering (S.syncRecs) */
       /* the names that can be seen at this zoom (the ordinary picture makes all of them and the drawing skips the small ones) */
       S.labels = []; mask.fill(0);
       var byRank = rig.byRank, topN = M.topN, i, kk = kmax || 1;
@@ -911,8 +919,14 @@ var NFMScene = (function () {
       }
       for (q = 0; q < N; q++) {
         var iq = ord[q]; if (!mask[iq] || rig.hid[iq]) continue;
-        var rc = recs[M.recOf[iq]], fd = fadeOn ? 0.42 + 0.58 * (1 - (PD[iq] - dmin) / (dmax - dmin)) : 1, np = M.np[iq];
+        var lp = lpool[iq];
+        if (lp) {   /* seen before: only the place and the size change with the angle, so the same label object is moved (no new objects per picture) */
+          lp.x = PX[iq]; lp.y = PY[iq] + PR[iq] + 11 * PF[iq]; lp.size = lk[iq] * (PF[iq] > 0.7 ? PF[iq] : 0.7); S.labels.push(lp); continue;
+        }
+        var rc = recs[M.recOf[iq]], fd = fadeOn ? 0.42 + 0.58 * (1 - (PD[iq] - dmin) / (dmax - dmin)) : 1, np = M.np[iq], nb = S.labels.length;
         M.emitLabel(L.nodes[iq], iq, np, rc, PX[iq], PY[iq], PR[iq], PF[iq], fd);
+        /* a label whose colour does not change with the fade (the usual case) is kept for the next picture */
+        if (lp === undefined) { var made = S.labels.length > nb ? S.labels[nb] : null; if (made && np.col) { lpool[iq] = made; lk[iq] = made.size / (PF[iq] > 0.7 ? PF[iq] : 0.7); } else lpool[iq] = null; }
       }
       S.labels.forEach(function (l) { var rr = recs[l.node]; l.a = rr && rr.a !== undefined ? rr.a : 1; });
       S.gridStale = true;
