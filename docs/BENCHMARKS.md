@@ -1150,6 +1150,43 @@ The clean-up costs the card's picture about 0.004 of truth (the processor's own 
 
 **The laptop tester.** `node tools/build-tester.mjs` writes one self-contained page, `bench/net-flow-map-tester.html`. Opened in a browser it starts by itself, runs five checks (the computer and its graphics adapter; whether the graphics-card hop table and steps match the processor's; time and truth of the processor's best quality against the graphics card at 2,000 to 20,000 items; first run against later runs; random draws, CSV reading and Force repeated), explains each in plain words, and offers a results file (`net-flow-map-tester-results.md`) to hand back. `?quick=1` makes it small enough to try anywhere; `?plan=moderate:5000` picks the sizes. `node bench/tester/run-local.js <firefox|chromium> [quick]` runs it in this machine's browsers.
 
+## 20. 3D force: a stress start fixes the large sizes
+
+**The problem.** In the tester ("3D arrangements") the 3D force arrangement was true at 1,000 items (hop error 0.101, lower is truer) but much worse at 3,000 (0.193), and worse again at 6,000 (0.225), while Sphere (0.178) and Stacked planes (0.164) were better there. Two causes: the old start was a Fibonacci sphere with items in input order (linked items start far apart, so springs and repulsion have to untangle everything), and the number of force steps shrank with size (260, 160, 90, 45) just where the tangle is largest. The picture also turned into a flat pancake or sausage (smallest to largest spread 0.38 at 3,000, 0.30 at 6,000).
+
+**What was tried** (Node, 11 seeds of the generator, hop error as in the tester, time in this sandbox, which is about 2.3 times slower than the owner's laptop):
+
+| way | moderate 3,000: error / time | moderate 6,000: error / time |
+|---|---:|---:|
+| old (sphere start, 90 / 45 force steps) | 0.193 / 1.6 s | 0.225 / 3.9 s |
+| 3D stress alone (pivots, links and near neighbors, weights 1 / hops squared, 24 sweeps) | 0.130 / 0.46 s | 0.136 / 0.65 s |
+| stress with 2.4 times the pairs | 0.119 / 0.85 s | 0.130 / 1.2 s |
+| stress, then 20 cool force steps (start step 0.35 K) | 0.117 / 0.9 s | 0.128 / 1.6 s |
+| stress, then 20 force steps starting hot (3 K) | **0.104 / 0.8 s** | **0.110 / 1.3 s** |
+
+Three things stood out. (1) The stress start is what removes the size problem; its cost is small (about 0.1 s per 1,000 items) next to the force steps. (2) A force run that starts hot (step 3 K, the old run started at 2 K) after the stress start is both truer and more clustered than a gentle polish: groups stay distinct (mean distance inside a group over mean distance between groups: 0.30 at 3,000 against 0.37 before; stress alone 0.59, a gentle polish about 0.55). (3) Giving the stress more pairs or sweeps barely helps once the force steps follow, so the stress is kept cheap.
+
+**What changed** (`src/engine.js`: `stress3d`, `stressStart3d`, the `force3d` branch of `globalNetwork`; settings in `NFMEngine.force3dTuning`). Each connected piece gets a 3D stress layout (same method as the flat Distances arrangement, carried to three dimensions; every pair below 700 items, otherwise 20 to 150 far-apart pivots, the links and up to 40 near neighbors per item), started from a spiral over a sphere in breadth-first order. Pieces are set on a shell around the biggest, then the force steps run: 20 up to 15,000 items, 12 up to 30,000, 5 above. `forceSim` got two optional arguments for its first and last step size. Seeded: same data, same picture. `force3dTuning.old = true` restores the old start and step counts for before/after runs.
+
+**Before and after** (hop error in 3D, build time; spread is smallest over largest principal extent, groups is the group-distance ratio, lower is more distinct):
+
+| network | items | error before | error after | time before | time after | spread before / after | groups before / after |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| moderate | 600 | 0.102 | 0.084 | 517 ms | 259 ms | 0.61 / 0.82 | 0.26 / 0.27 |
+| moderate | 1,000 | 0.101 | 0.095 | 701 ms | 303 ms | 0.72 / 0.77 | 0.27 / 0.27 |
+| moderate | 3,000 | 0.193 | 0.104 | 1.6 s | 0.78 s | 0.38 / 0.95 | 0.37 / 0.30 |
+| moderate | 6,000 | 0.225 | 0.110 | 3.9 s | 1.3 s | 0.30 / 0.98 | 0.44 / 0.40 |
+| moderate | 10,000 | 0.150 | 0.119 | 2.9 s | 2.5 s | 0.71 / 0.97 | 0.63 / 0.52 |
+| moderate | 20,000 | 0.144 | 0.129 | 6.4 s | 4.5 s | 0.80 / 0.98 | 0.68 / 0.73 |
+| moderate | 40,000 | 0.137 | 0.127 | 13.3 s | 7.2 s | 0.86 / 0.98 | - / 0.81 |
+| complex | 600 | 0.112 | 0.108 | 392 ms | 176 ms | 0.30 / 0.36 | 0.31 / 0.30 |
+| complex | 1,000 | 0.121 | 0.115 | 728 ms | 298 ms | 0.31 / 0.40 | 0.34 / 0.34 |
+| complex | 3,000 | 0.184 | 0.128 | 1.9 s | 0.66 s | 0.31 / 0.47 | 0.40 / 0.34 |
+| complex | 6,000 | 0.218 | 0.133 | 4.2 s | 1.4 s | 0.32 / 0.60 | 0.46 / 0.48 |
+| complex | 10,000 | 0.162 | 0.148 | 2.8 s | 3.0 s | 0.73 / 0.64 | 0.64 / 0.68 |
+
+**Limits.** Hub-heavy (complex) networks stay about 0.13 to 0.15 above 3,000 items: the hubs' extra push in the force steps pulls them away from the stress picture, and a gentler start gives 0.12 but loses some group separation. Above 20,000 items only 5 force steps run, so groups blend more (distinctness 0.73 at 20,000 and 0.81 at 40,000; the old picture had 0.68 at 20,000); 40,000 items take about 3 s on the laptop's class of machine (7 s here). The tester's "3D arrangements" table shows the new numbers after a re-run; the old 3,000-item row (0.193) is the "before". Test: `node test/force3d.test.js` (hop error under 0.125 on moderate and under 0.15 on complex at 3,000 items, spread not collapsed, same data same picture, empty / one / two / loners / self-links / repeated links / several pieces / a 2,000-leaf hub / a 3,000-item chain).
+
 ## Reproduce
 
 ```
@@ -1160,6 +1197,8 @@ node run.js chromium typed
 node run.js chromium compare
 node run.js chromium forceOurs                       # or: firefox; our Force arrangement alone (section 18)
 node run.js chromium cold                       # or: firefox; first run against later runs (section 19)
+node ../test/force3d.test.js                      # 3D force: hop error at 3,000 items, not flat, robust cases (section 20)
+TESTER_ONLY=3d TESTER_PLAN3D=1000,3000 node tester/run-local.js chromium   # the tester's 3D step alone (section 20)
 node tools/build-tester.mjs                       # the laptop tester page (section 19)
 node run.js chromium drawsRun; node run.js chromium drawsVar; node run.js chromium csvVar; node run.js chromium csvCold   # or: firefox; normal draws and CSV looked at again (section 18)
 node run.js chromium closeness                      # or: firefox; the closeness arrangement in the browser (section 17)
