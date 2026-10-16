@@ -135,10 +135,19 @@ var NFMProbe = (function () {
       };
       return ready.then(function (why) {
         if (why) { r.destroy(); return gone({ backend: n, skipped: why }); }
+        var warm = async function () {   /* the first pictures of a big map on the card pay for the one-time upload; they are timed apart so they do not read as slow turning */
+          var w0 = nowMs();
+          for (var wi = 0; wi < 24; wi++) { rigSc.turnTo({ yaw: 0.6 + 0.07 * wi, pitch: 0.35, persp: 2.4 }, 4); var wv = fitView(rigSc, W, H); r.draw(wv); await wait(r); if (!(await nextRefresh())) return -1; }
+          return nowMs() - w0;
+        };
+        return (rigSc ? warm() : Promise.resolve(0)).then(function (warmMs) {
+        if (warmMs < 0) { r.destroy(); return gone({ backend: n, skipped: 'the page was in the background' }); }
+        if (warmMs > 1500) budget = Math.max(budget, 3000);   /* a slow stand-in needs longer to show enough pictures */
         start = nowMs();   /* the time budget counts from here: building a big map for the card can take longer than the whole budget */
         return loop().then(function () {
           var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
-          return gone(hidden ? { backend: n, skipped: 'the page was in the background' } : counted < 4 ? { backend: n, skipped: 'too few pictures could be drawn to time them' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc });
+          return gone(hidden ? { backend: n, skipped: 'the page was in the background' } : counted < 4 ? { backend: n, skipped: 'too few pictures could be drawn to time them' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc, warmMs: warmMs });
+        });
         });
       });
     }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
