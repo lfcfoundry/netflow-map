@@ -19,7 +19,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.2258.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.2310.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
@@ -6412,10 +6412,11 @@ var NFMRender = (function () {
       try {
         var pe = glProgram(gl, GL_RIG_EDGE_VS, GL_MESH_FS), pd = glProgram(gl, GL_RIG_DOT_VS, GL_SHAPE_FS), names = ['uV', 'uRes', 'uCam', 'uC3', 'uFd', 'uGold', 'uBoxS', 'uAcc', 'tN', 'tNS', 'tE', 'tES'];
         var loc = function (p) { var o = {}; names.forEach(function (n) { o[n] = gl.getUniformLocation(p, n); }); return o; };
-        var seqBuf = gl.createBuffer(), vaoSeq = gl.createVertexArray();
-        gl.bindVertexArray(vaoSeq); gl.bindBuffer(gl.ARRAY_BUFFER, seqBuf); gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 1, gl.UNSIGNED_INT, 4, 0); gl.vertexAttribDivisor(0, 1); gl.bindVertexArray(null);
+        /* the paint order is sent for every new angle: three buffers taken in turn, each made once at full size and then only written into (making a new one every picture stalled big maps) */
+        var seqBufs = [], vaoSeqs = [];
+        for (var sb = 0; sb < 3; sb++) { var sbuf = gl.createBuffer(), sv = gl.createVertexArray(); gl.bindVertexArray(sv); gl.bindBuffer(gl.ARRAY_BUFFER, sbuf); gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 1, gl.UNSIGNED_INT, 4, 0); gl.vertexAttribDivisor(0, 1); gl.bindVertexArray(null); seqBufs.push(sbuf); vaoSeqs.push(sv); }
         var tex = function () { var t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
-        RG = { pe: pe, pd: pd, le: loc(pe), ld: loc(pd), seqBuf: seqBuf, vaoSeq: vaoSeq, vaoNone: gl.createVertexArray(), tN: tex(), tNS: tex(), tE: tex(), tES: tex() };
+        RG = { pe: pe, pd: pd, le: loc(pe), ld: loc(pd), seqBufs: seqBufs, vaoSeqs: vaoSeqs, vaoNone: gl.createVertexArray(), tN: tex(), tNS: tex(), tE: tex(), tES: tex() };
       } catch (e) { RG = false; if (hooks && hooks.onError) hooks.onError('webgl2', 'turning on the card: ' + e.message); }
       out.rigOK = !!RG; return !!RG;
     };
@@ -6427,12 +6428,13 @@ var NFMRender = (function () {
     };
     var rigSync = function () {
       var rig = S.rig;
-      if (rigState.id !== rig.id) { putTex(RG.tN, rig.nodeF); putTex(RG.tE, rig.edgeF); rigState.id = rig.id; rigState.style = -1; }
+      if (rigState.id !== rig.id) { putTex(RG.tN, rig.nodeF); putTex(RG.tE, rig.edgeF); rigState.id = rig.id; rigState.style = -1; rigState.sid2 = null; for (var sb = 0; sb < 3; sb++) { gl.bindBuffer(gl.ARRAY_BUFFER, RG.seqBufs[sb]); gl.bufferData(gl.ARRAY_BUFFER, rig.n * 8, gl.DYNAMIC_DRAW); } rigState.ring = 0; }
       if (rigState.style !== S.styleVer || rigState.sid !== S) { var st = NFMScene.rigStyle(S); putTex(RG.tNS, st.node); putTex(RG.tES, st.edge); rigState.style = S.styleVer; rigState.sid = S; }
     };
     var drawRig = function (view) {
       var tu = S.turn, rig = S.rig; rigSync();
-      if (rigState.ver !== tu.ver || rigState.sid2 !== S) { gl.bindBuffer(gl.ARRAY_BUFFER, RG.seqBuf); gl.bufferData(gl.ARRAY_BUFFER, tu.seq.subarray(0, tu.nseq), gl.DYNAMIC_DRAW); rigState.ver = tu.ver; rigState.sid2 = S; }
+      var dbg0 = out.rigDebug || NODBG;
+      if ((rigState.ver !== tu.ver || rigState.sid2 !== S) && !dbg0.keepOrder) { rigState.ring = (rigState.ring + 1) % 3; gl.bindBuffer(gl.ARRAY_BUFFER, RG.seqBufs[rigState.ring]); gl.bufferSubData(gl.ARRAY_BUFFER, 0, tu.seq.subarray(0, tu.nseq)); rigState.ver = tu.ver; rigState.sid2 = S; }
       var bind = function (p, l) {
         gl.useProgram(p); gl.uniform4f(l.uV, view.k, view.tx, view.ty, 0); gl.uniform2f(l.uRes, W, Hh); gl.uniform4f(l.uCam, tu.cy, tu.sy, tu.cp, tu.sp); gl.uniform4f(l.uC3, tu.c3x, tu.c3y, tu.D3, tu.fadeOn); gl.uniform4f(l.uFd, tu.dmin, tu.inv, 0, 0);
         gl.uniform4fv(l.uGold, tu.gold); gl.uniform4fv(l.uBoxS, tu.boxS); gl.uniform4fv(l.uAcc, tu.accent);
@@ -6441,7 +6443,7 @@ var NFMRender = (function () {
       };
       var dbg = out.rigDebug || NODBG;   /* the tester switches parts off to find which one costs the time */
       if (rig.m && !dbg.noLinks) { bind(RG.pe, RG.le); gl.bindVertexArray(RG.vaoNone); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, rig.m); }
-      if (tu.nseq && !dbg.noItems) { bind(RG.pd, RG.ld); gl.bindVertexArray(RG.vaoSeq); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, tu.nseq); }
+      if (tu.nseq && !dbg.noItems) { bind(RG.pd, RG.ld); gl.bindVertexArray(RG.vaoSeqs[rigState.ring]); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, tu.nseq); }
       gl.bindVertexArray(null); gl.activeTexture(gl.TEXTURE0);
     };
     var info = (function () { try { var e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : ''; } catch (x) { return ''; } })();
@@ -6593,7 +6595,7 @@ var NFMRender = (function () {
       };
       var drawRig = function (view) {
         var tu = S.turn, rig = S.rig; rigSync();
-        if (rs.ver !== tu.ver || rs.sid2 !== S) { var sq = tu.seq.subarray(0, tu.nseq); if (sq.byteLength) device.queue.writeBuffer(rbufs.seq, 0, sq.buffer, sq.byteOffset, sq.byteLength); rs.ver = tu.ver; rs.sid2 = S; }
+        if ((rs.ver !== tu.ver || rs.sid2 !== S) && !(out.rigDebug && out.rigDebug.keepOrder)) { var sq = tu.seq.subarray(0, tu.nseq); if (sq.byteLength) device.queue.writeBuffer(rbufs.seq, 0, sq.buffer, sq.byteOffset, sq.byteLength); rs.ver = tu.ver; rs.sid2 = S; }
         var g = tu.gold, bs = tu.boxS, ac = tu.accent;
         rU.set([view.k, view.tx, view.ty, 0, W, Hh, 0, 0, tu.cy, tu.sy, tu.cp, tu.sp, tu.c3x, tu.c3y, tu.D3, tu.fadeOn, tu.dmin, tu.inv, 0, 0, g[0], g[1], g[2], g[3], bs[0], bs[1], bs[2], bs[3], ac[0], ac[1], ac[2], ac[3]]);
         device.queue.writeBuffer(RW.ru, 0, rU);
@@ -6818,9 +6820,10 @@ var NFMProbe = (function () {
       };
       return ready.then(function (why) {
         if (why) { r.destroy(); return gone({ backend: n, skipped: why }); }
+        start = nowMs();   /* the time budget counts from here: building a big map for the card can take longer than the whole budget */
         return loop().then(function () {
           var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
-          return gone(hidden || counted < 4 ? { backend: n, skipped: 'the page was in the background' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc });
+          return gone(hidden ? { backend: n, skipped: 'the page was in the background' } : counted < 4 ? { backend: n, skipped: 'too few pictures could be drawn to time them' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc });
         });
       });
     }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
@@ -6836,6 +6839,7 @@ var NFMProbe = (function () {
     ['full', 'Everything, the way the app turns it', { turn: 1, draw: 1, sync: 1 }],
     ['angle', 'Angle math only (nothing drawn)', { turn: 1, sync: 1 }],
     ['still', 'Drawing only (the same angle every time)', { draw: 1, sync: 1 }],
+    ['keep', 'Angle math and drawing, paint order not re-sent (wrong order; timing only)', { turn: 1, draw: 1, sync: 1, dbg: { keepOrder: true } }],
     ['g_all', 'Card time per picture: everything', { draw: 1, fence: 1 }],
     ['g_links', 'Card time per picture: links only', { draw: 1, fence: 1, dbg: { noItems: true, noNames: true } }],
     ['g_items', 'Card time per picture: items only', { draw: 1, fence: 1, dbg: { noLinks: true, noNames: true } }],
@@ -6902,14 +6906,16 @@ var NFMProbe = (function () {
     var nm = res && res.backend === 'webgpu' ? 'WebGPU' : 'WebGL 2', big = items ? items.toLocaleString() + '-item' : 'largest';
     if (!res || res.skipped || !res.ways) return { level: 'warn', say: nm + ' was skipped: ' + ((res && res.skipped) || 'not usable here') + '.', lines: lines, cause: null };
     var by = {}; res.ways.forEach(function (w) { by[w.id] = w; });
-    var full = by.full, angle = by.angle, still = by.still, all = by.g_all, links = by.g_links, itemsW = by.g_items, names = by.g_names, half = by.g_half;
+    var keep = by.keep, full = by.full, angle = by.angle, still = by.still, all = by.g_all, links = by.g_links, itemsW = by.g_items, names = by.g_names, half = by.g_half;
     lines.push('Turning as the app does it: ' + f0(full.fps) + ' pictures per second; a picture took ' + ms1(full.gapMed) + ' ms in the middle, ' + ms1(full.gapP95) + ' ms for the slower 1 in 20, ' + ms1(full.gapMax) + ' ms for the slowest' + (full.slow > 0 ? ' (' + Math.round(full.slow * 100) + '% took over 20 ms)' : '') + '.');
     lines.push('Angle math alone: ' + ms1(angle.angleMed) + ' ms of work per angle (slowest ' + ms1(angle.angleMax) + ' ms); with nothing drawn the screen refresh still ran at ' + f0(angle.fps) + ' per second.');
     lines.push('Drawing alone, the same angle each time: ' + f0(still.fps) + ' per second.');
+    if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' per second.');
     lines.push('Time the card needs per picture: ' + ms1(all.ms) + ' ms for everything; links alone ' + ms1(links.ms) + ' ms; items alone ' + ms1(itemsW.ms) + ' ms; names alone ' + ms1(names.ms) + ' ms; everything at half size ' + ms1(half.ms) + ' ms.');
     var say = 'Turning the ' + big + ' map with ' + nm + ' ran at ' + f0(full.fps) + ' pictures per second. ', cause, level;
     if (full.fps >= 58) { cause = 'smooth'; level = 'ok'; say += 'That is a steady 60: nothing to fix.'; }
     else if (angle.fps < 57) { cause = 'angle'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The limit is on the main thread: even with nothing drawn, only ' + f0(angle.fps) + ' pictures per second got through (' + ms1(angle.angleMed) + ' ms of angle work each).'; }
+    else if (keep && keep.fps >= full.fps + 5) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' per second. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
     else if (all.ms > 14) {
       cause = 'card'; level = full.fps >= 45 ? 'ok' : 'warn';
       var parts = [['the links', links.ms], ['the items', itemsW.ms], ['the names', names.ms]].sort(function (a, b) { return b[1] - a[1]; });
@@ -7141,7 +7147,7 @@ var NFMProbe = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.15.2258', EDGE = 130;
+  var VERSION = '2026.10.15.2310', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 

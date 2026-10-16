@@ -326,10 +326,11 @@ var NFMRender = (function () {
       try {
         var pe = glProgram(gl, GL_RIG_EDGE_VS, GL_MESH_FS), pd = glProgram(gl, GL_RIG_DOT_VS, GL_SHAPE_FS), names = ['uV', 'uRes', 'uCam', 'uC3', 'uFd', 'uGold', 'uBoxS', 'uAcc', 'tN', 'tNS', 'tE', 'tES'];
         var loc = function (p) { var o = {}; names.forEach(function (n) { o[n] = gl.getUniformLocation(p, n); }); return o; };
-        var seqBuf = gl.createBuffer(), vaoSeq = gl.createVertexArray();
-        gl.bindVertexArray(vaoSeq); gl.bindBuffer(gl.ARRAY_BUFFER, seqBuf); gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 1, gl.UNSIGNED_INT, 4, 0); gl.vertexAttribDivisor(0, 1); gl.bindVertexArray(null);
+        /* the paint order is sent for every new angle: three buffers taken in turn, each made once at full size and then only written into (making a new one every picture stalled big maps) */
+        var seqBufs = [], vaoSeqs = [];
+        for (var sb = 0; sb < 3; sb++) { var sbuf = gl.createBuffer(), sv = gl.createVertexArray(); gl.bindVertexArray(sv); gl.bindBuffer(gl.ARRAY_BUFFER, sbuf); gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 1, gl.UNSIGNED_INT, 4, 0); gl.vertexAttribDivisor(0, 1); gl.bindVertexArray(null); seqBufs.push(sbuf); vaoSeqs.push(sv); }
         var tex = function () { var t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
-        RG = { pe: pe, pd: pd, le: loc(pe), ld: loc(pd), seqBuf: seqBuf, vaoSeq: vaoSeq, vaoNone: gl.createVertexArray(), tN: tex(), tNS: tex(), tE: tex(), tES: tex() };
+        RG = { pe: pe, pd: pd, le: loc(pe), ld: loc(pd), seqBufs: seqBufs, vaoSeqs: vaoSeqs, vaoNone: gl.createVertexArray(), tN: tex(), tNS: tex(), tE: tex(), tES: tex() };
       } catch (e) { RG = false; if (hooks && hooks.onError) hooks.onError('webgl2', 'turning on the card: ' + e.message); }
       out.rigOK = !!RG; return !!RG;
     };
@@ -341,12 +342,13 @@ var NFMRender = (function () {
     };
     var rigSync = function () {
       var rig = S.rig;
-      if (rigState.id !== rig.id) { putTex(RG.tN, rig.nodeF); putTex(RG.tE, rig.edgeF); rigState.id = rig.id; rigState.style = -1; }
+      if (rigState.id !== rig.id) { putTex(RG.tN, rig.nodeF); putTex(RG.tE, rig.edgeF); rigState.id = rig.id; rigState.style = -1; rigState.sid2 = null; for (var sb = 0; sb < 3; sb++) { gl.bindBuffer(gl.ARRAY_BUFFER, RG.seqBufs[sb]); gl.bufferData(gl.ARRAY_BUFFER, rig.n * 8, gl.DYNAMIC_DRAW); } rigState.ring = 0; }
       if (rigState.style !== S.styleVer || rigState.sid !== S) { var st = NFMScene.rigStyle(S); putTex(RG.tNS, st.node); putTex(RG.tES, st.edge); rigState.style = S.styleVer; rigState.sid = S; }
     };
     var drawRig = function (view) {
       var tu = S.turn, rig = S.rig; rigSync();
-      if (rigState.ver !== tu.ver || rigState.sid2 !== S) { gl.bindBuffer(gl.ARRAY_BUFFER, RG.seqBuf); gl.bufferData(gl.ARRAY_BUFFER, tu.seq.subarray(0, tu.nseq), gl.DYNAMIC_DRAW); rigState.ver = tu.ver; rigState.sid2 = S; }
+      var dbg0 = out.rigDebug || NODBG;
+      if ((rigState.ver !== tu.ver || rigState.sid2 !== S) && !dbg0.keepOrder) { rigState.ring = (rigState.ring + 1) % 3; gl.bindBuffer(gl.ARRAY_BUFFER, RG.seqBufs[rigState.ring]); gl.bufferSubData(gl.ARRAY_BUFFER, 0, tu.seq.subarray(0, tu.nseq)); rigState.ver = tu.ver; rigState.sid2 = S; }
       var bind = function (p, l) {
         gl.useProgram(p); gl.uniform4f(l.uV, view.k, view.tx, view.ty, 0); gl.uniform2f(l.uRes, W, Hh); gl.uniform4f(l.uCam, tu.cy, tu.sy, tu.cp, tu.sp); gl.uniform4f(l.uC3, tu.c3x, tu.c3y, tu.D3, tu.fadeOn); gl.uniform4f(l.uFd, tu.dmin, tu.inv, 0, 0);
         gl.uniform4fv(l.uGold, tu.gold); gl.uniform4fv(l.uBoxS, tu.boxS); gl.uniform4fv(l.uAcc, tu.accent);
@@ -355,7 +357,7 @@ var NFMRender = (function () {
       };
       var dbg = out.rigDebug || NODBG;   /* the tester switches parts off to find which one costs the time */
       if (rig.m && !dbg.noLinks) { bind(RG.pe, RG.le); gl.bindVertexArray(RG.vaoNone); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, rig.m); }
-      if (tu.nseq && !dbg.noItems) { bind(RG.pd, RG.ld); gl.bindVertexArray(RG.vaoSeq); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, tu.nseq); }
+      if (tu.nseq && !dbg.noItems) { bind(RG.pd, RG.ld); gl.bindVertexArray(RG.vaoSeqs[rigState.ring]); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, tu.nseq); }
       gl.bindVertexArray(null); gl.activeTexture(gl.TEXTURE0);
     };
     var info = (function () { try { var e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : ''; } catch (x) { return ''; } })();
@@ -507,7 +509,7 @@ var NFMRender = (function () {
       };
       var drawRig = function (view) {
         var tu = S.turn, rig = S.rig; rigSync();
-        if (rs.ver !== tu.ver || rs.sid2 !== S) { var sq = tu.seq.subarray(0, tu.nseq); if (sq.byteLength) device.queue.writeBuffer(rbufs.seq, 0, sq.buffer, sq.byteOffset, sq.byteLength); rs.ver = tu.ver; rs.sid2 = S; }
+        if ((rs.ver !== tu.ver || rs.sid2 !== S) && !(out.rigDebug && out.rigDebug.keepOrder)) { var sq = tu.seq.subarray(0, tu.nseq); if (sq.byteLength) device.queue.writeBuffer(rbufs.seq, 0, sq.buffer, sq.byteOffset, sq.byteLength); rs.ver = tu.ver; rs.sid2 = S; }
         var g = tu.gold, bs = tu.boxS, ac = tu.accent;
         rU.set([view.k, view.tx, view.ty, 0, W, Hh, 0, 0, tu.cy, tu.sy, tu.cp, tu.sp, tu.c3x, tu.c3y, tu.D3, tu.fadeOn, tu.dmin, tu.inv, 0, 0, g[0], g[1], g[2], g[3], bs[0], bs[1], bs[2], bs[3], ac[0], ac[1], ac[2], ac[3]]);
         device.queue.writeBuffer(RW.ru, 0, rU);
