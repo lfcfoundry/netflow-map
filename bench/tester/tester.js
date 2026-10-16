@@ -219,7 +219,7 @@
     s.head = ['Way of drawing', 'Pictures per second', 'New angle (ms)', 'Copy to card (ms)', 'Draw commands (ms)', 'Wait for card (ms)', 'Wait for refresh (ms)'];
     setStatus('Where the drawing time goes: building a ' + n.toLocaleString() + '-item 3D map…'); await yieldUI();
     var g = graphFor('moderate', n), dg = C.derive(JSON.parse(JSON.stringify(g))), L3 = E.build(dg, { view: 'network', arrange: 'force3d', colorBy: 'group' });
-    var mk = function (yaw, pitch) { return NFMScene.make(L3, { colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); };
+    var mk = function (yaw, pitch) { return NFMScene.make(L3, { plan: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); };
     var c = await NFMProbe.canary(), gpu = null, ctl = null, row = function (nm, w) { return [nm + ': ' + w.label, r1(w.fps), r1(w.scene), r1(w.upload), r1(w.draw), r1(w.fence), r1(w.raf)]; };
     if (!c.webgpu.ok) { var why = 'WebGPU is not usable here' + (c.webgpu.why ? ' (' + c.webgpu.why + ')' : '') + ', so there is nothing to time. Nothing is wrong with the app: it draws with WebGL 2 or basic drawing instead.'; ctx.timing = { skipped: why }; s.finish('warn', why); return { level: 'warn', say: why }; }
     setStatus('Where the drawing time goes: timing WebGPU (about 8 seconds)…'); await yieldUI();
@@ -287,7 +287,7 @@
     var make = backend === 'webgpu' ? NFMRender.createWebGPU : backend === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D, r;
     try { r = await make(host, {}); } catch (e) { cap.textContent = title + ': could not draw the preview (' + String(e && e.message || e).slice(0, 80) + ')'; return; }
     var W = host.clientWidth || 600, H = 320, st = { yaw: 0.6, pitch: 0.35, zoom: 1, paused: false, drag: null, visible: true };
-    var draw = function () { var sc = NFMScene.make(L3, { colorBy: 'group', theme: matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light', cam: { yaw: st.yaw, pitch: st.pitch, persp: 2.4 } }); r.setScene(sc); r.resize(W, H, 1); var v = NFMProbe.fitView(sc, W, H); v.k *= st.zoom; v.tx = W / 2 - (W / 2 - v.tx) * st.zoom; v.ty = H / 2 - (H / 2 - v.ty) * st.zoom; r.draw(v); };
+    var draw = function () { var sc = NFMScene.make(L3, { plan: true, colorBy: 'group', theme: matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light', cam: { yaw: st.yaw, pitch: st.pitch, persp: 2.4 } }); r.setScene(sc); r.resize(W, H, 1); var v = NFMProbe.fitView(sc, W, H); v.k *= st.zoom; v.tx = W / 2 - (W / 2 - v.tx) * st.zoom; v.ty = H / 2 - (H / 2 - v.ty) * st.zoom; r.draw(v); };
     host.addEventListener('pointerdown', function (e) { st.drag = { x: e.clientX, y: e.clientY, moved: false }; host.setPointerCapture(e.pointerId); host.style.cursor = 'grabbing'; });
     host.addEventListener('pointermove', function (e) { if (!st.drag) return; var dx = e.clientX - st.drag.x, dy = e.clientY - st.drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) st.drag.moved = true; st.drag.x = e.clientX; st.drag.y = e.clientY; st.yaw += dx * 0.01; st.pitch = Math.max(-1.4, Math.min(1.4, st.pitch + dy * 0.01)); draw(); });
     host.addEventListener('pointerup', function () { if (st.drag && !st.drag.moved) st.paused = !st.paused; st.drag = null; host.style.cursor = 'grab'; });
@@ -317,7 +317,7 @@
     var turnRows = [], best = null; ctx.turn = [];
     for (var si = 0; si < scenes.length; si++) for (var bi = 0; bi < names.length; bi++) {
       setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + '…'); await yieldUI();
-      var Lx = scenes[si].L3, t = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, makeScene: function (yaw, pitch) { return NFMScene.make(Lx, { colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      var Lx = scenes[si].L3, t = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, makeScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
       var nm = names[bi] === 'webgpu' ? 'WebGPU' : names[bi] === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
       if (t.fps) { turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm, Math.round(t.fps), r1(t.sceneMs), r1(t.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], fps: r1(t.fps), sceneMs: r1(t.sceneMs), drawMs: r1(t.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || t.fps > best.fps)) best = t; }
       else turnRows.push([scenes[si].n.toLocaleString() + ' items, ' + nm, 'skipped', '-', String(t.skipped).slice(0, 40)]);

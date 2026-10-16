@@ -63,7 +63,7 @@ stage.addEventListener('pointermove', function (e) {
   if (!P0.moved) { if (Math.hypot(dx, dy) < (isTouch ? 8 : 4)) return; P0.moved = true; clearTimeout(pressTimer); hideTip(); if (P0.mode === 'node') beginNodeDrag(P0); stage.classList.add(P0.mode === 'pan' || P0.mode === 'orbit' ? 'drag' : P0.mode === 'node' ? 'move' : 'pick'); }
   var m = P0.mode;
   if (m === 'pan') { S.view = { k: S.view.k, tx: S.view.tx + p[0] - prev[0], ty: S.view.ty + p[1] - prev[1] }; velo.push([p[0], p[1], performance.now()]); if (velo.length > 6) velo.shift(); requestDraw(); }
-  else if (m === 'orbit') { var c = S.V.cam; c.yaw = P0.yaw + dx * 0.008; c.pitch = clamp(P0.pitch + dy * 0.008, -1.45, 1.45); scheduleScene(); }
+  else if (m === 'orbit') { var c = S.V.cam; c.yaw = P0.yaw + dx * 0.008; c.pitch = clamp(P0.pitch + dy * 0.008, -1.45, 1.45); scheduleScene(true); }
   else if (m === 'box') setInk({ type: 'box', x0: P0.x, y0: P0.y, x1: p[0], y1: p[1] });
   else if (m === 'lasso') { var pts = (inkShape && inkShape.type === 'lasso' ? inkShape.pts : [[P0.x, P0.y]]); pts.push([p[0], p[1]]); setInk({ type: 'lasso', pts: pts }); }
   else if (m === 'node') moveNodes(p);
@@ -207,14 +207,14 @@ function spinLoop() {
   (function f(t) {
     if (!(S.V.cam.spin && S.L && S.L.is3d && S.tab === 'map' && !document.hidden)) { spinning = false; return; }
     var dt = Math.min(64, t - last); last = t;
-    if (!P0) { S.V.cam.yaw += dt * 0.00032; scheduleScene(); }
+    if (!P0) { S.V.cam.yaw += dt * 0.00032; scheduleScene(true); }
     requestAnimationFrame(f);
   })(last);
 }
 function snapCam(kind) {
   var c = S.V.cam, to = kind === 'front' ? { yaw: 0, pitch: 0 } : kind === 'side' ? { yaw: Math.PI / 2, pitch: 0 } : kind === 'top' ? { yaw: 0, pitch: 1.45 } : { yaw: 0.6, pitch: 0.35 };
   var y0 = c.yaw, p0 = c.pitch, t0 = performance.now();
-  (function f(t) { var u = reduceMotion ? 1 : Math.min(1, (t - t0) / 420), e = u * u * (3 - 2 * u); c.yaw = y0 + (to.yaw - y0) * e; c.pitch = p0 + (to.pitch - p0) * e; scheduleScene(); if (u < 1) requestAnimationFrame(f); else saveView(); })(t0);
+  (function f(t) { var u = reduceMotion ? 1 : Math.min(1, (t - t0) / 420), e = u * u * (3 - 2 * u); c.yaw = y0 + (to.yaw - y0) * e; c.pitch = p0 + (to.pitch - p0) * e; scheduleScene(true); if (u < 1) requestAnimationFrame(f); else saveView(); })(t0);
 }
 
 /* ---------------------------------------------------------------- menus */

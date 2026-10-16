@@ -198,6 +198,7 @@ function makeScene(fit) {
   if (!S.L) return;
   applyPins(S.L);
   var t0 = performance.now();
+  S.camPlan = null;
   S.scene = NFMScene.make(S.L, sceneOpts());
   editKey(S.scene);
   S.sceneMs = performance.now() - t0;
@@ -207,8 +208,9 @@ function makeScene(fit) {
   renderMapUI();
   if (fit) { host.classList.remove('fade'); void host.offsetWidth; host.classList.add('fade'); }
 }
-var sceneQueued = false;
-function scheduleScene() { if (sceneQueued) return; sceneQueued = true; requestAnimationFrame(function () { sceneQueued = false; if (S.L) { applyPins(S.L); S.scene = NFMScene.make(S.L, sceneOpts()); editKey(S.scene); applyStyle(true); if (mgr && mgr.r) mgr.r.setScene(S.scene); requestDraw(); } }); }
+var sceneQueued = false, sceneCamOnly = true;
+/** Redraws on the next frame. camOnly: only the camera of a 3D map changed, so what each item looks like is reused from the last picture. */
+function scheduleScene(camOnly) { sceneCamOnly = sceneCamOnly && camOnly === true; if (sceneQueued) return; sceneQueued = true; requestAnimationFrame(function () { sceneQueued = false; if (S.L) { applyPins(S.L); var so = sceneOpts(); if (sceneCamOnly && S.L.is3d) so.plan = S.camPlan || (S.camPlan = {}); else S.camPlan = null; sceneCamOnly = true; S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (mgr && mgr.r) mgr.r.setScene(S.scene); requestDraw(); } }); }
 
 /* ---------------------------------------------------------------- selection, dimming, search, route lighting */
 function sceneNodeFor(id) { if (!S.scene || id == null) return null; if (!S.keyMap || S.keyMap.sc !== S.scene) { var m = new Map(); S.scene.nodes.forEach(function (n) { if (n.nodeId !== undefined && !m.has(n.nodeId)) m.set(n.nodeId, n); }); S.keyMap = { sc: S.scene, m: m }; } return S.keyMap.m.get(id) || null; }
