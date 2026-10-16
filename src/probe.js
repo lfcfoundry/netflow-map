@@ -13,7 +13,7 @@ var NFMProbe = (function () {
   }
   function nowMs() { return typeof performance !== 'undefined' ? performance.now() : Date.now(); }
   /** What a one-picture-per-refresh loop waits on after draw(): WebGPU lets up to three pictures be in flight (pace); the others have only flush(). */
-  function wait(r) { return r.pace ? r.pace(3) : r.flush(); }
+  function wait(r) { return r.pace ? r.pace(3) : Promise.resolve(); }   /* WebGL 2 is not waited for after a picture: the app does not either (a wait there forces the card to finish each picture alone) */
 
   function testCanvas2D() {
     try {
@@ -178,11 +178,13 @@ var NFMProbe = (function () {
         var gaps = [], angles = [], draws = [], last = 0, want = 100, hidden = false;
         sc.turnTo(cam(0), 4);
         if (cfg.fence) {
-          /* a batch of pictures sent back to back and waited for once; the same batch with everything switched off is taken away, which removes the fixed waits some browsers add (the screen refresh, or about 100 ms for WebGPU) */
-          var K = 10, tots = [];
-          for (var bt = 0; bt < 5; bt++) { var s0 = nowMs(); for (var j = 0; j < K; j++) r.draw(view(j, w, h)); await r.flush(); tots.push(nowMs() - s0); }
-          r.rigDebug = null; tots.shift();
-          return { raw: pct(tots, 0.5) / K, rawMax: pct(tots, 1) / K };
+          /* the card's time per picture, from two batch sizes: a batch of 20 and a batch of 120 pictures, each sent back to back and waited for once. The difference divided by 100 leaves out
+             every fixed wait (about 100 ms for WebGPU's "done" signal, the screen refresh for others), which a single small batch cannot do. */
+          var timeOf = async function (K) { var s0 = nowMs(); for (var j = 0; j < K; j++) r.draw(view(j, w, h)); await r.flush(); return nowMs() - s0; };
+          await timeOf(4);
+          var t1 = await timeOf(20), t2 = t1 > 4000 ? t1 * 6 : await timeOf(120);
+          r.rigDebug = null;
+          return { ms: Math.max(0, (t2 - t1) / 100), msMax: Math.max(0, (t2 - t1) / 100) };
         }
         for (var i = 0; i < want + 3; i++) {
           var a = nowMs(); if (cfg.turn) sc.turnTo(cam(i), 4); var b = nowMs();
@@ -199,11 +201,10 @@ var NFMProbe = (function () {
         var ready = false; for (var k = 0; k < 40 && !ready; k++) { if (r.rigOK) ready = true; else await new Promise(function (ok) { setTimeout(ok, 25); }); }
         if (!ready) { r.destroy(); return gone({ backend: n, skipped: 'the card could not set up turning' }); }
         await runWay({ turn: 1, draw: 1, sync: 1 });   /* warm-up, not reported */
-        var ways = [], base = await runWay({ fence: 1, dbg: { noLinks: true, noItems: true, noNames: true } });
+        var ways = [];
         for (var q = 0; q < SPLIT.length; q++) {
           var res = await runWay(SPLIT[q][2]);
           if (!res) { r.destroy(); return gone({ backend: n, skipped: 'the page was in the background' }); }
-          if (res.raw !== undefined) { res.ms = Math.max(0, res.raw - base.raw); res.msMax = Math.max(0, res.rawMax - base.raw); delete res.raw; delete res.rawMax; }
           res.id = SPLIT[q][0]; res.label = SPLIT[q][1]; ways.push(res);
         }
         r.destroy(); return gone({ backend: n, ways: ways });
