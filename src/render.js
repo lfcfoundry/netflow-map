@@ -46,12 +46,13 @@ var NFMRender = (function () {
     var mesh = new Float32Array(verts * MESH_STRIDE), o = 0;
     var put = function (x, y, nx, ny, hw, side, c, a) { mesh[o++] = x; mesh[o++] = y; mesh[o++] = nx; mesh[o++] = ny; mesh[o++] = hw; mesh[o++] = side; mesh[o++] = c[0]; mesh[o++] = c[1]; mesh[o++] = c[2]; mesh[o++] = c[3] * a; };
     S.ribbons.forEach(function (r) {
-      var a = r.a === undefined ? 1 : r.a, n = Math.max(10, Math.min(40, Math.ceil(Math.abs(r.x1 - r.x0) / 10))), c = r.color;
+      var a = r.a === undefined ? 1 : r.a, n = Math.max(10, Math.min(40, Math.ceil(Math.abs(r.x1 - r.x0) / 10))), c = r.color, c2 = r.color2, cAt = c2 ? function (u) { return [c[0] + (c2[0] - c[0]) * u, c[1] + (c2[1] - c[1]) * u, c[2] + (c2[2] - c[2]) * u, c[3]]; } : null;
       var ptsAt = function (ya0, ya1, u) { var m = 1 - u, y = m * m * m * ya0 + 3 * m * m * u * ya0 + 3 * m * u * u * ya1 + u * u * u * ya1, x = m * m * m * r.x0 + 3 * m * m * u * r.xm + 3 * m * u * u * r.xm + u * u * u * r.x1; return [x, y]; };
       for (var k = 0; k < n; k++) {
         var u0 = k / n, u1 = (k + 1) / n, t0 = ptsAt(r.y0a, r.y1a, u0), t1 = ptsAt(r.y0a, r.y1a, u1), b0 = ptsAt(r.y0b, r.y1b, u0), b1 = ptsAt(r.y0b, r.y1b, u1);
-        put(t0[0], t0[1], 0, 0, -1, 0, c, a); put(b0[0], b0[1], 0, 0, -1, 0, c, a); put(t1[0], t1[1], 0, 0, -1, 0, c, a);
-        put(t1[0], t1[1], 0, 0, -1, 0, c, a); put(b0[0], b0[1], 0, 0, -1, 0, c, a); put(b1[0], b1[1], 0, 0, -1, 0, c, a);
+        var cc0 = cAt ? cAt(u0) : c, cc1 = cAt ? cAt(u1) : c;
+        put(t0[0], t0[1], 0, 0, -1, 0, cc0, a); put(b0[0], b0[1], 0, 0, -1, 0, cc0, a); put(t1[0], t1[1], 0, 0, -1, 0, cc1, a);
+        put(t1[0], t1[1], 0, 0, -1, 0, cc1, a); put(b0[0], b0[1], 0, 0, -1, 0, cc0, a); put(b1[0], b1[1], 0, 0, -1, 0, cc1, a);
       }
     });
     (S.polys || []).forEach(function (p) {
@@ -200,6 +201,7 @@ var NFMRender = (function () {
         S.ribbons.forEach(function (r) {
           if (Math.max(r.x0, r.x1) < vx0 || Math.min(r.x0, r.x1) > vx1) return;
           ctx.globalAlpha = (r.a === undefined ? 1 : r.a) * r.color[3]; ctx.fillStyle = css([r.color[0], r.color[1], r.color[2], 1]);
+          if (r.color2) { var gr = ctx.createLinearGradient(r.x0, 0, r.x1, 0); gr.addColorStop(0, css([r.color[0], r.color[1], r.color[2], 1])); gr.addColorStop(1, css([r.color2[0], r.color2[1], r.color2[2], 1])); ctx.fillStyle = gr; }
           ctx.beginPath(); ctx.moveTo(r.x0, r.y0a); ctx.bezierCurveTo(r.xm, r.y0a, r.xm, r.y1a, r.x1, r.y1a); ctx.lineTo(r.x1, r.y1b); ctx.bezierCurveTo(r.xm, r.y1b, r.xm, r.y0b, r.x0, r.y0b); ctx.closePath(); ctx.fill();
         });
         ctx.lineCap = 'butt'; ctx.lineJoin = 'round';

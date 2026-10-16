@@ -73,14 +73,25 @@ var NFMSankey = (function () {
   function layout(L, opts) {
     opts = opts || {};
     var t0 = Date.now(), nodeW = opts.nodeW || 14, gapLayer = opts.gapLayer || 190, pad = opts.pad === undefined ? 12 : opts.pad, padD = 3;
-    var byId = {}, V = [], layers = [], i, k, idx = {};
+    var byId = {}, V = [], layers = [], i, k, idx = {}, nk = function (n) { return n.nodeId !== undefined ? String(n.nodeId) : String(n.id); };   // nk: the name an item keeps across rebuilds
     var usable = []; L.edges.forEach(function (e, ei) { if (e.kind !== 'self' && e.from !== e.to && e.flow > EPS && L.pos[e.from] && L.pos[e.to]) usable.push(ei); });
     L.nodes.forEach(function (n, q) { idx[n.id] = q; });
-    var lay = layering(L.nodes.length, usable.map(function (ei) { var e = L.edges[ei]; return { from: idx[e.from], to: idx[e.to], flow: e.flow }; }), opts.justifySinks !== false);
+    var fo = opts.fixedOrder, foLayer = null;
+    if (fo && fo.layers && fo.loops) {   // reuse an earlier order (moving things by hand must not shuffle the rest)
+      foLayer = {}; var okFo = true;
+      fo.layers.forEach(function (list, li) { list.forEach(function (id) { if (id.charAt(0) !== '~') foLayer[id] = li; }); });
+      L.nodes.forEach(function (n) { if (foLayer[nk(n)] === undefined) okFo = false; });
+      if (!okFo || !fo.layers.length) foLayer = null;
+    }
+    var lay;
+    if (foLayer) {
+      var fb = new Set(), loopSet = {}; fo.loops.forEach(function (x) { loopSet[x] = 1; }); usable.forEach(function (ei, q) { var e0 = L.edges[ei], a0 = L.pos[e0.from], b0 = L.pos[e0.to]; if (loopSet[nk(a0) + '>' + nk(b0)]) fb.add(q); });
+      lay = { layer: Int32Array.from(L.nodes.map(function (n) { return foLayer[nk(n)]; })), feedback: fb, levels: fo.layers.length, order: L.nodes.map(function (n, q) { return q; }) };
+    } else lay = layering(L.nodes.length, usable.map(function (ei) { var e = L.edges[ei]; return { from: idx[e.from], to: idx[e.to], flow: e.flow }; }), opts.justifySinks !== false);
     var nL = lay.levels; for (k = 0; k < nL; k++) layers.push([]);
     var rankKey = {}; lay.order.forEach(function (q, r) { rankKey[L.nodes[q].id] = r; });
     L.nodes.forEach(function (n, q) {
-      var v = { id: n.id, node: n, layer: lay.layer[q], size: 0, up: [], down: [], key: rankKey[n.id], h: 0, y: 0, pos: 0, inAll: 0, outAll: 0 };
+      var v = { id: n.id, ukey: nk(n), node: n, layer: lay.layer[q], size: 0, up: [], down: [], key: rankKey[n.id], h: 0, y: 0, pos: 0, inAll: 0, outAll: 0 };
       byId[n.id] = v; V.push(v); layers[v.layer].push(v);
     });
     var fwd = [], loops = [];
@@ -89,7 +100,7 @@ var NFMSankey = (function () {
       if (!lay.feedback.has(q) && b.layer > a.layer) {
         var prev = a;
         for (k = a.layer + 1; k < b.layer; k++) {
-          var d = { id: null, edge: ei, layer: k, size: e.flow, up: [], down: [], key: (a.key + b.key) / 2, h: 0, y: 0, pos: 0, dummy: true };
+          var d = { id: null, edge: ei, pair: nk(a.node) + '>' + nk(b.node), layer: k, size: e.flow, up: [], down: [], key: (a.key + b.key) / 2, h: 0, y: 0, pos: 0, dummy: true };
           V.push(d); layers[k].push(d); prev.down.push({ o: d, w: e.flow, ei: ei }); d.up.push({ o: prev, w: e.flow, ei: ei }); prev = d;
         }
         prev.down.push({ o: b, w: e.flow, ei: ei }); b.up.push({ o: prev, w: e.flow, ei: ei }); a.outAll += e.flow; b.inAll += e.flow; fwd.push(ei);
@@ -105,6 +116,13 @@ var NFMSankey = (function () {
       return c;
     };
     layers.forEach(function (list) { list.sort(function (a, b) { return a.key - b.key; }); }); setPos();
+    var idOf = function (v) { return v.dummy ? '~' + v.pair + ':' + v.layer : v.ukey; };
+    var keepOrder = false;
+    if (foLayer) {
+      var where = {}; fo.layers.forEach(function (list, li) { list.forEach(function (id, j) { where[li + '|' + id] = j; }); });
+      keepOrder = V.every(function (v) { return where[v.layer + '|' + idOf(v)] !== undefined; });
+      if (keepOrder) { layers.forEach(function (list, li) { list.sort(function (a, b) { return where[li + '|' + idOf(a)] - where[li + '|' + idOf(b)]; }); }); setPos(); }
+    }
     var snap = function () { return layers.map(function (l) { return l.slice(); }); };
     var restore = function (s) { s.forEach(function (l, q) { layers[q] = l.slice(); }); setPos(); };
     var sweep = function (q, nb) {
@@ -135,8 +153,8 @@ var NFMSankey = (function () {
       }
       restore(best); return bestC;
     };
-    var bestC = run(V.length > 1500 ? 2 : 8), bestSnap = snap();
-    var restarts = opts.unweighted ? 0 : opts.restarts === undefined ? (V.length <= 300 ? 8 : V.length <= 800 ? 3 : 0) : opts.restarts, rnd = rng(opts.seed || 7), budget = opts.budgetMs || 400;
+    var bestC = keepOrder ? total() : run(V.length > 1500 ? 2 : 8), bestSnap = snap();
+    var restarts = keepOrder || opts.unweighted ? 0 : opts.restarts === undefined ? (V.length <= 300 ? 8 : V.length <= 800 ? 3 : 0) : opts.restarts, rnd = rng(opts.seed || 7), budget = opts.budgetMs || 400;
     for (i = 0; i < restarts && bestC > 0 && Date.now() - t0 < budget; i++) {
       restore(bestSnap);
       layers.forEach(function (list) { var len = list.length || 1; list.forEach(function (v) { v.key2 = (v.pos + 0.5) / len + (rnd() + rnd() + rnd() - 1.5) * 0.35; }); list.sort(function (a, b) { return a.key2 - b.key2; }); });
@@ -144,7 +162,7 @@ var NFMSankey = (function () {
     }
     restore(bestSnap); var crossingWeight = bestC;
     /* ---- one scale for everything, bar heights from flow, then vertical positions by relaxation ---- */
-    var Hs = opts.height || Math.max(380, Math.min(900, 26 * layers.reduce(function (m, l) { return Math.max(m, l.length); }, 1))), ky = Infinity;
+    var Hs = opts.height || Math.max(340, Math.min(760, 24 * layers.reduce(function (m, l) { return Math.max(m, l.length); }, 1))), ky = Infinity;
     layers.forEach(function (list) {
       var tot = 0, gaps = 0; list.forEach(function (v, j) { tot += v.size; if (j) gaps += v.dummy || list[j - 1].dummy ? padD : pad; });
       if (tot > 0) ky = Math.min(ky, Math.max(0.0001, Hs - gaps) / tot);
@@ -172,7 +190,22 @@ var NFMSankey = (function () {
     }
     var top = Infinity, bottom = -Infinity; V.forEach(function (v) { top = Math.min(top, v.y - v.h / 2); bottom = Math.max(bottom, v.y + v.h / 2); });
     var off = 30 - top; V.forEach(function (v) { v.y += off; }); bottom += off;
+    /* ---- bars the person placed by hand: put them exactly there, keep the order by height, nudge only the others out of the way ---- */
+    var fixY = opts.fixY || {}, anyPin = false;
+    V.forEach(function (v) { v.pinned = false; if (!v.dummy && typeof fixY[v.ukey] === 'number' && isFinite(fixY[v.ukey])) { v.y = Math.max(0, fixY[v.ukey]) + v.h / 2; v.pinned = true; anyPin = true; } });
+    if (anyPin) {
+      layers.forEach(function (list) {
+        list.sort(function (a, b) { return a.y - b.y || a.pos - b.pos; });
+        for (var pass = 0; pass < 2; pass++) {
+          for (var j = list.length - 2; j >= 0; j--) { var lim = list[j + 1].y - list[j + 1].h / 2 - gapBetween(list[j], list[j + 1]) - list[j].h / 2; if (!list[j].pinned && list[j].y > lim) list[j].y = lim; }
+          for (j = 0; j < list.length; j++) { if (!list[j].pinned && list[j].y < list[j].h / 2) list[j].y = list[j].h / 2; if (j) { var lo = list[j - 1].y + list[j - 1].h / 2 + gapBetween(list[j - 1], list[j]) + list[j].h / 2; if (!list[j].pinned && list[j].y < lo) list[j].y = lo; } }
+        }
+        list.forEach(function (v, j) { v.pos = j; });
+      });
+      bottom = -Infinity; V.forEach(function (v) { bottom = Math.max(bottom, v.y + v.h / 2); });
+    }
     /* ---- columns ---- */
+    if (opts.autoGap && !opts.gapLayer) gapLayer = Math.max(90, Math.min(220, (1100 - nL * nodeW) / Math.max(1, nL - 1)));
     var colX = []; for (k = 0; k < nL; k++) colX.push(30 + k * (nodeW + gapLayer));
     V.forEach(function (v) { v.w = v.dummy ? 0 : nodeW; v.x = v.dummy ? colX[v.layer] + nodeW / 2 : colX[v.layer]; });
     /* ---- link ends: stack in the order of where they go ---- */
@@ -207,11 +240,12 @@ var NFMSankey = (function () {
       var ys = u.loopOutTop + t / 2; u.loopOutTop += t; var ye = v.loopInTop + t / 2; v.loopInTop += t;
       var xs = u.x + u.w, xe = v.x, yl = yLane + t / 2; yLane += t + 7;
       var P = [[xs, ys], [xs + g, ys], [xs + g, yl], [xe - g, yl], [xe - g, ye], [xe, ye]];
-      loopOut.push({ edge: ei, from: e.from, to: e.to, w: t, d: roundPath(P, Math.min(12, 3 + t)), pts: P });
+      loopOut.push({ edge: ei, from: e.from, to: e.to, w: t, d: roundPath(P, Math.min(12, 3 + t)), pts: P, P: toBezier(P, Math.min(12, 3 + t)) });
     });
     var height = Math.max(bottom, yLane) + 30, width = colX[nL - 1] + nodeW + 30;
-    var nodes = V.filter(function (v) { return !v.dummy; }).map(function (v) { return { id: v.id, label: v.node.label || v.id, x: v.x, y: v.y - v.h / 2, w: v.w, h: v.h, layer: v.layer, flow: v.size }; });
-    return { nodes: nodes, bands: bands, loops: loopOut, width: width, height: height, ky: ky, crossingWeight: crossingWeight, ms: Date.now() - t0 };
+    var nodes = V.filter(function (v) { return !v.dummy; }).map(function (v) { return { id: v.id, label: v.node.label || v.id, x: v.x, y: v.y - v.h / 2, w: v.w, h: v.h, layer: v.layer, flow: v.size, inFlow: v.inAll, outFlow: v.outAll, pinned: !!v.pinned }; });
+    var orderOut = { layers: layers.map(function (list) { return list.map(idOf); }), loops: loops.map(function (ei) { var e1 = L.edges[ei]; return nk(L.pos[e1.from]) + '>' + nk(L.pos[e1.to]); }) };
+    return { nodes: nodes, bands: bands, loops: loopOut, width: width, height: height, ky: ky, crossingWeight: crossingWeight, order: orderOut, cols: nL, ms: Date.now() - t0 };
   }
 
   /** A polyline with rounded corners, as an SVG path. */
@@ -223,6 +257,33 @@ var NFMSankey = (function () {
       d += 'L' + f(p1[0]) + ' ' + f(p1[1]) + 'Q' + f(b[0]) + ' ' + f(b[1]) + ' ' + f(p2[0]) + ' ' + f(p2[1]);
     }
     var z = P[P.length - 1]; return d + 'L' + f(z[0]) + ' ' + f(z[1]);
+  }
+  /** The same rounded polyline as flat cubic Bezier controls [x0, y0, c1x, c1y, c2x, c2y, x, y, ...] (what the drawing lists use). */
+  function toBezier(P, r) {
+    var out = [P[0][0], P[0][1]], cur = P[0], i;
+    var line = function (b) { out.push(cur[0] + (b[0] - cur[0]) / 3, cur[1] + (b[1] - cur[1]) / 3, cur[0] + 2 * (b[0] - cur[0]) / 3, cur[1] + 2 * (b[1] - cur[1]) / 3, b[0], b[1]); cur = b; };
+    for (i = 1; i + 1 < P.length; i++) {
+      var a = P[i - 1], b = P[i], c = P[i + 1], l1 = Math.hypot(b[0] - a[0], b[1] - a[1]), l2 = Math.hypot(c[0] - b[0], c[1] - b[1]), rr = Math.min(r, l1 / 2, l2 / 2);
+      var p1 = [b[0] - (b[0] - a[0]) / (l1 || 1) * rr, b[1] - (b[1] - a[1]) / (l1 || 1) * rr], p2 = [b[0] + (c[0] - b[0]) / (l2 || 1) * rr, b[1] + (c[1] - b[1]) / (l2 || 1) * rr];
+      line(p1);
+      out.push(p1[0] + 2 / 3 * (b[0] - p1[0]), p1[1] + 2 / 3 * (b[1] - p1[1]), p2[0] + 2 / 3 * (b[0] - p2[0]), p2[1] + 2 / 3 * (b[1] - p2[1]), p2[0], p2[1]); cur = p2;
+    }
+    line(P[P.length - 1]);
+    return out;
+  }
+  /** Writes a layout result into the drawing L (bar positions, size of the picture) and keeps the rest in L.sk. */
+  function apply(L, r) {
+    var byId = {}; r.nodes.forEach(function (n) { byId[n.id] = n; });
+    var put = function (n, s) { n.x = s.x; n.y = s.y; n.w = s.w; n.h = s.h; n.cx = s.x + s.w / 2; n.cy = s.y + s.h / 2; n.layer = s.layer; };
+    L.nodes.forEach(function (n) { var s = byId[n.id]; if (!s) return; put(n, s); var p = L.pos && L.pos[n.id]; if (p && p !== n) put(p, s); n.skIn = s.inFlow; n.skOut = s.outFlow; n.skPinned = s.pinned; });
+    L.width = r.width; L.height = r.height; L.dir = 'LR';
+    L.sk = { bands: r.bands, loops: r.loops, ky: r.ky, order: r.order, cols: r.cols, crossingWeight: r.crossingWeight, ms: r.ms };
+    return L;
+  }
+  /** The look-and-place settings a person can change, cleaned up for layout(): { nodeW, gap, pad, height, fixY, justify }. */
+  function options(sk) {
+    sk = sk || {}; var num = function (v, d, lo, hi) { return typeof v === 'number' && isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d; };
+    return { nodeW: num(sk.nodeW, 14, 4, 80), gapLayer: sk.gap >= 60 ? num(sk.gap, 190, 60, 700) : undefined, autoGap: !(sk.gap >= 60), pad: num(sk.pad, 12, 2, 80), height: num(sk.height, 0, 0, 4000) || undefined, fixY: sk.fixY || {}, justifySinks: sk.justify !== false, fixedOrder: sk.order && sk.order.layers && sk.order.loops ? sk.order : undefined };
   }
   function f(n) { return +n.toFixed(2); }
 
@@ -267,6 +328,6 @@ var NFMSankey = (function () {
     return { crossings: nCross, crossingWeight: totalFlow > 0 ? 100 * wCross / (totalFlow * totalFlow) : 0, nodeHits: Object.keys(hits).length, widthSpread: isFinite(lo) && lo > 0 ? hi / lo : 1, drawnShare: allFlow > 0 ? drawnFlow / allFlow : 1, bend: bw > 0 && g.height ? bend / bw / g.height : 0, height: g.height, width: g.width, drawn: Object.keys(drawn).length };
   }
 
-  return { layout: layout, layering: layering, measure: measure, crossWeight: crossWeight, roundPath: roundPath };
+  return { layout: layout, apply: apply, options: options, layering: layering, measure: measure, crossWeight: crossWeight, roundPath: roundPath, toBezier: toBezier };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMSankey;

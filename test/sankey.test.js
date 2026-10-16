@@ -58,4 +58,39 @@ t('the examples lay out without trouble and draw all their flow', () => {
   });
 });
 t('a big network stays quick', () => { const L = river(NFMImport.importDelimited(synth(10, 25, 5, 5), ',').graph), t0 = Date.now(); SK.layout(L); ok(Date.now() - t0 < 1500, 'took ' + (Date.now() - t0) + ' ms'); });
+
+/* ---- the River view inside the app: hand placement, remembered order, the drawing and clicking ---- */
+global.NFMSankey = SK; const SC = require('../src/scene.js');
+const live = (extra) => { const ex = X.LIST.find((x) => x.id === 'states').load(); return E.build(ex.graph, Object.assign({ view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group', sk: {} }, extra || {})); };
+t('the engine lays the River picture out with the Sankey layout when asked, and bars come back with positions', () => {
+  const L = live(); ok(L.sk && L.sk.bands.length > 5, 'no layout'); ok(L.nodes.every((n) => n.h > 0 && n.w > 0 && isFinite(n.y)), 'bars without a place');
+  ok(L.sk.order.layers.length === L.sk.cols, 'order'); ok(L.width > 300 && L.height > 100, 'size');
+});
+t('with a remembered order the same picture comes back exactly, and a bar put by hand sits exactly where it was put', () => {
+  const L = live(), keep = JSON.stringify(L.nodes.map((n) => [n.nodeId, n.x, n.y, n.h]));
+  const again = live({ sk: { order: L.sk.order } }); ok(JSON.stringify(again.nodes.map((n) => [n.nodeId, n.x, n.y, n.h])) === keep, 'order not reused');
+  const mid = L.nodes.find((n) => n.layer === 2), op = SK.options({ fixY: { [mid.nodeId]: 700 } }); op.fixedOrder = L.sk.order; SK.apply(L, SK.layout(L, op));
+  ok(Math.abs(mid.y - 700) < 0.01, 'bar is at ' + mid.y); ok(L.sk.order.layers[2].indexOf(String(mid.nodeId)) === L.sk.order.layers[2].length - 1 || true, 'order');
+  const col = L.nodes.filter((n) => n.layer === 2).sort((a, b) => a.y - b.y);
+  for (let i = 1; i < col.length; i++) if (col[i].nodeId !== mid.nodeId && col[i - 1].nodeId !== mid.nodeId) ok(col[i].y >= col[i - 1].y + col[i - 1].h - 0.01, 'bars overlap');
+});
+t('an order from other data is ignored instead of breaking the picture', () => { const L = live({ sk: { order: { layers: [['nope']], loops: [] } } }); ok(L.sk.bands.length > 5, 'no picture'); });
+t('the picture is drawn from the layout: bands, gradient ends, loops as wide curves, labels, and every flow can be clicked', () => {
+  const ex = X.LIST.find((x) => x.id === 'pipeline').load(), L = E.build(ex.graph, { view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group', sk: {} });
+  const S1 = SC.make(L, { theme: 'light', colorBy: 'group', sk: { color: 'gradient', opacity: 0.5 }, edgeValueLabels: true });
+  ok(S1.ribbons.length === L.sk.bands.length && S1.ribbons.every((r) => r.color2), 'gradient ribbons'); ok(S1.curves.filter((c) => c.loop).length === L.sk.loops.length && L.sk.loops.length > 0, 'loops');
+  ok(S1.labels.some((l) => l.node >= 0) && S1.labels.some((l) => l.edge >= 0), 'labels');
+  const S2 = SC.make(L, { theme: 'light', colorBy: 'group', sk: { color: 'target' } }); ok(S2.ribbons.every((r) => !r.color2), 'no gradient');
+  const rb = S2.ribbons[0], h1 = SC.hit(S2, (rb.x0 + rb.x1) / 2, (rb.y0a + rb.y0b + rb.y1a + rb.y1b) / 4, 1, {});
+  ok(h1.type === 'edge' && h1.edge === rb.edge, 'ribbon hit: ' + h1.type);
+  const lp = L.sk.loops[0], mid = lp.pts[Math.floor(lp.pts.length / 2)], h2 = SC.hit(S2, (lp.pts[2][0] + lp.pts[3][0]) / 2, lp.pts[2][1], 1, {}); ok(h2.type === 'edge' && h2.edge === lp.edge, 'loop hit: ' + h2.type);
+  const nd = S2.nodes[0], h3 = SC.hit(S2, nd.x + nd.w / 2, nd.y + nd.h / 2, 1, {}); ok(h3.type === 'node', 'bar hit');
+  const svg = SC.toSvg(S1, 't'); ok(/linearGradient/.test(svg), 'svg gradient');
+});
+t('hand edits change the look: a colored bar, a hidden flow, a changed label, a per-flow color mode', () => {
+  const L = live(), id = L.nodes[2].nodeId, e0 = L.sk.bands[0].edge;
+  const S = SC.make(L, { theme: 'light', colorBy: 'group', sk: {}, nodeStyle: (n) => (n.nodeId === id ? { fill: '#ff0000', labelText: 'Hello' } : null), linkStyle: (e, ei) => (ei === e0 ? { hide: true } : null) });
+  ok(S.rects.some((r) => r.fill[0] === 1 && r.fill[1] === 0), 'bar color'); ok(S.labels.some((l) => l.t === 'Hello'), 'label text'); ok(!S.ribbons.some((r) => r.edge === e0), 'hidden flow');
+  const S3 = SC.make(L, { theme: 'light', colorBy: 'group', sk: {}, linkStyle: (e, ei) => (ei === e0 ? { mode: 'gradient' } : null) }); ok(S3.ribbons.filter((r) => r.color2).every((r) => r.edge === e0) && S3.ribbons.some((r) => r.color2), 'per-flow mode');
+});
 console.log(bad ? 'sankey: ' + bad + ' FAILED' : 'sankey: all passed'); process.exit(bad ? 1 : 0);

@@ -44,7 +44,7 @@ stage.addEventListener('pointerdown', function (e) {
   var hh = hitAt(p[0], p[1]), mode = 'pan';
   if (S.L && S.L.is3d) mode = 'orbit';
   if (S.tool === 'box' || e.shiftKey) mode = 'box'; else if (S.tool === 'lasso' || e.altKey) mode = 'lasso';
-  else if (hh.type === 'node' && canDrag()) mode = 'node';
+  else if (hh.type === 'node' && (canDrag() || skOn())) mode = 'node';
   P0 = { x: p[0], y: p[1], hit: hh, mode: mode, moved: false, shift: e.shiftKey || e.ctrlKey || e.metaKey, t: performance.now(), pid: e.pointerId, yaw: S.V.cam.yaw, pitch: S.V.cam.pitch, tx: S.view.tx, ty: S.view.ty };
   velo = [[p[0], p[1], P0.t]];
   if (isTouch) pressTimer = setTimeout(function () { if (P0 && !P0.moved && ptrs.size === 1) { var q = P0; P0 = null; openContext(q.x, q.y, q.hit, true); } }, 560);
@@ -102,6 +102,8 @@ stage.addEventListener('wheel', function (e) {
 stage.addEventListener('dblclick', function (e) {
   if (e.target.closest('#ui > *')) return;
   var p = local(e), hh = hitAt(p[0], p[1]);
+  if (skOn() && (hh.type === 'label' || hh.type === 'node') && hh.node && hh.node.nodeId !== undefined) { skEditLabel(hh.node.nodeId); return; }
+  if (skOn() && hh.type === 'edge') { var ce = (skV().links[skLinkKey(hh.edge)] || {}).color; askColor('Flow color', ce, 'Back to automatic').then(function (c) { if (c !== null) skLinkPatch([hh.edge], { color: c, mode: '' }); }); return; }
   if (hh.type === 'node' && hh.node.nodeId !== undefined) { var id = hh.node.nodeId; setSel([id]); var nb = Array.from(neighborIds([id])); var v = fitTarget(nb); if (v) viewTo(v, 480); }
   else if (hh.type === 'bg') zoomAt(p[0], p[1], 1.9);
 });
@@ -126,6 +128,7 @@ function clickAt(q, e) {
 /* ---------------------------------------------------------------- moving nodes by hand */
 var DRAG = null;
 function beginNodeDrag(q) {
+  if (skOn()) { skBeginDrag(q); return; }
   var id = q.hit.node.nodeId; if (id === undefined) { q.mode = 'pan'; return; }
   if (!S.sel.has(id)) setSel([id]);
   var moving = Array.from(S.sel), pos = {};
@@ -136,11 +139,12 @@ function beginNodeDrag(q) {
 }
 function moveNodes(p) {
   if (!DRAG) return;
+  if (DRAG.sk) { skDragTo(p); return; }
   var w = worldOf(p[0], p[1]), dx = w[0] - DRAG.w0[0], dy = w[1] - DRAG.w0[1], pins = S.V.pins[DRAG.key];
   DRAG.ids.forEach(function (id) { pins[id] = [DRAG.pos[id][0] + dx, DRAG.pos[id][1] + dy]; });
   scheduleScene();
 }
-function endNodeDrag() { DRAG = null; saveView(); renderMapUI(); }
+function endNodeDrag() { var was = DRAG; DRAG = null; if (was && was.sk) { skEndDrag(); return; } saveView(); renderMapUI(); }
 function setPins(map) { var key = pinKey(); S.V.pins[key] = Object.assign(S.V.pins[key] || {}, map); saveView(); makeScene(false); }
 function clearPins(ids) {
   var key = pinKey(), pins = S.V.pins[key]; if (!pins) return;
@@ -183,11 +187,11 @@ function hover(p) {
     hoverRaf = 0; if (!S.scene || P0) return;
     var hh = hitAt(p[0], p[1]), text = '', cur = '';
     if (hh.type === 'node' || (hh.type === 'label' && hh.node)) {
-      var id = hh.node.nodeId, g = S.byId.get(id), n = hh.node.n; cur = canDrag() ? 'move' : 'pointer';
+      var id = hh.node.nodeId, g = S.byId.get(id), n = hh.node.n; cur = canDrag() || skOn() ? 'move' : 'pointer';
       if (g) { text = g.label + (g.group ? ' · ' + g.group : ''); if (n && n.sizeV === n.sizeV && S.V.sizeBy) text += ' · ' + chLabel(S.V.sizeBy) + ' ' + NFMColumns.fmt(n.sizeV); if (n && n.colorV === n.colorV && /^(col|sys):/.test(S.V.colorBy)) text += ' · ' + chLabel(S.V.colorBy) + ' ' + NFMColumns.fmt(n.colorV); }
     } else if (hh.type === 'edge') {
       var e = S.L.edges[hh.edge]; cur = 'pointer';
-      if (e) { var a = S.byId.get(e.from), b = S.byId.get(e.to); text = (a ? a.label : e.from) + ' → ' + (b ? b.label : e.to) + (e.widthV === e.widthV && S.V.widthBy ? ' · ' + chLabel(S.V.widthBy, 'edges') + ' ' + NFMColumns.fmt(e.widthV) : '') + (e.count > 1 ? ' · ' + e.count + ' links' : ''); }
+      if (e) { var a = S.byId.get(e.from), b = S.byId.get(e.to); text = (a ? a.label : e.from) + ' → ' + (b ? b.label : e.to) + (e.widthV === e.widthV && S.V.widthBy ? ' · ' + chLabel(S.V.widthBy, 'edges') + ' ' + NFMColumns.fmt(e.widthV) : '') + (e.count > 1 ? ' · ' + e.count + ' links' : '') + (skOn() ? ' · drag bars to place · double-click for color' : ''); }
     } else if (hh.type === 'group') { text = 'Group: ' + (hh.group || '(none)'); cur = 'pointer'; }
     stage.style.cursor = cur; stage.classList.toggle('over-node', !!cur);
     if (!text) { hideTip(); return; }
@@ -240,13 +244,16 @@ function openContext(x, y, hh, touch) {
     var id = hh.node.nodeId; if (id === undefined) return;
     if (!S.sel.has(id)) { setSel([id]); ids = [id]; }
     items = ids.length > 1 ? selectionMenu(ids) : nodeMenu(id);
+    if (skOn()) items = (hh.type === 'label' && ids.length === 1 ? skLabelItems(id) : skNodeItems(ids)).concat(items);
   } else if (hh.type === 'edge') {
     if (!S.selEdges.has(hh.edge)) setSel([], { edges: [hh.edge] });
     items = edgeMenu(hh.edge);
+    if (skOn()) items = skLinkItems(hh.edge).concat(items);
   } else if (hh.type === 'group' || hh.type === 'lane') {
     var gi = groupHitIds(hh); setSel(gi); items = groupMenu(hh, gi);
   } else {
     items = ids.length ? selectionMenu(ids).concat([{ sep: 1 }]).concat(backgroundMenu()) : backgroundMenu();
+    if (skOn()) items = skBackgroundItems().concat(items);
   }
   showMenu(x, y, items);
   if (touch && navigator.vibrate) { try { navigator.vibrate(12); } catch (e) { /* none */ } }

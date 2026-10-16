@@ -64,6 +64,7 @@ function engineOpts() {
   if (hasStates()) { o.state = curState(); if (V.widthBy === 'weight') o.widthMax = stateWidthMax(); }
   S.simUsed = S.simVer;
   if (S.A.amounts && V.view === 'river' && V.widthBy) o.amounts = true;
+  if (V.view === 'river') o.sk = skSettings();
   return o;
 }
 
@@ -169,6 +170,7 @@ function sceneOpts() {
       return Object.assign({}, b || {}, { opacity: 0.28 + 0.72 * p });
     };
   }
+  if (V.view === 'river') skStyleWrap(o);
   if (V.labelCol) o.labelFn = function (n) { var d = byDg.get(n.nodeId); var v = d && d.attrs ? d.attrs[V.labelCol] : ''; return v === '' || v === undefined || v === null ? n.label : (n.label + ' · ' + v); };
   if (V.linkLabels) o.linkLabelFn = function (e) {
     if (V.linkLabels === 'none') return '';

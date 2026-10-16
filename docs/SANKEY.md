@@ -62,3 +62,15 @@ Arranging takes 1 to 70 ms on these. The weighted order trades more small crossi
 8. Spectral start (Markov chain or eigenvector) for larger networks; exact solving only for small ones, with our own MIT code.
 9. Link colors: by source, by target, or a gradient; transparency so crossings stay readable.
 10. Stubs for flow that comes from or goes outside the picture.
+
+
+## In the app (Stage 1)
+
+River view now uses the improved layout (see `src/sankey.js`) and can be edited by hand:
+
+- **Click and right-click** a flow, a bar, a label or empty space. Each has its own menu first (color, fade to another color, like source / like target / start-to-end gradient, see-through, label text, size, side, hide, move up / down / top / bottom), then the usual menus (details, select both ends, style rule, etc.). Double-click a label to edit its text, a flow to choose its color.
+- **Drag a bar up or down** to place it; the others stay put and are nudged only when they would overlap. Order and places are remembered per data id and saved with the view.
+- **Look tab, "River picture"**: flow color mode (end, start, gradient, one color), see-through, bar width, column spacing, bar spacing, picture height, label side, totals under names, amounts on flows, undo, back to automatic, clear hand edits. Undo (Ctrl+Z on the map) covers these edits.
+- Loops (flows that run backwards) are drawn as wide bands under the picture and can be clicked like any flow.
+
+Next stages (per the owner's choices): Stage 2 infographics (stage headings and big numbers, picture upload and icon library, free annotations, badges on bars, richer labels with live computed values, baseline-versus-new highlighting for GIFs); Stage 3 alluvial from a plain table (pick columns as stages, rows counted) and presets for the target looks (energy flows, alluvial columns with icons, recirculation loops, ranked streams).
