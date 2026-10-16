@@ -19,7 +19,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.2245.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.2258.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
@@ -6696,7 +6696,7 @@ var NFMProbe = (function () {
   }
   function nowMs() { return typeof performance !== 'undefined' ? performance.now() : Date.now(); }
   /** What a one-picture-per-refresh loop waits on after draw(): WebGPU lets up to three pictures be in flight (pace); the others have only flush(). */
-  function wait(r) { return r.pace ? r.pace(3) : r.flush(); }
+  function wait(r) { return r.pace ? r.pace(3) : Promise.resolve(); }   /* WebGL 2 is not waited for after a picture: the app does not either (a wait there forces the card to finish each picture alone) */
 
   function testCanvas2D() {
     try {
@@ -6861,11 +6861,13 @@ var NFMProbe = (function () {
         var gaps = [], angles = [], draws = [], last = 0, want = 100, hidden = false;
         sc.turnTo(cam(0), 4);
         if (cfg.fence) {
-          /* a batch of pictures sent back to back and waited for once; the same batch with everything switched off is taken away, which removes the fixed waits some browsers add (the screen refresh, or about 100 ms for WebGPU) */
-          var K = 10, tots = [];
-          for (var bt = 0; bt < 5; bt++) { var s0 = nowMs(); for (var j = 0; j < K; j++) r.draw(view(j, w, h)); await r.flush(); tots.push(nowMs() - s0); }
-          r.rigDebug = null; tots.shift();
-          return { raw: pct(tots, 0.5) / K, rawMax: pct(tots, 1) / K };
+          /* the card's time per picture, from two batch sizes: a batch of 20 and a batch of 120 pictures, each sent back to back and waited for once. The difference divided by 100 leaves out
+             every fixed wait (about 100 ms for WebGPU's "done" signal, the screen refresh for others), which a single small batch cannot do. */
+          var timeOf = async function (K) { var s0 = nowMs(); for (var j = 0; j < K; j++) r.draw(view(j, w, h)); await r.flush(); return nowMs() - s0; };
+          await timeOf(4);
+          var t1 = await timeOf(20), t2 = t1 > 4000 ? t1 * 6 : await timeOf(120);
+          r.rigDebug = null;
+          return { ms: Math.max(0, (t2 - t1) / 100), msMax: Math.max(0, (t2 - t1) / 100) };
         }
         for (var i = 0; i < want + 3; i++) {
           var a = nowMs(); if (cfg.turn) sc.turnTo(cam(i), 4); var b = nowMs();
@@ -6882,11 +6884,10 @@ var NFMProbe = (function () {
         var ready = false; for (var k = 0; k < 40 && !ready; k++) { if (r.rigOK) ready = true; else await new Promise(function (ok) { setTimeout(ok, 25); }); }
         if (!ready) { r.destroy(); return gone({ backend: n, skipped: 'the card could not set up turning' }); }
         await runWay({ turn: 1, draw: 1, sync: 1 });   /* warm-up, not reported */
-        var ways = [], base = await runWay({ fence: 1, dbg: { noLinks: true, noItems: true, noNames: true } });
+        var ways = [];
         for (var q = 0; q < SPLIT.length; q++) {
           var res = await runWay(SPLIT[q][2]);
           if (!res) { r.destroy(); return gone({ backend: n, skipped: 'the page was in the background' }); }
-          if (res.raw !== undefined) { res.ms = Math.max(0, res.raw - base.raw); res.msMax = Math.max(0, res.rawMax - base.raw); delete res.raw; delete res.rawMax; }
           res.id = SPLIT[q][0]; res.label = SPLIT[q][1]; ways.push(res);
         }
         r.destroy(); return gone({ backend: n, ways: ways });
@@ -7140,7 +7141,7 @@ var NFMProbe = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.15.2245', EDGE = 130;
+  var VERSION = '2026.10.15.2258', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -7481,7 +7482,7 @@ var NFMProbe = (function () {
       if (ts.ways) ts.ways.forEach(function (w) { sp.rows.push([nm2 + ': ' + w.label, w.fps === undefined ? '-' : Math.round(w.fps), w.gapMed === undefined ? '-' : r1(w.gapMed), w.gapP95 === undefined ? '-' : r1(w.gapP95), w.gapMax === undefined ? '-' : r1(w.gapMax), w.angleMed === undefined ? '-' : r1(w.angleMed), w.ms === undefined ? '-' : r1(w.ms)]); });
       ex.lines.forEach(function (l) { sp.notes.push(nm2 + ': ' + l); });
     }
-    sp.notes.push('"Typical picture" is the time from one screen refresh to the next; the slowest 1 in 20 and the slowest show whether the speed is steady or has pauses. "Angle math" is the work on the main thread for each new angle; "Card per picture" is the time the graphics card needs for one picture, found by sending ten pictures back to back, waiting once, and taking away the same wait with nothing drawn (so the fixed waits browsers add do not count). The browser rounds its clock to about a millisecond, so small numbers are rough. Links alone, items alone and names alone show which part costs the most.');
+    sp.notes.push('"Typical picture" is the time from one screen refresh to the next; the slowest 1 in 20 and the slowest show whether the speed is steady or has pauses. "Angle math" is the work on the main thread for each new angle; "Card per picture" is the time the graphics card needs for one picture, found by timing a batch of 20 and a batch of 120 pictures sent back to back and dividing the difference by 100 (so the fixed waits browsers add do not count). The browser rounds its clock to about a millisecond, so small numbers are rough. Links alone, items alone and names alone show which part costs the most.');
     if (!splitSays.length) { sp.finish('warn', 'Could not take the turning apart (no usable way of drawing, or the page was in the background).'); }
     else sp.finish(splitLevel, splitSays.join(' '));
     return { level: level, say: say };
