@@ -906,9 +906,9 @@ var NFMEngine = (function () {
   /**
    * Force-directed placement with Barnes-Hut repulsion (quadtree in 2D, octree in 3D). Edges pull like springs, every item pushes
    * every other, heavier (better connected) items push harder, a weak gravity keeps pieces together. X is changed in place.
-   * pairs: flat [a, b, a, b, ...]. dim: 2 or 3.
+   * pairs: flat [a, b, a, b, ...]. dim: 2 or 3. hiT, loT: starting and ending step size in units of K (default 2 and 0.02; a gentle clean-up uses less).
    */
-  function forceSim(X, k, dim, pairs, mass, iters, K, rnd) {
+  function forceSim(X, k, dim, pairs, mass, iters, K, rnd, hiT, loT) {
     var NC = 1 << dim, cap = 6 * k + 64, FX = new Float64Array(k * dim), i, j, d, it;
     var tm = new Float64Array(cap), tcx = new Float64Array(cap * dim), tc = new Float64Array(cap * dim), th = new Float64Array(cap), tn = new Int32Array(cap), tb = new Int32Array(cap), tch = new Int32Array(cap * NC);
     var cnt, stack = new Int32Array(256), K2 = K * K, theta2 = 0.81, msum = 0;
@@ -935,7 +935,7 @@ var NFMEngine = (function () {
       var qi = quad(nd, i), ci = tch[nd * NC + qi]; if (ci < 0) { if (cnt >= cap) { tb[nd] = -2; return; } ci = tch[nd * NC + qi] = newNode(nd, qi); }
       ins(ci, i, depth + 1);
     }
-    var temp0 = K * 2, tempN = K * 0.02;
+    var temp0 = K * (hiT || 2), tempN = K * (loT || 0.02);
     for (it = 0; it < iters; it++) {
       var temp = temp0 * Math.pow(tempN / temp0, it / Math.max(1, iters - 1));
       // bounds and tree
@@ -1366,14 +1366,133 @@ var NFMEngine = (function () {
     return { kind: 'network', dir: 'none', nodes: nodes, edges: G.edges, pos: pos, order: {}, width: W + 60, height: H + 60, crossings: 0, arrange: arr, is3d: false };
   }
 
+  /* Tuning knobs for the 3D force arrangement (the benchmark may change them; the app never does). */
+  var FORCE3 = { fullMax: 700, pivMin: 24, pivMax: 150, pivBudget: 250000, pivW: 1, near: 40, nearBig: 24, iters: 20, old: false, polish: null, polishHi: 3, polishLo: 0.05 };   // polish: force steps after the stress start (null = by size)
+
+  /** One sweep of stress gradient descent in 3D over the pairs as they lie in memory (forward or backward). */
+  function sgdSweep3(X, pa, pb, pd, pw, cnt, eta, back) {
+    var q = back ? cnt - 1 : 0, step = back ? -1 : 1;
+    for (var n = 0; n < cnt; n++, q += step) {
+      var mu = pw[q] * eta; if (mu > 1) mu = 1;
+      var a3 = pa[q] * 3, b3 = pb[q] * 3, dx = X[a3] - X[b3], dy = X[a3 + 1] - X[b3 + 1], dz = X[a3 + 2] - X[b3 + 2], mag = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
+      var r = (mu * (mag - pd[q])) / (2 * mag), rx = r * dx, ry = r * dy, rz = r * dz;
+      X[a3] -= rx; X[a3 + 1] -= ry; X[a3 + 2] -= rz; X[b3] += rx; X[b3 + 1] += ry; X[b3 + 2] += rz;
+    }
+  }
+
+  /**
+   * Stress layout in 3D for one connected piece (local numbering, links as off/nbr): distance in space follows the hop count.
+   * Same method as the flat Distances layout (pivot items far apart + links + a few near neighbors, weights 1/hops^2, stochastic
+   * gradient descent that cools), carried to three dimensions. X holds 3 numbers per item and is changed in place.
+   */
+  function stress3d(X, k, off, nbr, EDGE, rnd) {
+    var T = FORCE3, full = k <= T.fullMax, i, j, h, u, w, m2 = off[k];
+    var dist = new Int32Array(k), queue = new Int32Array(k);
+    function bfs(src) {
+      dist.fill(-1); dist[src] = 0; queue[0] = src;
+      var head = 0, tail = 1;
+      while (head < tail) { u = queue[head++]; var du = dist[u] + 1; for (var e = off[u], e1 = off[u + 1]; e < e1; e++) { w = nbr[e]; if (dist[w] < 0) { dist[w] = du; queue[tail++] = w; } } }
+    }
+    var near = Math.min(k > 20000 ? T.nearBig : T.near, Math.max(2, Math.floor(4e6 / k)));
+    var nPiv = full ? k : Math.min(k, Math.max(4, Math.min(Math.max(T.pivMin, Math.min(T.pivMax, Math.round(T.pivBudget / k))), Math.floor(8e6 / k))));
+    var cap = full ? (k * (k - 1)) / 2 : nPiv * k + m2 / 2 + k * near;
+    var pa = new Int32Array(cap), pb = new Int32Array(cap), pd = new Float32Array(cap), pw = new Float32Array(cap), cnt = 0, maxD = 1, root = 0;
+    for (i = 1; i < k; i++) if (off[i + 1] - off[i] > off[root + 1] - off[root]) root = i;
+    function add(a, b, d, wm) { if (cnt >= cap) return; pa[cnt] = a; pb[cnt] = b; pd[cnt] = d * EDGE; pw[cnt] = (wm || 1) / (d * d); cnt++; if (d > maxD) maxD = d; }
+    bfs(root);   // start: items in breadth-first order from the best-connected one along a spiral over a sphere, so neighbors begin close
+    var ga = Math.PI * (3 - Math.sqrt(5)), R0 = EDGE * Math.cbrt(k) * 0.9;
+    for (i = 0; i < k; i++) { var yy = k > 1 ? 1 - 2 * i / (k - 1) : 0, rr0 = Math.sqrt(Math.max(0, 1 - yy * yy)), th0 = i * ga, q0 = queue[i] * 3; X[q0] = R0 * rr0 * Math.cos(th0); X[q0 + 1] = R0 * yy; X[q0 + 2] = R0 * rr0 * Math.sin(th0); }
+    if (full) {
+      for (i = 0; i < k; i++) { bfs(i); for (j = i + 1; j < k; j++) if (dist[j] > 0) add(i, j, dist[j]); }
+    } else {
+      var minD = new Int32Array(k).fill(1e9), piv = root;
+      for (h = 0; h < nPiv; h++) {
+        bfs(piv);
+        var far = -1, fd = -1;
+        for (j = 0; j < k; j++) { var dj = dist[j]; if (dj < minD[j]) minD[j] = dj; if (minD[j] > fd) { fd = minD[j]; far = j; } if (j !== piv && dj > 0) add(piv, j, dj, T.pivW); }
+        piv = far;
+      }
+      for (i = 0; i < k; i++) for (j = off[i]; j < off[i + 1]; j++) if (nbr[j] > i) add(i, nbr[j], 1);
+      if (near > 0) {
+        var stamp = new Int32Array(k).fill(-1), dl = new Int32Array(k);
+        for (i = 0; i < k; i++) {
+          var tail2 = 1, head2 = 0, got = 0; queue[0] = i; stamp[i] = i; dl[i] = 0;
+          while (head2 < tail2 && got < near) {
+            u = queue[head2++];
+            for (var e2 = off[u], e3 = off[u + 1]; e2 < e3 && got < near; e2++) {
+              w = nbr[e2];
+              if (stamp[w] !== i) { stamp[w] = i; dl[w] = dl[u] + 1; queue[tail2++] = w; if (dl[w] >= 2 && w > i) { add(i, w, dl[w]); got++; } }
+            }
+          }
+        }
+      }
+    }
+    var tmax = full ? (k <= 300 ? 30 : 20) : T.iters, etaMax = maxD * maxD, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
+    var s = (rnd() * 4294967296) | 0 || 1, t, p, q;
+    function nextInt(n) { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) / 4294967296 * n) | 0; }
+    for (q = cnt - 1; q > 0; q--) {
+      j = nextInt(q + 1);
+      p = pa[q]; pa[q] = pa[j]; pa[j] = p; p = pb[q]; pb[q] = pb[j]; pb[j] = p;
+      var f = pd[q]; pd[q] = pd[j]; pd[j] = f; f = pw[q]; pw[q] = pw[j]; pw[j] = f;
+    }
+    for (t = 0; t < tmax; t++) sgdSweep3(X, pa, pb, pd, pw, cnt, etaMax * Math.exp(-lambda * t), t & 1);
+  }
+
+  /**
+   * Start picture for the 3D force arrangement: every connected piece gets its own 3D stress layout (so far-apart items start far apart
+   * and the whole is already unfolded), then the pieces are set on a sphere around the biggest one. Returns the 3D positions.
+   */
+  function stressStart3d(nb, adj, rnd, EDGE) {
+    var X = new Float64Array(nb * 3), comp = new Int32Array(nb).fill(-1), comps = [], i, j, c;
+    for (i = 0; i < nb; i++) {
+      if (comp[i] >= 0) continue;
+      var q = [i]; comp[i] = comps.length;
+      for (var h = 0; h < q.length; h++) { var l = adj[q[h]]; for (j = 0; j < l.length; j++) if (comp[l[j]] < 0) { comp[l[j]] = comps.length; q.push(l[j]); } }
+      comps.push(q);
+    }
+    comps.sort(function (a, b) { return b.length - a.length || a[0] - b[0]; });
+    var rad = new Float64Array(comps.length), loc = new Int32Array(nb), ctr = new Float64Array(comps.length * 3);
+    comps.forEach(function (mem, ci) {
+      var k = mem.length, a, b;
+      if (k === 1) { rad[ci] = EDGE * 0.5; return; }
+      var off = new Int32Array(k + 1), tot = 0;
+      for (a = 0; a < k; a++) { loc[mem[a]] = a; tot += adj[mem[a]].length; off[a + 1] = tot; }
+      var nbr = new Int32Array(tot), Y = new Float64Array(3 * k);
+      for (a = 0; a < k; a++) { var ls = adj[mem[a]]; for (b = 0; b < ls.length; b++) nbr[off[a] + b] = loc[ls[b]]; }
+      stress3d(Y, k, off, nbr, EDGE, rnd);
+      var mx = 0, my = 0, mz = 0, r2 = 0;
+      for (a = 0; a < k; a++) { mx += Y[3 * a]; my += Y[3 * a + 1]; mz += Y[3 * a + 2]; }
+      mx /= k; my /= k; mz /= k;
+      for (a = 0; a < k; a++) { Y[3 * a] -= mx; Y[3 * a + 1] -= my; Y[3 * a + 2] -= mz; r2 = Math.max(r2, Y[3 * a] * Y[3 * a] + Y[3 * a + 1] * Y[3 * a + 1] + Y[3 * a + 2] * Y[3 * a + 2]); X.set(Y.subarray(3 * a, 3 * a + 3), 3 * mem[a]); }
+      rad[ci] = Math.sqrt(r2) + EDGE * 0.5;
+    });
+    if (comps.length > 1) {   // the other pieces sit on a shell around the biggest, in order of size
+      var area = 0; for (c = 1; c < comps.length; c++) area += rad[c] * rad[c] * 4;
+      var Rsh = Math.max(rad[0] + rad[1] + EDGE, Math.sqrt(area / (4 * Math.PI) * 1.5)), ga2 = Math.PI * (3 - Math.sqrt(5)), m = comps.length - 1;
+      for (c = 1; c < comps.length; c++) {
+        var yy = m > 1 ? 1 - 2 * (c - 1) / (m - 1) : 0, rr = Math.sqrt(Math.max(0, 1 - yy * yy)), th = (c - 1) * ga2, mem2 = comps[c], dx = Rsh * rr * Math.cos(th), dy = Rsh * yy, dz = Rsh * rr * Math.sin(th);
+        for (j = 0; j < mem2.length; j++) { X[3 * mem2[j]] += dx; X[3 * mem2[j] + 1] += dy; X[3 * mem2[j] + 2] += dz; }
+      }
+    }
+    return X;
+  }
+
   /** Arrangements that place everything at once (no component packing): circle, rings, grid, groups, and the 3D ones. */
   function globalNetwork(arr, nodes, G, adj, size, rnd, EDGE, idxOf) {
     var nb = nodes.length, res, X, dim, i;
     if (arr === 'force3d') {
       dim = 3; X = new Float64Array(nb * 3);
-      var Rs = Math.sqrt(nb) * EDGE * 0.35 + 40, ga = Math.PI * (3 - Math.sqrt(5)), mass = new Float64Array(nb), pairs = [];
-      for (i = 0; i < nb; i++) { var y = nb > 1 ? 1 - 2 * i / (nb - 1) : 0, rr = Math.sqrt(Math.max(0, 1 - y * y)), th = i * ga; X[i * 3] = Rs * rr * Math.cos(th) + (rnd() - 0.5); X[i * 3 + 1] = Rs * y; X[i * 3 + 2] = Rs * rr * Math.sin(th); mass[i] = 1 + Math.sqrt(adj[i].length); adj[i].forEach(function (w) { if (w > i) pairs.push(i, w); }); }
-      forceSim(X, nb, 3, pairs, mass, nb <= 300 ? 260 : nb <= 1500 ? 160 : nb <= 6000 ? 90 : 45, EDGE * 0.55, rnd);
+      var mass = new Float64Array(nb), pairs = [];
+      for (i = 0; i < nb; i++) { mass[i] = 1 + Math.sqrt(adj[i].length); adj[i].forEach(function (w) { if (w > i) pairs.push(i, w); }); }
+      if (FORCE3.old) {   // the old start (Fibonacci sphere) and iteration counts, kept for the benchmark's before/after
+        var Rs = Math.sqrt(nb) * EDGE * 0.35 + 40, ga = Math.PI * (3 - Math.sqrt(5));
+        for (i = 0; i < nb; i++) { var y = nb > 1 ? 1 - 2 * i / (nb - 1) : 0, rr = Math.sqrt(Math.max(0, 1 - y * y)), th = i * ga; X[i * 3] = Rs * rr * Math.cos(th) + (rnd() - 0.5); X[i * 3 + 1] = Rs * y; X[i * 3 + 2] = Rs * rr * Math.sin(th); }
+        forceSim(X, nb, 3, pairs, mass, nb <= 300 ? 260 : nb <= 1500 ? 160 : nb <= 6000 ? 90 : 45, EDGE * 0.55, rnd);
+      } else {
+        X = stressStart3d(nb, adj, rnd, EDGE);
+        var pit = FORCE3.polish !== null ? FORCE3.polish : nb <= 15000 ? 20 : nb <= 30000 ? 12 : 5;
+        if (pit > 0) forceSim(X, nb, 3, pairs, mass, pit, EDGE * 0.55, rnd, FORCE3.polishHi, FORCE3.polishLo);
+      }
     } else { res = arrangeAll(arr, nodes, adj, size, rnd, EDGE); X = res.X; dim = res.dim; }
     if (dim === 2) { clearOverlaps(X, nb, 2, function (q) { return size(nodes[q]) / 2 + 8; }, 40, STRESS.growRounds, STRESS.grow); if (STRESS.settle) settleOverlaps(X, nb, 2, function (q) { return size(nodes[q]) / 2 + 2; }); }
     var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
@@ -1767,7 +1886,7 @@ var NFMEngine = (function () {
 
   return {
     MAP_W: MAP_W, MAP_H: MAP_H, VIEWS: VIEWS, TASKS: TASKS, prepare: prepare, importance: importance, flowExact: flowExact, flowSim: flowSim, absorb: absorb, endClasses: endClasses, spread: spread, seedsOf: seedsOf,
-    mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressTuning: STRESS,
+    mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressTuning: STRESS, force3dTuning: FORCE3,
     communities: communities, metrics: metrics, taskScore: taskScore, build: build, compare: compare, bfs: bfs, mapCrossPairs: mapCrossPairs, mapPlaceLine: mapPlaceLine, autoStart: autoStart
   };
 })();
