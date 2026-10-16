@@ -143,6 +143,93 @@ var NFMProbe = (function () {
     }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
   }
   /**
+   * Splits the time of turning a big map on the card into its parts: the diagnostic behind the tester's "where the time goes at the largest size".
+   * opts: { backend: 'webgpu'|'webgl2', rigScene(yaw, pitch) -> scene (as for turning), W, H }
+   * Ways with a screen refresh per picture (fps and the spread of picture times): full (angle math + drawing, as the app does it), angle (angle math only, nothing drawn),
+   * still (drawing only, the same angle each time). Ways that only time the card (each picture waited for, no refresh): g_all, g_links, g_items, g_names, g_half.
+   * Resolves to { backend, n, ways: [{ id, label, fps, gapMed, gapP95, gapMax, slow, angleMed, angleMax, drawMed, ms }] } or { backend, skipped }.
+   */
+  var SPLIT = [
+    ['full', 'Everything, the way the app turns it', { turn: 1, draw: 1, sync: 1 }],
+    ['angle', 'Angle math only (nothing drawn)', { turn: 1, sync: 1 }],
+    ['still', 'Drawing only (the same angle every time)', { draw: 1, sync: 1 }],
+    ['g_all', 'Card time per picture: everything', { draw: 1, fence: 1 }],
+    ['g_links', 'Card time per picture: links only', { draw: 1, fence: 1, dbg: { noItems: true, noNames: true } }],
+    ['g_items', 'Card time per picture: items only', { draw: 1, fence: 1, dbg: { noLinks: true, noNames: true } }],
+    ['g_names', 'Drawing the names only (the clear and the text)', { draw: 1, fence: 1, dbg: { noLinks: true, noItems: true } }],
+    ['g_half', 'Card time per picture: everything at half size', { draw: 1, fence: 1, half: 1 }]
+  ];
+  function pct(a, p) { if (!a.length) return 0; var b = a.slice().sort(function (x, y) { return x - y; }); return b[Math.min(b.length - 1, Math.floor(p * b.length))]; }
+  function turnSplit(opts) {
+    var W = opts.W || 900, H = opts.H || 600, n = opts.backend, host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:0;top:0;width:' + W + 'px;height:' + H + 'px;opacity:.01;pointer-events:none;z-index:-1'; document.body.appendChild(host);
+    var make = n === 'webgpu' ? NFMRender.createWebGPU : NFMRender.createWebGL2;
+    var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
+    return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
+      r.resize(W, H, 1);
+      if (!r.rigPrepare) { r.destroy(); return gone({ backend: n, skipped: 'this way of drawing cannot turn a map on the card' }); }
+      var sc = opts.rigScene(0.6, 0.35); r.setScene(sc); r.rigPrepare();
+      if (!sc.turnTo) { r.destroy(); return gone({ backend: n, skipped: 'this map cannot be turned on the card' }); }
+      var cam = function (i) { var f = i / 90; return { yaw: 0.6 + 6.2832 * f, pitch: 0.35 + 0.3 * Math.sin(6.2832 * f), persp: 2.4 }; };
+      var view = function (i, w, h) { var z = 1 + 0.35 * Math.sin(6.2832 * i / 180), v = fitView(sc, w, h); v.k *= z; v.tx = w / 2 - (w / 2 - v.tx) * z; v.ty = h / 2 - (h / 2 - v.ty) * z; return v; };
+      var runWay = async function (cfg) {
+        r.rigDebug = cfg.dbg || null;
+        var w = cfg.half ? Math.round(W / 2) : W, h = cfg.half ? Math.round(H / 2) : H; r.resize(w, h, 1);
+        var gaps = [], angles = [], draws = [], per = [], last = 0, want = cfg.fence ? 33 : 100, hidden = false;
+        sc.turnTo(cam(0), 4);
+        for (var i = 0; i < want + 3; i++) {
+          var a = nowMs(); if (cfg.turn) sc.turnTo(cam(i), 4); var b = nowMs();
+          if (cfg.draw) r.draw(view(i, w, h)); var c = nowMs();
+          if (cfg.fence) { await r.flush(); var d = nowMs(); if (i >= 3) { per.push(d - a); draws.push(c - b); } continue; }
+          if (cfg.draw) await wait(r);
+          var ok = await nextRefresh(), t = nowMs(); if (!ok) { hidden = true; break; }
+          if (i >= 3) { if (last) gaps.push(t - last); angles.push(b - a); draws.push(c - b); } last = t;
+        }
+        r.rigDebug = null; if (hidden) return null;
+        var sum = function (x) { var q = 0; for (var k = 0; k < x.length; k++) q += x[k]; return q; };
+        if (cfg.fence) return { ms: pct(per, 0.5), msMax: pct(per, 1), drawMed: pct(draws, 0.5) };
+        return { fps: gaps.length ? 1000 * gaps.length / sum(gaps) : 0, gapMed: pct(gaps, 0.5), gapP95: pct(gaps, 0.95), gapMax: pct(gaps, 1), slow: gaps.filter(function (g) { return g > 20; }).length / Math.max(1, gaps.length), angleMed: pct(angles, 0.5), angleMax: pct(angles, 1), drawMed: pct(draws, 0.5) };
+      };
+      return (async function () {
+        var ready = false; for (var k = 0; k < 40 && !ready; k++) { if (r.rigOK) ready = true; else await new Promise(function (ok) { setTimeout(ok, 25); }); }
+        if (!ready) { r.destroy(); return gone({ backend: n, skipped: 'the card could not set up turning' }); }
+        await runWay({ turn: 1, draw: 1, sync: 1 });   /* warm-up, not reported */
+        var ways = [];
+        for (var q = 0; q < SPLIT.length; q++) {
+          var res = await runWay(SPLIT[q][2]);
+          if (!res) { r.destroy(); return gone({ backend: n, skipped: 'the page was in the background' }); }
+          res.id = SPLIT[q][0]; res.label = SPLIT[q][1]; ways.push(res);
+        }
+        r.destroy(); return gone({ backend: n, ways: ways });
+      })();
+    }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
+  }
+  /**
+   * Turns turnSplit results into plain words: { level, say, lines, cause } (cause: 'smooth' | 'angle' | 'card' | 'hiccups' | 'unclear' | null).
+   */
+  function explainSplit(res, items) {
+    var lines = [], f0 = function (v) { return String(Math.round(v)); }, ms1 = function (v) { return (Math.round(v * 10) / 10).toFixed(1); };
+    var nm = res && res.backend === 'webgpu' ? 'WebGPU' : 'WebGL 2', big = items ? items.toLocaleString() + '-item' : 'largest';
+    if (!res || res.skipped || !res.ways) return { level: 'warn', say: nm + ' was skipped: ' + ((res && res.skipped) || 'not usable here') + '.', lines: lines, cause: null };
+    var by = {}; res.ways.forEach(function (w) { by[w.id] = w; });
+    var full = by.full, angle = by.angle, still = by.still, all = by.g_all, links = by.g_links, itemsW = by.g_items, names = by.g_names, half = by.g_half;
+    lines.push('Turning as the app does it: ' + f0(full.fps) + ' pictures per second; a picture took ' + ms1(full.gapMed) + ' ms in the middle, ' + ms1(full.gapP95) + ' ms for the slower 1 in 20, ' + ms1(full.gapMax) + ' ms for the slowest' + (full.slow > 0 ? ' (' + Math.round(full.slow * 100) + '% took over 20 ms)' : '') + '.');
+    lines.push('Angle math alone: ' + ms1(angle.angleMed) + ' ms of work per angle (slowest ' + ms1(angle.angleMax) + ' ms); with nothing drawn the screen refresh still ran at ' + f0(angle.fps) + ' per second.');
+    lines.push('Drawing alone, the same angle each time: ' + f0(still.fps) + ' per second.');
+    lines.push('Time the card needs per picture: ' + ms1(all.ms) + ' ms for everything; links alone ' + ms1(links.ms) + ' ms; items alone ' + ms1(itemsW.ms) + ' ms; names alone ' + ms1(names.ms) + ' ms; everything at half size ' + ms1(half.ms) + ' ms.');
+    var say = 'Turning the ' + big + ' map with ' + nm + ' ran at ' + f0(full.fps) + ' pictures per second. ', cause, level;
+    if (full.fps >= 58) { cause = 'smooth'; level = 'ok'; say += 'That is a steady 60: nothing to fix.'; }
+    else if (angle.fps < 57) { cause = 'angle'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The limit is on the main thread: even with nothing drawn, only ' + f0(angle.fps) + ' pictures per second got through (' + ms1(angle.angleMed) + ' ms of angle work each).'; }
+    else if (all.ms > 14) {
+      cause = 'card'; level = full.fps >= 45 ? 'ok' : 'warn';
+      var parts = [['the links', links.ms], ['the items', itemsW.ms], ['the names', names.ms]].sort(function (a, b) { return b[1] - a[1]; });
+      say += 'The limit is the graphics card: one picture takes it ' + ms1(all.ms) + ' ms, and most of that is ' + parts[0][0] + ' (' + ms1(parts[0][1]) + ' ms). ' + (half.ms < all.ms * 0.65 ? 'A half-size picture is much quicker, so the cost follows the number of pixels.' : 'A half-size picture is not much quicker, so the cost follows the number of links and items, not the pixels.');
+    }
+    else if (full.gapP95 > 20 || full.slow > 0.04) { cause = 'hiccups'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The average work fits easily (angle ' + ms1(angle.angleMed) + ' ms, card ' + ms1(all.ms) + ' ms), but now and then a picture takes much longer (slowest ' + ms1(full.gapMax) + ' ms): that is a pause, usually the browser tidying memory, not steady work.'; }
+    else { cause = 'unclear'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'No single part is the limit: angle math ' + ms1(angle.angleMed) + ' ms and card ' + ms1(all.ms) + ' ms both fit in 16.7 ms on their own. The combination or the browser\'s own step of putting the picture on screen is what costs the rest.'; }
+    return { level: level, say: say, lines: lines, cause: cause };
+  }
+  /**
    * Where the time goes when one picture per screen refresh is drawn: the diagnostic behind the tester's "Where the drawing time goes" step.
    * opts: { backend, makeScene(yaw, pitch) -> scene, W, H, frames (default 60), ms (time cap per way, default 700) }
    * Runs the same turning loop several ways on one renderer and times each phase of every picture:
@@ -351,6 +438,6 @@ var NFMProbe = (function () {
     });
   }
 
-  return { canary: canary, check: check, turning: turning, frameTiming: frameTiming, explainTiming: explainTiming, fitView: fitView, testCanvas2D: testCanvas2D, testWebGL2: testWebGL2, testWebGPU: testWebGPU, testWorker: testWorker };
+  return { canary: canary, check: check, turning: turning, turnSplit: turnSplit, explainSplit: explainSplit, frameTiming: frameTiming, explainTiming: explainTiming, fitView: fitView, testCanvas2D: testCanvas2D, testWebGL2: testWebGL2, testWebGPU: testWebGPU, testWorker: testWorker };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMProbe;
