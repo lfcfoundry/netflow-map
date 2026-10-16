@@ -315,7 +315,7 @@
     }
     /* turning speed with each usable way of drawing, on the force layout of each size */
     var c = await NFMProbe.canary(), names = ['canvas2d']; if (c.webgl2.ok && !c.webgl2.software) names.push('webgl2'); if (c.webgpu.ok && !c.webgpu.software) names.push('webgpu');
-    var turnRows = [], best = null; ctx.turn = [];
+    var turnRows = [], best = null, warmNotes = []; ctx.turn = [];
     for (var si = 0; si < scenes.length; si++) for (var bi = 0; bi < names.length; bi++) {
       setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + '…'); await yieldUI();
       var Lx = scenes[si].L3, nm = names[bi] === 'webgpu' ? 'WebGPU' : names[bi] === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
@@ -327,12 +327,13 @@
       /* the way the app turns a big 3D map: the map sits on the graphics card, each picture is only a new angle */
       setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + ', math on the card…'); await yieldUI();
       var tc = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, rigScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
-      if (tc.fps) { turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', Math.round(tc.fps), r1(tc.sceneMs), r1(tc.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'card', fps: r1(tc.fps), sceneMs: r1(tc.sceneMs), drawMs: r1(tc.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || tc.fps > best.fps)) best = tc; }
+      if (tc.fps) { if (tc.warmMs > 400) warmNotes.push('Starting to turn the ' + scenes[si].n.toLocaleString() + '-item map with ' + nm + ': the first 24 pictures took ' + Math.round(tc.warmMs).toLocaleString() + ' ms (one-time setup on the card), then steady turning is timed below.'); turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', Math.round(tc.fps), r1(tc.sceneMs), r1(tc.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'card', warmMs: Math.round(tc.warmMs || 0), fps: r1(tc.fps), sceneMs: r1(tc.sceneMs), drawMs: r1(tc.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || tc.fps > best.fps)) best = tc; }
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', 'skipped', '-', String(tc.skipped).slice(0, 60)]);
     }
     s.rows.push(['', '', '', '']); s.rows.push(['Turning speed', 'Pictures per second', 'New angle (ms)', 'Draw (ms)']); turnRows.forEach(function (r) { s.rows.push(r); });
     if (previewL) await addPreview(s.card, previewL.L3, '3D force, ' + previewL.n.toLocaleString() + ' items', names[names.length - 1]);
     s.notes.push('Hop error in 3D uses the same measure as the distance error but with three dimensions; it is lower than a flat map would give and is not colored, because the bands are for flat maps. The sphere and stacked planes are shapes first, so their hop error is higher by design. "New angle" is the time to work out the picture from the new viewing angle (done on the main thread, once per picture); "Draw" is the time to hand it to the screen.');
+    warmNotes.forEach(function (w) { s.notes.push(w); });
     s.notes.push('"Math on the card" is how the app turns a big 3D map: the items and links are put on the graphics card once, and each picture is only a new angle, so "New angle" is just the paint order and the few names that can be seen. "Every angle worked out here" is the older way, kept for comparison.');
     var say, level = 'ok';
     if (!best) { say = 'Built the 3D arrangements, but could not time turning (the page may have been in the background).'; level = 'warn'; }
