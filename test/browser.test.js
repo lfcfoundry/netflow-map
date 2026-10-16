@@ -306,12 +306,14 @@ async function open() {
         const view = { k: 0.8, tx: 30, ty: 30, invalidate() {} };
         S.view = view; let A = await shot(view);                                       /* drawn from the card */
         sc.turnTo(sc.turn.cam, 1.6); const labels2 = vis(sc, 0.8), A2 = await shot(view);
+        let tex = null;                                                                  /* WebGL 2 only: the paint order sent through a texture must give the same picture */
+        if (be === 'webgl2') { sc.turnTo(sc.turn.cam, 0.8); m.r.rigDebug = { orderVia: 'texture' }; const C = await shot(view); m.r.rigDebug = null; sc.turnTo(sc.turn.cam, 0.8); const A3 = await shot(view); let sm = 0; for (let i = 0; i < C.d.length; i += 4) sm += (Math.abs(C.d[i] - A3.d[i]) + Math.abs(C.d[i + 1] - A3.d[i + 1]) + Math.abs(C.d[i + 2] - A3.d[i + 2])) / 3; tex = sm / (C.d.length / 4); }
         NFM.settleTurn(); const B = await shot(view), full = !(S.scene.turn && S.scene.turn.on), labelsFull = vis(S.scene, 0.8);   /* the ordinary picture of the same angle */
         let sum = 0, far = 0; const n = A.d.length / 4; for (let i = 0; i < A.d.length; i += 4) { const d = (Math.abs(A.d[i] - B.d[i]) + Math.abs(A.d[i + 1] - B.d[i + 1]) + Math.abs(A.d[i + 2] - B.d[i + 2])) / 3; sum += d; if (d > 40) far++; }
         /* a selection made while turning */
         await turn(2.4, -0.2); const id = S.scene.nodes[3].nodeId; NFM.select(id); await raf(); await raf();
         const sel = S.scene.turn && S.scene.turn.on, dim = S.scene.nodes.some((q) => q.a < 0.5);
-        return { on0, ok0, on, labels: labels2, labelsFull, full, mean: sum / n, far: far / n, sel, dim, w: A.w };
+        return { on0, ok0, on, labels: labels2, labelsFull, full, mean: sum / n, far: far / n, sel, dim, w: A.w, tex };
       } finally { window.setTimeout = setTO; NFM.select(null); }
       function sleep0(ms) { return new Promise((r) => setTO(r, ms)); }
     }, be);
@@ -320,6 +322,7 @@ async function open() {
     say(res.on0 && res.on, `${be}: turning a big 3D map only sends the new angle to the card`);
     say(res.labels > 5 && res.labels === res.labelsFull, `${be}: the same names are drawn while turning as in the ordinary picture (${res.labels} and ${res.labelsFull})`);
     say(res.full && res.mean <= 1.5 && res.far < 0.01, `${be}: the picture from the card matches the ordinary picture: mean ${res.mean.toFixed(2)}/255, ${(res.far * 100).toFixed(2)}% pixels far off`);
+    if (res.tex !== null) say(res.tex <= 0.5, `${be}: sending the paint order through a texture gives the same picture (mean difference ${res.tex.toFixed(3)}/255)`);
     say(res.sel && res.dim, `${be}: selecting while turning dims the rest at once`);
   }
   await ev(() => NFM.manager().use('auto'));

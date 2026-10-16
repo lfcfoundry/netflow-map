@@ -155,6 +155,7 @@ var NFMProbe = (function () {
     ['angle', 'Angle math only (nothing drawn)', { turn: 1, sync: 1 }],
     ['still', 'Drawing only (the same angle every time)', { draw: 1, sync: 1 }],
     ['keep', 'Angle math and drawing, paint order not re-sent (wrong order; timing only)', { turn: 1, draw: 1, sync: 1, dbg: { keepOrder: true } }],
+    ['tex', 'Everything, with the paint order sent through a texture (WebGL 2 only)', { turn: 1, draw: 1, sync: 1, dbg: { orderVia: 'texture' }, glOnly: 1 }],
     ['g_all', 'Card time per picture: everything', { draw: 1, fence: 1 }],
     ['g_links', 'Card time per picture: links only', { draw: 1, fence: 1, dbg: { noItems: true, noNames: true } }],
     ['g_items', 'Card time per picture: items only', { draw: 1, fence: 1, dbg: { noLinks: true, noNames: true } }],
@@ -205,6 +206,7 @@ var NFMProbe = (function () {
         await runWay({ turn: 1, draw: 1, sync: 1 });   /* warm-up, not reported */
         var ways = [];
         for (var q = 0; q < SPLIT.length; q++) {
+          if (SPLIT[q][2].glOnly && n === 'webgpu') continue;
           var res = await runWay(SPLIT[q][2]);
           if (!res) { r.destroy(); return gone({ backend: n, skipped: 'the page was in the background' }); }
           res.id = SPLIT[q][0]; res.label = SPLIT[q][1]; ways.push(res);
@@ -225,6 +227,7 @@ var NFMProbe = (function () {
     lines.push('Turning as the app does it: ' + f0(full.fps) + ' pictures per second; a picture took ' + ms1(full.gapMed) + ' ms in the middle, ' + ms1(full.gapP95) + ' ms for the slower 1 in 20, ' + ms1(full.gapMax) + ' ms for the slowest' + (full.slow > 0 ? ' (' + Math.round(full.slow * 100) + '% took over 20 ms)' : '') + '.');
     lines.push('Angle math alone: ' + ms1(angle.angleMed) + ' ms of work per angle (slowest ' + ms1(angle.angleMax) + ' ms); with nothing drawn the screen refresh still ran at ' + f0(angle.fps) + ' per second.');
     lines.push('Drawing alone, the same angle each time: ' + f0(still.fps) + ' per second.');
+    if (by.tex) lines.push('Sending the paint order through a texture instead: ' + f0(by.tex.fps) + ' per second' + (by.tex.fps > full.fps + 3 ? ' (faster than the current way, ' + f0(full.fps) + ')' : by.tex.fps < full.fps - 3 ? ' (slower than the current way, ' + f0(full.fps) + ')' : ' (about the same as the current way)') + '.');
     if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' per second.');
     lines.push('Time the card needs per picture: ' + ms1(all.ms) + ' ms for everything; links alone ' + ms1(links.ms) + ' ms; items alone ' + ms1(itemsW.ms) + ' ms; names alone ' + ms1(names.ms) + ' ms; everything at half size ' + ms1(half.ms) + ' ms.');
     var say = 'Turning the ' + big + ' map with ' + nm + ' ran at ' + f0(full.fps) + ' pictures per second. ', cause, level;

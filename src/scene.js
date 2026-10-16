@@ -856,9 +856,12 @@ var NFMScene = (function () {
     }
     var M = rows.length / 8, edgeF = new Float32Array(M * 8), edgeIdx = new Int32Array(M);
     for (var k = 0; k < M; k++) { var r = k * 8; edgeF[r] = rows[r]; edgeF[r + 1] = rows[r + 1]; edgeF[r + 2] = rows[r + 2]; edgeF[r + 3] = 0; edgeF[r + 4] = rows[r + 3]; edgeF[r + 5] = rows[r + 4]; edgeF[r + 6] = rows[r + 5]; edgeF[r + 7] = rows[r + 6]; edgeIdx[k] = rows[r + 7]; }
+    /* what the card reads per link: both ends' places and sizes copied in (they never change, only the angle does), then the width, then the color; so drawing a link needs no second look-up */
+    var edgeG = new Float32Array(M * 16);
+    for (k = 0; k < M; k++) { var r2 = k * 8, g = k * 16, ia = edgeF[r2] * 16, ib = edgeF[r2 + 1] * 16; for (var c = 0; c < 4; c++) { edgeG[g + c] = nodeF[ia + c]; edgeG[g + 4 + c] = nodeF[ib + c]; edgeG[g + 12 + c] = edgeF[r2 + 4 + c]; } edgeG[g + 8] = edgeF[r2 + 2]; }
     var byRank = []; for (q = 0; q < N; q++) if (!hid[q]) byRank.push(q);
     byRank.sort(function (p1, p2) { return rk[p1] - rk[p2]; });
-    return { id: ++RIG_ID, n: N, m: M, pos: pos, nodeF: nodeF, edgeF: edgeF, edgeIdx: edgeIdx, hid: hid, chk: chk, byRank: Int32Array.from(byRank), c3: c3 };
+    return { id: ++RIG_ID, n: N, m: M, pos: pos, nodeF: nodeF, edgeF: edgeF, edgeG: edgeG, edgeIdx: edgeIdx, hid: hid, chk: chk, byRank: Int32Array.from(byRank), c3: c3 };
   }
   /** What the person has done to the drawing (dimmed, selected, marked), for the graphics card: one row per item and per link, read from the styled lists of the last full picture. */
   function rigStyle(S) {
