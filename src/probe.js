@@ -156,7 +156,7 @@ var NFMProbe = (function () {
     ['g_all', 'Card time per picture: everything', { draw: 1, fence: 1 }],
     ['g_links', 'Card time per picture: links only', { draw: 1, fence: 1, dbg: { noItems: true, noNames: true } }],
     ['g_items', 'Card time per picture: items only', { draw: 1, fence: 1, dbg: { noLinks: true, noNames: true } }],
-    ['g_names', 'Drawing the names only (the clear and the text)', { draw: 1, fence: 1, dbg: { noLinks: true, noItems: true } }],
+    ['g_names', 'Card time per picture: names only (the text)', { draw: 1, fence: 1, dbg: { noLinks: true, noItems: true } }],
     ['g_half', 'Card time per picture: everything at half size', { draw: 1, fence: 1, half: 1 }]
   ];
   function pct(a, p) { if (!a.length) return 0; var b = a.slice().sort(function (x, y) { return x - y; }); return b[Math.min(b.length - 1, Math.floor(p * b.length))]; }
@@ -175,29 +175,35 @@ var NFMProbe = (function () {
       var runWay = async function (cfg) {
         r.rigDebug = cfg.dbg || null;
         var w = cfg.half ? Math.round(W / 2) : W, h = cfg.half ? Math.round(H / 2) : H; r.resize(w, h, 1);
-        var gaps = [], angles = [], draws = [], per = [], last = 0, want = cfg.fence ? 33 : 100, hidden = false;
+        var gaps = [], angles = [], draws = [], last = 0, want = 100, hidden = false;
         sc.turnTo(cam(0), 4);
+        if (cfg.fence) {
+          /* a batch of pictures sent back to back and waited for once; the same batch with everything switched off is taken away, which removes the fixed waits some browsers add (the screen refresh, or about 100 ms for WebGPU) */
+          var K = 10, tots = [];
+          for (var bt = 0; bt < 5; bt++) { var s0 = nowMs(); for (var j = 0; j < K; j++) r.draw(view(j, w, h)); await r.flush(); tots.push(nowMs() - s0); }
+          r.rigDebug = null; tots.shift();
+          return { raw: pct(tots, 0.5) / K, rawMax: pct(tots, 1) / K };
+        }
         for (var i = 0; i < want + 3; i++) {
           var a = nowMs(); if (cfg.turn) sc.turnTo(cam(i), 4); var b = nowMs();
           if (cfg.draw) r.draw(view(i, w, h)); var c = nowMs();
-          if (cfg.fence) { await r.flush(); var d = nowMs(); if (i >= 3) { per.push(d - a); draws.push(c - b); } continue; }
           if (cfg.draw) await wait(r);
           var ok = await nextRefresh(), t = nowMs(); if (!ok) { hidden = true; break; }
           if (i >= 3) { if (last) gaps.push(t - last); angles.push(b - a); draws.push(c - b); } last = t;
         }
         r.rigDebug = null; if (hidden) return null;
         var sum = function (x) { var q = 0; for (var k = 0; k < x.length; k++) q += x[k]; return q; };
-        if (cfg.fence) return { ms: pct(per, 0.5), msMax: pct(per, 1), drawMed: pct(draws, 0.5) };
         return { fps: gaps.length ? 1000 * gaps.length / sum(gaps) : 0, gapMed: pct(gaps, 0.5), gapP95: pct(gaps, 0.95), gapMax: pct(gaps, 1), slow: gaps.filter(function (g) { return g > 20; }).length / Math.max(1, gaps.length), angleMed: pct(angles, 0.5), angleMax: pct(angles, 1), drawMed: pct(draws, 0.5) };
       };
       return (async function () {
         var ready = false; for (var k = 0; k < 40 && !ready; k++) { if (r.rigOK) ready = true; else await new Promise(function (ok) { setTimeout(ok, 25); }); }
         if (!ready) { r.destroy(); return gone({ backend: n, skipped: 'the card could not set up turning' }); }
         await runWay({ turn: 1, draw: 1, sync: 1 });   /* warm-up, not reported */
-        var ways = [];
+        var ways = [], base = await runWay({ fence: 1, dbg: { noLinks: true, noItems: true, noNames: true } });
         for (var q = 0; q < SPLIT.length; q++) {
           var res = await runWay(SPLIT[q][2]);
           if (!res) { r.destroy(); return gone({ backend: n, skipped: 'the page was in the background' }); }
+          if (res.raw !== undefined) { res.ms = Math.max(0, res.raw - base.raw); res.msMax = Math.max(0, res.rawMax - base.raw); delete res.raw; delete res.rawMax; }
           res.id = SPLIT[q][0]; res.label = SPLIT[q][1]; ways.push(res);
         }
         r.destroy(); return gone({ backend: n, ways: ways });
