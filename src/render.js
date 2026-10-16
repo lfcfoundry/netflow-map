@@ -528,7 +528,7 @@ var NFMRender = (function () {
         rs.bytes = bytes;
       };
       var seqStage = function () {   /* made when first asked for */
-        for (var i = 0; i < 4; i++) { rs.stage.push(device.createBuffer({ size: Math.max(16, rs.bytes), usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC, mappedAtCreation: true })); rs.stageOK.push(true); }
+        for (var i = 0; i < 5; i++) { rs.stage.push(device.createBuffer({ size: Math.max(16, rs.bytes), usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC, mappedAtCreation: true })); rs.stageOK.push(true); }
       };
       var rigSync = function () {
         var rig = S.rig, STO = GPUBufferUsage.STORAGE;
@@ -538,7 +538,7 @@ var NFMRender = (function () {
       };
       var drawRig = function (view) {
         var tu = S.turn, rig = S.rig; rigSync();
-        var bg = S.theme.bg, enc = device.createCommandEncoder(), mapped = -1, seqBuf = rbufs.seq, via = (out.rigDebug && out.rigDebug.orderVia) || out.orderVia || 'write';
+        var bg = S.theme.bg, enc = device.createCommandEncoder(), mapped = -1, seqBuf = rbufs.seq, via = (out.rigDebug && out.rigDebug.orderVia) || out.orderVia || 'map';
         if ((rs.ver !== tu.ver || rs.sid2 !== S) && !(out.rigDebug && out.rigDebug.keepOrder)) {
           var sq = tu.seq.subarray(0, tu.nseq);
           if (sq.byteLength) {
