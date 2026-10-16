@@ -235,7 +235,7 @@ function settleTurn() {
 }
 
 /* ---------------------------------------------------------------- selection, dimming, search, route lighting */
-function sceneNodeFor(id) { if (!S.scene || id == null) return null; if (!S.keyMap || S.keyMap.sc !== S.scene) { var m = new Map(); S.scene.nodes.forEach(function (n) { if (n.nodeId !== undefined && !m.has(n.nodeId)) m.set(n.nodeId, n); }); S.keyMap = { sc: S.scene, m: m }; } return S.keyMap.m.get(id) || null; }
+function sceneNodeFor(id) { if (!S.scene || id == null) return null; if (S.scene.recStale) S.scene.syncRecs(); if (!S.keyMap || S.keyMap.sc !== S.scene) { var m = new Map(); S.scene.nodes.forEach(function (n) { if (n.nodeId !== undefined && !m.has(n.nodeId)) m.set(n.nodeId, n); }); S.keyMap = { sc: S.scene, m: m }; } return S.keyMap.m.get(id) || null; }
 function keysOf(ids) { var s = new Set(); ids.forEach(function (id) { var n = sceneNodeFor(id); if (n) s.add(n.key); }); return s; }
 function neighborIds(ids) {
   var s = new Set(ids);

@@ -88,12 +88,19 @@ t('turning a big 3D map on the card: a new angle gives the same places, paint or
   const S = SC.make(L, base({ yaw: 0.3, pitch: 0.2, persp: 2.4 }, { plan: {}, rig: true }));
   ok(S.rig && typeof S.turnTo === 'function' && S.rig.m > 1500, 'a big 3D map with plain links can be turned on the card');
   const c1 = { yaw: 1.37, pitch: 0.55, persp: 2.8 }, T = S.turnTo(c1, 2), F = SC.make(L, base(c1));
+  ok(S.recStale === true, 'item records are left alone until something reads them'); S.syncRecs(); ok(S.recStale === false, 'and brought up to date on request');
   const byKey = new Map(F.nodes.map((r) => [r.key, r])); let worst = 0;
   S.nodes.forEach((r) => { const f = byKey.get(r.key); worst = Math.max(worst, Math.abs(f.x - r.x), Math.abs(f.y - r.y), Math.abs(f.w - r.w)); });
   ok(worst < 1e-9, 'item places differ by ' + worst);
   ok(S.nodes.slice().sort((a, b) => a.o - b.o).map((r) => r.key).join() === F.nodes.map((r) => r.key).join(), 'paint order');
   const names = (sc) => sc.labels.filter((l) => l.minK <= 2).map((l) => [sc.nodes[l.node].key, l.x.toFixed(4), l.y.toFixed(4), l.t, l.size.toFixed(4), JSON.stringify(l.color), l.bold, l.minK.toFixed(4)].join('|')).join('\n');
   ok(names(S) === names(F) && S.labels.length > 10, 'the names that can be seen at zoom 2');
+  /* names are kept and moved from angle to angle (no new objects per picture): later angles, and names that appear at a closer zoom, still match a full picture */
+  const c2 = { yaw: 2.6, pitch: -0.3, persp: 2.4 }, c3 = { yaw: 4.1, pitch: 0.7, persp: 2.4 };
+  S.turnTo(c2, 2); ok(names(S) === names(SC.make(L, base(c2))), 'names after a second angle');
+  S.turnTo(c3, 4); const F3 = SC.make(L, base(c3)), names4 = (sc) => sc.labels.filter((l) => l.minK <= 4).map((l) => [sc.nodes[l.node].key, l.x.toFixed(4), l.y.toFixed(4), l.t, l.size.toFixed(4), l.bold, l.minK.toFixed(4)].join('|')).join('\n');
+  ok(names4(S) === names4(F3) && S.labels.length > 10, 'names after a third angle at a closer zoom');
+  S.turnTo(c1, 2);
   /* the card's arithmetic (the same lines the shaders use) against the curves of the full picture */
   const rig = S.rig, proj = (q) => { const x = rig.pos[q * 4], y = rig.pos[q * 4 + 1], z = rig.pos[q * 4 + 2], x1 = x * T.cy + z * T.sy, z1 = -x * T.sy + z * T.cy, y2 = y * T.cp - z1 * T.sp, z2 = y * T.sp + z1 * T.cp, f = T.D3 / (T.D3 + z2); return { p: [T.c3x + x1 * f, T.c3y + y2 * f], r: rig.pos[q * 4 + 3] * f, f, fd: T.fadeOn ? 0.42 + 0.58 * (1 - (z2 - T.dmin) * T.inv) : 1 }; };
   let we = 0, ww = 0, wa = 0;
