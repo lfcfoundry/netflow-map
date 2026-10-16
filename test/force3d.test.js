@@ -82,4 +82,39 @@ t('drawing a map: a plain straight link is written as one quad with the same num
   ok(B.nMesh === 12 && b.length === 120 && b.every(isFinite), 'two links, nothing left over from the earlier picture');
   ok(b[2] === 0 && b[3] === 1 && b[62] === -1 && b[63] === 0, 'normals of a flat and a tall link');
 });
+t('turning a big 3D map on the card: a new angle gives the same places, paint order, names and link ends as a full picture, and styling carries over', () => {
+  const SC = require('../src/scene.js'), g = GEN.graph('moderate', 1200, 13), L = E.build(g, { view: 'network', arrange: 'force3d', colorBy: 'group' });
+  const base = (cam, extra) => Object.assign({ colorBy: 'group', theme: 'light', cam }, extra);
+  const S = SC.make(L, base({ yaw: 0.3, pitch: 0.2, persp: 2.4 }, { plan: {}, rig: true }));
+  ok(S.rig && typeof S.turnTo === 'function' && S.rig.m > 1500, 'a big 3D map with plain links can be turned on the card');
+  const c1 = { yaw: 1.37, pitch: 0.55, persp: 2.8 }, T = S.turnTo(c1, 2), F = SC.make(L, base(c1));
+  const byKey = new Map(F.nodes.map((r) => [r.key, r])); let worst = 0;
+  S.nodes.forEach((r) => { const f = byKey.get(r.key); worst = Math.max(worst, Math.abs(f.x - r.x), Math.abs(f.y - r.y), Math.abs(f.w - r.w)); });
+  ok(worst < 1e-9, 'item places differ by ' + worst);
+  ok(S.nodes.slice().sort((a, b) => a.o - b.o).map((r) => r.key).join() === F.nodes.map((r) => r.key).join(), 'paint order');
+  const names = (sc) => sc.labels.filter((l) => l.minK <= 2).map((l) => [sc.nodes[l.node].key, l.x.toFixed(4), l.y.toFixed(4), l.t, l.size.toFixed(4), JSON.stringify(l.color), l.bold, l.minK.toFixed(4)].join('|')).join('\n');
+  ok(names(S) === names(F) && S.labels.length > 10, 'the names that can be seen at zoom 2');
+  /* the card's arithmetic (the same lines the shaders use) against the curves of the full picture */
+  const rig = S.rig, proj = (q) => { const x = rig.pos[q * 4], y = rig.pos[q * 4 + 1], z = rig.pos[q * 4 + 2], x1 = x * T.cy + z * T.sy, z1 = -x * T.sy + z * T.cy, y2 = y * T.cp - z1 * T.sp, z2 = y * T.sp + z1 * T.cp, f = T.D3 / (T.D3 + z2); return { p: [T.c3x + x1 * f, T.c3y + y2 * f], r: rig.pos[q * 4 + 3] * f, f, fd: T.fadeOn ? 0.42 + 0.58 * (1 - (z2 - T.dmin) * T.inv) : 1 }; };
+  let we = 0, ww = 0, wa = 0;
+  for (let k = 0; k < rig.m; k++) {
+    const e = rig.edgeF, s0 = proj(e[k * 8]), t0 = proj(e[k * 8 + 1]), dx = t0.p[0] - s0.p[0], dy = t0.p[1] - s0.p[1], d = Math.sqrt(dx * dx + dy * dy) || 1, c = F.curves[k];
+    ok(c.edge === rig.edgeIdx[k], 'link order');
+    we = Math.max(we, Math.abs(c.P[0] - (s0.p[0] + dx / d * s0.r)), Math.abs(c.P[6] - (t0.p[0] - dx / d * t0.r)), Math.abs(c.P[7] - (t0.p[1] - dy / d * t0.r)));
+    ww = Math.max(ww, Math.abs(c.w - e[k * 8 + 2] * (s0.f + t0.f) / 2)); wa = Math.max(wa, Math.abs(c.color[3] - e[k * 8 + 7] * (s0.fd + t0.fd) / 2));
+  }
+  ok(we < 1e-9 && ww < 1e-6 && wa < 1e-6, 'link ends ' + we + ' width ' + ww + ' alpha ' + wa);
+  /* dimming, a selected item and a selected link carry over to what the card is given */
+  const id0 = F.nodes[5].key, id1 = F.nodes[9].key; SC.style(S, { focus: new Set([id0, id1]), sel: new Set([id0]), selEdges: new Set([F.curves[3].edge]) });
+  const st = SC.rigStyle(S), q0 = L.nodes.findIndex((n) => n.id === id0), q1 = L.nodes.findIndex((n) => n.id === id1), qOther = L.nodes.findIndex((n) => n.id !== id0 && n.id !== id1);
+  ok(st.node[q0 * 8] === 1 && st.node[q0 * 8 + 1] === 1 && st.node[q1 * 8 + 1] === 0 && Math.abs(st.node[qOther * 8] - 0.22) < 1e-6, 'item dimming and ring');
+  ok(st.edge[3 * 4 + 1] === 1 && st.edge[3 * 4] === 1 && st.edge[2 * 4 + 1] === 0 && Math.abs(st.edge[2 * 4] - 0.08) < 1e-6, 'selected and dimmed links');
+  /* picking follows the turn, and links are not picked while they live only on the card */
+  const k0 = S.nodes[7], cx = k0.x + k0.w / 2, cy = k0.y + k0.h / 2, hit = SC.hit(S, cx, cy, 1, { slop: 2 });
+  ok(hit.type === 'node', 'a turned item can still be picked');
+  /* maps that cannot be drawn this way keep the ordinary picture */
+  const small = E.build(GEN.graph('moderate', 120, 3), { view: 'network', arrange: 'force3d', colorBy: 'group' }), SS = SC.make(small, base({ yaw: 0.3, pitch: 0.2, persp: 2.4 }, { plan: {}, rig: true }));
+  ok(!SS.turnTo, 'a small map (arrows on its links) is drawn the ordinary way');
+  const bent = SC.make(L, base({ yaw: 0.3, pitch: 0.2, persp: 2.4 }, { plan: {}, rig: true, curve: 0.2 })); ok(!bent.turnTo, 'bent links are drawn the ordinary way');
+});
 process.exitCode = bad ? 1 : 0;

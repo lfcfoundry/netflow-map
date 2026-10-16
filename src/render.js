@@ -268,6 +268,33 @@ var NFMRender = (function () {
   var GL_MESH_FS = '#version 300 es\nprecision highp float;in vec4 vC;in float vSide;in float vHw;in float vSolid;out vec4 o;\n' +
     'void main(){float cov=vSolid>.5?1.:clamp(vHw-abs(vSide)*vHw+.5,0.,1.);o=vec4(vC.rgb*vC.a,vC.a)*cov;}';
 
+
+  /* ---------------------------------------------------------------- turning a big 3D map on the card: the same drawing, with the 3D math done by the vertex shaders.
+     The items and links live in the card (textures in WebGL 2, storage buffers in WebGPU); a new angle is only a few numbers and a depth order. The pixels are
+     worked out by the very same fragment shaders as the ordinary picture, so the two cannot look different. */
+  var GL_RIG_HEAD = '#version 300 es\nprecision highp float;precision highp int;precision highp sampler2D;\nuniform sampler2D tN;uniform sampler2D tNS;uniform sampler2D tE;uniform sampler2D tES;\n' +
+    'uniform vec4 uV;uniform vec2 uRes;uniform vec4 uCam;uniform vec4 uC3;uniform vec4 uFd;uniform vec4 uGold;uniform vec4 uBoxS;uniform vec4 uAcc;\n' +
+    'vec4 F(sampler2D t,int i){return texelFetch(t,ivec2(i&2047,i>>11),0);}\n' +
+    'struct Pn{vec2 p;float r;float f;float fd;};\n' +
+    'Pn proj(int q){vec4 a=F(tN,q*4);float x1=a.x*uCam.x+a.z*uCam.y,z1=-a.x*uCam.y+a.z*uCam.x,y2=a.y*uCam.z-z1*uCam.w,z2=a.y*uCam.w+z1*uCam.z;float f=uC3.z/(uC3.z+z2);\n' +
+    'Pn o;o.p=vec2(uC3.x+x1*f,uC3.y+y2*f);o.r=a.w*f;o.f=f;o.fd=uC3.w>.5?.42+.58*(1.-(z2-uFd.x)*uFd.y):1.;return o;}\n';
+  var GL_RIG_EDGE_VS = GL_RIG_HEAD + 'out vec4 vC;out float vSide;out float vHw;out float vSolid;\n' +
+    'void main(){int e=gl_InstanceID,v=gl_VertexID;vec4 E0=F(tE,e*2),E1=F(tE,e*2+1),ES=F(tES,e);Pn s=proj(int(E0.x)),t=proj(int(E0.y));\n' +
+    'vec2 dv=t.p-s.p;float d=sqrt(dot(dv,dv));if(d==0.)d=1.;vec2 en=t.p-dv/d*t.r,sn=s.p+dv/d*s.r;\n' +
+    'float w=E0.z*(s.f+t.f)*.5;vec4 col=vec4(E1.rgb,E1.a*(s.fd+t.fd)*.5);float a=ES.x;if(ES.y>.5){w=max(w*1.8,w+2.);col=uAcc;a=1.;}\n' +
+    'vec2 tv=en-sn;float dd=length(tv);if(dd==0.)dd=1.;vec2 nn=vec2(-tv.y,tv.x)/dd;\n' +
+    'bool atB=(v==2||v==3||v==5);float side=(v==0||v==2||v==3)?-1.:1.;vec2 b=atB?en:sn;float hw=max(w*.5,.7/uV.x);vec2 wp=b+nn*side*hw;vec2 px=wp*uV.x+uV.yz;\n' +
+    'gl_Position=vec4(px.x/uRes.x*2.-1.,1.-px.y/uRes.y*2.,0.,1.);vC=vec4(col.rgb,col.a*a);vSide=side;vHw=hw*uV.x;vSolid=0.;}';
+  var GL_RIG_DOT_VS = GL_RIG_HEAD + 'layout(location=0) in uint iId;out vec2 vL;flat out vec4 vA;flat out vec4 vB;flat out vec4 vF;flat out vec4 vS;\n' +
+    'void main(){int q=int(iId>>1),which=int(iId&1u);Pn p=proj(q);vec4 N1=F(tN,q*4+1),N2=F(tN,q*4+2),N3=F(tN,q*4+3),S0=F(tNS,q*2),S1=F(tNS,q*2+1);\n' +
+    'vec2 c;float r,kind,sw;vec4 fill,stroke;\n' +
+    'if(which==0){c=p.p;r=p.r;kind=N3.y;sw=N3.x;float fa=mod(N3.z,2.)>.5?.15:N1.a*p.fd;fill=vec4(N1.rgb,fa);stroke=N2;if(S0.y>.5&&r>4.&&fa>.1){stroke=S1;sw=max(sw,4.);}}\n' +
+    'else{c=p.p+vec2(p.r*.72,-p.r*.72);r=max(2.5,p.r*.3);kind=1.;sw=1.;fill=uGold;stroke=uBoxS;if(S0.y>.5&&r>4.&&uGold.a>.1){stroke=S1;sw=max(1.,4.);}}\n' +
+    'float rad=kind<.5?min(3.,r):r;fill.a*=S0.x;stroke.a*=S0.x;\n' +
+    'int id=gl_VertexID;vec2 cc=vec2(0.,0.);if(id==1||id==3)cc=vec2(1.,0.);else if(id==2||id==5)cc=vec2(0.,1.);else if(id==4)cc=vec2(1.,1.);\n' +
+    'vec2 q2=cc*2.-1.;float pad=sw*.5+2./uV.x;vec2 loc=q2*(vec2(r)+pad);vec2 w=c+loc;vec2 px=w*uV.x+uV.yz;\n' +
+    'gl_Position=vec4(px.x/uRes.x*2.-1.,1.-px.y/uRes.y*2.,0.,1.);vL=loc;vA=vec4(c,r,r);vB=vec4(rad,kind,sw,0.);vF=fill;vS=stroke;}';
+
   function glProgram(gl, vs, fs) {
     var mk = function (t, src) { var s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error('shader: ' + gl.getShaderInfoLog(s)); return s; };
     var p = gl.createProgram(); gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
@@ -291,17 +318,57 @@ var NFMRender = (function () {
     var vaoMesh = mkVao([[0, 2, 0, 40], [1, 2, 2, 40], [2, 2, 4, 40], [3, 4, 6, 40]], bMesh, false);
     var T = null, S = null, W = 1, Hh = 1, dpr = 1;
     var up = function (buf, data) { gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); };
+    /* turning a big 3D map: items and links stay in textures; each picture sends only the camera numbers and the paint order (see GL_RIG_* above) */
+    var RG = null, rigState = { id: 0, style: -1, ver: -1 };
+    var rigPrepare = function () {
+      if (RG !== null) return !!RG;
+      try {
+        var pe = glProgram(gl, GL_RIG_EDGE_VS, GL_MESH_FS), pd = glProgram(gl, GL_RIG_DOT_VS, GL_SHAPE_FS), names = ['uV', 'uRes', 'uCam', 'uC3', 'uFd', 'uGold', 'uBoxS', 'uAcc', 'tN', 'tNS', 'tE', 'tES'];
+        var loc = function (p) { var o = {}; names.forEach(function (n) { o[n] = gl.getUniformLocation(p, n); }); return o; };
+        var seqBuf = gl.createBuffer(), vaoSeq = gl.createVertexArray();
+        gl.bindVertexArray(vaoSeq); gl.bindBuffer(gl.ARRAY_BUFFER, seqBuf); gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 1, gl.UNSIGNED_INT, 4, 0); gl.vertexAttribDivisor(0, 1); gl.bindVertexArray(null);
+        var tex = function () { var t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+        RG = { pe: pe, pd: pd, le: loc(pe), ld: loc(pd), seqBuf: seqBuf, vaoSeq: vaoSeq, vaoNone: gl.createVertexArray(), tN: tex(), tNS: tex(), tE: tex(), tES: tex() };
+      } catch (e) { RG = false; if (hooks && hooks.onError) hooks.onError('webgl2', 'turning on the card: ' + e.message); }
+      out.rigOK = !!RG; return !!RG;
+    };
+    /* writes `floats` (4 per texel) into a 2048-wide float texture, as many rows as needed */
+    var putTex = function (t, floats) {
+      var texels = Math.max(1, Math.ceil(floats.length / 4)), rows = Math.ceil(texels / 2048), data = floats;
+      if (floats.length !== 2048 * rows * 4) { data = new Float32Array(2048 * rows * 4); data.set(floats); }
+      gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 2048, rows, 0, gl.RGBA, gl.FLOAT, data);
+    };
+    var rigSync = function () {
+      var rig = S.rig;
+      if (rigState.id !== rig.id) { putTex(RG.tN, rig.nodeF); putTex(RG.tE, rig.edgeF); rigState.id = rig.id; rigState.style = -1; }
+      if (rigState.style !== S.styleVer || rigState.sid !== S) { var st = NFMScene.rigStyle(S); putTex(RG.tNS, st.node); putTex(RG.tES, st.edge); rigState.style = S.styleVer; rigState.sid = S; }
+    };
+    var drawRig = function (view) {
+      var tu = S.turn, rig = S.rig; rigSync();
+      if (rigState.ver !== tu.ver || rigState.sid2 !== S) { gl.bindBuffer(gl.ARRAY_BUFFER, RG.seqBuf); gl.bufferData(gl.ARRAY_BUFFER, tu.seq.subarray(0, tu.nseq), gl.DYNAMIC_DRAW); rigState.ver = tu.ver; rigState.sid2 = S; }
+      var bind = function (p, l) {
+        gl.useProgram(p); gl.uniform4f(l.uV, view.k, view.tx, view.ty, 0); gl.uniform2f(l.uRes, W, Hh); gl.uniform4f(l.uCam, tu.cy, tu.sy, tu.cp, tu.sp); gl.uniform4f(l.uC3, tu.c3x, tu.c3y, tu.D3, tu.fadeOn); gl.uniform4f(l.uFd, tu.dmin, tu.inv, 0, 0);
+        gl.uniform4fv(l.uGold, tu.gold); gl.uniform4fv(l.uBoxS, tu.boxS); gl.uniform4fv(l.uAcc, tu.accent);
+        gl.uniform1i(l.tN, 0); gl.uniform1i(l.tNS, 1); gl.uniform1i(l.tE, 2); gl.uniform1i(l.tES, 3);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, RG.tN); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, RG.tNS); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, RG.tE); gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, RG.tES);
+      };
+      if (rig.m) { bind(RG.pe, RG.le); gl.bindVertexArray(RG.vaoNone); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, rig.m); }
+      if (tu.nseq) { bind(RG.pd, RG.ld); gl.bindVertexArray(RG.vaoSeq); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, tu.nseq); }
+      gl.bindVertexArray(null); gl.activeTexture(gl.TEXTURE0);
+    };
     var info = (function () { try { var e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : ''; } catch (x) { return ''; } })();
     var out = {
       name: 'webgl2', label: 'WebGL 2', device: info,
       setScene: function (s) { S = s; T = s ? tessellate(s) : null; if (T) { up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
-      restyle: function () { if (S) { T = tessellate(S); up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
+      restyle: function () { if (S && !(S.turn && S.turn.on)) { T = tessellate(S); up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
+      rigPrepare: rigPrepare, rigOK: false,
       resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
       draw: function (view) {
         if (!S || lost) return;
         gl.viewport(0, 0, H.main.width, H.main.height);
         var bg = S.theme.bg; gl.clearColor(bg[0], bg[1], bg[2], 1); gl.clear(gl.COLOR_BUFFER_BIT);
         gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        if (S.turn && S.turn.on && S.rig && RG) { drawRig(view); drawLabels(H.ctx2, S, view, W, Hh, dpr); return; }
         var shapes = function (vao, n) { if (!n) return; gl.useProgram(pS); gl.uniform4f(uS.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uS.r, W, Hh); gl.bindVertexArray(vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n); };
         shapes(vaoBack, T.nBack);
         if (T.nMesh) { gl.useProgram(pM); gl.uniform4f(uM.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uM.r, W, Hh); gl.bindVertexArray(vaoMesh); gl.drawArrays(gl.TRIANGLES, 0, T.nMesh); }
@@ -323,8 +390,8 @@ var NFMRender = (function () {
 
   /* ---------------------------------------------------------------- WebGPU */
   var WGSL_COMMON = 'struct U { v: vec4<f32>, res: vec2<f32>, pad: vec2<f32> };\n@group(0) @binding(0) var<uniform> u: U;\n';
-  var WGSL_SHAPE = WGSL_COMMON +
-    'struct VO { @builtin(position) pos: vec4<f32>, @location(0) loc: vec2<f32>, @location(1) @interpolate(flat) a: vec4<f32>, @location(2) @interpolate(flat) b: vec4<f32>, @location(3) @interpolate(flat) f: vec4<f32>, @location(4) @interpolate(flat) s: vec4<f32> };\n' +
+  var WGSL_SHAPE_VO = 'struct VO { @builtin(position) pos: vec4<f32>, @location(0) loc: vec2<f32>, @location(1) @interpolate(flat) a: vec4<f32>, @location(2) @interpolate(flat) b: vec4<f32>, @location(3) @interpolate(flat) f: vec4<f32>, @location(4) @interpolate(flat) s: vec4<f32> };\n';
+  var WGSL_SHAPE = WGSL_COMMON + WGSL_SHAPE_VO +
     '@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) a: vec4<f32>, @location(1) b: vec4<f32>, @location(2) f: vec4<f32>, @location(3) s: vec4<f32>) -> VO {\n' +
     ' var cs = array<vec2<f32>,6>(vec2<f32>(0.,0.),vec2<f32>(1.,0.),vec2<f32>(0.,1.),vec2<f32>(1.,0.),vec2<f32>(1.,1.),vec2<f32>(0.,1.));\n' +
     ' let q = cs[vi]*2.-1.; let pad = b.z*.5 + 2./u.v.x; let loc = q*(a.zw+pad); let w = a.xy+loc; let px = w*u.v.x + u.v.yz;\n' +
@@ -345,6 +412,35 @@ var NFMRender = (function () {
     ' var o: VO; o.pos = vec4<f32>(px.x/u.res.x*2.-1., 1.-px.y/u.res.y*2., 0., 1.); o.c = c; o.side = hs.y; o.hw = hw*u.v.x; o.solid = solid; return o; }\n' +
     '@fragment fn fs(i: VO) -> @location(0) vec4<f32> {\n' +
     ' var cov = 1.; if (i.solid < .5) { cov = clamp(i.hw - abs(i.side)*i.hw + .5, 0., 1.); } return vec4<f32>(i.c.rgb*i.c.a, i.c.a)*cov; }\n';
+
+  /* turning a big 3D map on the card (WebGPU): the same fragment code as above, with vertex shaders that read the items and links from storage buffers */
+  var WGSL_SHAPE_FS = WGSL_SHAPE.slice(WGSL_SHAPE.indexOf('@fragment')), WGSL_MESH_VO = WGSL_MESH.slice(WGSL_MESH.indexOf('struct VO'), WGSL_MESH.indexOf('@vertex')), WGSL_MESH_FS = WGSL_MESH.slice(WGSL_MESH.indexOf('@fragment'));
+  var WGSL_RIG = 'struct RU { v: vec4<f32>, res: vec4<f32>, cam: vec4<f32>, c3: vec4<f32>, fd: vec4<f32>, gold: vec4<f32>, boxs: vec4<f32>, acc: vec4<f32> };\n' +
+    '@group(0) @binding(0) var<uniform> u: RU;\n@group(0) @binding(1) var<storage, read> nodeF: array<vec4<f32>>;\n@group(0) @binding(2) var<storage, read> nodeS: array<vec4<f32>>;\n' +
+    '@group(0) @binding(3) var<storage, read> edgeF: array<vec4<f32>>;\n@group(0) @binding(4) var<storage, read> edgeS: array<vec4<f32>>;\n' +
+    'struct Pn { p: vec2<f32>, r: f32, f: f32, fd: f32 };\n' +
+    'fn proj(q: u32) -> Pn {\n let a = nodeF[q*4u];\n let x1 = a.x*u.cam.x + a.z*u.cam.y; let z1 = -a.x*u.cam.y + a.z*u.cam.x; let y2 = a.y*u.cam.z - z1*u.cam.w; let z2 = a.y*u.cam.w + z1*u.cam.z;\n' +
+    ' let f = u.c3.z/(u.c3.z + z2); var o: Pn; o.p = vec2<f32>(u.c3.x + x1*f, u.c3.y + y2*f); o.r = a.w*f; o.f = f;\n o.fd = 1.; if (u.c3.w > .5) { o.fd = .42 + .58*(1. - (z2 - u.fd.x)*u.fd.y); }\n return o; }\n';
+  var WGSL_RIG_EDGE = WGSL_RIG + WGSL_MESH_VO +
+    '@vertex fn vs(@builtin(vertex_index) v: u32, @builtin(instance_index) e: u32) -> VO {\n' +
+    ' let E0 = edgeF[e*2u]; let E1 = edgeF[e*2u+1u]; let ES = edgeS[e]; let s = proj(u32(E0.x)); let t = proj(u32(E0.y));\n' +
+    ' let dv = t.p - s.p; var d = sqrt(dot(dv,dv)); if (d == 0.) { d = 1.; } let en = t.p - dv/d*t.r; let sn = s.p + dv/d*s.r;\n' +
+    ' var w = E0.z*(s.f+t.f)*.5; var col = vec4<f32>(E1.rgb, E1.a*(s.fd+t.fd)*.5); var a = ES.x; if (ES.y > .5) { w = max(w*1.8, w+2.); col = u.acc; a = 1.; }\n' +
+    ' let tv = en - sn; var dd = length(tv); if (dd == 0.) { dd = 1.; } let nn = vec2<f32>(-tv.y, tv.x)/dd;\n' +
+    ' var side = 1.; if (v == 0u || v == 2u || v == 3u) { side = -1.; } var b = sn; if (v == 2u || v == 3u || v == 5u) { b = en; }\n' +
+    ' let hw = max(w*.5, .7/u.v.x); let wp = b + nn*side*hw; let px = wp*u.v.x + u.v.yz;\n' +
+    ' var o: VO; o.pos = vec4<f32>(px.x/u.res.x*2.-1., 1.-px.y/u.res.y*2., 0., 1.); o.c = vec4<f32>(col.rgb, col.a*a); o.side = side; o.hw = hw*u.v.x; o.solid = 0.; return o; }\n' + WGSL_MESH_FS;
+  var WGSL_RIG_DOT = WGSL_RIG + WGSL_SHAPE_VO +
+    '@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) id: u32) -> VO {\n' +
+    ' let q = id >> 1u; let which = id & 1u; let p = proj(q); let N1 = nodeF[q*4u+1u]; let N2 = nodeF[q*4u+2u]; let N3 = nodeF[q*4u+3u]; let S0 = nodeS[q*2u]; let S1 = nodeS[q*2u+1u];\n' +
+    ' var c: vec2<f32>; var r: f32; var kind: f32; var sw: f32; var fill: vec4<f32>; var stroke: vec4<f32>;\n' +
+    ' if (which == 0u) { c = p.p; r = p.r; kind = N3.y; sw = N3.x; var fa = N1.a*p.fd; if (N3.z - 2.*floor(N3.z*.5) > .5) { fa = .15; } fill = vec4<f32>(N1.rgb, fa); stroke = N2;\n' +
+    '   if (S0.y > .5 && r > 4. && fa > .1) { stroke = S1; sw = max(sw, 4.); } }\n' +
+    ' else { c = p.p + vec2<f32>(p.r*.72, -p.r*.72); r = max(2.5, p.r*.3); kind = 1.; sw = 1.; fill = u.gold; stroke = u.boxs; if (S0.y > .5 && r > 4. && u.gold.w > .1) { stroke = S1; sw = max(1., 4.); } }\n' +
+    ' var rad = r; if (kind < .5) { rad = min(3., r); } fill.w = fill.w*S0.x; stroke.w = stroke.w*S0.x;\n' +
+    ' var cs = array<vec2<f32>,6>(vec2<f32>(0.,0.),vec2<f32>(1.,0.),vec2<f32>(0.,1.),vec2<f32>(1.,0.),vec2<f32>(1.,1.),vec2<f32>(0.,1.));\n' +
+    ' let qq = cs[vi]*2.-1.; let pad = sw*.5 + 2./u.v.x; let loc = qq*(vec2<f32>(r,r)+pad); let w = c + loc; let px = w*u.v.x + u.v.yz;\n' +
+    ' var o: VO; o.pos = vec4<f32>(px.x/u.res.x*2.-1., 1.-px.y/u.res.y*2., 0., 1.); o.loc = loc; o.a = vec4<f32>(c, r, r); o.b = vec4<f32>(rad, kind, sw, 0.); o.f = fill; o.s = stroke; return o; }\n' + WGSL_SHAPE_FS;
 
   function createWebGPU(host, hooks) {
     if (!navigator.gpu) return Promise.reject(new Error('no WebGPU'));
@@ -380,14 +476,56 @@ var NFMRender = (function () {
         device.queue.writeBuffer(b, 0, data.buffer, data.byteOffset, data.byteLength);
       };
       var load = function () { T = tessellate(S); mk('back', T.back, GPUBufferUsage.VERTEX); mk('front', T.front, GPUBufferUsage.VERTEX); mk('mesh', T.mesh, GPUBufferUsage.VERTEX); };
+      /* turning a big 3D map: items and links stay in storage buffers, a picture sends the camera numbers and the paint order (see WGSL_RIG_* above) */
+      var RW = null, rs = { id: 0, sid: null, style: -1, ver: -1 }, rbufs = {}, rbg = null, rU = new Float32Array(32);
+      var rigPrepare = function () {
+        if (RW !== null) return !!RW;
+        try {
+          device.pushErrorScope('validation');
+          var bgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }, { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }, { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }] });
+          var pl = device.createPipelineLayout({ bindGroupLayouts: [bgl] }), mE = device.createShaderModule({ code: WGSL_RIG_EDGE }), mD = device.createShaderModule({ code: WGSL_RIG_DOT });
+          var pe = device.createRenderPipeline({ layout: pl, vertex: { module: mE, entryPoint: 'vs' }, fragment: { module: mE, entryPoint: 'fs', targets: [{ format: fmt, blend: blend }] }, primitive: { topology: 'triangle-list' } });
+          var pd = device.createRenderPipeline({ layout: pl, vertex: { module: mD, entryPoint: 'vs', buffers: [{ arrayStride: 4, stepMode: 'instance', attributes: [{ shaderLocation: 0, offset: 0, format: 'uint32' }] }] }, fragment: { module: mD, entryPoint: 'fs', targets: [{ format: fmt, blend: blend }] }, primitive: { topology: 'triangle-list' } });
+          var ru = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+          RW = { bgl: bgl, pe: pe, pd: pd, ru: ru };
+          device.popErrorScope().then(function (err) { if (err) { RW = false; out.rigOK = false; if (hooks && hooks.onError) hooks.onError('webgpu', 'turning on the card: ' + err.message); } else out.rigOK = true; }, function () { RW = false; out.rigOK = false; });
+        } catch (e) { RW = false; out.rigOK = false; }
+        return false;
+      };
+      var rbuf = function (name, floats, usage) {
+        var need = Math.max(16, floats.byteLength), b = rbufs[name];
+        if (!b || b.size < need) { if (b) b.destroy(); b = rbufs[name] = device.createBuffer({ size: Math.ceil(need / 4) * 4, usage: usage | GPUBufferUsage.COPY_DST }); rbg = null; }
+        if (floats.byteLength) device.queue.writeBuffer(b, 0, floats.buffer, floats.byteOffset, floats.byteLength);
+      };
+      var rigSync = function () {
+        var rig = S.rig, STO = GPUBufferUsage.STORAGE;
+        if (rs.id !== rig.id) { rbuf('nodeF', rig.nodeF, STO); rbuf('edgeF', rig.edgeF, STO); rs.id = rig.id; rs.style = -1; rbuf('seq', new Float32Array(rig.n * 2), GPUBufferUsage.VERTEX); }
+        if (rs.style !== S.styleVer || rs.sid !== S) { var st = NFMScene.rigStyle(S); rbuf('nodeS', st.node, STO); rbuf('edgeS', st.edge, STO); rs.style = S.styleVer; rs.sid = S; }
+        if (!rbg) rbg = device.createBindGroup({ layout: RW.bgl, entries: [{ binding: 0, resource: { buffer: RW.ru } }, { binding: 1, resource: { buffer: rbufs.nodeF } }, { binding: 2, resource: { buffer: rbufs.nodeS } }, { binding: 3, resource: { buffer: rbufs.edgeF } }, { binding: 4, resource: { buffer: rbufs.edgeS } }] });
+      };
+      var drawRig = function (view) {
+        var tu = S.turn, rig = S.rig; rigSync();
+        if (rs.ver !== tu.ver || rs.sid2 !== S) { var sq = tu.seq.subarray(0, tu.nseq); if (sq.byteLength) device.queue.writeBuffer(rbufs.seq, 0, sq.buffer, sq.byteOffset, sq.byteLength); rs.ver = tu.ver; rs.sid2 = S; }
+        var g = tu.gold, bs = tu.boxS, ac = tu.accent;
+        rU.set([view.k, view.tx, view.ty, 0, W, Hh, 0, 0, tu.cy, tu.sy, tu.cp, tu.sp, tu.c3x, tu.c3y, tu.D3, tu.fadeOn, tu.dmin, tu.inv, 0, 0, g[0], g[1], g[2], g[3], bs[0], bs[1], bs[2], bs[3], ac[0], ac[1], ac[2], ac[3]]);
+        device.queue.writeBuffer(RW.ru, 0, rU);
+        var bg = S.theme.bg, enc = device.createCommandEncoder();
+        var pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }] });
+        if (rig.m) { pass.setPipeline(RW.pe); pass.setBindGroup(0, rbg); pass.draw(6, rig.m); }
+        if (tu.nseq) { pass.setPipeline(RW.pd); pass.setBindGroup(0, rbg); pass.setVertexBuffer(0, rbufs.seq); pass.draw(6, tu.nseq); }
+        pass.end(); device.queue.submit([enc.finish()]);
+        drawLabels(H.ctx2, S, view, W, Hh, dpr);
+      };
       var noop = function () { /* a fence that failed (device lost) is not a reason to wait */ };
       var out = {
         name: 'webgpu', label: 'WebGPU', device: (r.adapter.info && (r.adapter.info.description || r.adapter.info.device)) || '', software: !!r.adapter.isFallbackAdapter, legacyBuffers: false,
         setScene: function (s) { S = s; if (S) load(); },
-        restyle: function () { if (S) load(); },
+        restyle: function () { if (S && !(S.turn && S.turn.on)) load(); },
+        rigPrepare: rigPrepare, rigOK: false,
         resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
         draw: function (view) {
           if (!S || !T) return;
+          if (S.turn && S.turn.on && S.rig && RW) { drawRig(view); return; }
           ud[0] = view.k; ud[1] = view.tx; ud[2] = view.ty; ud[3] = 0; ud[4] = W; ud[5] = Hh;
           device.queue.writeBuffer(ubuf, 0, ud);
           var bg = S.theme.bg, enc = device.createCommandEncoder();
@@ -411,7 +549,7 @@ var NFMRender = (function () {
           return fences.length > keep ? fences[fences.length - 1 - keep].p.then(noop, noop) : Promise.resolve();
         },
         snapshot: function () { return copyViaCanvas(H.main); },
-        destroy: function () { destroyed = true; fences = []; try { Object.keys(bufs).forEach(function (k) { if (bufs[k]) bufs[k].destroy(); }); device.destroy(); } catch (e) { /* gone */ } host.textContent = ''; }
+        destroy: function () { destroyed = true; fences = []; try { Object.keys(bufs).forEach(function (k) { if (bufs[k]) bufs[k].destroy(); }); Object.keys(rbufs).forEach(function (k) { if (rbufs[k]) rbufs[k].destroy(); }); device.destroy(); } catch (e) { /* gone */ } host.textContent = ''; }
       };
       device.addEventListener && device.addEventListener('uncapturederror', function (ev) { if (hooks && hooks.onError) hooks.onError('webgpu', ev.error && ev.error.message); });
       return out;

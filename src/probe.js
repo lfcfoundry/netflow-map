@@ -112,11 +112,19 @@ var NFMProbe = (function () {
     var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
     return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
       r.resize(W, H, 1);
-      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, upT = 0, hidden = false, budget = opts.ms || 1300;
+      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, upT = 0, hidden = false, budget = opts.ms || 1300, rigSc = null;
+      /* opts.rigScene(yaw, pitch): the map is put on the card once and each picture is only a new angle (what the app does for a big 3D map) */
+      var ready = opts.rigScene ? new Promise(function (ok) {
+        if (!r.rigPrepare) { ok('this way of drawing cannot turn a map on the card'); return; }
+        var sc0 = opts.rigScene(0.6, 0.35); r.setScene(sc0); r.rigPrepare();
+        if (!sc0.turnTo) { ok('this map cannot be turned on the card (too few links, or arrows, dashes or bends)'); return; }
+        var tries = 0, poll = function () { if (r.rigOK) { rigSc = sc0; ok(null); } else if (++tries > 40) ok('the card could not set up turning'); else setTimeout(poll, 25); }; poll();
+      }) : Promise.resolve(null);
       var loop = function () {
         var f = frames / 90, yaw = 0.6 + 6.2832 * f, pitch = 0.35 + 0.3 * Math.sin(6.2832 * f), z = 1 + 0.35 * Math.sin(6.2832 * f * 0.5);
-        var a = nowMs(), sc = opts.makeScene(yaw, pitch), b = nowMs();
-        r.setScene(sc); var u = nowMs(); var v = fitView(sc, W, H); v.k *= z; v.tx = W / 2 - (W / 2 - v.tx) * z; v.ty = H / 2 - (H / 2 - v.ty) * z; r.draw(v);
+        var a = nowMs(), sc, b;
+        if (rigSc) { sc = rigSc; sc.turnTo({ yaw: yaw, pitch: pitch, persp: 2.4 }, 4); b = nowMs(); } else { sc = opts.makeScene(yaw, pitch); b = nowMs(); r.setScene(sc); }
+        var u = nowMs(); var v = fitView(sc, W, H); v.k *= z; v.tx = W / 2 - (W / 2 - v.tx) * z; v.ty = H / 2 - (H / 2 - v.ty) * z; r.draw(v);
         var c = nowMs(); frames++;
         if (frames > 3) { sceneT += b - a; drawT += c - b; upT += u - b; }
         return wait(r).then(function () { return nextRefresh(); }).then(function (ok) {
@@ -125,9 +133,12 @@ var NFMProbe = (function () {
           if (nowMs() - start < budget && frames < 600) return loop();
         });
       };
-      return loop().then(function () {
-        var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
-        return gone(hidden || counted < 4 ? { backend: n, skipped: 'the page was in the background' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted });
+      return ready.then(function (why) {
+        if (why) { r.destroy(); return gone({ backend: n, skipped: why }); }
+        return loop().then(function () {
+          var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
+          return gone(hidden || counted < 4 ? { backend: n, skipped: 'the page was in the background' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc });
+        });
       });
     }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
   }

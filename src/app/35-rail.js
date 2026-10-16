@@ -576,6 +576,7 @@ function panelViews() {
   return kids;
 }
 function printPoster(title, caption) {
+  settleTurn();
   if (!S.scene) { toast('Nothing to print yet.'); return; }
   var old = $('poster'); if (old) old.remove();
   var svg = NFMScene.toSvg(S.scene, title || S.graph.name), box = h('div', { id: 'poster' }, [h('h1', null, title || S.graph.name), caption ? h('p', null, caption) : null, h('div', { id: 'poster-img' }), h('p', { class: 'small' }, $('sum').textContent), h('p', { class: 'small' }, 'Made with Net Flow Map.')]);
