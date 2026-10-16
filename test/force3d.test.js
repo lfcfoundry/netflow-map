@@ -58,4 +58,10 @@ t('3D force: a 2,000-leaf hub and a 3,000-item chain finish and stay finite', ()
   const chain = []; for (let i = 1; i < 3000; i++) chain.push([i - 1, i]);
   [mk(2001, star), mk(3000, chain)].forEach((g) => { const L = build(g); ok(L.nodes.every((nd) => isFinite(nd.cx) && isFinite(nd.cy) && isFinite(nd.z)), 'non-finite position'); });
 });
+t('turning a 3D map: reusing what each item looks like gives exactly the same picture, only faster to work out', () => {
+  const SC = require('../src/scene.js'), g = GEN.graph('moderate', 800, 11), L = E.build(g, { view: 'network', arrange: 'force3d', colorBy: 'group' }), plan = {};
+  const j = (S) => JSON.stringify([S.dots, S.curves.map((c) => [c.P, c.w, c.color, c.arrow]), S.labels.map((l) => [l.x, l.y, l.t, l.size, l.color]), S.nodes.length]);
+  SC.make(L, { colorBy: 'group', theme: 'light', plan, cam: { yaw: 0.3, pitch: 0.2, persp: 2.4 } });
+  [0.9, 2.0].forEach((yaw) => { const cam = { yaw, pitch: 0.4, persp: 2.4 }; ok(j(SC.make(L, { colorBy: 'group', theme: 'light', plan, cam })) === j(SC.make(L, { colorBy: 'group', theme: 'light', cam })), 'differs at yaw ' + yaw); });
+});
 process.exitCode = bad ? 1 : 0;

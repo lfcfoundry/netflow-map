@@ -51,7 +51,7 @@ function deviceCard() {
       cardCheck: cardCheckForDevice,
       makeTurnScene: function () {   // a 3D arrangement of the sample network, rebuilt for each angle exactly as the map does when you drag
         var E = getEngine(), g = NFMExamples.bigNetwork(1500, 9, 7), L3 = E.build(g, { view: 'network', arrange: 'force3d', colorBy: 'group' });
-        return function (yaw, pitch) { return NFMScene.make(L3, { colorBy: 'group', theme: themeName(), cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); };
+        return function (yaw, pitch) { return NFMScene.make(L3, { plan: true, colorBy: 'group', theme: themeName(), cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); };
       },
       makeScene: function (kind) {
         if (kind === 'stress') return syntheticScene(1600, 3600, 5);
