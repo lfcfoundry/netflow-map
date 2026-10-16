@@ -19,7 +19,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.1944.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.15.2020.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
@@ -1561,6 +1561,7 @@ var NFMImport = (function () {
 var NFMEngine = (function () {
   'use strict';
   var C = typeof NFMColumns !== 'undefined' ? NFMColumns : require('./columns.js');
+  var SK = typeof NFMSankey !== 'undefined' ? NFMSankey : (typeof require === 'function' ? require('./sankey.js') : null);
   var MAP_W = 176, MAP_H = 56;
   var LN10 = Math.LN10;
 
@@ -2452,9 +2453,9 @@ var NFMEngine = (function () {
   /**
    * Force-directed placement with Barnes-Hut repulsion (quadtree in 2D, octree in 3D). Edges pull like springs, every item pushes
    * every other, heavier (better connected) items push harder, a weak gravity keeps pieces together. X is changed in place.
-   * pairs: flat [a, b, a, b, ...]. dim: 2 or 3.
+   * pairs: flat [a, b, a, b, ...]. dim: 2 or 3. hiT, loT: starting and ending step size in units of K (default 2 and 0.02; a gentle clean-up uses less).
    */
-  function forceSim(X, k, dim, pairs, mass, iters, K, rnd) {
+  function forceSim(X, k, dim, pairs, mass, iters, K, rnd, hiT, loT) {
     var NC = 1 << dim, cap = 6 * k + 64, FX = new Float64Array(k * dim), i, j, d, it;
     var tm = new Float64Array(cap), tcx = new Float64Array(cap * dim), tc = new Float64Array(cap * dim), th = new Float64Array(cap), tn = new Int32Array(cap), tb = new Int32Array(cap), tch = new Int32Array(cap * NC);
     var cnt, stack = new Int32Array(256), K2 = K * K, theta2 = 0.81, msum = 0;
@@ -2481,7 +2482,7 @@ var NFMEngine = (function () {
       var qi = quad(nd, i), ci = tch[nd * NC + qi]; if (ci < 0) { if (cnt >= cap) { tb[nd] = -2; return; } ci = tch[nd * NC + qi] = newNode(nd, qi); }
       ins(ci, i, depth + 1);
     }
-    var temp0 = K * 2, tempN = K * 0.02;
+    var temp0 = K * (hiT || 2), tempN = K * (loT || 0.02);
     for (it = 0; it < iters; it++) {
       var temp = temp0 * Math.pow(tempN / temp0, it / Math.max(1, iters - 1));
       // bounds and tree
@@ -2912,14 +2913,133 @@ var NFMEngine = (function () {
     return { kind: 'network', dir: 'none', nodes: nodes, edges: G.edges, pos: pos, order: {}, width: W + 60, height: H + 60, crossings: 0, arrange: arr, is3d: false };
   }
 
+  /* Tuning knobs for the 3D force arrangement (the benchmark may change them; the app never does). */
+  var FORCE3 = { fullMax: 700, pivMin: 24, pivMax: 150, pivBudget: 250000, pivW: 1, near: 40, nearBig: 24, iters: 20, old: false, polish: null, polishHi: 3, polishLo: 0.05 };   // polish: force steps after the stress start (null = by size)
+
+  /** One sweep of stress gradient descent in 3D over the pairs as they lie in memory (forward or backward). */
+  function sgdSweep3(X, pa, pb, pd, pw, cnt, eta, back) {
+    var q = back ? cnt - 1 : 0, step = back ? -1 : 1;
+    for (var n = 0; n < cnt; n++, q += step) {
+      var mu = pw[q] * eta; if (mu > 1) mu = 1;
+      var a3 = pa[q] * 3, b3 = pb[q] * 3, dx = X[a3] - X[b3], dy = X[a3 + 1] - X[b3 + 1], dz = X[a3 + 2] - X[b3 + 2], mag = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
+      var r = (mu * (mag - pd[q])) / (2 * mag), rx = r * dx, ry = r * dy, rz = r * dz;
+      X[a3] -= rx; X[a3 + 1] -= ry; X[a3 + 2] -= rz; X[b3] += rx; X[b3 + 1] += ry; X[b3 + 2] += rz;
+    }
+  }
+
+  /**
+   * Stress layout in 3D for one connected piece (local numbering, links as off/nbr): distance in space follows the hop count.
+   * Same method as the flat Distances layout (pivot items far apart + links + a few near neighbors, weights 1/hops^2, stochastic
+   * gradient descent that cools), carried to three dimensions. X holds 3 numbers per item and is changed in place.
+   */
+  function stress3d(X, k, off, nbr, EDGE, rnd) {
+    var T = FORCE3, full = k <= T.fullMax, i, j, h, u, w, m2 = off[k];
+    var dist = new Int32Array(k), queue = new Int32Array(k);
+    function bfs(src) {
+      dist.fill(-1); dist[src] = 0; queue[0] = src;
+      var head = 0, tail = 1;
+      while (head < tail) { u = queue[head++]; var du = dist[u] + 1; for (var e = off[u], e1 = off[u + 1]; e < e1; e++) { w = nbr[e]; if (dist[w] < 0) { dist[w] = du; queue[tail++] = w; } } }
+    }
+    var near = Math.min(k > 20000 ? T.nearBig : T.near, Math.max(2, Math.floor(4e6 / k)));
+    var nPiv = full ? k : Math.min(k, Math.max(4, Math.min(Math.max(T.pivMin, Math.min(T.pivMax, Math.round(T.pivBudget / k))), Math.floor(8e6 / k))));
+    var cap = full ? (k * (k - 1)) / 2 : nPiv * k + m2 / 2 + k * near;
+    var pa = new Int32Array(cap), pb = new Int32Array(cap), pd = new Float32Array(cap), pw = new Float32Array(cap), cnt = 0, maxD = 1, root = 0;
+    for (i = 1; i < k; i++) if (off[i + 1] - off[i] > off[root + 1] - off[root]) root = i;
+    function add(a, b, d, wm) { if (cnt >= cap) return; pa[cnt] = a; pb[cnt] = b; pd[cnt] = d * EDGE; pw[cnt] = (wm || 1) / (d * d); cnt++; if (d > maxD) maxD = d; }
+    bfs(root);   // start: items in breadth-first order from the best-connected one along a spiral over a sphere, so neighbors begin close
+    var ga = Math.PI * (3 - Math.sqrt(5)), R0 = EDGE * Math.cbrt(k) * 0.9;
+    for (i = 0; i < k; i++) { var yy = k > 1 ? 1 - 2 * i / (k - 1) : 0, rr0 = Math.sqrt(Math.max(0, 1 - yy * yy)), th0 = i * ga, q0 = queue[i] * 3; X[q0] = R0 * rr0 * Math.cos(th0); X[q0 + 1] = R0 * yy; X[q0 + 2] = R0 * rr0 * Math.sin(th0); }
+    if (full) {
+      for (i = 0; i < k; i++) { bfs(i); for (j = i + 1; j < k; j++) if (dist[j] > 0) add(i, j, dist[j]); }
+    } else {
+      var minD = new Int32Array(k).fill(1e9), piv = root;
+      for (h = 0; h < nPiv; h++) {
+        bfs(piv);
+        var far = -1, fd = -1;
+        for (j = 0; j < k; j++) { var dj = dist[j]; if (dj < minD[j]) minD[j] = dj; if (minD[j] > fd) { fd = minD[j]; far = j; } if (j !== piv && dj > 0) add(piv, j, dj, T.pivW); }
+        piv = far;
+      }
+      for (i = 0; i < k; i++) for (j = off[i]; j < off[i + 1]; j++) if (nbr[j] > i) add(i, nbr[j], 1);
+      if (near > 0) {
+        var stamp = new Int32Array(k).fill(-1), dl = new Int32Array(k);
+        for (i = 0; i < k; i++) {
+          var tail2 = 1, head2 = 0, got = 0; queue[0] = i; stamp[i] = i; dl[i] = 0;
+          while (head2 < tail2 && got < near) {
+            u = queue[head2++];
+            for (var e2 = off[u], e3 = off[u + 1]; e2 < e3 && got < near; e2++) {
+              w = nbr[e2];
+              if (stamp[w] !== i) { stamp[w] = i; dl[w] = dl[u] + 1; queue[tail2++] = w; if (dl[w] >= 2 && w > i) { add(i, w, dl[w]); got++; } }
+            }
+          }
+        }
+      }
+    }
+    var tmax = full ? (k <= 300 ? 30 : 20) : T.iters, etaMax = maxD * maxD, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
+    var s = (rnd() * 4294967296) | 0 || 1, t, p, q;
+    function nextInt(n) { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) / 4294967296 * n) | 0; }
+    for (q = cnt - 1; q > 0; q--) {
+      j = nextInt(q + 1);
+      p = pa[q]; pa[q] = pa[j]; pa[j] = p; p = pb[q]; pb[q] = pb[j]; pb[j] = p;
+      var f = pd[q]; pd[q] = pd[j]; pd[j] = f; f = pw[q]; pw[q] = pw[j]; pw[j] = f;
+    }
+    for (t = 0; t < tmax; t++) sgdSweep3(X, pa, pb, pd, pw, cnt, etaMax * Math.exp(-lambda * t), t & 1);
+  }
+
+  /**
+   * Start picture for the 3D force arrangement: every connected piece gets its own 3D stress layout (so far-apart items start far apart
+   * and the whole is already unfolded), then the pieces are set on a sphere around the biggest one. Returns the 3D positions.
+   */
+  function stressStart3d(nb, adj, rnd, EDGE) {
+    var X = new Float64Array(nb * 3), comp = new Int32Array(nb).fill(-1), comps = [], i, j, c;
+    for (i = 0; i < nb; i++) {
+      if (comp[i] >= 0) continue;
+      var q = [i]; comp[i] = comps.length;
+      for (var h = 0; h < q.length; h++) { var l = adj[q[h]]; for (j = 0; j < l.length; j++) if (comp[l[j]] < 0) { comp[l[j]] = comps.length; q.push(l[j]); } }
+      comps.push(q);
+    }
+    comps.sort(function (a, b) { return b.length - a.length || a[0] - b[0]; });
+    var rad = new Float64Array(comps.length), loc = new Int32Array(nb), ctr = new Float64Array(comps.length * 3);
+    comps.forEach(function (mem, ci) {
+      var k = mem.length, a, b;
+      if (k === 1) { rad[ci] = EDGE * 0.5; return; }
+      var off = new Int32Array(k + 1), tot = 0;
+      for (a = 0; a < k; a++) { loc[mem[a]] = a; tot += adj[mem[a]].length; off[a + 1] = tot; }
+      var nbr = new Int32Array(tot), Y = new Float64Array(3 * k);
+      for (a = 0; a < k; a++) { var ls = adj[mem[a]]; for (b = 0; b < ls.length; b++) nbr[off[a] + b] = loc[ls[b]]; }
+      stress3d(Y, k, off, nbr, EDGE, rnd);
+      var mx = 0, my = 0, mz = 0, r2 = 0;
+      for (a = 0; a < k; a++) { mx += Y[3 * a]; my += Y[3 * a + 1]; mz += Y[3 * a + 2]; }
+      mx /= k; my /= k; mz /= k;
+      for (a = 0; a < k; a++) { Y[3 * a] -= mx; Y[3 * a + 1] -= my; Y[3 * a + 2] -= mz; r2 = Math.max(r2, Y[3 * a] * Y[3 * a] + Y[3 * a + 1] * Y[3 * a + 1] + Y[3 * a + 2] * Y[3 * a + 2]); X.set(Y.subarray(3 * a, 3 * a + 3), 3 * mem[a]); }
+      rad[ci] = Math.sqrt(r2) + EDGE * 0.5;
+    });
+    if (comps.length > 1) {   // the other pieces sit on a shell around the biggest, in order of size
+      var area = 0; for (c = 1; c < comps.length; c++) area += rad[c] * rad[c] * 4;
+      var Rsh = Math.max(rad[0] + rad[1] + EDGE, Math.sqrt(area / (4 * Math.PI) * 1.5)), ga2 = Math.PI * (3 - Math.sqrt(5)), m = comps.length - 1;
+      for (c = 1; c < comps.length; c++) {
+        var yy = m > 1 ? 1 - 2 * (c - 1) / (m - 1) : 0, rr = Math.sqrt(Math.max(0, 1 - yy * yy)), th = (c - 1) * ga2, mem2 = comps[c], dx = Rsh * rr * Math.cos(th), dy = Rsh * yy, dz = Rsh * rr * Math.sin(th);
+        for (j = 0; j < mem2.length; j++) { X[3 * mem2[j]] += dx; X[3 * mem2[j] + 1] += dy; X[3 * mem2[j] + 2] += dz; }
+      }
+    }
+    return X;
+  }
+
   /** Arrangements that place everything at once (no component packing): circle, rings, grid, groups, and the 3D ones. */
   function globalNetwork(arr, nodes, G, adj, size, rnd, EDGE, idxOf) {
     var nb = nodes.length, res, X, dim, i;
     if (arr === 'force3d') {
       dim = 3; X = new Float64Array(nb * 3);
-      var Rs = Math.sqrt(nb) * EDGE * 0.35 + 40, ga = Math.PI * (3 - Math.sqrt(5)), mass = new Float64Array(nb), pairs = [];
-      for (i = 0; i < nb; i++) { var y = nb > 1 ? 1 - 2 * i / (nb - 1) : 0, rr = Math.sqrt(Math.max(0, 1 - y * y)), th = i * ga; X[i * 3] = Rs * rr * Math.cos(th) + (rnd() - 0.5); X[i * 3 + 1] = Rs * y; X[i * 3 + 2] = Rs * rr * Math.sin(th); mass[i] = 1 + Math.sqrt(adj[i].length); adj[i].forEach(function (w) { if (w > i) pairs.push(i, w); }); }
-      forceSim(X, nb, 3, pairs, mass, nb <= 300 ? 260 : nb <= 1500 ? 160 : nb <= 6000 ? 90 : 45, EDGE * 0.55, rnd);
+      var mass = new Float64Array(nb), pairs = [];
+      for (i = 0; i < nb; i++) { mass[i] = 1 + Math.sqrt(adj[i].length); adj[i].forEach(function (w) { if (w > i) pairs.push(i, w); }); }
+      if (FORCE3.old) {   // the old start (Fibonacci sphere) and iteration counts, kept for the benchmark's before/after
+        var Rs = Math.sqrt(nb) * EDGE * 0.35 + 40, ga = Math.PI * (3 - Math.sqrt(5));
+        for (i = 0; i < nb; i++) { var y = nb > 1 ? 1 - 2 * i / (nb - 1) : 0, rr = Math.sqrt(Math.max(0, 1 - y * y)), th = i * ga; X[i * 3] = Rs * rr * Math.cos(th) + (rnd() - 0.5); X[i * 3 + 1] = Rs * y; X[i * 3 + 2] = Rs * rr * Math.sin(th); }
+        forceSim(X, nb, 3, pairs, mass, nb <= 300 ? 260 : nb <= 1500 ? 160 : nb <= 6000 ? 90 : 45, EDGE * 0.55, rnd);
+      } else {
+        X = stressStart3d(nb, adj, rnd, EDGE);
+        var pit = FORCE3.polish !== null ? FORCE3.polish : nb <= 15000 ? 20 : nb <= 30000 ? 12 : 5;
+        if (pit > 0) forceSim(X, nb, 3, pairs, mass, pit, EDGE * 0.55, rnd, FORCE3.polishHi, FORCE3.polishLo);
+      }
     } else { res = arrangeAll(arr, nodes, adj, size, rnd, EDGE); X = res.X; dim = res.dim; }
     if (dim === 2) { clearOverlaps(X, nb, 2, function (q) { return size(nodes[q]) / 2 + 8; }, 40, STRESS.growRounds, STRESS.grow); if (STRESS.settle) settleOverlaps(X, nb, 2, function (q) { return size(nodes[q]) / 2 + 2; }); }
     var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
@@ -3258,7 +3378,7 @@ var NFMEngine = (function () {
     if (view === 'down') Lr = layered(G, { dir: 'TB', root: root, prev: prev });
     else if (view === 'spine') Lr = layered(G, { dir: 'LR', root: root, prev: prev, spine: true });
     else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, { dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } });
-    else if (view === 'river') Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 });
+    else if (view === 'river') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
     else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow })); }
     else if (view === 'matrix') {
       Lr = matrixLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow }));
@@ -3313,7 +3433,7 @@ var NFMEngine = (function () {
 
   return {
     MAP_W: MAP_W, MAP_H: MAP_H, VIEWS: VIEWS, TASKS: TASKS, prepare: prepare, importance: importance, flowExact: flowExact, flowSim: flowSim, absorb: absorb, endClasses: endClasses, spread: spread, seedsOf: seedsOf,
-    mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressTuning: STRESS,
+    mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressTuning: STRESS, force3dTuning: FORCE3,
     communities: communities, metrics: metrics, taskScore: taskScore, build: build, compare: compare, bfs: bfs, mapCrossPairs: mapCrossPairs, mapPlaceLine: mapPlaceLine, autoStart: autoStart
   };
 })();
@@ -5214,6 +5334,10 @@ var NFMScene = (function () {
     S.rects.forEach(function (r) { if (r.x < x0) x0 = r.x; if (r.y < y0) y0 = r.y; if (r.x + r.w > x1) x1 = r.x + r.w; if (r.y + r.h > y1) y1 = r.y + r.h; });
     S.dots.forEach(function (d) { if (d.cx - d.r < x0) x0 = d.cx - d.r; if (d.cy - d.r < y0) y0 = d.cy - d.r; if (d.cx + d.r > x1) x1 = d.cx + d.r; if (d.cy + d.r > y1) y1 = d.cy + d.r; });
     S.polys.forEach(function (p) { for (var i = 0; i < p.pts.length; i += 2) { if (p.pts[i] < x0) x0 = p.pts[i]; if (p.pts[i] > x1) x1 = p.pts[i]; if (p.pts[i + 1] < y0) y0 = p.pts[i + 1]; if (p.pts[i + 1] > y1) y1 = p.pts[i + 1]; } });
+    if (view === 'river' && L.sk) {
+      S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
+      if (L.height && L.height > y1) y1 = L.height;
+    }
     if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 100; y1 = 100; }
     if (L.is3d && L.c3) { var R3 = (L.radius3 || 300) * 1.18; x0 = L.c3[0] - R3; x1 = L.c3[0] + R3; y0 = L.c3[1] - R3; y1 = L.c3[1] + R3; }
     S.x0 = x0 - pad; S.y0 = y0 - pad; S.w = x1 - x0 + 2 * pad; S.h = y1 - y0 + 2 * pad + (view === 'arc' ? 110 : 0);
@@ -5281,24 +5405,29 @@ var NFMScene = (function () {
         for (var i = 1; i <= steps; i++) { var pt = bez(P.slice(s * 6, s * 6 + 8), i / steps); put({ t: 'c', i: ci }, prev[0], prev[1], pt[0], pt[1]); prev = pt; }
       }
     });
-    S.eidx = { cell: cell, map: map, segs: segs };
+    var maxHw = 0; S.curves.forEach(function (cv) { if (cv.loop && cv.w / 2 > maxHw) maxHw = cv.w / 2; });
+    S.eidx = { cell: cell, map: map, segs: segs, maxHw: maxHw };
     return S.eidx;
   }
   function pickEdge(S, wx, wy, tol) {
-    var I = edgeIndex(S), cs = I.cell, best = null, bd = tol * tol;
-    var c0 = Math.floor((wx - tol - S.x0) / cs), c1 = Math.floor((wx + tol - S.x0) / cs), r0 = Math.floor((wy - tol - S.y0) / cs), r1 = Math.floor((wy + tol - S.y0) / cs), seen = new Set();
+    var I = edgeIndex(S), cs = I.cell, best = null, bd = tol * tol, reach = tol + I.maxHw;
+    var c0 = Math.floor((wx - reach - S.x0) / cs), c1 = Math.floor((wx + reach - S.x0) / cs), r0 = Math.floor((wy - reach - S.y0) / cs), r1 = Math.floor((wy + reach - S.y0) / cs), seen = new Set();
     for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) {
       var a = I.map.get(r * 100003 + c); if (!a) continue;
       for (var j = 0; j < a.length; j++) {
         if (seen.has(a[j])) continue; seen.add(a[j]);
         var sg = I.segs[a[j]], dx = sg[2] - sg[0], dy = sg[3] - sg[1], l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, ((wx - sg[0]) * dx + (wy - sg[1]) * dy) / l2)) : 0, px = sg[0] + t * dx - wx, py = sg[1] + t * dy - wy, d = px * px + py * py;
+        if (I.maxHw) { var hw = S.curves[sg[4].i].loop ? S.curves[sg[4].i].w / 2 : 0; if (hw) { var dr = Math.max(0, Math.sqrt(d) - hw); d = dr * dr; } }
         if (d <= bd) { bd = d; best = sg[4]; }
       }
     }
     if (best) { var cv = S.curves[best.i]; return { edge: cv.edge, from: cv.from, to: cv.to, curve: best.i }; }
     for (var q = 0; q < S.ribbons.length; q++) { /* river ribbons */
       var rb = S.ribbons[q]; if (wx < rb.x0 || wx > rb.x1) continue;
-      var u = (wx - rb.x0) / (rb.x1 - rb.x0 || 1), sm = u * u * (3 - 2 * u), ya = rb.y0a + (rb.y1a - rb.y0a) * sm, yb = rb.y0b + (rb.y1b - rb.y0b) * sm;
+      var lo = 0, hi = 1, u;   // the band's x runs along a cubic; find where it is at wx, then read the height there
+      for (var it = 0; it < 14; it++) { u = (lo + hi) / 2; var m = 1 - u, xx = m * m * m * rb.x0 + 3 * m * m * u * rb.xm + 3 * m * u * u * rb.xm + u * u * u * rb.x1; if (xx < wx) lo = u; else hi = u; }
+      u = (lo + hi) / 2; var m2 = 1 - u, w0 = m2 * m2 * (m2 + 3 * u), w1 = u * u * (3 * m2 + u);
+      var ya = rb.y0a * w0 + rb.y1a * w1, yb = rb.y0b * w0 + rb.y1b * w1;
       if (wy >= Math.min(ya, yb) - tol && wy <= Math.max(ya, yb) + tol) return { edge: rb.edge, from: rb.from, to: rb.to, ribbon: q };
     }
     if (S.matrix) {
@@ -5336,7 +5465,7 @@ var NFMScene = (function () {
     var slop = (opt.slop || 6) / k, n = pick(S, wx, wy, slop);
     if (n) return { type: 'node', node: n, key: n.key };
     var l = pickLabel(S, wx, wy, k);
-    if (l) { if (l.group !== undefined) return { type: 'group', group: l.group }; if (l.node >= 0 && S.nodes[l.node]) return { type: 'label', node: S.nodes[l.node], key: S.nodes[l.node].key, label: l }; if (l.edge !== undefined && l.edge >= 0) { var cv = S.curves.filter(function (c) { return c.edge === l.edge; })[0]; return { type: 'edge', edge: l.edge, from: cv && cv.from, to: cv && cv.to }; } }
+    if (l) { if (l.group !== undefined) return { type: 'group', group: l.group }; if (l.node >= 0 && S.nodes[l.node]) return { type: 'label', node: S.nodes[l.node], key: S.nodes[l.node].key, label: l }; if (l.edge !== undefined && l.edge >= 0) { var cv = S.curves.filter(function (c) { return c.edge === l.edge; })[0]; return { type: 'edge', edge: l.edge, from: l.from !== undefined ? l.from : cv && cv.from, to: l.to !== undefined ? l.to : cv && cv.to }; } }
     var e = pickEdge(S, wx, wy, (opt.edgeTol || 7) / k);
     if (e) return { type: 'edge', edge: e.edge, from: e.from, to: e.to, cell: e.cell };
     for (var i = S.polys.length - 1; i >= 0; i--) { var p = S.polys[i]; if (p.group !== undefined && inPoly(p.pts, wx, wy)) return { type: 'group', group: p.group }; }
@@ -5409,12 +5538,13 @@ var NFMScene = (function () {
         if (txt && X.LC.links.show && !many && L.edges.length < 400) { var mid = bez(P, 0.5); lab(mid[0], mid[1] - 4, clip(txt, 28), 10 * X.LC.links.scale, T.muted, { minK: 0.9, edge: ei, bg: true }); }
         else if (!txt && X.o.edgeValueLabels && e.widthV === e.widthV && L.edges.length < 400) { var mid2 = bez(P, 0.5); lab(mid2[0], mid2[1] - 4, fmtNum(e.widthV), 10 * X.LC.links.scale, T.muted, { minK: 0.7, edge: ei, bg: true }); }
       });
-    } else riverRibbons(X);
+    } else if (L.sk) sankeyBands(X); else riverRibbons(X);
 
     order.forEach(function (n) {
       var st = n._st, f = fillOf(n), vc = n.end ? valCol(n.valence) : null;
       if (st && st.hide) return;
       var sc = st && st.scale ? st.scale : 1, nx = n.x - (n.w * (sc - 1)) / 2, ny = n.y - (n.h * (sc - 1)) / 2, nw = n.w * sc, nh = n.h * sc, rr = st && (st.shape === 'dot' || st.shape === 'circle') ? Math.min(nw, nh) / 2 : st && st.shape === 'square' ? 2 : 10;
+      if (river && L.sk) { sankeyNode(X, n); return; }
       if (river) {
         var rec0 = addNode(n, n.x, n.y, n.w, n.h);
         var bc = (X.endCol(n) || (n.end ? valCol(n.valence) : T.neutral));
@@ -5434,6 +5564,81 @@ var NFMScene = (function () {
       if (ic) { var rr2 = S.rects[S.rects.length - 1]; rr2.fill = alpha(rr2.fill, 0.25); }
       nodeLabel(n, rec, 13);
     });
+  }
+
+  /* ---------------------------------------------------------------- Sankey (river) pictures from NFMSankey.layout */
+  /** Color of one bar: the person's choice, else by group (each item its own color when there are no groups), else what the color mode says. */
+  function sankeyColor(X, n) {
+    var T = X.T, st = n._st, cb = X.o.colorBy || 'group', L = X.L;
+    if (st && st.fill) return hex(st.fill);
+    if (cb === 'odds') return X.endCol(n) || (n.end ? X.valCol(n.valence) : T.neutral);
+    if (cb === 'group') {
+      var gset = X.groupsSeen || (X.groupsSeen = new Set(L.nodes.map(function (q) { return q.group || ''; })));
+      if (gset.size > 1 && n.group && n.group !== '(none)') return X.gcol(n.group);
+      if (!X.idxOf) { X.idxOf = {}; L.nodes.slice().sort(function (a, b) { return a.layer - b.layer || a.y - b.y; }).forEach(function (q, i) { X.idxOf[q.id] = i; }); }
+      return T.groups[X.idxOf[n.id] % T.groups.length];
+    }
+    var f = X.fillOf(n); return [f[0], f[1], f[2], 1];
+  }
+  function sankeyBands(X) {
+    var S = X.S, L = X.L, T = X.T, K = L.sk, sk = X.o.sk || {}, mode = sk.color || 'target', base = sk.opacity === undefined ? 0.45 : sk.opacity, seen = {};
+    var look = function (ei) {
+      if (seen[ei] !== undefined) return seen[ei];
+      var e = L.edges[ei], a = L.pos[e.from], b = L.pos[e.to], r = null;
+      if (e && a && b && !(a._st && a._st.hide) && !(b._st && b._st.hide)) {
+        var lk = X.look(e, ei, { w: 1, color: [0, 0, 0, base], arrow: false });
+        if (!lk.hide) {
+          var ls = X.o.linkStyle ? X.o.linkStyle(e, ei) : null, ca = sankeyColor(X, a), cb = sankeyColor(X, b), c, c2 = null;
+          var md = ls && ls.mode ? ls.mode : mode;
+          if (md === 'source') c = ca; else if (md === 'gradient') { c = ca; c2 = cb; } else if (md === 'solid') c = alpha(T.line, 1); else if (md === 'group') c = ca; else c = cb;
+          if (L.ch && L.ch.ecolor) c = lk.color;
+          if (ls && ls.color) c = hex(ls.color);
+          if (ls && ls.color2) c2 = hex(ls.color2);
+          r = { c: c, c2: c2, a: ls && ls.opacity !== undefined ? ls.opacity : base, e: e };
+        }
+      }
+      seen[ei] = r; return r;
+    };
+    K.bands.forEach(function (bd) {
+      var lk = look(bd.edge); if (!lk) return;
+      S.ribbons.push({ x0: bd.x0, y0a: bd.y0a, y0b: bd.y0b, x1: bd.x1, y1a: bd.y1a, y1b: bd.y1b, xm: bd.xm, color: alpha(lk.c, lk.a), color2: lk.c2 ? alpha(lk.c2, lk.a) : null, edge: bd.edge, from: bd.from, to: bd.to });
+    });
+    K.loops.forEach(function (lp) {
+      var lk = look(lp.edge); if (!lk) return;
+      S.curves.push({ P: lp.P, w: Math.max(lp.w, 1), color: alpha(lk.c, Math.min(1, lk.a + 0.1)), arrow: false, edge: lp.edge, from: lp.from, to: lp.to, back: true, dash: 0, loop: true });
+    });
+    /* amounts on the flows */
+    if (X.o.edgeValueLabels) {
+      var done = {};
+      K.bands.forEach(function (bd) {
+        if (done[bd.edge]) return; var lk = look(bd.edge); if (!lk) return; var e = lk.e;
+        var txt = e.widthV === e.widthV ? fmtNum(e.widthV) : '';
+        var ls = X.o.linkStyle ? X.o.linkStyle(e, bd.edge) : null; if (ls && ls.label !== undefined && ls.label !== '') txt = ls.label;
+        if (!txt) return; done[bd.edge] = 1;
+        var thick = (bd.y0b - bd.y0a);
+        X.lab(bd.x0 + 7, (bd.y0a + bd.y0b) / 2 + 4, clip(txt, 18), Math.max(9, Math.min(13, thick * 0.9)) * X.LC.links.scale, T.fg, { align: 'l', minK: 0.5, edge: bd.edge, from: bd.from, to: bd.to });
+      });
+    }
+  }
+  /** Total flow through an item in the data's own units (sum of the link amounts), or NaN. */
+  function sankeyTotal(L, n) {
+    var a = 0, b = 0, any = false;
+    L.edges.forEach(function (e) { if (e.widthV !== e.widthV || e.kind === 'self') return; if (e.to === n.id) { a += e.widthV; any = true; } if (e.from === n.id) { b += e.widthV; any = true; } });
+    return any ? Math.max(a, b) : NaN;
+  }
+  function sankeyNode(X, n) {
+    var S = X.S, L = X.L, T = X.T, st = n._st, sk = X.o.sk || {}, lastCol = 0;
+    if (st && st.hide) return;
+    L.nodes.forEach(function (q) { if (q.layer > lastCol) lastCol = q.layer; });
+    var rec = X.addNode(n, n.x, n.y, n.w, n.h), bc = sankeyColor(X, n);
+    if (st && st.opacity !== undefined) bc = alpha(bc, st.opacity);
+    S.rects.push({ x: n.x, y: n.y, w: n.w, h: n.h, r: Math.min(3, n.w / 2), fill: bc, stroke: st && st.stroke ? hex(st.stroke) : n.start ? T.accent : [0, 0, 0, 0], sw: st && st.stroke ? (st.sw === undefined ? 1.5 : st.sw) : n.start ? 2 : 0, layer: 1, node: rec.i });
+    var side = (st && st.labelSide) || sk.labels || 'auto';
+    var left = side === 'left' || (side === 'auto' && n.layer === 0 && lastCol > 0);
+    var size = 14, text = X.tx(n), tot = sk.nodeValues ? sankeyTotal(L, n) : NaN, cx = left ? n.x - 7 : n.x + n.w + 7;
+    var col = X.labColor(n, bc), cy = n.y + n.h / 2, two = tot === tot;
+    var l1 = X.lab(cx, cy + (two ? -1 : 4), clip(text, 30), size, col, n.start ? { align: left ? 'r' : 'l', node: rec.i, minK: 0.2, bold: true, bound: true } : { align: left ? 'r' : 'l', node: rec.i, minK: 0.2, bound: true });
+    if (two && l1) X.lab(cx, cy + 12.5, fmtNum(tot), 10.5, T.muted, { align: left ? 'r' : 'l', node: rec.i, minK: 0.4, sub: true, bound: true });
   }
 
   function riverRibbons(X) {
@@ -5678,7 +5883,9 @@ var NFMScene = (function () {
     out.push('<rect x="' + f(S.x0) + '" y="' + f(S.y0) + '" width="' + f(S.w) + '" height="' + f(S.h) + '" fill="' + css(T.bg) + '"/>');
     S.rects.filter(function (r) { return r.layer === 0; }).forEach(function (r) { out.push(rectSvg(r, css, f)); });
     S.polys.forEach(function (p) { var d = 'M'; for (var i = 0; i < p.pts.length; i += 2) d += (i ? 'L' : '') + f(p.pts[i]) + ' ' + f(p.pts[i + 1]); out.push('<path d="' + d + 'Z" fill="' + css(p.fill) + '" stroke="' + css(p.stroke) + '" stroke-width="1.5"/>'); });
-    S.ribbons.forEach(function (r) { out.push('<path d="M' + f(r.x0) + ' ' + f(r.y0a) + 'C' + f(r.xm) + ' ' + f(r.y0a) + ' ' + f(r.xm) + ' ' + f(r.y1a) + ' ' + f(r.x1) + ' ' + f(r.y1a) + 'L' + f(r.x1) + ' ' + f(r.y1b) + 'C' + f(r.xm) + ' ' + f(r.y1b) + ' ' + f(r.xm) + ' ' + f(r.y0b) + ' ' + f(r.x0) + ' ' + f(r.y0b) + 'Z" fill="' + css(r.color) + '"/>'); });
+    var defs = [];
+    S.ribbons.forEach(function (r, ri) { var fill = css(r.color); if (r.color2) { defs.push('<linearGradient id="rg' + ri + '" gradientUnits="userSpaceOnUse" x1="' + f(r.x0) + '" y1="0" x2="' + f(r.x1) + '" y2="0"><stop offset="0" stop-color="' + css([r.color[0], r.color[1], r.color[2], 1]) + '"/><stop offset="1" stop-color="' + css([r.color2[0], r.color2[1], r.color2[2], 1]) + '"/></linearGradient>'); fill = 'url(#rg' + ri + ')'; } out.push('<path d="M' + f(r.x0) + ' ' + f(r.y0a) + 'C' + f(r.xm) + ' ' + f(r.y0a) + ' ' + f(r.xm) + ' ' + f(r.y1a) + ' ' + f(r.x1) + ' ' + f(r.y1a) + 'L' + f(r.x1) + ' ' + f(r.y1b) + 'C' + f(r.xm) + ' ' + f(r.y1b) + ' ' + f(r.xm) + ' ' + f(r.y0b) + ' ' + f(r.x0) + ' ' + f(r.y0b) + 'Z" fill="' + fill + '"' + (r.color2 ? ' fill-opacity="' + f(r.color[3]) + '"' : '') + '/>'); });
+    if (defs.length) out.splice(out.length - S.ribbons.length, 0, '<defs>' + defs.join('') + '</defs>');
     S.curves.forEach(function (c) {
       var d = 'M' + f(c.P[0]) + ' ' + f(c.P[1]);
       for (var i = 2; i < c.P.length; i += 6) d += 'C' + f(c.P[i]) + ' ' + f(c.P[i + 1]) + ' ' + f(c.P[i + 2]) + ' ' + f(c.P[i + 3]) + ' ' + f(c.P[i + 4]) + ' ' + f(c.P[i + 5]);
@@ -5770,12 +5977,13 @@ var NFMRender = (function () {
     var mesh = new Float32Array(verts * MESH_STRIDE), o = 0;
     var put = function (x, y, nx, ny, hw, side, c, a) { mesh[o++] = x; mesh[o++] = y; mesh[o++] = nx; mesh[o++] = ny; mesh[o++] = hw; mesh[o++] = side; mesh[o++] = c[0]; mesh[o++] = c[1]; mesh[o++] = c[2]; mesh[o++] = c[3] * a; };
     S.ribbons.forEach(function (r) {
-      var a = r.a === undefined ? 1 : r.a, n = Math.max(10, Math.min(40, Math.ceil(Math.abs(r.x1 - r.x0) / 10))), c = r.color;
+      var a = r.a === undefined ? 1 : r.a, n = Math.max(10, Math.min(40, Math.ceil(Math.abs(r.x1 - r.x0) / 10))), c = r.color, c2 = r.color2, cAt = c2 ? function (u) { return [c[0] + (c2[0] - c[0]) * u, c[1] + (c2[1] - c[1]) * u, c[2] + (c2[2] - c[2]) * u, c[3]]; } : null;
       var ptsAt = function (ya0, ya1, u) { var m = 1 - u, y = m * m * m * ya0 + 3 * m * m * u * ya0 + 3 * m * u * u * ya1 + u * u * u * ya1, x = m * m * m * r.x0 + 3 * m * m * u * r.xm + 3 * m * u * u * r.xm + u * u * u * r.x1; return [x, y]; };
       for (var k = 0; k < n; k++) {
         var u0 = k / n, u1 = (k + 1) / n, t0 = ptsAt(r.y0a, r.y1a, u0), t1 = ptsAt(r.y0a, r.y1a, u1), b0 = ptsAt(r.y0b, r.y1b, u0), b1 = ptsAt(r.y0b, r.y1b, u1);
-        put(t0[0], t0[1], 0, 0, -1, 0, c, a); put(b0[0], b0[1], 0, 0, -1, 0, c, a); put(t1[0], t1[1], 0, 0, -1, 0, c, a);
-        put(t1[0], t1[1], 0, 0, -1, 0, c, a); put(b0[0], b0[1], 0, 0, -1, 0, c, a); put(b1[0], b1[1], 0, 0, -1, 0, c, a);
+        var cc0 = cAt ? cAt(u0) : c, cc1 = cAt ? cAt(u1) : c;
+        put(t0[0], t0[1], 0, 0, -1, 0, cc0, a); put(b0[0], b0[1], 0, 0, -1, 0, cc0, a); put(t1[0], t1[1], 0, 0, -1, 0, cc1, a);
+        put(t1[0], t1[1], 0, 0, -1, 0, cc1, a); put(b0[0], b0[1], 0, 0, -1, 0, cc0, a); put(b1[0], b1[1], 0, 0, -1, 0, cc1, a);
       }
     });
     (S.polys || []).forEach(function (p) {
@@ -5924,6 +6132,7 @@ var NFMRender = (function () {
         S.ribbons.forEach(function (r) {
           if (Math.max(r.x0, r.x1) < vx0 || Math.min(r.x0, r.x1) > vx1) return;
           ctx.globalAlpha = (r.a === undefined ? 1 : r.a) * r.color[3]; ctx.fillStyle = css([r.color[0], r.color[1], r.color[2], 1]);
+          if (r.color2) { var gr = ctx.createLinearGradient(r.x0, 0, r.x1, 0); gr.addColorStop(0, css([r.color[0], r.color[1], r.color[2], 1])); gr.addColorStop(1, css([r.color2[0], r.color2[1], r.color2[2], 1])); ctx.fillStyle = gr; }
           ctx.beginPath(); ctx.moveTo(r.x0, r.y0a); ctx.bezierCurveTo(r.xm, r.y0a, r.xm, r.y1a, r.x1, r.y1a); ctx.lineTo(r.x1, r.y1b); ctx.bezierCurveTo(r.xm, r.y1b, r.xm, r.y0b, r.x0, r.y0b); ctx.closePath(); ctx.fill();
         });
         ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
@@ -6518,7 +6727,7 @@ var NFMProbe = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.15.1944', EDGE = 130;
+  var VERSION = '2026.10.15.2020', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
