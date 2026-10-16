@@ -24,6 +24,7 @@ var NFMRender = (function () {
     return out;
   }
   var SEG = new Float64Array(18), MESHBUF = null;
+  var NODBG = {};
   /** A link that is one straight piece with no dashes (the common case on a big network). */
   function isSeg(c) { return c.line && !c.dash && c.P.length === 8; }
   /** Turns a scene into flat arrays: back shapes, mesh (lines, arrows, ribbons), front shapes. a = item alpha from restyle. */
@@ -352,8 +353,9 @@ var NFMRender = (function () {
         gl.uniform1i(l.tN, 0); gl.uniform1i(l.tNS, 1); gl.uniform1i(l.tE, 2); gl.uniform1i(l.tES, 3);
         gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, RG.tN); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, RG.tNS); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, RG.tE); gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, RG.tES);
       };
-      if (rig.m) { bind(RG.pe, RG.le); gl.bindVertexArray(RG.vaoNone); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, rig.m); }
-      if (tu.nseq) { bind(RG.pd, RG.ld); gl.bindVertexArray(RG.vaoSeq); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, tu.nseq); }
+      var dbg = out.rigDebug || NODBG;   /* the tester switches parts off to find which one costs the time */
+      if (rig.m && !dbg.noLinks) { bind(RG.pe, RG.le); gl.bindVertexArray(RG.vaoNone); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, rig.m); }
+      if (tu.nseq && !dbg.noItems) { bind(RG.pd, RG.ld); gl.bindVertexArray(RG.vaoSeq); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, tu.nseq); }
       gl.bindVertexArray(null); gl.activeTexture(gl.TEXTURE0);
     };
     var info = (function () { try { var e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : ''; } catch (x) { return ''; } })();
@@ -368,7 +370,7 @@ var NFMRender = (function () {
         gl.viewport(0, 0, H.main.width, H.main.height);
         var bg = S.theme.bg; gl.clearColor(bg[0], bg[1], bg[2], 1); gl.clear(gl.COLOR_BUFFER_BIT);
         gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-        if (S.turn && S.turn.on && S.rig && RG) { drawRig(view); drawLabels(H.ctx2, S, view, W, Hh, dpr); return; }
+        if (S.turn && S.turn.on && S.rig && RG) { drawRig(view); if (!(out.rigDebug && out.rigDebug.noNames)) drawLabels(H.ctx2, S, view, W, Hh, dpr); return; }
         var shapes = function (vao, n) { if (!n) return; gl.useProgram(pS); gl.uniform4f(uS.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uS.r, W, Hh); gl.bindVertexArray(vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n); };
         shapes(vaoBack, T.nBack);
         if (T.nMesh) { gl.useProgram(pM); gl.uniform4f(uM.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uM.r, W, Hh); gl.bindVertexArray(vaoMesh); gl.drawArrays(gl.TRIANGLES, 0, T.nMesh); }
@@ -511,10 +513,11 @@ var NFMRender = (function () {
         device.queue.writeBuffer(RW.ru, 0, rU);
         var bg = S.theme.bg, enc = device.createCommandEncoder();
         var pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }] });
-        if (rig.m) { pass.setPipeline(RW.pe); pass.setBindGroup(0, rbg); pass.draw(6, rig.m); }
-        if (tu.nseq) { pass.setPipeline(RW.pd); pass.setBindGroup(0, rbg); pass.setVertexBuffer(0, rbufs.seq); pass.draw(6, tu.nseq); }
+        var dbg = out.rigDebug || NODBG;
+        if (rig.m && !dbg.noLinks) { pass.setPipeline(RW.pe); pass.setBindGroup(0, rbg); pass.draw(6, rig.m); }
+        if (tu.nseq && !dbg.noItems) { pass.setPipeline(RW.pd); pass.setBindGroup(0, rbg); pass.setVertexBuffer(0, rbufs.seq); pass.draw(6, tu.nseq); }
         pass.end(); device.queue.submit([enc.finish()]);
-        drawLabels(H.ctx2, S, view, W, Hh, dpr);
+        if (!dbg.noNames) drawLabels(H.ctx2, S, view, W, Hh, dpr);
       };
       var noop = function () { /* a fence that failed (device lost) is not a reason to wait */ };
       var out = {

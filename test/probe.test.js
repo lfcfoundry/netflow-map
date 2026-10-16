@@ -82,5 +82,17 @@ const fence = async () => { for (let i = 0; i < 5; i++) await Promise.resolve();
     const e = NFMProbe.explainTiming(Object.assign({ software: true }, slowFence), null); ok(/runs on the processor/.test(e.say) && e.level === 'warn', e.say);
     const s = NFMProbe.explainTiming({ backend: 'webgpu', skipped: 'the page was in the background' }, null); ok(s.level === 'warn' && /background/.test(s.say), s.say);
   });
+  const W = (o) => Object.assign({ gapMed: 16.7, gapP95: 17, gapMax: 18, slow: 0, angleMed: 5, angleMax: 6, drawMed: 0.5 }, o);
+  const split = (full, angle, g) => ({ backend: 'webgpu', ways: [Object.assign({ id: 'full', label: 'a' }, W(full)), Object.assign({ id: 'angle', label: 'b' }, W(angle)), { id: 'still', label: 'c', fps: 60, gapMed: 16.7, gapP95: 17, gapMax: 18, slow: 0, angleMed: 0, angleMax: 0 }, { id: 'g_all', label: 'd', ms: g.all }, { id: 'g_links', label: 'e', ms: g.links }, { id: 'g_items', label: 'f', ms: g.items }, { id: 'g_names', label: 'g', ms: g.names }, { id: 'g_half', label: 'h', ms: g.half }] });
+  await t('the split of a turning picture says what holds it below 60: nothing, the angle math, the card, or pauses', async () => {
+    const g0 = { all: 6, links: 4, items: 2, names: 1, half: 3 };
+    let e = NFMProbe.explainSplit(split({ fps: 60 }, { fps: 60 }, g0), 30000); ok(e.cause === 'smooth' && e.level === 'ok' && /30,000-item/.test(e.say) && /steady 60/.test(e.say), e.say);
+    e = NFMProbe.explainSplit(split({ fps: 40 }, { fps: 40, angleMed: 24 }, g0), 30000); ok(e.cause === 'angle' && /main thread/.test(e.say), e.say);
+    e = NFMProbe.explainSplit(split({ fps: 40 }, { fps: 60 }, { all: 24, links: 18, items: 5, names: 1, half: 22 }), 30000); ok(e.cause === 'card' && /the links/.test(e.say) && /number of links and items/.test(e.say), e.say);
+    e = NFMProbe.explainSplit(split({ fps: 40 }, { fps: 60 }, { all: 24, links: 18, items: 5, names: 1, half: 9 }), 30000); ok(/follows the number of pixels/.test(e.say), e.say);
+    e = NFMProbe.explainSplit(split({ fps: 52, gapP95: 34, gapMax: 80, slow: 0.1 }, { fps: 60 }, g0), 30000); ok(e.cause === 'hiccups' && /pause/.test(e.say), e.say);
+    e = NFMProbe.explainSplit(split({ fps: 52 }, { fps: 60 }, g0), 30000); ok(e.cause === 'unclear', e.say);
+    e = NFMProbe.explainSplit({ backend: 'webgl2', skipped: 'the page was in the background' }, 30000); ok(e.level === 'warn' && /WebGL 2 was skipped/.test(e.say), e.say);
+  });
   if (bad) { console.log(bad + ' failed'); process.exit(1); } console.log('probe tests passed');
 })();
