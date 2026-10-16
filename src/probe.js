@@ -191,6 +191,7 @@ var NFMProbe = (function () {
           r.rigDebug = null;
           return { ms: Math.max(0, (t2 - t1) / 100), msMax: Math.max(0, (t2 - t1) / 100) };
         }
+        if (cfg.dbg && cfg.draw) { for (var wi = 0; wi < 6; wi++) { if (cfg.turn) sc.turnTo(cam(wi), 4); r.draw(view(wi, w, h)); await wait(r); await nextRefresh(); } }   /* a way's own buffers are made on its first pictures: not timed */
         for (var i = 0; i < want + 3; i++) {
           var a = nowMs(); if (cfg.turn) sc.turnTo(cam(i), 4); var b = nowMs();
           if (cfg.draw) r.draw(view(i, w, h)); var c = nowMs();
@@ -213,6 +214,22 @@ var NFMProbe = (function () {
           if (!res) { r.destroy(); return gone({ backend: n, skipped: 'the page was in the background' }); }
           res.id = SPLIT[q][0]; res.label = SPLIT[q][1]; ways.push(res);
         }
+        /* a laptop has its own pauses from run to run, so the ways that differ only in how the order is sent are run three times in turn and the middle run is reported */
+        var REP = ['full', 'keep', 'tex', 'ring', 'map'], rounds = {};
+        ways.forEach(function (w) { if (REP.indexOf(w.id) >= 0) rounds[w.id] = [w]; });
+        for (var rd = 0; rd < 2; rd++) {
+          for (var q2 = 0; q2 < SPLIT.length; q2++) {
+            var id = SPLIT[q2][0]; if (!rounds[id]) continue;
+            var again = await runWay(SPLIT[q2][2]);
+            if (!again) { r.destroy(); return gone({ backend: n, skipped: 'the page was in the background' }); }
+            again.id = id; again.label = SPLIT[q2][1]; rounds[id].push(again);
+          }
+        }
+        ways = ways.map(function (w) {
+          var all = rounds[w.id]; if (!all) return w;
+          var fpsAll = all.map(function (x) { return x.fps; }), sorted = all.slice().sort(function (x, y) { return x.fps - y.fps; }), mid = sorted[Math.floor(sorted.length / 2)];
+          mid.fpsAll = fpsAll; mid.worstMax = pct(all.map(function (x) { return x.gapMax; }), 1); return mid;
+        });
         r.destroy(); return gone({ backend: n, ways: ways });
       })();
     }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
@@ -221,18 +238,19 @@ var NFMProbe = (function () {
    * Turns turnSplit results into plain words: { level, say, lines, cause } (cause: 'smooth' | 'angle' | 'card' | 'hiccups' | 'unclear' | null).
    */
   function explainSplit(res, items) {
+    var runsOf = function (w) { return w && w.fpsAll && w.fpsAll.length > 1 ? ' (three runs: ' + w.fpsAll.map(function (x) { return Math.round(x); }).join(', ') + ')' : ''; };
     var lines = [], f0 = function (v) { return String(Math.round(v)); }, ms1 = function (v) { return (Math.round(v * 10) / 10).toFixed(1); };
     var nm = res && res.backend === 'webgpu' ? 'WebGPU' : 'WebGL 2', big = items ? items.toLocaleString() + '-item' : 'largest';
     if (!res || res.skipped || !res.ways) return { level: 'warn', say: nm + ' was skipped: ' + ((res && res.skipped) || 'not usable here') + '.', lines: lines, cause: null };
     var by = {}; res.ways.forEach(function (w) { by[w.id] = w; });
     var keep = by.keep, full = by.full, angle = by.angle, still = by.still, all = by.g_all, links = by.g_links, itemsW = by.g_items, names = by.g_names, half = by.g_half;
-    lines.push('Turning as the app does it: ' + f0(full.fps) + ' pictures per second; a picture took ' + ms1(full.gapMed) + ' ms in the middle, ' + ms1(full.gapP95) + ' ms for the slower 1 in 20, ' + ms1(full.gapMax) + ' ms for the slowest' + (full.slow > 0 ? ' (' + Math.round(full.slow * 100) + '% took over 20 ms)' : '') + '.');
+    lines.push('Turning as the app does it: ' + f0(full.fps) + ' pictures per second' + runsOf(full) + '; a picture took ' + ms1(full.gapMed) + ' ms in the middle, ' + ms1(full.gapP95) + ' ms for the slower 1 in 20, ' + ms1(full.gapMax) + ' ms for the slowest' + (full.slow > 0 ? ' (' + Math.round(full.slow * 100) + '% took over 20 ms)' : '') + '.');
     lines.push('Angle math alone: ' + ms1(angle.angleMed) + ' ms of work per angle (slowest ' + ms1(angle.angleMax) + ' ms); with nothing drawn the screen refresh still ran at ' + f0(angle.fps) + ' per second.');
     lines.push('Drawing alone, the same angle each time: ' + f0(still.fps) + ' per second.');
-    if (by.tex) lines.push('Sending the paint order through a texture instead: ' + f0(by.tex.fps) + ' per second' + (by.tex.fps > full.fps + 3 ? ' (faster than the current way, ' + f0(full.fps) + ')' : by.tex.fps < full.fps - 3 ? ' (slower than the current way, ' + f0(full.fps) + ')' : ' (about the same as the current way)') + '.');
+    if (by.tex) lines.push('Sending the paint order through a texture instead: ' + f0(by.tex.fps) + ' per second' + runsOf(by.tex) + (by.tex.fps > full.fps + 3 ? ' (faster than the current way, ' + f0(full.fps) + ')' : by.tex.fps < full.fps - 3 ? ' (slower than the current way, ' + f0(full.fps) + ')' : ' (about the same as the current way)') + '.');
     ['ring', 'map'].forEach(function (id) {
       var w = by[id]; if (!w) return;
-      lines.push('Sending the paint order ' + (id === 'ring' ? 'to a ring of three card buffers' : 'through staging buffers written directly') + ': ' + f0(w.fps) + ' per second, slowest 1 in 20 ' + ms1(w.gapP95) + ' ms, slowest ' + ms1(w.gapMax) + ' ms' + (w.fps > full.fps + 1 || w.gapP95 + 3 < full.gapP95 ? ' (steadier than the current way)' : w.fps < full.fps - 1 || w.gapP95 > full.gapP95 + 3 ? ' (worse than the current way)' : ' (about the same as the current way)') + '.');
+      lines.push('Sending the paint order ' + (id === 'ring' ? 'to a ring of three card buffers' : 'through staging buffers written directly') + ': ' + f0(w.fps) + ' per second' + runsOf(w) + ', slowest 1 in 20 ' + ms1(w.gapP95) + ' ms, slowest ' + ms1(w.gapMax) + ' ms' + (w.fps > full.fps + 1 || w.gapP95 + 3 < full.gapP95 ? ' (steadier than the current way)' : w.fps < full.fps - 1 || w.gapP95 > full.gapP95 + 3 ? ' (worse than the current way)' : ' (about the same as the current way)') + '.');
     });
     if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' per second.');
     lines.push('Time the card needs per picture: ' + ms1(all.ms) + ' ms for everything; links alone ' + ms1(links.ms) + ' ms; items alone ' + ms1(itemsW.ms) + ' ms; names alone ' + ms1(names.ms) + ' ms; everything at half size ' + ms1(half.ms) + ' ms.');
