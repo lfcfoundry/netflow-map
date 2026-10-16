@@ -261,7 +261,7 @@ function panelLook() {
     if (L && L.is3d) {
       k1.push(h('div', { class: 'rule' }, [h('b', { class: 'small' }, '3D view: drag to turn, wheel to zoom'), h('div', { class: 'row tight' }, [
         h('button', { class: 'sm', onclick: function () { snapCam('front'); } }, 'Front'), h('button', { class: 'sm', onclick: function () { snapCam('side'); } }, 'Side'), h('button', { class: 'sm', onclick: function () { snapCam('top'); } }, 'Top'), h('button', { class: 'sm', onclick: function () { snapCam('reset'); } }, 'Reset')]),
-        check('Spin slowly', V.cam.spin, function (on) { V.cam.spin = on; saveView(); spinLoop(); }), slider('Depth (perspective)', V.cam.persp, 1.2, 6, 0.1, function (x) { V.cam.persp = x; scheduleScene(); })]));
+        check('Spin slowly', V.cam.spin, function (on) { V.cam.spin = on; saveView(); spinLoop(); }), slider('Depth (perspective)', V.cam.persp, 1.2, 6, 0.1, function (x) { V.cam.persp = x; scheduleScene(true); })]));
     }
     if (canDrag()) k1.push(h('div', { class: 'row tight' }, [h('button', { class: 'sm', onclick: function () { clearPins(); } }, 'Let everything float again'), h('span', { class: 'muted small' }, 'Drag an item to move it.')]));
   }
