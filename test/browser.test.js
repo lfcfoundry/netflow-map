@@ -307,7 +307,7 @@ async function open() {
         S.view = view; let A = await shot(view);                                       /* drawn from the card */
         sc.turnTo(sc.turn.cam, 1.6); const labels2 = vis(sc, 0.8), A2 = await shot(view);
         let tex = {};                                                                    /* the other ways of sending the paint order must give the same picture as the usual way */
-        for (const via of be === 'webgl2' ? ['texture'] : ['ring', 'map']) {
+        for (const via of be === 'webgl2' ? ['texture'] : ['ring', 'write']) {
           const diff = (P, Q) => { let sm = 0; for (let i = 0; i < P.d.length; i += 4) sm += (Math.abs(P.d[i] - Q.d[i]) + Math.abs(P.d[i + 1] - Q.d[i + 1]) + Math.abs(P.d[i + 2] - Q.d[i + 2])) / 3; return sm / (P.d.length / 4); };
           let worst = 0;
           for (const cam of [sc.turn.cam, Object.assign({}, sc.turn.cam, { yaw: sc.turn.cam.yaw + 0.3 })]) {   /* two angles in a row, so a reused buffer is tested too */
