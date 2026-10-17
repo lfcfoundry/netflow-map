@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; worker-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <title>Netflow Map against D3</title>
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--ink:#1f2430;--mut:#667;--line:#dcd9d0;--ok:#2f7d4f;--warn:#b26a00;--bad:#b3362f;--acc:#3b6ea5}
@@ -19,7 +19,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 details{margin-top:16px}details pre{white-space:pre-wrap;font-size:.75rem;color:var(--mut)}
 </style></head><body><main>
 <h1>Netflow Map against D3</h1>
-<p class="sub">One button. It races Netflow Map against the open-source D3 library (d3-force and d3-sankey) on the same data, in this browser. It takes a few minutes. Leave this tab in front while it runs; nothing is sent anywhere. Version 2026.10.17.1531.</p>
+<p class="sub">One button. It races Netflow Map against the open-source D3 library (d3-force and d3-sankey) on the same data, in this browser. It takes a few minutes. Leave this tab in front while it runs; nothing is sent anywhere. Version 2026.10.17.1540.</p>
 <div id="top"><div class="bar"><i id="barfill"></i></div><div class="statrow"><div id="status">Ready.</div><div id="clock">⏱ 0:00</div></div></div>
 <p><button class="p" id="go">Run the race</button></p>
 <div id="out"></div>
@@ -5298,7 +5298,7 @@ var NFMProbe = (function () {
   var E = NFMEngine, C = NFMColumns, GEN = NFMGen, D3 = D3R;
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
-  var params = new URLSearchParams(location.search), QUICK = params.has('quick'), VERSION = '2026.10.17.1531';
+  var params = new URLSearchParams(location.search), QUICK = params.has('quick'), VERSION = '2026.10.17.1540';
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var nextFrame = function () { return new Promise(function (r) { requestAnimationFrame(r); }); };
   var sections = [], running = false, t0Run = 0, clockTimer = 0, total = 3, doneSteps = 0, ctx = { layouts: {} };
