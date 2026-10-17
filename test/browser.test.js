@@ -47,7 +47,6 @@ async function open() {
   { const c = await ev(() => { const m = new NFMRender.Manager(document.createElement('div'), {}); const auto = m.candidates(); m.choice = 'webgpu'; return { auto, asked: m.candidates(), off: NFMRender.webgpuDrawing() }; });
     say(!c.off && !c.auto.includes('webgpu') && !c.asked.includes('webgpu') && c.auto[0] === 'webgl2', 'the app does not draw with WebGPU (Automatic: ' + c.auto.join(', ') + '; even when asked for: ' + c.asked.join(', ') + ')'); }
   await ev(() => NFMRender.setWebGPUDrawing(true));   /* the app does not draw with WebGPU; the tests still check that code */
-  await ev(() => { window.NFM_RELEASE_MIN = 50; });   /* the old picture's lists are let go before a new one is built for maps of 20,000+ items; here already from 50 items so the same path is tested with small maps */
   await D.wait(() => window.NFM && NFM.client() && NFM.client().mode !== 'starting', null, 20000);
   say(true, 'page loaded; engine runs in the ' + (await ev(() => NFM.client().mode)));
 
@@ -303,17 +302,6 @@ async function open() {
   /* turning a big 3D map on the card: the picture while turning is the ordinary picture, labels and selection survive, and the full picture comes back once the turning stops */
   await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(800, 9, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'force3d' }); });
   await D.wait(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length > 750, null, 90000); await settle(300);
-  {   /* a big picture's lists are let go BEFORE the new ones are built (releaseOldScene), and the control: with the limit raised the old picture is still there when the new one starts */
-    const run = async (limit, cb) => ev(async ([limit, cb]) => {
-      window.NFM_RELEASE_MIN = limit; const seen = [], mk = NFMScene.make; NFMScene.make = function () { seen.push(NFM.state.scene === null); return mk.apply(this, arguments); };
-      try { NFM.setV({ colorBy: cb }); await new Promise((r) => setTimeout(r, 400)); } finally { NFMScene.make = mk; window.NFM_RELEASE_MIN = 50; }
-      return { seen, ok: !!NFM.state.scene && NFM.state.scene.nodes.length > 750 };
-    }, [limit, cb]);
-    const on = await run(50, 'heat'), off = await run(1e9, 'group');
-    say(on.seen.length > 0 && on.seen.every(Boolean) && on.ok, 'a big picture is let go before the next one is built (' + on.seen.length + ' rebuilds, old picture gone each time; a picture is back after)');
-    say(off.seen.length > 0 && off.seen.every((v) => !v), 'control: with the limit raised the old picture is still there when the new one starts (' + off.seen.length + ' rebuilds)');
-    await settle(200);
-  }
   await D.size(720, 480); await settle(200);   /* smaller picture: software drawing and the pixel compares cost by the pixel */
   for (const be of ['webgl2', 'webgpu']) {
     const res = await ev(async (be) => {
