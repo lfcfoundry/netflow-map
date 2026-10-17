@@ -10,7 +10,7 @@ const strict = which === 'chromium' || !!process.env.NFM_STRICT;
 const flags = ['--no-sandbox', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist'];
 const T0 = Date.now(); let tLast = T0;   /* NFM_TIMES=1 puts the seconds since the last line in front of every line: where the time goes */
 let fails = 0, oks = 0; const say = (ok, t) => { if (ok === false) fails++; if (ok === true) oks++; const now = Date.now(), pre = process.env.NFM_TIMES ? String(((now - tLast) / 1000).toFixed(1)).padStart(5) + 's ' : ''; tLast = now; console.log(pre + (ok === true ? 'ok   ' : ok === false ? 'FAIL ' : 'note ') + t); };
-let slept = 0, sleeps = 0; const sleep = (ms) => { slept += ms; sleeps++; return new Promise((r) => setTimeout(r, ms)); };
+let slept = 0, sleeps = 0; const sites = {}; const sleep = (ms) => { slept += ms; sleeps++; if (process.env.NFM_TIMES) { const m = /browser\.test\.js:(\d+)/.exec(new Error().stack.split('\n').slice(2).join('\n')); const k = m ? m[1] : '?'; sites[k] = (sites[k] || 0) + ms; } return new Promise((r) => setTimeout(r, ms)); };
 /* Short pauses only let the screen catch up after a click or drag. Wait for three real animation frames plus a quarter of the old pause instead of the whole pause (NFM_SLOW=1 restores the full pauses). Long pauses (over 450 ms) are real time (easing, playback) and stay as they were. */
 
 async function open() {
@@ -39,6 +39,7 @@ async function open() {
   page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
   const ev = (fn, arg) => page.evaluate(fn, arg);
   const SLOW = process.env.NFM_SLOW === '1';
+  const until = (fn, arg, ms) => D.wait(fn, arg, ms).then(() => true, () => false);   /* wait for a page condition, at most ms; never throws (the check after it decides pass or fail) */
   const settle = async (ms) => { if (SLOW || ms > 450) return sleep(ms); const q = Math.ceil(ms / 4); slept += q; sleeps++; await ev(async () => { await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r)))); const t0 = performance.now(); while (NFM.pending() > 0 && performance.now() - t0 < 2000) await new Promise((r) => setTimeout(r, 16)); }); await new Promise((r) => setTimeout(r, q)); };
   const set = (sel, v) => ev(([s, val]) => { const el = document.querySelector(s); el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }, [sel, v]);
   const click = (sel) => ev((s) => document.querySelector(s).click(), sel);
@@ -88,7 +89,8 @@ async function open() {
   /* zips, Excel and graph files go through the real file picker path */
   {
     const Z = require('./zipmake.js'), zlib = require('zlib');
-    const feed = async (name, buf) => { await ev(([n, b64]) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); const dt = new DataTransfer(); dt.items.add(new File([u], n)); const inp = document.getElementById('in-files'); inp.files = dt.files; inp.dispatchEvent(new Event('change')); }, [name, buf.toString('base64')]); await sleep(900); };
+    const sig = () => ev(() => NFM.state.graph.nodes.length + '/' + NFM.state.graph.edges.length + '|' + Array.from(document.querySelectorAll('#notes li')).map((l) => l.textContent).join('|'));
+    const feed = async (name, buf) => { const b0 = await sig(); await ev(([n, b64]) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); const dt = new DataTransfer(); dt.items.add(new File([u], n)); const inp = document.getElementById('in-files'); inp.files = dt.files; inp.dispatchEvent(new Event('change')); }, [name, buf.toString('base64')]); await until((b) => (NFM.state.graph.nodes.length + '/' + NFM.state.graph.edges.length + '|' + Array.from(document.querySelectorAll('#notes li')).map((l) => l.textContent).join('|')) !== b, b0, 4000); await sleep(100); };   /* waits for the graph or the notes to change (up to 4 s), not a fixed 0.9 s */
     const stats = () => ev(() => ({ n: NFM.state.graph.nodes.length, m: NFM.state.graph.edges.length, notes: Array.from(document.querySelectorAll('#notes li')).map((l) => l.textContent).join(' | ') }));
     const csv = 'source,target\nA,B\nB,C\n', xl = Z.makeXlsx([{ name: 'Links', rows: [['source', 'target'], ['C', 'D'], ['D', 'E']] }, { name: 'People', rows: [['id', 'label', 'group'], ['A', 'Ann', 'red']] }]);
     await feed('pack.zip', Z.makeZip([{ name: 'a/edges.csv', data: csv }, { name: 'a/more.json', data: '{"nodes":[{"id":"F"}],"edges":[{"from":"E","to":"F"}]}' }, { name: 'book.xlsx', data: xl }, { name: 'g.graphml', data: '<graphml><graph><node id="F"/><node id="G"/><edge source="F" target="G"/></graph></graphml>' }, { name: 'pic.png', data: Buffer.from([1, 2, 3, 0]) }]));
@@ -263,7 +265,7 @@ async function open() {
   await D.wait(() => NFM.state.V.state === 3 && NFM.state.L.edges.length > 0, null, 20000); await settle(400);
   const w3 = await sumW(); say(Math.abs(w3 - w0) > 1, `link widths follow the state (${w0.toFixed(1)} at baseline, ${w3.toFixed(1)} at the end)`);
   await ev(() => document.querySelectorAll('#tl-ticks .tick')[0].click()); await D.wait(() => NFM.state.V.state === 0, null, 20000);
-  await click('#tl-play'); await sleep(1800);
+  await click('#tl-play'); await until(() => parseFloat(document.getElementById('tl-range').value) > 0.35, null, 3000);   /* until it has moved, not a fixed 1.8 s */
   const pos1 = await ev(() => parseFloat(document.getElementById('tl-range').value)); say(pos1 > 0.3, 'playing moves along the timeline (' + pos1.toFixed(2) + ')');
   await click('#tl-play'); await settle(300);
   say(await ev(() => !document.getElementById('tl-play').textContent.includes('❚')), 'pausing works');
@@ -300,14 +302,14 @@ async function open() {
   /* phone */
   await D.size(412, 800); await settle(300);
   say((await ev(() => getComputedStyle(document.querySelector('.tabs')).position)) === 'fixed', 'on a phone the tabs move to the bottom');
-  await click('#tabbtn-map'); await sleep(600); await D.shot(path.join(outDir, `nfm-${which}-phone.png`));
+  await click('#tabbtn-map'); await settle(450); await D.shot(path.join(outDir, `nfm-${which}-phone.png`));
   say(await ev(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no sideways page scroll on a phone');
   /* phone, with a finger (the hook forces touch because Firefox cannot pretend to be a coarse pointer) */
   await ev(() => NFM.touch(true)); await settle(150);
   say(await ev(() => document.body.classList.contains('touch') && document.body.classList.contains('narrow')), 'the touch hook marks the page as touch and narrow');
   say(await ev(() => { const t = document.querySelector('.tabs'); return t.scrollWidth <= t.clientWidth + 1; }), 'the bottom tabs never scroll sideways');
   say(await ev(() => [...document.querySelectorAll('.tabs button')].every((b) => b.getBoundingClientRect().height >= 44 && b.querySelector('svg').getBoundingClientRect().width > 0)), 'each bottom tab is at least 44 px tall and has an icon');
-  await click('#tabbtn-data'); await set('#examples', 'states'); await click('#b-example'); await click('#tabbtn-map'); await sleep(1400); await ev(() => document.querySelector('#rail button[aria-label="Hide this panel"]').click()); await settle(450);
+  await click('#tabbtn-data'); await set('#examples', 'states'); await click('#b-example'); await click('#tabbtn-map'); await settle(400); await ev(() => document.querySelector('#rail button[aria-label="Hide this panel"]').click()); await settle(450);
   say(await ev(() => { const tl = document.getElementById('timeline').getBoundingClientRect(), st = document.getElementById('stage').getBoundingClientRect(); return !document.getElementById('timeline').hidden && st.bottom - tl.bottom < 20 && tl.height < 80; }), 'the timeline is one slim row docked at the bottom of the map');
   say(await ev(() => [...document.querySelectorAll('#ui button, .tabs button')].filter((b) => b.offsetParent && b.getBoundingClientRect().height > 0 && b.getBoundingClientRect().height < 35.5).length === 0), 'every visible button is at least 36 px tall on touch');
   say(await ev(() => [...document.querySelectorAll('#ui input[type=text], #ui input[type=number], #ui select')].filter((e) => e.offsetParent && parseFloat(getComputedStyle(e).fontSize) < 16).length === 0), 'fields are 16 px on touch (so iOS does not zoom)');
@@ -570,10 +572,10 @@ async function open() {
   try {
   { await load(mkG('UndoOne', ['A', 'B', 'C']), 'map'); await mapShows('A');
     await ev(() => { NFM.setV({ hulls: true }, 'none'); NFM.setGraph(NFMImport.sanitizeGraph({ name: 'UndoTwo', nodes: [{ id: 'X' }, { id: 'Y' }], edges: [{ from: 'X', to: 'Y' }] })); });
-    await sleep(800);
+    await until(() => NFM.state.graph.name === 'UndoTwo' && localStorage.getItem('nfm-v:UndoOne') !== null, null, 2000);
     const keep = await ev(() => { const o = JSON.parse(localStorage.getItem('nfm-v:UndoOne') || 'null'); return !!o && o.hulls === true; });
     say(keep, 'bringing in other data right after a setting change still saves the old data\'s setting under the old name');
-    await ev(() => document.getElementById('b-undo').click()); await sleep(800);
+    await ev(() => document.getElementById('b-undo').click()); await until(() => NFM.state.graph.name === 'UndoOne', null, 2000);
     const r = await ev(() => { const one = JSON.parse(localStorage.getItem('nfm-v:UndoOne') || 'null'), two = JSON.parse(localStorage.getItem('nfm-v:UndoTwo') || 'null'); return { name: NFM.state.graph.name, hulls: NFM.state.V.hulls, savedOne: !!one && one.hulls === true, savedTwoHulls: !!two && two.hulls === true }; });
     say(r.name === 'UndoOne' && r.hulls === true && r.savedOne && !r.savedTwoHulls, 'undoing back to the earlier data brings back its own settings and does not save the later data\'s settings over them: ' + JSON.stringify(r)); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
@@ -739,7 +741,7 @@ async function open() {
     return o;
   });
   say(/script-src 'unsafe-inline' 'wasm-unsafe-eval'/.test(pol.meta) && !/'unsafe-eval'/.test(pol.meta) && /connect-src 'none'/.test(pol.meta) && pol.fetchNow === 'refused', 'the page policy allows WebAssembly and nothing looser (no eval, no network): fetch ' + pol.fetchNow);
-  await D.close(); if (process.env.NFM_TIMES) console.log(`total ${((Date.now() - T0) / 1000).toFixed(1)} s, of which fixed waits: ${sleeps} sleeps = ${(slept / 1000).toFixed(1)} s`); {   /* a run that quietly skips checks must fail: fewer ok lines than the last all-green run of this browser is a failure (NFM_BLESS=1 after a reviewed change saves the new count) */
+  await D.close(); if (process.env.NFM_TIMES) console.log(`total ${((Date.now() - T0) / 1000).toFixed(1)} s, of which fixed waits: ${sleeps} sleeps = ${(slept / 1000).toFixed(1)} s` + '; by line: ' + Object.entries(sites).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => k + ':' + v).join(' ')); {   /* a run that quietly skips checks must fail: fewer ok lines than the last all-green run of this browser is a failure (NFM_BLESS=1 after a reviewed change saves the new count) */
     const BL = require('./baseline.js'), v = BL.verdict(which, oks, fails, process.env.NFM_PAGE);
     console.log(v.line); if (v.fail) fails++;
     if (process.env.NFM_BLESS === '1' && !fails && !process.env.NFM_PAGE) console.log(BL.bless(which, oks));
