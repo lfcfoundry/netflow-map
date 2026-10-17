@@ -449,7 +449,7 @@ var NFMProbe = (function () {
               return wait(r).then(function () { return nextRefresh(); }).then(function (ok) {
                 if (!ok) { hidden = true; return; }
                 if (frames === 3) t1 = nowMs(); else if (frames > 3) counted++;
-                if (nowMs() - start < 1300 && frames < 600) return loop();
+                if (nowMs() - start < (env.ms || 1300) && frames < 600) return loop();
               });
             };
             return loop().then(function () {
@@ -465,7 +465,7 @@ var NFMProbe = (function () {
         var top = results.slice().sort(function (a, b) { return b.fps - a.fps; })[0];
         if (!env.makeTurnScene || !top) return null;
         step('Turning a 3D map…');
-        return turning({ backend: top.n, makeScene: env.makeTurnScene(), W: W, H: H }).then(function (t) { turn = t; });
+        return turning({ backend: top.n, makeScene: env.makeTurnScene(), W: W, H: H, ms: env.ms }).then(function (t) { turn = t; });
       });
       return chain.then(function () {
         var rounded = typeof EnvProbes !== 'undefined' && EnvProbes.timerRounded && EnvProbes.timerRounded();
