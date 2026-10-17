@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 9: the Export tab. Copyright (c) 2026 LFC Foundry. MIT License.
+ * Netflow Map app, part 9: the Export tab. Copyright (c) 2026 LFC Foundry. MIT License.
  */
 TAB_HOOKS.export = function () { renderExport(); };
 HOOKS.graph.push(function () { if (S.tab === 'export') renderExport(); });

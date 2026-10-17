@@ -1,14 +1,14 @@
-# Handoff: memory compression for Net Flow Map at 100,000 items
+# Handoff: memory compression for Netflow Map at 100,000 items
 
 Copyright (c) 2026 LFC Foundry. MIT License. Written 2026-10-17 (US Eastern) for a fresh Claude context. You have no other background; everything you need to continue is here or in the files named here.
 
-Owner: Jawad Niazi ("JNFoo"). He is not a programmer. He wants plain words, real measurements, and the compute and time cost of every run (see "Standing rules" at the end).
+Owner: JNFoo ("JNFoo"). He is not a programmer. He wants plain words, real measurements, and the compute and time cost of every run (see "Standing rules" at the end).
 
 ## 1. The question this work answers
 
-Net Flow Map (`https://github.com/JNFoo/net-flow-map`, one self-contained `index.html` built from `src/`) draws 3D networks of 100,000 items and about 300,000 links. On the owner's laptop (Firefox 159, Windows, Ryzen 7 8845HS, Radeon 780M) turning, zooming and dragging already hold 60 FPS at 100,000 items, because the picture is uploaded to the graphics card once (the "rig": `makeRig`, `attachTurn`, `S.turnTo`, `drawRig` in `src/scene.js` and `src/app/30-map.js`).
+Netflow Map (`https://github.com/lfcfoundry/netflow-map`, one self-contained `index.html` built from `src/`) draws 3D networks of 100,000 items and about 300,000 links. On the owner's laptop (Firefox 159, Windows, Ryzen 7 8845HS, Radeon 780M) turning, zooming and dragging already hold 60 FPS at 100,000 items, because the picture is uploaded to the graphics card once (the "rig": `makeRig`, `attachTurn`, `S.turnTo`, `drawRig` in `src/scene.js` and `src/app/30-map.js`).
 
-What hurts is MEMORY and the peak while building a new picture. The owner has another context building a general JS-object compressor (`memory-compression` and `memory-compression-jso` in `https://github.com/lfcfoundry/JS-modules`) and asked whether it can shrink what Net Flow Map keeps in memory. This file is the result of testing it on the REAL layout and scene, not a synthetic list.
+What hurts is MEMORY and the peak while building a new picture. The owner has another context building a general JS-object compressor (`memory-compression` and `memory-compression-jso` in `https://github.com/lfcfoundry/JS-modules`) and asked whether it can shrink what Netflow Map keeps in memory. This file is the result of testing it on the REAL layout and scene, not a synthetic list.
 
 ## 2. Short answer
 
@@ -86,14 +86,14 @@ Costs that decide it:
 3. Answer caveat 2 (single-read cost at 100,000) with a proper warm-up and 10,000 reads.
 4. Run the benchmark inside Firefox 158, ungoogled-chromium 155 and WebKitGTK 2.52.6, ONE AT A TIME, with the version printed on line 1 (the browsers are on the `browsers` branch of `JNFoo/knowledgebase-single-file`; re-read its README first; the harness is `bench/webkit-driver.js` for WebKit, `test/browser.test.js` shows how the others are launched). The module has its own browser notes; its WebKit result drove the 1.1.1 change ("drop the text-column shortcut that slowed WebKit").
 5. Make the holder list (caveat 3). Prototype only the layout: pack with `{mode:'fast', refs:true}` (or `small`) when a new layout replaces the old one, keep the packed copy, unpack on demand. Measure heap before and after in the page with the tester, not just Node.
-6. Embedding rules for anything added to the page: one self-contained `index.html`, offline, the module's source and its WebAssembly bytes embedded with a plain-JavaScript fallback that gives the same answers, `'wasm-unsafe-eval'` in `script-src` only (owner's policy, 2026-10-17; the page has no policy today), MIT-compatible code only, source of the module recorded with its version and commit. Net Flow Map already embeds one WebAssembly helper (`wasm/`, see the repo-move handoff) as an example of the pattern: `wasm/build.sh`, `wasm/embed.py`, bytes between `WASM:BEGIN` and `WASM:END` in `src/engine.js`, and a test that checks identical answers.
+6. Embedding rules for anything added to the page: one self-contained `index.html`, offline, the module's source and its WebAssembly bytes embedded with a plain-JavaScript fallback that gives the same answers, `'wasm-unsafe-eval'` in `script-src` only (owner's policy, 2026-10-17; the page has no policy today), MIT-compatible code only, source of the module recorded with its version and commit. Netflow Map already embeds one WebAssembly helper (`wasm/`, see the repo-move handoff) as an example of the pattern: `wasm/build.sh`, `wasm/embed.py`, bytes between `WASM:BEGIN` and `WASM:END` in `src/engine.js`, and a test that checks identical answers.
 7. Tests to add with it: pack and unpack an `E.build` layout and `assert.deepStrictEqual` it (the benchmark already does); the page must draw the same pixels with and without the packed path (`test/browser.test.js` parity check); one case where the module is missing or fails and the page keeps working.
 
 ## 8. Where things are
 
 | Thing | Where |
 |---|---|
-| This study's benchmarks | `bench/memory/mc-bench.js`, `bench/memory/jso-bench.js` in `JNFoo/net-flow-map` (they need a checkout of `lfcfoundry/JS-modules` next to the repo, or `JSM=/path/to/JS-modules`) |
+| This study's benchmarks | `bench/memory/mc-bench.js`, `bench/memory/jso-bench.js` in `lfcfoundry/netflow-map` (they need a checkout of `lfcfoundry/JS-modules` next to the repo, or `JSM=/path/to/JS-modules`) |
 | Earlier memory measurements and ruled-out ideas | `docs/MEMORY-AT-100K.md` |
 | Object packer | `lfcfoundry/JS-modules` `modules/memory-compression-jso` (README, CHANGELOG, `memory-compression-jso.js`, `src/`, `wasm/`, `test/run.js`: 26 checks, `--js-only` for no WebAssembly) |
 | Typed-array packer | `lfcfoundry/JS-modules` `modules/memory-compression` |

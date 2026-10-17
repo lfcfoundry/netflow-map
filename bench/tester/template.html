@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Net Flow Map Tester</title>
+<title>Netflow Map Tester</title>
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--ink:#1f2430;--mut:#667;--line:#dcd9d0;--ok:#2f7d4f;--warn:#b26a00;--bad:#b3362f;--acc:#3b6ea5}
 
@@ -20,7 +20,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 .gpuline{margin:-8px 0 14px;padding:8px 12px;border:1px solid var(--line);border-left-width:4px;border-radius:8px;background:var(--card);font-weight:600}.gpuline.ok{border-left-color:var(--ok)}.gpuline.warn{border-left-color:var(--warn)}
 </style></head><body><main>
-<h1>Net Flow Map Tester</h1>
+<h1>Netflow Map Tester</h1>
 <p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version __VERSION__.</p>
 <p class="gpuline" id="gpuline">Checking for WebGPU…</p>
 <div id="top"><div class="bar"><i id="barfill"></i></div><div class="statrow"><div id="status">Starting…</div><div id="clock" title="Time since the run started">⏱ 0:00</div><div id="fpsnow" title="How many pictures per second this page is really drawing right now (the page's own screen refresh rate)">— FPS</div></div></div>
@@ -28,7 +28,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 <div id="show" class="card" style="display:none"><h2>The 3D map, turning</h2></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
 <button class="p" id="dl">Download the results file (.md)</button><button id="cp">Copy results</button><button id="again">Run again</button>
-<p class="note">Please attach the downloaded file <b>net-flow-map-tester-results.md</b> to your next message to Claude. If the download is blocked, use Copy results and paste it.</p></div>
+<p class="note">Please attach the downloaded file <b>netflow-map-tester-results.md</b> to your next message to Claude. If the download is blocked, use Copy results and paste it.</p></div>
 </main>
 <script>__SCRIPTS__</script>
 </body></html>

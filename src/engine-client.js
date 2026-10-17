@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map engine client: runs the engine in a Web Worker made from the page's own text (no extra files), and falls back
+ * Netflow Map engine client: runs the engine in a Web Worker made from the page's own text (no extra files), and falls back
  * to running it on the page if workers are not allowed. Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var NFMEngineClient = (function () {

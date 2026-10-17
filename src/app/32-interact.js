@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 5: mouse, touch and keyboard on the map, menus, selection tools. Copyright (c) 2026 LFC Foundry. MIT License.
+ * Netflow Map app, part 5: mouse, touch and keyboard on the map, menus, selection tools. Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var ptrs = new Map(), P0 = null, lastDist = 0, inkShape = null, velo = [], tipEl = $('tip'), hoverRaf = 0, pressTimer = 0;
 var isTouch = false;

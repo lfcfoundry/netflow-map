@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 5b: River (Sankey) pictures. Hand edits (colors, labels, order, placement), their undo, the side panel and the click menus.
+ * Netflow Map app, part 5b: River (Sankey) pictures. Hand edits (colors, labels, order, placement), their undo, the side panel and the click menus.
  * Copyright (c) 2026 LFC Foundry. MIT License.
  *
  * Everything the person changes by hand lives in S.V.sk so it is saved with the view:

@@ -1,8 +1,8 @@
 # Making QA Checks and Browser Tests Fast, Cheap and Trustworthy
 
-Written 2026-10-17 from the Net Flow Map project (repo JNFoo/net-flow-map). Everything marked **Measured** was timed in this project. Everything marked **Estimate** is reasoning, not a measurement, and should be checked before relying on it.
+Written 2026-10-17 from the Netflow Map project (repo lfcfoundry/netflow-map). Everything marked **Measured** was timed in this project. Everything marked **Estimate** is reasoning, not a measurement, and should be checked before relying on it.
 
-Written for Jawad (not a programmer): each technique says what it is, why it works, what it cost or saved, and the trap to avoid. Drop this file into a new project's first conversation so the speed habits start on day one.
+Written for the owner (not a programmer): each technique says what it is, why it works, what it cost or saved, and the trap to avoid. Drop this file into a new project's first conversation so the speed habits start on day one.
 
 ---
 
@@ -68,7 +68,7 @@ NFM_TIMES=1 node test/browser.test.js firefox
 **The fix:** wait for the actual condition.
 
 1. **Wait for real animation frames** (two `requestAnimationFrame` ticks) so the screen has painted what you changed.
-2. **Wait for the app's own "nothing pending" signal.** Net Flow Map exposes `NFM.pending()` which counts short screen-update delays (debounces of 200 ms or less) still waiting to fire. `settle(ms)` waits for frames *and* `NFM.pending() === 0`.
+2. **Wait for the app's own "nothing pending" signal.** Netflow Map exposes `NFM.pending()` which counts short screen-update delays (debounces of 200 ms or less) still waiting to fire. `settle(ms)` waits for frames *and* `NFM.pending() === 0`.
 3. **Keep real sleeps only for real time:** easing animations, playback, a typing delay the page does not count.
 
 **Trap that actually bit us:** after shortening a pause, the check "links table filter works" failed because the table filter used a 400 ms debounce, longer than the 200 ms the counter tracked. The fix was to count that debounce too, not to put the long pause back. Lesson: when a shortened wait fails, find what the test was silently waiting for and make the page announce it.
@@ -144,8 +144,8 @@ Matches your stated preference: hold off on checks and benchmarks while the desi
 | **0 Instant** | Every edit | Syntax check / build only | seconds |
 | **1 Quick** | While working | The Node tests for the area you touched. `fuzz.test.js 20` is a 20-second spot check | under 30 s |
 | **2 Standard** | When a change is "done" | `node test/all.js`, then the browser test in one browser | about 1.5 min |
-| **3 Release** | Design settled, before sending to Jawad | `node test/all.js --full`, browser test in every supported browser, one at a time, the long fuzz run | several minutes |
-| **4 Real hardware** | After release | The tester page on Jawad's laptop (his own run) | his time |
+| **3 Release** | Design settled, before sending to the owner | `node test/all.js --full`, browser test in every supported browser, one at a time, the long fuzz run | several minutes |
+| **4 Real hardware** | After release | The tester page on the owner's laptop (his own run) | his time |
 
 **Rules:**
 - Never run Tier 3 on a design that may be thrown away.
@@ -175,7 +175,7 @@ A shortcut is only safe if it cannot hide a real bug.
 
 **Run one browser at a time on a small machine.** Two browsers running together compete for cores and memory. Timings and frame rates become meaningless. The Node tests are the exception because they do not measure frame rates.
 
-**Software vs real graphics:** the cloud container has no graphics card, so it validates *correctness* (same pictures, no crashes) but not *smoothness*. Smoothness comes from the tester page running on Jawad's own laptop. (Do not keep telling Jawad about the missing graphics card; just route smoothness questions to the tester.)
+**Software vs real graphics:** the cloud container has no graphics card, so it validates *correctness* (same pictures, no crashes) but not *smoothness*. Smoothness comes from the tester page running on the owner's own laptop. (Do not keep telling the owner about the missing graphics card; just route smoothness questions to the tester.)
 
 **Make pictures comparable across browsers:**
 - Compare drawing backends against each other (WebGL 2, Canvas 2D, WebGPU) with an agreed tolerance, not exact pixels. Our parity check lives in `test/browser.test.js`.
@@ -214,7 +214,7 @@ Timing tests are only as good as the machine's quiet.
 
 ---
 
-## 12. Rules for diagnostic pages Jawad runs himself
+## 12. Rules for diagnostic pages the owner runs himself
 
 (From your preferences of Oct 13.)
 
@@ -233,14 +233,14 @@ Timing tests are only as good as the machine's quiet.
 Short answer: no tool turns live JavaScript data into something small and back again with zero cost. Practical options, cheapest first:
 
 1. **Make less garbage.** Reuse buffers while building scenes. Most of the 120 MB per 100,000-item scene is temporary.
-2. **Smaller numbers.** *Correction, measured later the same day:* in Net Flow Map the number buffers are only a few MB; the 150 MB per 100,000-item picture is JavaScript objects (about 300,000 links, 100,000 items, 100,000 labels, 100,000 dots). So 16-bit positions and buffer reuse would save almost nothing here. Measure what holds the memory (`process.memoryUsage()` with `--expose-gc`, then drop one list at a time) before choosing a fix.
+2. **Smaller numbers.** *Correction, measured later the same day:* in Netflow Map the number buffers are only a few MB; the 150 MB per 100,000-item picture is JavaScript objects (about 300,000 links, 100,000 items, 100,000 labels, 100,000 dots). So 16-bit positions and buffer reuse would save almost nothing here. Measure what holds the memory (`process.memoryUsage()` with `--expose-gc`, then drop one list at a time) before choosing a fix.
    Real saving found: let go of the old picture's lists before building the new one, so two never exist at once (peak 300 MB to 150 MB at 100,000 items).
 3. **Rebuild on demand and free the rest.**
 4. **Keep large data only on the graphics card** when it never needs to come back.
 5. **Real compression, only for off-screen data:**
    - Browser built-in `CompressionStream` / `DecompressionStream`: free, but asynchronous, so not usable inside a frame.
    - `fflate` (fast JavaScript deflate), `pako` (standard, slower), `lz4js` or a WebAssembly LZ4 (fastest class). **Estimate:** a few hundred MB/s for the deflate family, 1 GB/s or more for LZ4; float coordinates compress poorly (perhaps 10 to 30%).
-   - JNFoo/JS-modules already has `save-kit` and `zip-open` using the built-in streams, and `lzma-decode` / `ppmd-decode` (slow, for download packages, not for live memory).
+   - lfcfoundry/JS-modules already has `save-kit` and `zip-open` using the built-in streams, and `lzma-decode` / `ppmd-decode` (slow, for download packages, not for live memory).
 
 ---
 
@@ -264,7 +264,7 @@ Short answer: no tool turns live JavaScript data into something small and back a
 
 ## 15. Open items in this project
 
-- **Unverified:** whether closing the compute device before the drawing tests helps or hurts. Waiting for Jawad's next tester run on build 2026.10.17.0209 (freeze count and zoom levels).
+- **Unverified:** whether closing the compute device before the drawing tests helps or hurts. Waiting for the owner's next tester run on build 2026.10.17.0209 (freeze count and zoom levels).
 - **Not yet run in WebKit:** `fuzz-kit` and `pad-nav` (a JS-modules TASKS row).
 - **Not started, needs a decision first:** buffer reuse and 16-bit storage (Section 13), landmark layout, WebAssembly SIMD.
 

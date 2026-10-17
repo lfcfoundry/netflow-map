@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 5b: states (baseline, year 1, year 2 ...): turning columns into states, the timeline, and the morph between them.
+ * Netflow Map app, part 5b: states (baseline, year 1, year 2 ...): turning columns into states, the timeline, and the morph between them.
  * Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var ST = { frames: null, key: '', pending: null, pendingKey: '', token: 0, playing: false, pos: 0, raf: 0, last: 0, lastMake: 0, makeMs: 16, shown: null, wmax: null, building: 0 };

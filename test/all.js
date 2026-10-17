@@ -19,7 +19,7 @@ if (changedArg) {
     const changed = ch.concat(un), text = {}; files.forEach((f) => { text[f] = fs.readFileSync(path.join(__dirname, f), 'utf8'); });
     const sel = new Set(); let unknown = false, pageOnly = 0;
     changed.forEach((c) => {
-      if (/^(CHANGELOG|README|AGENTS)\.md$|^docs\//.test(c) || c === 'index.html' || /^bench\/net-flow-map-.*\.html$/.test(c)) return;   /* words and built copies: no Node test reads them */
+      if (/^(CHANGELOG|README|AGENTS)\.md$|^docs\//.test(c) || c === 'index.html' || /^bench\/netflow-map-.*\.html$/.test(c)) return;   /* words and built copies: no Node test reads them */
       if (/^src\/app\//.test(c) || c === 'src/app.css' || c === 'src/index.template.html' || c === 'test/browser.test.js' || c === 'test/baseline.js' || c === 'test/baseline.json') { pageOnly++; return; }   /* the page itself: only the browser test covers it */
       const m = /^src\/([\w-]+)\.js$/.exec(c);
       if (m) { files.forEach((f) => { if (text[f].indexOf('src/' + m[1] + '.js') >= 0 || text[f].indexOf("'" + m[1] + ".js'") >= 0) sel.add(f); }); return; }
