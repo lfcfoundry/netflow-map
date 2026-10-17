@@ -267,6 +267,17 @@ function panelLook() {
   }
   if (V.view === 'flow') k1.push(field('Direction', seg([['LR', 'Left to right'], ['TB', 'Top to bottom']], V.dir, function (v) { setV({ dir: v }); })));
   if (['flow', 'down', 'spine', 'lanes', 'river'].indexOf(V.view) >= 0) { k1.push(check('Fold straight runs into one box', V.fold, function (on) { setV({ fold: on }); })); k1.push(check('Merge parallel arrows', V.merge, function (on) { setV({ merge: on }); })); }
+  if (V.view === 'flow' || V.view === 'down') {
+    k1.push(field('Rows', seg([['route', 'Shortest route'], ['story', 'Story order']], V.rows, function (v) { setV({ rows: v }); }), 'Story order puts every page below all the pages that lead to it, so gold links are real loops only.'));
+    k1.push(check('Draw very long links as tags', V.tagLen > 0, function (on) { setV({ tagLen: on ? 8 : 0 }); }));
+    k1.push(check('Keep must-pass pages in one column', V.spineCol, function (on) { setV({ spineCol: on }); }));
+    k1.push(check('Untangle harder (a little slower)', V.better, function (on) { setV({ better: on }); }));
+    if (V.view === 'down' || V.dir === 'TB') {
+      k1.push(check('Show step numbers down the side', V.ruler, function (on) { setV({ ruler: on }); }));
+      k1.push(check('Cut a very tall map into columns', V.wrap, function (on) { setV({ wrap: on }); }));
+    }
+    if (V.view === 'down') k1.push(check('One column per group', V.downLanes, function (on) { setV({ downLanes: on }); }));
+  }
   if (V.view === 'lanes') k1.push(field('Group lanes by', select([['group', 'The group column'], ['found', 'Found groups']].concat(colsOf('nodes', ['category']).filter(function (c) { return c.key !== 'group'; }).map(function (c) { return ['col:' + c.key, c.name]; }).map(function (x) { return [x[0].slice(4), x[1]]; })), V.laneBy, function (v) { setV({ laneBy: v }); })));
   kids.push(section('View', k1));
   if (V.view === 'river') kids.push(skPanel());
@@ -483,7 +494,7 @@ function panelStyle() {
 }
 
 /* ---- Views */
-var SNAP_KEYS = ['view', 'arrange', 'colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'labelCol', 'dir', 'fold', 'merge', 'laneBy', 'agg', 'strongest', 'facets', 'around', 'block', 'hideKinds', 'only', 'sets', 'marks', 'rules', 'palette', 'ramp', 'groupColors', 'widthScale', 'widthMul', 'hulls', 'curve', 'valueLabels', 'lab', 'lens', 'cam', 'vocab', 'pins', 'sk'];
+var SNAP_KEYS = ['view', 'arrange', 'colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'labelCol', 'dir', 'fold', 'merge', 'rows', 'tagLen', 'spineCol', 'better', 'wrap', 'ruler', 'downLanes', 'laneBy', 'agg', 'strongest', 'facets', 'around', 'block', 'hideKinds', 'only', 'sets', 'marks', 'rules', 'palette', 'ramp', 'groupColors', 'widthScale', 'widthMul', 'hulls', 'curve', 'valueLabels', 'lab', 'lens', 'cam', 'vocab', 'pins', 'sk'];
 function snapshot() { var o = {}; SNAP_KEYS.forEach(function (k) { o[k] = JSON.parse(JSON.stringify(S.V[k] === undefined ? null : S.V[k])); }); return o; }
 /** Only known settings of the right kind are accepted from shared text. */
 function cleanSnapshot(o) {

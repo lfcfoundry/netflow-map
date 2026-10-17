@@ -319,10 +319,9 @@ var NFMScene = (function () {
     S.rects.forEach(function (r) { if (r.x < x0) x0 = r.x; if (r.y < y0) y0 = r.y; if (r.x + r.w > x1) x1 = r.x + r.w; if (r.y + r.h > y1) y1 = r.y + r.h; });
     S.dots.forEach(function (d) { if (d.cx - d.r < x0) x0 = d.cx - d.r; if (d.cy - d.r < y0) y0 = d.cy - d.r; if (d.cx + d.r > x1) x1 = d.cx + d.r; if (d.cy + d.r > y1) y1 = d.cy + d.r; });
     S.polys.forEach(function (p) { for (var i = 0; i < p.pts.length; i += 2) { if (p.pts[i] < x0) x0 = p.pts[i]; if (p.pts[i] > x1) x1 = p.pts[i]; if (p.pts[i + 1] < y0) y0 = p.pts[i + 1]; if (p.pts[i + 1] > y1) y1 = p.pts[i + 1]; } });
-    if (view === 'river' && L.sk) {
-      S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
-      if (L.height && L.height > y1) y1 = L.height;
-    }
+    if ((view === 'river' && L.sk) || S.ruler) S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
+    if (view === 'river' && L.sk && L.height && L.height > y1) y1 = L.height;
+    if (S.tagChips) S.labels.forEach(function (l) { if (!l.boundXY) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; if (b[1] < y0) y0 = b[1]; if (b[3] > y1) y1 = b[3]; } });   /* tag names beyond the last box still count for the picture's edges */
     if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 100; y1 = 100; }
     if (L.is3d && L.c3) { var R3 = (L.radius3 || 300) * 1.18; x0 = L.c3[0] - R3; x1 = L.c3[0] + R3; y0 = L.c3[1] - R3; y1 = L.c3[1] + R3; }
     S.x0 = x0 - pad; S.y0 = y0 - pad; S.w = x1 - x0 + 2 * pad; S.h = y1 - y0 + 2 * pad + (view === 'arc' ? 110 : 0);
@@ -485,13 +484,25 @@ var NFMScene = (function () {
       var ch = L.nodes.filter(function (n) { return n.choke; }).sort(function (a, b) { return a.x - b.x; });
       if (ch.length > 1) { var P = [ch[0].x + ch[0].w / 2, ch[0].y + ch[0].h / 2]; for (var i = 1; i < ch.length; i++) { var a = ch[i - 1], b = ch[i]; var ax = a.x + a.w / 2, ay = a.y + a.h / 2, bx = b.x + b.w / 2, by = b.y + b.h / 2; P.push(ax + (bx - ax) / 3, ay, ax + 2 * (bx - ax) / 3, by, bx, by); } S.curves.push({ P: P, w: 9, color: alpha(T.gold, 0.28), arrow: false, edge: -1, from: null, to: null }); }
     }
+    if (X.o.ruler && !LR && !river && L.ruler && L.ruler.length > 1) {
+      /* step numbers down the left edge of each column; the busy levels (every 5th, 25th ...) show only when zoomed out far enough to leave room */
+      var pitch = (L.ruler[L.ruler.length - 1].at - L.ruler[0].at) / (L.ruler.length - 1) || 100;
+      if (L.info && L.info.columns > 1) pitch = L.ruler[1].at - L.ruler[0].at || pitch;
+      L.ruler.forEach(function (rk, k) {
+        var m = 0, q = k; while (k > 0 && q % 5 === 0) { m++; q = q / 5; }
+        if (k === 0) m = 12;
+        lab(rk.edge - 14, rk.at + 4, k === 0 ? 'start' : 'step ' + k, 10, T.muted, { align: 'r', minK: Math.min(1, 62 / (pitch * Math.pow(5, Math.min(m, 12)))), bound: true });
+      });
+      S.ruler = true;
+    }
     var order = L.nodes.slice().sort(function (a, b) { return a.layer - b.layer || (LR ? a.y - b.y : a.x - b.x); });
     var slots = {};
+    var isFwd = function (e) { return e.kind === 'fwd' || (e.kind === 'tag' && e.tagFwd); };
     var sideOf = function (e, end) {
       if (e.kind === 'self') return 'R';
       if (e.kind === 'flat') return LR ? 'R' : 'B';
-      if (LR) return (e.kind === 'fwd') === (end === 'out') ? 'R' : 'L';
-      return (e.kind === 'fwd') === (end === 'out') ? 'B' : 'T';
+      if (LR) return isFwd(e) === (end === 'out') ? 'R' : 'L';
+      return isFwd(e) === (end === 'out') ? 'B' : 'T';
     };
     if (!river) {
       L.edges.forEach(function (e) {
@@ -516,6 +527,25 @@ var NFMScene = (function () {
         var a0 = L.pos[e.from], b0 = L.pos[e.to];
         if ((a0 && a0._st && a0._st.hide) || (b0 && b0._st && b0._st.hide)) return;
         var oo = off(e.si), end = [e.p1[0] + oo[0], e.p1[1] + oo[1]], P;
+        if (e.kind === 'tag') {
+          /* a long link is not drawn across the rows between: a short stub and a tag at each end ("goes to ..." and "comes from ...") */
+          var slen = 16 + (ei % 3) * 10, k1 = slen / HEAD, d0 = off(e.so), d1 = off(e.si), back0 = !e.tagFwd;
+          var s0 = [e.p0[0] + d0[0] * k1, e.p0[1] + d0[1] * k1], s1 = [e.p1[0] + d1[0] * k1, e.p1[1] + d1[1] * k1];
+          var line = function (a, b) { return [a[0], a[1], a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3, a[0] + 2 * (b[0] - a[0]) / 3, a[1] + 2 * (b[1] - a[1]) / 3, b[0], b[1]]; };
+          var tl = X.look(e, ei, { w: Math.min(1.5 + Math.log2(e.count) * 0.9, 4.5), color: back0 ? alpha(T.gold, 0.8) : alpha(T.line, 0.78), arrow: true });
+          if (tl.hide) return;
+          S.curves.push({ P: line(e.p0, s0), w: tl.w, color: tl.color, arrow: false, edge: ei, from: e.from, to: e.to, back: back0, dash: tl.dash });
+          S.curves.push({ P: line(s1, end), w: tl.w, color: tl.color, arrow: tl.arrow, tip: e.p1, edge: ei, from: e.from, to: e.to, back: back0, dash: tl.dash });
+          S.tagChips = true;
+          var chip = function (pt, side, text) {
+            var tx0 = side === 'R' ? pt[0] + 6 : side === 'L' ? pt[0] - 6 : pt[0], ty0 = side === 'B' ? pt[1] + 13 : side === 'T' ? pt[1] - 6 : pt[1] + 4;
+            lab(tx0, ty0, text, 10.5, back0 ? T.gold : T.muted, { minK: 0.45, edge: ei, from: e.from, to: e.to, bg: true, boundXY: true, align: side === 'R' ? 'l' : side === 'L' ? 'r' : 'c' });
+          };
+          var arrowGlyph = LR ? (e.tagFwd ? '→ ' : '← ') : (e.tagFwd ? '↓ ' : '↑ ');
+          chip(s0, e.so, arrowGlyph + clip(X.tx(L.pos[e.to]), 20));
+          chip(s1, e.si, 'from ' + clip(X.tx(L.pos[e.from]), 18));
+          return;
+        }
         if (e.kind === 'self' || e.kind === 'flat') {
           var out = 34 + (ei % 4) * 8;
           if (e.so === 'R') { var x = Math.max(e.p0[0], end[0]) + out; P = [e.p0[0], e.p0[1], x, e.p0[1], x, end[1], end[0], end[1]]; }
