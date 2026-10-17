@@ -34,7 +34,7 @@ Flow, Top-down, Choke-point spine, Lanes (one band per group), Shape (the stretc
 
 ## How it draws
 
-The map is drawn by WebGPU if this browser can really use it, otherwise WebGL 2, otherwise basic 2D drawing. "Can really use it" means a small test runs at startup (it does not just ask the browser what it claims). All three draw the same picture (they agree to within about 0.2 out of 255 on average). The layout work runs in a background helper so big maps do not freeze the page. The **Check this device** button runs all of this again, times a large map, and says in plain words what to expect.
+The map is drawn by WebGL 2 if this browser can really use it, otherwise basic 2D drawing. (It no longer draws with WebGPU: on the owner's laptop WebGPU froze for 1.5 to 1.9 seconds at random while WebGL 2 stayed steady. WebGPU is still used for the graphics-card arrangement math, and the code and the tester keep it for comparison.) "Can really use it" means a small test runs at startup (it does not just ask the browser what it claims). All the ways draw the same picture (they agree to within about 0.2 out of 255 on average). The layout work runs in a background helper so big maps do not freeze the page. The **Check this device** button runs all of this again, times a large map, and says in plain words what to expect.
 
 ## No two items touch
 

@@ -405,10 +405,10 @@ var NFMProbe = (function () {
       ['webgpu', 'webgl2'].forEach(function (n) {
         var r = c[n], nm = n === 'webgpu' ? 'WebGPU' : 'WebGL 2';
         if (r.ok && r.software) say(null, nm + ' is there but runs on the processor, not a graphics chip. It is skipped; the map uses the faster path.');
-        else if (r.ok) say(true, nm + ' works' + (r.device ? ' (' + r.device + ')' : '') + '.');
+        else if (r.ok) say(true, nm + ' works' + (r.device ? ' (' + r.device + ')' : '') + '.' + (n === 'webgpu' && !(NFMRender.webgpuDrawing && NFMRender.webgpuDrawing()) ? ' The map does not draw with it (it paused for up to two seconds on one laptop that was measured); the graphics card uses it for the big-arrangement math.' : ''));
         else say(null, nm + ' is not usable here' + (r.why ? ': ' + r.why : '') + '.');
       });
-      var names = ['canvas2d']; if (c.webgl2.ok && !c.webgl2.software) names.push('webgl2'); if (c.webgpu.ok && !c.webgpu.software) names.push('webgpu');
+      var names = ['canvas2d']; if (c.webgl2.ok && !c.webgl2.software) names.push('webgl2'); if (c.webgpu.ok && !c.webgpu.software && NFMRender.webgpuDrawing && NFMRender.webgpuDrawing()) names.push('webgpu');
       return names;
     }).then(function (names) {
       step('Drawing a sample map three ways and comparing…');

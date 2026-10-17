@@ -634,13 +634,15 @@ var NFMRender = (function () {
 
   /* ---------------------------------------------------------------- the manager: pick, rebuild after loss, step down after three losses in a minute */
   var MAKERS = { webgpu: createWebGPU, webgl2: createWebGL2, canvas2d: createCanvas2D };
+  /* The app does not draw with WebGPU (the owner's decision, 2026-10-17): on his laptop it froze for 1.5 to 1.9 seconds at random while WebGL 2 stayed steady. The code stays for the tester and the tests, which switch it on here. WebGPU is still used for the graphics-card arrangement math, which is separate. */
+  var webgpuDrawing = false;
   function Manager(host, opts) {
     this.host = host; this.opts = opts || {}; this.order = ['webgl2', 'webgpu', 'canvas2d'];   /* WebGL 2 first: on the laptops measured it draws big maps at a steadier 60 FPS, where WebGPU shows random pauses of 200-350 ms; WebGPU stays as the next choice and in Advanced */ this.r = null; this.losses = []; this.banned = {};
     this.choice = 'auto'; this.canary = null; this.log = [];
   }
   Manager.prototype.candidates = function () {
     var self = this, order = this.choice === 'auto' ? this.order : [this.choice].concat(this.order.filter(function (x) { return x !== self.choice; }));
-    return order.filter(function (n) { return !self.banned[n] && (n === 'canvas2d' || !self.canary || (self.canary[n] && self.canary[n].ok)); });
+    return order.filter(function (n) { return !self.banned[n] && (n !== 'webgpu' || webgpuDrawing) && (n === 'canvas2d' || !self.canary || (self.canary[n] && self.canary[n].ok)); });
   };
   /** Builds the best backend that works. Resolves to the renderer. */
   Manager.prototype.start = function () {
@@ -664,6 +666,6 @@ var NFMRender = (function () {
   };
   Manager.prototype.use = function (choice) { this.choice = choice; this.banned = {}; this.losses = []; try { if (this.r) this.r.destroy(); } catch (e) { /* ignore */ } return this.start(); };
 
-  return { Manager: Manager, tessellate: tessellate, drawLabels: drawLabels, createCanvas2D: createCanvas2D, createWebGL2: createWebGL2, createWebGPU: createWebGPU, copyViaCanvas: copyViaCanvas };
+  return { Manager: Manager, setWebGPUDrawing: function (on) { webgpuDrawing = !!on; }, webgpuDrawing: function () { return webgpuDrawing; }, tessellate: tessellate, drawLabels: drawLabels, createCanvas2D: createCanvas2D, createWebGL2: createWebGL2, createWebGPU: createWebGPU, copyViaCanvas: copyViaCanvas };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMRender;
