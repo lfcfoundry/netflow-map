@@ -194,6 +194,11 @@ function editKey(sc) {
     if (e && e.t) l.t = e.t; return true;
   });
 }
+/** A very large map keeps about 1.5 KB per item alive (100,000 items: about 150 MB). Letting go of the old picture's lists BEFORE the new ones are built keeps two of them from existing at once (the browser can only free the old one when nothing points to it). Small maps are left exactly as before. */
+function releaseOldScene() {
+  var sc = S.scene; if (!sc || !sc.nodes || sc.nodes.length < (window.NFM_RELEASE_MIN || 20000)) return;   /* tests lower the limit so small maps go through the same path */
+  S.scene = null; if (mgr && mgr.r) mgr.r.setScene(null);
+}
 function makeScene(fit) {
   if (!S.L) return;
   applyPins(S.L);
@@ -201,6 +206,7 @@ function makeScene(fit) {
   S.camPlan = null;
   var so0 = sceneOpts();
   if (S.L.is3d && mgr && mgr.r && mgr.r.rigPrepare) { mgr.r.rigPrepare(); S.camPlan = {}; so0.plan = S.camPlan; so0.rig = true; }   /* a big 3D map is ready to turn on the card from the first drag */
+  releaseOldScene();
   S.scene = NFMScene.make(S.L, so0);
   editKey(S.scene);
   S.sceneMs = performance.now() - t0;
@@ -222,7 +228,7 @@ function scheduleScene(camOnly) {
     if (sceneCamOnly && S.L.is3d && sc && sc.turnTo && r && r.rigOK && !sc.noTurn) { sc.turnTo(S.V.cam, S.view.k * 2); requestDraw(); armSettle(); return; }
     applyPins(S.L); var so = sceneOpts();
     if (sceneCamOnly && S.L.is3d) { so.plan = S.camPlan || (S.camPlan = {}); if (r && r.rigPrepare) { r.rigPrepare(); so.rig = true; } } else S.camPlan = null;
-    sceneCamOnly = true; S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (r) r.setScene(S.scene); requestDraw();
+    sceneCamOnly = true; releaseOldScene(); S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (r) r.setScene(S.scene); requestDraw();
   });
 }
 /** While a big 3D map turns, the picture lives on the card and the lists in the scene are out of date. A moment after the turning stops (or when something needs them: saving, printing) they are made again. */
@@ -235,7 +241,7 @@ function settleTurn() {
   clearTimeout(settleTimer);
   var sc = S.scene; if (!S.L || !sc || !sc.turn || !sc.turn.on) return;
   applyPins(S.L); var so = sceneOpts(); so.plan = S.camPlan || (S.camPlan = {}); so.rig = true;
-  S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (mgr && mgr.r) mgr.r.setScene(S.scene); requestDraw();
+  releaseOldScene(); S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (mgr && mgr.r) mgr.r.setScene(S.scene); requestDraw();
 }
 
 /* ---------------------------------------------------------------- selection, dimming, search, route lighting */

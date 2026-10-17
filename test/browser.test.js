@@ -47,6 +47,7 @@ async function open() {
   { const c = await ev(() => { const m = new NFMRender.Manager(document.createElement('div'), {}); const auto = m.candidates(); m.choice = 'webgpu'; return { auto, asked: m.candidates(), off: NFMRender.webgpuDrawing() }; });
     say(!c.off && !c.auto.includes('webgpu') && !c.asked.includes('webgpu') && c.auto[0] === 'webgl2', 'the app does not draw with WebGPU (Automatic: ' + c.auto.join(', ') + '; even when asked for: ' + c.asked.join(', ') + ')'); }
   await ev(() => NFMRender.setWebGPUDrawing(true));   /* the app does not draw with WebGPU; the tests still check that code */
+  await ev(() => { window.NFM_RELEASE_MIN = 50; });   /* the old picture's lists are let go before a new one is built for maps of 20,000+ items; here already from 50 items so the same path is tested with small maps */
   await D.wait(() => window.NFM && NFM.client() && NFM.client().mode !== 'starting', null, 20000);
   say(true, 'page loaded; engine runs in the ' + (await ev(() => NFM.client().mode)));
 
