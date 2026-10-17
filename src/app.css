@@ -10,7 +10,7 @@ button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(
 select,input[type=text],input[type=number],input[type=search],textarea{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 9px;min-height:36px;max-width:100%}
 textarea{width:100%;min-height:140px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
 label{display:inline-flex;align-items:center;gap:7px}input[type=checkbox],input[type=radio]{width:18px;height:18px}
-h1,h2,h3{margin:0;line-height:1.25}h2{font-size:17px}h3{font-size:15px}.muted{color:var(--muted)}.small{font-size:13px}
+h1,h2,h3{margin:0;line-height:1.25;text-wrap:balance}p{text-wrap:pretty}h2{font-size:17px}h3{font-size:15px}.muted{color:var(--muted)}.small{font-size:13px}
 header.top{height:var(--top);display:flex;align-items:center;gap:10px;padding:env(safe-area-inset-top,0px) calc(14px + env(safe-area-inset-right,0px)) 0 calc(14px + env(safe-area-inset-left,0px));border-bottom:1px solid var(--line);background:var(--panel)}
 .brand{font-weight:700;letter-spacing:.2px;display:flex;align-items:center;gap:8px;white-space:nowrap}.brand svg{width:22px;height:22px}
 .tabs{display:flex;gap:4px;margin-left:12px}.tabs button{border:0;background:transparent;border-radius:9px;padding:8px 13px;font-weight:600;color:var(--muted)}

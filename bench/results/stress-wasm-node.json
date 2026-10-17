@@ -1,0 +1,153 @@
+{
+ "version": "Node v22.22.0",
+ "rev": "HEAD",
+ "reps": 3,
+ "out": {
+  "before": [
+   {
+    "n": 3000,
+    "kind": "moderate",
+    "ms": 1477,
+    "best": 1272,
+    "pairs": 0,
+    "pairMB": null,
+    "ran": null
+   },
+   {
+    "n": 10000,
+    "kind": "moderate",
+    "ms": 1170,
+    "best": 1019,
+    "pairs": 0,
+    "pairMB": null,
+    "ran": null
+   },
+   {
+    "n": 30000,
+    "kind": "moderate",
+    "ms": 3842,
+    "best": 3400,
+    "pairs": 0,
+    "pairMB": null,
+    "ran": null
+   },
+   {
+    "n": 10000,
+    "kind": "complex",
+    "ms": 1305,
+    "best": 1253,
+    "pairs": 0,
+    "pairMB": null,
+    "ran": null
+   }
+  ],
+  "js": [
+   {
+    "n": 3000,
+    "kind": "moderate",
+    "ms": 1279,
+    "best": 1248,
+    "pairs": 4498500,
+    "pairMB": 42.9,
+    "ran": {
+     "stress": 0,
+     "push": 0,
+     "error": ""
+    }
+   },
+   {
+    "n": 10000,
+    "kind": "moderate",
+    "ms": 1101,
+    "best": 1092,
+    "pairs": 1324722,
+    "pairMB": 12.6,
+    "ran": {
+     "stress": 0,
+     "push": 0,
+     "error": ""
+    }
+   },
+   {
+    "n": 30000,
+    "kind": "moderate",
+    "ms": 3914,
+    "best": 3518,
+    "pairs": 2788166,
+    "pairMB": 26.6,
+    "ran": {
+     "stress": 0,
+     "push": 0,
+     "error": ""
+    }
+   },
+   {
+    "n": 10000,
+    "kind": "complex",
+    "ms": 1053,
+    "best": 1038,
+    "pairs": 1334057,
+    "pairMB": 12.7,
+    "ran": {
+     "stress": 0,
+     "push": 0,
+     "error": ""
+    }
+   }
+  ],
+  "wasm": [
+   {
+    "n": 3000,
+    "kind": "moderate",
+    "ms": 916,
+    "best": 831,
+    "pairs": 4498500,
+    "pairMB": 42.9,
+    "ran": {
+     "stress": 3,
+     "push": 6,
+     "error": ""
+    }
+   },
+   {
+    "n": 10000,
+    "kind": "moderate",
+    "ms": 928,
+    "best": 878,
+    "pairs": 1324722,
+    "pairMB": 12.6,
+    "ran": {
+     "stress": 6,
+     "push": 30,
+     "error": ""
+    }
+   },
+   {
+    "n": 30000,
+    "kind": "moderate",
+    "ms": 3139,
+    "best": 3096,
+    "pairs": 2788166,
+    "pairMB": 26.6,
+    "ran": {
+     "stress": 9,
+     "push": 63,
+     "error": ""
+    }
+   },
+   {
+    "n": 10000,
+    "kind": "complex",
+    "ms": 908,
+    "best": 873,
+    "pairs": 1334057,
+    "pairMB": 12.7,
+    "ran": {
+     "stress": 12,
+     "push": 87,
+     "error": ""
+    }
+   }
+  ]
+ }
+}

@@ -58,6 +58,15 @@ async function open() {
     w.onmessage = (e) => { w.terminate(); resolve(e.data); }; w.onerror = (e) => { resolve({ error: String(e.message || e) }); }; w.postMessage(1);
   }));
   say(fw.used === true && fw.jsUsed === false && fw.diff === 0, 'the WebAssembly Force rounds run in the helper and give exactly the JavaScript positions: ' + JSON.stringify(fw));
+  /* the WebAssembly Distances (stress) layout and push-apart (wasm/stress.c) in the same helper: same picture as the JavaScript */
+  const sw = await ev(() => new Promise((resolve) => {
+    const body = ";self.onmessage=function(){var k=500,nodes=[],edges=[],s=5,r=function(){s=(s*1664525+1013904223)>>>0;return s/4294967296;},i;for(i=0;i<k;i++)nodes.push({id:'n'+i});for(i=1;i<k;i++){edges.push({from:'n'+i,to:'n'+Math.floor(r()*i),value:1});if(i%3===0)edges.push({from:'n'+i,to:'n'+Math.floor(r()*i),value:1});}var dg=NFMColumns.derive({nodes:nodes,edges:edges}),W=NFMEngine.stressWasm;" +
+      "function run(on){W.on=on;var c0=W.calls,p0=W.sepCalls,L=NFMEngine.build(dg,{view:'network',arrange:'stress',colorBy:'group'});return{L:L,used:W.calls>c0,sep:W.sepCalls>p0};}" +
+      "var a=run(false),b=run(true),d=0;for(i=0;i<a.L.nodes.length;i++)d=Math.max(d,Math.abs(a.L.nodes[i].cx-b.L.nodes[i].cx),Math.abs(a.L.nodes[i].cy-b.L.nodes[i].cy));postMessage({used:b.used,sep:b.sep,jsUsed:a.used,diff:d,err:W.error});};";
+    const w = new Worker(URL.createObjectURL(new Blob([document.getElementById('nfm-engine-src').textContent + body], { type: 'text/javascript' })));
+    w.onmessage = (e) => { w.terminate(); resolve(e.data); }; w.onerror = (e) => { resolve({ error: String(e.message || e) }); }; w.postMessage(1);
+  }));
+  say(sw.used === true && sw.sep === true && sw.jsUsed === false && sw.diff === 0, 'the WebAssembly Distances layout and push-apart run in the helper and give exactly the JavaScript picture: ' + JSON.stringify(sw));
 
 
   /* Data tab */
@@ -647,7 +656,8 @@ async function open() {
   { await ev(() => NFM.showTab('adv')); await settle(300);
     const had = await ev(() => !!NFM.state.tune);
     await ev(() => { [...document.querySelectorAll('#adv-body button')].find((b) => /Test this computer|Run the test again/.test(b.textContent)).click(); });
-    await ev(() => { [...document.querySelectorAll('#dlg-body button')].find((b) => /Run the test/.test(b.textContent)).click(); }); await sleep(500);
+    await ev(() => { [...document.querySelectorAll('#dlg-body button')].find((b) => /Run the test/.test(b.textContent)).click(); });
+    await W(() => /The processor|The graphics card/.test(document.getElementById('dlg-body').textContent), null, 20000);   /* the test is really running (a fixed wait stopped being safe when the layout got faster) */
     await D.press('Escape');
     const ended = await W(() => /did not change anything|settings saved/.test(document.getElementById('dlg-body').textContent), null, 90000);
     const r = await ev(() => ({ open: document.getElementById('dlg').open, text: document.getElementById('dlg-body').textContent.slice(0, 60), tuned: !!NFM.state.tune }));
