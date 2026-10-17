@@ -33,6 +33,7 @@ Each run is the tester page opened on the laptop; the page prints its own versio
 | 2026.10.15.1625 | 2026-10-15 20:29 | `bench/results/laptop-8845HS-780M-firefox159-tester7.md` |
 | 2026.10.15.1641 | 2026-10-15 20:45 | `bench/results/laptop-8845HS-780M-firefox159-tester8.md` |
 | 2026.10.15.1647 | 2026-10-15 20:49 | `bench/results/laptop-8845HS-780M-firefox159-tester9.md` |
+| 2026.10.17.1507 | 2026-10-17 19:16 | `bench/results/laptop-8845HS-780M-firefox159-d3-race1.md` (race page, not an app build) |
 
 The 2026.10.15.1647 run is of the same build as the app build of that stamp below. The earlier tester stamps are tester-page builds with no matching app build. Laptop runs after 2026-10-15 are not saved in the repository, so some entries below that quote laptop numbers (for example "laptop: steady 60 at 100,000 items") name no browser version; they are marked "browser not recorded".
 
