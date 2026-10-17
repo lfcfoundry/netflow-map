@@ -95,8 +95,7 @@ function refreshMap(reason, force) {
   var seq = ++S.mapSeq; S.sceneOk = false; S.mapBusy = seq;
   busyT = setTimeout(function () { if (seq === S.mapSeq) showMsg(h('div', { style: { display: 'grid', gap: '6px' } }, [h('b', null, 'Working out the map…'), h('span', { class: 'muted small' }, nfmt(S.graph.nodes.length) + ' items, ' + nfmt(S.graph.edges.length) + ' links')])); }, 350);
   var t0 = performance.now(), V = S.V;
-  var p = client.build(engineOpts()).then(function (res) {
-    if (seq !== S.mapSeq) return;
+  var shown = function (res, rough) {   // puts a layout on the stage; a rough one (the early preview of a big map) leaves the map marked as still being worked on
     clearTimeout(busyT); hideMsg();
     /* the chosen links are remembered by the original links they stand for, so they stay the same links when the view or arrangement draws them as other arrows */
     var origSel = null; if (S.selEdges.size && S.L) { origSel = new Set(); S.selEdges.forEach(function (i) { var oe = S.L.edges[i]; if (oe && oe.orig) for (var q = 0; q < oe.orig.length; q++) origSel.add(oe.orig[q]); }); }
@@ -109,7 +108,13 @@ function refreshMap(reason, force) {
     if (S.tab !== 'map') { if (fit) S.needFit = true; fit = false; }   /* built for export while another tab is open: the stage has no size now, so it fits when the Map is shown */
     else if (S.needFit) { S.needFit = false; fit = true; }
     makeScene(fit); lastFitKey = fk;
+    if (rough) { toast('A rough picture is up. The finished one replaces it when ready.', 30000); return; }
     S.sceneOk = true; if (S.mapBusy === seq) S.mapBusy = 0;
+    if (S.roughShown) { S.roughShown = false; toast('The finished picture is ready.', 2500); }
+  };
+  var p = client.build(engineOpts(), function (res) { if (seq !== S.mapSeq) return; S.roughShown = true; S.roughCount = (S.roughCount || 0) + 1; shown(res, true); }).then(function (res) {
+    if (seq !== S.mapSeq) return;
+    shown(res, false);
   }).catch(function (err) {
     if (err && err.message === 'superseded') return;
     if (seq !== S.mapSeq) return;

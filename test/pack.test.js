@@ -22,4 +22,15 @@ t('numbers that are not plain (NaN, Infinity, -0, huge) and odd text survive', (
 t('a field called __proto__ is never packed (it could change the object type)', () => {
   const rows = []; for (let i = 0; i < 2100; i++) rows.push(JSON.parse('{"__proto__":' + i + ',"a":1}')); assert.strictEqual(P.packRows(rows, []), null);
 });
+t('on a page whose policy allows only wasm-unsafe-eval, no code is built from text (Firefox reports even a refused try as an error)', () => {
+  const rows = []; for (let i = 0; i < 2100; i++) rows.push({ a: i, b: 'x' + i });
+  const keepDoc = global.document, keepFn = global.Function; let made = 0;
+  const fresh = () => { const tr = [], pr = P.packRows(rows, tr); return structuredClone(pr, { transfer: tr }); };
+  const meta = (c) => ({ querySelector: () => ({ getAttribute: () => c }) });
+  try {
+    global.Function = function () { made++; return keepFn.apply(null, arguments); };
+    global.document = meta("default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'"); P.unpackRows(fresh()); assert.strictEqual(made, 0, 'tried to build code on a page without unsafe-eval');
+    global.document = meta("script-src 'unsafe-inline' 'unsafe-eval'"); P.unpackRows(fresh()); assert.ok(made > 0, 'never used the fast path where it is allowed');
+  } finally { global.Function = keepFn; global.document = keepDoc; }
+});
 process.exitCode = bad ? 1 : 0;
