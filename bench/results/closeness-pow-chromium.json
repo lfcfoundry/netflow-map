@@ -1,0 +1,1 @@
+{"version":"chromium 155.0.8059.39","rows":[{"n":3000,"kind":"moderate","old":2603,"new":1762,"old2":2174,"new2":2073,"same":true},{"n":10000,"kind":"moderate","old":4276,"new":2851,"old2":4454,"new2":2797,"same":true},{"n":10000,"kind":"complex","old":5198,"new":3316,"old2":5414,"new2":4147,"same":true}]}

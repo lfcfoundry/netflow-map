@@ -49,6 +49,15 @@ async function open() {
   await ev(() => NFMRender.setWebGPUDrawing(true));   /* the app does not draw with WebGPU; the tests still check that code */
   await D.wait(() => window.NFM && NFM.client() && NFM.client().mode !== 'starting', null, 20000);
   say(true, 'page loaded; engine runs in the ' + (await ev(() => NFM.client().mode)));
+  /* the WebAssembly Force rounds (wasm/force.c) in the browser's own helper: they must run there and match the JavaScript rounds to the last digit */
+  const fw = await ev(() => new Promise((resolve) => {
+    const body = ";self.onmessage=function(){var k=400,X=new Float64Array(k*2),pairs=[],mass=new Float64Array(k),s=7,r=function(){s=(s*1664525+1013904223)>>>0;return s/4294967296;},i;for(i=0;i<k*2;i++)X[i]=(r()-.5)*800;for(i=1;i<k;i++)pairs.push(i,Math.floor(r()*i));for(i=0;i<k;i++)mass[i]=1+(i%3);var W=NFMEngine.forceWasm;" +
+      "function run(on){W.on=on;var x=Float64Array.from(X),m=Float64Array.from(mass),c0=W.calls,q=3,rr=function(){q=(q*1664525+1013904223)>>>0;return q/4294967296;};NFMEngine.forceSim(x,k,2,pairs.slice(),m,30,60,rr);return{x:x,used:W.calls>c0};}" +
+      "var a=run(false),b=run(true),d=0;for(i=0;i<a.x.length;i++)d=Math.max(d,Math.abs(a.x[i]-b.x[i]));postMessage({used:b.used,jsUsed:a.used,diff:d,err:W.error});};";
+    const w = new Worker(URL.createObjectURL(new Blob([document.getElementById('nfm-engine-src').textContent + body], { type: 'text/javascript' })));
+    w.onmessage = (e) => { w.terminate(); resolve(e.data); }; w.onerror = (e) => { resolve({ error: String(e.message || e) }); }; w.postMessage(1);
+  }));
+  say(fw.used === true && fw.jsUsed === false && fw.diff === 0, 'the WebAssembly Force rounds run in the helper and give exactly the JavaScript positions: ' + JSON.stringify(fw));
 
 
   /* Data tab */

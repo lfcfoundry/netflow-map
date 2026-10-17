@@ -62,4 +62,14 @@ ok(sl.snapshot().endpoints[0].share > 0.99, 'walkers escape a loop');
     ok(Math.abs(pm - lam) < 5 * Math.sqrt(lam / M) && Math.abs(pv - lam) < 0.02 * lam + 0.01 && Math.abs(p0 - e0) < 5 * Math.sqrt(e0) + 3, 'poisson ' + lam + ': mean ' + pm.toFixed(3) + ', variance ' + pv.toFixed(3) + ', zeros ' + p0 + ' (expected ' + Math.round(e0) + ')');
   }
 }
-console.log(bad ? bad + ' FAILED' : 'sim: all passed'); process.exit(bad ? 1 : 0);
+console.log(bad ? bad + ' FAILED' : 'sim: all passed'); // 4. fewer than 4,001 trials keep only the trials in which an end was hit (the zeros are added back when the results are read): the results must be exactly the old ones
+{
+  const GEN = require('../bench/gen.js'); let allSame = true, ends = 0;
+  for (const [kind, n, trials] of [['simple', 1500, 300], ['moderate', 1200, 250], ['complex', 800, 400], ['simple', 600, 4000]]) {
+    const dg = NFMColumns.derive(JSON.parse(JSON.stringify(GEN.graph(kind, n, 5)))), P2 = E.prepare(dg, {}), out = [];
+    for (const dense of [false, true]) { const sm = S.create(P2, { seed: 9, trials, sources: [{ v: 0, w: 1 }], denseEnds: dense, linkCost: { dist: 'lognormal', a: 5, b: 2 } }); sm.run(1e9, 1e9); const sn = sm.snapshot(); delete sn.busyMs; out.push(JSON.stringify(sn)); ends += sm.ends.length; }   // busyMs is the clock, not a result
+    if (out[0] !== out[1]) { allSame = false; console.log('  differs: ' + kind + ' ' + n); }
+  }
+  ok(allSame, 'the sparse per-end bookkeeping gives exactly the same results as the dense one (4 graphs, ' + ends + ' ends counted)');
+}
+process.exit(bad ? 1 : 0);

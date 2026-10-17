@@ -1,0 +1,76 @@
+{
+ "version": "firefox/158.0",
+ "reps": 3,
+ "rows": [
+  {
+   "k": 100,
+   "dim": 2,
+   "iters": 150,
+   "js": 20,
+   "wasm": 11,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 150,
+   "dim": 2,
+   "iters": 150,
+   "js": 27,
+   "wasm": 18,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 300,
+   "dim": 2,
+   "iters": 150,
+   "js": 70,
+   "wasm": 47,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 2000,
+   "dim": 2,
+   "iters": 240,
+   "js": 1095,
+   "wasm": 755,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 10000,
+   "dim": 2,
+   "iters": 120,
+   "js": 3895,
+   "wasm": 2567,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 30000,
+   "dim": 2,
+   "iters": 60,
+   "js": 7748,
+   "wasm": 5093,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 10000,
+   "dim": 3,
+   "iters": 90,
+   "js": 7801,
+   "wasm": 4044,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  }
+ ]
+}

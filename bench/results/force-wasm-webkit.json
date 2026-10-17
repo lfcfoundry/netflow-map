@@ -1,0 +1,76 @@
+{
+ "version": "MiniBrowser 2.52.6",
+ "reps": 3,
+ "rows": [
+  {
+   "k": 100,
+   "dim": 2,
+   "iters": 150,
+   "js": 34,
+   "wasm": 12,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 150,
+   "dim": 2,
+   "iters": 150,
+   "js": 33,
+   "wasm": 16,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 300,
+   "dim": 2,
+   "iters": 150,
+   "js": 63,
+   "wasm": 38,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 2000,
+   "dim": 2,
+   "iters": 240,
+   "js": 1150,
+   "wasm": 641,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 10000,
+   "dim": 2,
+   "iters": 120,
+   "js": 3728,
+   "wasm": 2357,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 30000,
+   "dim": 2,
+   "iters": 60,
+   "js": 7719,
+   "wasm": 5162,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 10000,
+   "dim": 3,
+   "iters": 90,
+   "js": 3891,
+   "wasm": 3506,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  }
+ ]
+}
