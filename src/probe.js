@@ -258,21 +258,21 @@ var NFMProbe = (function () {
     if (!res || res.skipped || !res.ways) return { level: 'warn', say: nm + ' was skipped: ' + ((res && res.skipped) || 'not usable here') + '.', lines: lines, cause: null };
     var by = {}; res.ways.forEach(function (w) { by[w.id] = w; });
     var keep = by.keep, full = by.full, angle = by.angle, still = by.still, all = by.g_all, links = by.g_links, itemsW = by.g_items, names = by.g_names, half = by.g_half;
-    lines.push('Turning as the app does it: ' + f0(full.fps) + ' pictures per second' + runsOf(full) + '; a picture took ' + ms1(full.gapMed) + ' ms in the middle, ' + ms1(full.gapP95) + ' ms for the slower 1 in 20, ' + ms1(full.gapMax) + ' ms for the slowest' + (full.slow > 0 ? ' (' + Math.round(full.slow * 100) + '% took over 20 ms)' : '') + '.');
-    lines.push('Angle math alone: ' + ms1(angle.angleMed) + ' ms of work per angle (slowest ' + ms1(angle.angleMax) + ' ms); with nothing drawn the screen refresh still ran at ' + f0(angle.fps) + ' per second.');
-    lines.push('Drawing alone, the same angle each time: ' + f0(still.fps) + ' per second.');
-    if (by.tex) lines.push('Sending the paint order through a texture instead: ' + f0(by.tex.fps) + ' per second' + runsOf(by.tex) + (by.tex.fps > full.fps + 3 ? ' (faster than the current way, ' + f0(full.fps) + ')' : by.tex.fps < full.fps - 3 ? ' (slower than the current way, ' + f0(full.fps) + ')' : ' (about the same as the way the app uses)') + '.');
+    lines.push('Turning as the app does it: ' + f0(full.fps) + ' FPS' + runsOf(full) + '; a picture took ' + ms1(full.gapMed) + ' ms in the middle, ' + ms1(full.gapP95) + ' ms for the slower 1 in 20, ' + ms1(full.gapMax) + ' ms for the slowest' + (full.slow > 0 ? ' (' + Math.round(full.slow * 100) + '% took over 20 ms)' : '') + '.');
+    lines.push('Angle math alone: ' + ms1(angle.angleMed) + ' ms of work per angle (slowest ' + ms1(angle.angleMax) + ' ms); with nothing drawn the screen refresh still ran at ' + f0(angle.fps) + ' FPS.');
+    lines.push('Drawing alone, the same angle each time: ' + f0(still.fps) + ' FPS.');
+    if (by.tex) lines.push('Sending the paint order through a texture instead: ' + f0(by.tex.fps) + ' FPS' + runsOf(by.tex) + (by.tex.fps > full.fps + 3 ? ' (faster than the current way, ' + f0(full.fps) + ')' : by.tex.fps < full.fps - 3 ? ' (slower than the current way, ' + f0(full.fps) + ')' : ' (about the same as the way the app uses)') + '.');
     ['ring', 'map'].forEach(function (id) {
       var w = by[id]; if (!w) return;
-      lines.push('Sending the paint order ' + (id === 'ring' ? 'to a ring of three card buffers' : 'through staging buffers written directly') + ': ' + f0(w.fps) + ' per second' + runsOf(w) + ', slowest 1 in 20 ' + ms1(w.gapP95) + ' ms, slowest ' + ms1(w.gapMax) + ' ms' + (w.fps > full.fps + 1 || w.gapP95 + 3 < full.gapP95 ? ' (steadier than the way the app uses)' : w.fps < full.fps - 1 || w.gapP95 > full.gapP95 + 3 ? ' (worse than the way the app uses)' : ' (about the same as the way the app uses)') + '.');
+      lines.push('Sending the paint order ' + (id === 'ring' ? 'to a ring of three card buffers' : 'through staging buffers written directly') + ': ' + f0(w.fps) + ' FPS' + runsOf(w) + ', slowest 1 in 20 ' + ms1(w.gapP95) + ' ms, slowest ' + ms1(w.gapMax) + ' ms' + (w.fps > full.fps + 1 || w.gapP95 + 3 < full.gapP95 ? ' (steadier than the way the app uses)' : w.fps < full.fps - 1 || w.gapP95 > full.gapP95 + 3 ? ' (worse than the way the app uses)' : ' (about the same as the way the app uses)') + '.');
     });
-    if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' per second.');
+    if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' FPS.');
     lines.push('Time the card needs per picture: ' + ms1(all.ms) + ' ms for everything; links alone ' + ms1(links.ms) + ' ms; items alone ' + ms1(itemsW.ms) + ' ms; names alone ' + ms1(names.ms) + ' ms; everything at half size ' + ms1(half.ms) + ' ms.');
-    var say = 'Turning the ' + big + ' map with ' + nm + ' ran at ' + f0(full.fps) + ' pictures per second. ', cause, level;
+    var say = 'Turning the ' + big + ' map with ' + nm + ' ran at ' + f0(full.fps) + ' FPS. ', cause, level;
     if (full.fps >= 58) { cause = 'smooth'; level = 'ok'; say += 'That is a steady 60: nothing to fix.'; }
-    else if (keep && keep.fps >= 57 && (keep.fps >= full.fps + 2 || keep.slow + 0.03 < full.slow || keep.gapP95 + 5 < full.gapP95)) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' per second' + (full.slow > 0 ? ' with no pauses' : '') + '. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
-    else if ((keep ? keep.fps : angle.fps) < 57) { cause = 'angle'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The limit is on the main thread: even with the paint order left out, only ' + f0(keep ? keep.fps : angle.fps) + ' pictures per second got through (' + ms1(angle.angleMed) + ' ms of angle work each).'; }
-    else if (keep && keep.fps >= full.fps + 5) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' per second. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
+    else if (keep && keep.fps >= 57 && (keep.fps >= full.fps + 2 || keep.slow + 0.03 < full.slow || keep.gapP95 + 5 < full.gapP95)) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' FPS' + (full.slow > 0 ? ' with no pauses' : '') + '. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
+    else if ((keep ? keep.fps : angle.fps) < 57) { cause = 'angle'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The limit is on the main thread: even with the paint order left out, only ' + f0(keep ? keep.fps : angle.fps) + ' FPS got through (' + ms1(angle.angleMed) + ' ms of angle work each).'; }
+    else if (keep && keep.fps >= full.fps + 5) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' FPS. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
     else if (all.ms > 14) {
       cause = 'card'; level = full.fps >= 45 ? 'ok' : 'warn';
       var parts = [['the links', links.ms], ['the items', itemsW.ms], ['the names', names.ms]].sort(function (a, b) { return b[1] - a[1]; });
@@ -361,18 +361,18 @@ var NFMProbe = (function () {
     parts.other = Math.max(0, period - parts.scene - parts.upload - parts.draw - parts.fence - parts.raf);
     var dom = Object.keys(parts).sort(function (a, b) { return parts[b] - parts[a]; })[0], share = parts[dom] / period;
     if (gpu.software) say += 'This WebGPU runs on the processor (a software stand-in), so these numbers show the code path, not your graphics chip. ';
-    say += 'The old way drew ' + f0(old.fps) + ' pictures per second, ' + ms1(period) + ' ms each; most of that time (' + ms1(parts[dom]) + ' ms, ' + Math.round(100 * share) + '%) was spent ' + PHASES[dom] + '. ';
-    say += 'The fastest way on this computer was "' + fast.label.toLowerCase() + '" at ' + f0(fast.fps) + ' pictures per second' + (fast.id === old.id ? '.' : (fast.fps > old.fps * 1.1 ? ', ' + (fast.fps / old.fps).toFixed(1) + ' times the old way.' : ', about the same as the old way.'));
-    if (by.blank && fast.fps < 40 && by.blank.fps <= fast.fps * 1.3) say += ' Even a blank picture only reaches ' + f0(by.blank.fps) + ' per second, so the limit is the browser\'s own step of putting a WebGPU picture on screen, not how much is drawn.';
-    else if (by.half && by.nowait && by.half.fps >= by.nowait.fps * 1.5 && by.nowait.fps < 40) say += ' A half-size picture runs at ' + f0(by.half.fps) + ' per second, so the cost follows the number of pixels.';
+    say += 'The old way drew ' + f0(old.fps) + ' FPS, ' + ms1(period) + ' ms each; most of that time (' + ms1(parts[dom]) + ' ms, ' + Math.round(100 * share) + '%) was spent ' + PHASES[dom] + '. ';
+    say += 'The fastest way on this computer was "' + fast.label.toLowerCase() + '" at ' + f0(fast.fps) + ' FPS' + (fast.id === old.id ? '.' : (fast.fps > old.fps * 1.1 ? ', ' + (fast.fps / old.fps).toFixed(1) + ' times the old way.' : ', about the same as the old way.'));
+    if (by.blank && fast.fps < 40 && by.blank.fps <= fast.fps * 1.3) say += ' Even a blank picture only reaches ' + f0(by.blank.fps) + ' FPS, so the limit is the browser\'s own step of putting a WebGPU picture on screen, not how much is drawn.';
+    else if (by.half && by.nowait && by.half.fps >= by.nowait.fps * 1.5 && by.nowait.fps < 40) say += ' A half-size picture runs at ' + f0(by.half.fps) + ' FPS, so the cost follows the number of pixels.';
     if (ctl && ctl.ways && ctl.ways.length) {
       var cw = ctl.ways.slice().sort(function (a, b) { return b.fps - a.fps; })[0], cb = ctl.ways.filter(function (w) { return w.id === 'blank'; })[0];
-      say += ' For comparison WebGL 2 reached ' + f0(cw.fps) + ' per second' + (cb ? ' (blank: ' + f0(cb.fps) + ')' : '') + '.' + (cw.fps > fast.fps * 1.5 && !gpu.software ? ' WebGL 2 is the better choice on this computer.' : '');
+      say += ' For comparison WebGL 2 reached ' + f0(cw.fps) + ' FPS' + (cb ? ' (blank: ' + f0(cb.fps) + ')' : '') + '.' + (cw.fps > fast.fps * 1.5 && !gpu.software ? ' WebGL 2 is the better choice on this computer.' : '');
     }
-    if (by.old && by.reuse) lines.push('Keeping the buffers instead of making new ones: ' + f0(by.old.fps) + ' to ' + f0(by.reuse.fps) + ' pictures per second.');
-    if (by.reuse && by.nowait) lines.push('Not waiting for the card after every picture: ' + f0(by.reuse.fps) + ' to ' + f0(by.nowait.fps) + ' pictures per second. The card\'s "done" signal took ' + ms1(by.reuse.fence) + ' ms to come back on average.');
-    if (by.pace) lines.push('Letting up to three pictures be in flight (the new default): ' + f0(by.pace.fps) + ' pictures per second.');
-    if (fast.id === 'nowait' && by.pace) say += ' Never waiting lets pictures pile up on a slow card, so the app loops allow three at a time instead; that reached ' + f0(by.pace.fps) + ' per second.';
+    if (by.old && by.reuse) lines.push('Keeping the buffers instead of making new ones: ' + f0(by.old.fps) + ' to ' + f0(by.reuse.fps) + ' FPS.');
+    if (by.reuse && by.nowait) lines.push('Not waiting for the card after every picture: ' + f0(by.reuse.fps) + ' to ' + f0(by.nowait.fps) + ' FPS. The card\'s "done" signal took ' + ms1(by.reuse.fence) + ' ms to come back on average.');
+    if (by.pace) lines.push('Letting up to three pictures be in flight (the new default): ' + f0(by.pace.fps) + ' FPS.');
+    if (fast.id === 'nowait' && by.pace) say += ' Never waiting lets pictures pile up on a slow card, so the app loops allow three at a time instead; that reached ' + f0(by.pace.fps) + ' FPS.';
     var level = fast.fps >= 45 ? 'ok' : fast.fps >= 20 ? 'warn' : 'bad';
     if (gpu.software) level = 'warn';
     return { level: level, say: say, lines: lines, dominant: { phase: dom, ms: parts[dom], share: share }, fastest: fast.id };
@@ -461,11 +461,11 @@ var NFMProbe = (function () {
         var rounded = typeof EnvProbes !== 'undefined' && EnvProbes.timerRounded && EnvProbes.timerRounded();
         results.forEach(function (r) {
           var nm = r.n === 'webgpu' ? 'WebGPU' : r.n === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
-          say(r.fps >= 45 ? true : r.fps >= 20 ? null : false, nm + ': about ' + (r.fps >= 100 ? Math.round(r.fps / 10) * 10 : Math.round(r.fps)) + ' pictures per second on a large map (' + stress.nodes.length.toLocaleString('en-US') + ' items, ' + (stress.curves.length + stress.ribbons.length).toLocaleString('en-US') + ' links).' + (rounded ? ' This browser blurs its clock, so treat this as a rough number.' : ''));
+          say(r.fps >= 45 ? true : r.fps >= 20 ? null : false, nm + ': about ' + (r.fps >= 100 ? Math.round(r.fps / 10) * 10 : Math.round(r.fps)) + ' FPS on a large map (' + stress.nodes.length.toLocaleString('en-US') + ' items, ' + (stress.curves.length + stress.ribbons.length).toLocaleString('en-US') + ' links).' + (rounded ? ' This browser blurs its clock, so treat this as a rough number.' : ''));
         });
         if (turn && turn.fps) {
           var tf = turn.fps >= 100 ? Math.round(turn.fps / 10) * 10 : Math.round(turn.fps);
-          say(turn.fps >= 45 ? true : turn.fps >= 20 ? null : false, 'Turning a 3D map: about ' + tf + ' pictures per second' + (turn.fps < 45 ? ' (working out each new angle takes ' + turn.sceneMs.toFixed(1) + ' ms and drawing it ' + turn.drawMs.toFixed(1) + ' ms)' : '') + '. ' + (turn.fps >= 45 ? 'Rotating and zooming will feel smooth.' : turn.fps >= 20 ? 'Rotating works but will feel a little steppy on big maps.' : 'Rotating a big 3D map will feel choppy here.'));
+          say(turn.fps >= 45 ? true : turn.fps >= 20 ? null : false, 'Turning a 3D map: about ' + tf + ' FPS' + (turn.fps < 45 ? ' (working out each new angle takes ' + turn.sceneMs.toFixed(1) + ' ms and drawing it ' + turn.drawMs.toFixed(1) + ' ms)' : '') + '. ' + (turn.fps >= 45 ? 'Rotating and zooming will feel smooth.' : turn.fps >= 20 ? 'Rotating works but will feel a little steppy on big maps.' : 'Rotating a big 3D map will feel choppy here.'));
           data.turn = { backend: turn.backend, fps: turn.fps, sceneMs: turn.sceneMs, drawMs: turn.drawMs };
         } else if (turn && turn.skipped) data.turn = { backend: turn.backend, skipped: turn.skipped };
         if (soft) say(null, 'Speed for the graphics paths that run on the processor is not reported, because it would say little about a real graphics chip.');

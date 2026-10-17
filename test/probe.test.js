@@ -70,7 +70,7 @@ const fence = async () => { for (let i = 0; i < 5; i++) await Promise.resolve();
   await t('a slow "done" signal is named as the main cost, and the fastest way is reported', async () => {
     const e = NFMProbe.explainTiming(slowFence, ctl);
     ok(e.dominant.phase === 'fence' && e.dominant.share > 0.8, JSON.stringify(e.dominant));
-    ok(/waiting for the graphics card to say it had finished/.test(e.say) && /9\.9 pictures per second/.test(e.say), e.say);
+    ok(/waiting for the graphics card to say it had finished/.test(e.say) && /9\.9 FPS/.test(e.say), e.say);
     ok(e.fastest === 'nowait' && /allow three at a time/.test(e.say) && e.level === 'ok', e.fastest + ' ' + e.level);
   });
   await t('a browser whose blank picture is just as slow is blamed, not our drawing', async () => {
