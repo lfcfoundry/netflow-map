@@ -226,7 +226,10 @@ function scheduleScene(camOnly) {
 }
 /** While a big 3D map turns, the picture lives on the card and the lists in the scene are out of date. A moment after the turning stops (or when something needs them: saving, printing) they are made again. */
 var settleTimer = 0;
-function armSettle() { clearTimeout(settleTimer); settleTimer = setTimeout(settleTurn, 250); }
+/* A big 3D map stays on the card after turning, zooming or panning stops: the card's picture is the ordinary picture, so there is nothing to put back, and rebuilding the whole scene (a fifth of a second at 25,000 items, over a second at 100,000, then a fresh upload to the card) froze the next drag. Anything that needs the full scene (saving, printing, any change to the map) asks for it itself. */
+function armSettle() { clearTimeout(settleTimer); }
+/** The scene with its item records brought up to date (they are only worked out when something reads them while a big map is being turned). */
+function liveScene() { var sc = S.scene; if (sc && sc.recStale) sc.syncRecs(); return sc; }
 function settleTurn() {
   clearTimeout(settleTimer);
   var sc = S.scene; if (!S.L || !sc || !sc.turn || !sc.turn.on) return;
@@ -305,7 +308,7 @@ function requestDraw() {
     /* zooming or panning a big 3D map rides the card just like turning it: the ordinary picture costs tens of milliseconds at 30,000 items, the card's about ten at 100,000 */
     if (mv && tsc && tsc.turnTo && S.L && S.L.is3d && !tsc.noTurn && mgr && mgr.r && mgr.r.rigOK) {
       if (!(tsc.turn && tsc.turn.on)) tsc.turnTo(S.V.cam, S.view.k * 2);
-      armSettle();   /* the ordinary picture is rebuilt a moment after the movement stops */
+      armSettle();
     }
     if (tsc && tsc.turn && tsc.turn.on && S.view.k > tsc.turn.kmax) tsc.turnTo(tsc.turn.cam, S.view.k * 2);   /* zoomed in: more names can be seen */
     if (mgr && mgr.r && S.scene) { try { mgr.r.draw({ k: S.view.k, tx: S.view.tx, ty: S.view.ty, invalidate: requestDraw }); } catch (err) { mgr.log.push('draw: ' + err.message); } }
