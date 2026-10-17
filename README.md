@@ -82,7 +82,7 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - `src/gif.js`: the animated GIF writer (palette, frame differencing, LZW)
 - `src/pack.js`: sends a big layout from the helper to the page as typed-array columns instead of copying every object
 - `src/app/*.js` (joined in file-name order into one function), `src/app.css`, `src/index.template.html`: the page (00 core, 10 data, 20 nodes, 30 map, 32 interact, 35 rail, 40 states, 50 check, 60 advanced, 61 simulation, 70 export, 72 gif, 99 boot)
-- `vendor/`: `env-probes.js` and `back-close.js` from [JS-modules](https://github.com/JNFoo/JS-modules); `story-map.global.js` is only the test oracle, it is not shipped in `index.html`
+- `vendor/`: `env-probes.js` and `back-close.js` from [JS-modules](https://github.com/lfcfoundry/JS-modules); `story-map.global.js` is only the test oracle, it is not shipped in `index.html`
 
 ## Known limits
 
