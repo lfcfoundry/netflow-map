@@ -80,6 +80,8 @@ function showMsg(content, buttons) {
 }
 function hideMsg() { $('msg').hidden = true; }
 var buildQueued = 0;
+/** What the engine's answer depends on: the settings it is given and the data it works on. While this stays the same the layout on the stage is still the right one, so a change of looks only (a color choice the engine does not use, a theme) makes a new picture from it instead of working the layout out again. */
+function buildKey() { return JSON.stringify(engineOpts()) + '|' + S.gver + '|' + JSON.stringify(S.V.pins[pinKey()] || 0); }   /* pins are put on the layout in place (applyPins), so a changed pin needs a fresh layout */
 /** Builds the map again from the data and settings. Off the Map tab it only notes that the picture is out of date (the Map builds it when shown), unless force is true (export asks for that). Returns a promise that settles when the build is over. */
 function refreshMap(reason, force) {
   if (S.tab !== 'map' && !force) { S.sceneOk = false; S.mapStale = -1; return Promise.resolve(); }
@@ -87,12 +89,17 @@ function refreshMap(reason, force) {
   clearTimeout(busyT);
   $('stage').classList.toggle('empty', !S.graph.nodes.length);
   if (!S.graph.nodes.length) {
-    S.L = null; S.scene = null; S.sceneOk = true; S.mapBusy = 0; if (mgr && mgr.r) mgr.r.setScene(null);
+    S.L = null; S.buildKey = null; S.scene = null; S.sceneOk = true; S.mapBusy = 0; if (mgr && mgr.r) mgr.r.setScene(null);
     showMsg(h('div', { style: { display: 'grid', gap: '6px' } }, [h('b', null, 'Nothing to draw yet.'), h('span', { class: 'muted small' }, 'Bring in a table, a JSON file, an outline or a folder of notes on the Data tab.')]), [['Go to Data', function () { showTab('data'); }, true]]);
     renderMapUI(); return Promise.resolve();
   }
+  if (S.L && S.buildKey && S.buildDg === S.dg && S.buildKey === buildKey()) {   /* nothing the layout depends on changed: only the picture is made again, which allocates one picture instead of a layout and a picture */
+    ++S.mapSeq; S.mapBusy = 0; clearTimeout(busyT); hideMsg(); S.reusedLayouts = (S.reusedLayouts || 0) + 1;
+    makeScene(false); S.sceneOk = true; return Promise.resolve();
+  }
+  S.buildKey = null;
   if (!client || client.mode === 'starting') { showMsg('Getting ready…'); return new Promise(function (res) { setTimeout(function () { res(refreshMap(reason, force)); }, 150); }); }
-  var seq = ++S.mapSeq; S.sceneOk = false; S.mapBusy = seq;
+  var seq = ++S.mapSeq; S.sceneOk = false; S.mapBusy = seq; var bk = buildKey(), bdg = S.dg;
   busyT = setTimeout(function () { if (seq === S.mapSeq) showMsg(h('div', { style: { display: 'grid', gap: '6px' } }, [h('b', null, 'Working out the map…'), h('span', { class: 'muted small' }, nfmt(S.graph.nodes.length) + ' items, ' + nfmt(S.graph.edges.length) + ' links')])); }, 350);
   var t0 = performance.now(), V = S.V;
   var shown = function (res, rough) {   // puts a layout on the stage; a rough one (the early preview of a big map) leaves the map marked as still being worked on
@@ -110,6 +117,7 @@ function refreshMap(reason, force) {
     makeScene(fit); lastFitKey = fk;
     if (rough) { toast('A rough picture is up. The finished one replaces it when ready.', 30000); return; }
     S.sceneOk = true; if (S.mapBusy === seq) S.mapBusy = 0;
+    S.buildKey = bk; S.buildDg = bdg;
     if (S.roughShown) { S.roughShown = false; toast('The finished picture is ready.', 2500); }
   };
   var p = client.build(engineOpts(), function (res) { if (seq !== S.mapSeq) return; S.roughShown = true; S.roughCount = (S.roughCount || 0) + 1; shown(res, true); }).then(function (res) {

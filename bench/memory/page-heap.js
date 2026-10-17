@@ -16,13 +16,15 @@ const CH = process.env.NFM_CHROME || (process.env.HOME || '/root') + '/browsers/
   const t0 = Date.now();
   await page.evaluate((n) => { NFM.setGraph(NFMExamples.bigNetwork(n, 12, 7)); NFM.setV({ view: 'network', arrange: 'sphere' }); }, N);
   await page.waitForFunction((n) => NFM.state.L && NFM.state.sceneOk && NFM.state.L.nodes.length > n * 0.98, N, { timeout: 240000 }); const tDone = Date.now() - t0;
-  await new Promise((r) => setTimeout(r, 1500)); const shown = await heap('3D network shown (page heap only; the worker has its own)', tDone);
+  await new Promise((r) => setTimeout(r, 1500)); let shown = await heap('3D network shown (page heap only; the worker has its own)', tDone);
+  await page.evaluate(() => { NFM.setV({ colorBy: 'group' }); }); await page.waitForFunction(() => NFM.state.sceneOk && !NFM.state.mapBusy, null, { timeout: 240000 }); await new Promise((r) => setTimeout(r, 1500)); shown = await heap('set-up: switched to plain groups (a full rebuild)');   /* the network starts on found groups, which the engine uses; the measured change below is then a look-only one */
   await page.evaluate(() => { window.__calls = { make: 0 }; const mk = NFMScene.make; NFMScene.make = function () { __calls.make++; return mk.apply(this, arguments); }; });
   // peak: sample the heap every 20 ms while the second picture is made (the page is busy, so samples land between its tasks; the top one is a floor for the true peak)
   await page.evaluate(() => { window.__peak = 0; window.__t = setInterval(() => { const h = performance.memory.usedJSHeapSize; if (h > __peak) __peak = h; }, 5); const o = NFMScene.make; NFMScene.make = function () { const r = o.apply(this, arguments); const h = performance.memory.usedJSHeapSize; if (h > __peak) __peak = h; return r; }; });
-  await page.evaluate(() => { NFM.setV({ colorBy: 'size' }); }); await page.waitForFunction(() => __calls.make >= 1, null, { timeout: 60000 }).catch(() => {}); await new Promise((r) => setTimeout(r, 2000));   /* wait until the second picture has really been made */
+  const tc = Date.now(); await page.evaluate(() => { NFM.setV({ colorBy: 'size' }); }); await page.waitForFunction(() => __calls.make >= 1 && NFM.state.sceneOk && !NFM.state.mapBusy, null, { timeout: 120000 }).catch(() => {}); const tChange = Date.now() - tc; await new Promise((r) => setTimeout(r, 2000));   /* wait until the second picture has really been made */
   const peak = await page.evaluate(() => { clearInterval(__t); return __peak / 1048576; }); console.log('pictures made by the color change', JSON.stringify(await page.evaluate(() => __calls)));
   const after = await heap('after a second picture (color change), collected');
+  rows.push('the color change took (until the new picture is up)'.padEnd(48) + '       ' + (tChange / 1000).toFixed(1) + ' s');
   rows.push('highest heap seen right after the second picture'.padEnd(48) + String(Math.round(peak)).padStart(6) + ' MB   (before: ' + Math.round(shown) + ' MB)');
   console.log('step'.padEnd(48) + ' page heap\n' + rows.join('\n')); await b.close();
 })();

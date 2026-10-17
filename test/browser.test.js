@@ -327,6 +327,20 @@ async function open() {
   say(await ev(() => NFM.state.roughCount >= 1 && !NFM.state.L.rough && NFM.state.sceneOk), 'a big map: rough picture shown first, then replaced by the finished one');
   await ev(() => { NFM.engine().stressTuning.previewMin = 40000; });
 
+  /* a change of looks only (a color choice the engine does not use) makes a new picture from the layout already on the stage instead of working the layout out again; the picture is the one a full rebuild gives, and a change the engine does use still rebuilds */
+  { const idle = () => NFM.state.sceneOk && !NFM.state.mapBusy && NFM.state.scene, was = await ev(() => NFM.state.V.colorBy);
+    await ev(() => { NFM.setV({ colorBy: 'group' }); }); await D.wait(idle, null, 60000); await settle(200);   /* the network starts on found groups, which the engine uses; start the check from plain groups */
+    await ev(() => { const c = NFM.client(), ob = c.build; window.__nb = 0; c.build = function () { window.__nb++; return ob.apply(this, arguments); }; window.__L0 = NFM.state.L; window.__pos0 = NFM.state.L.nodes.slice(0, 300).map((n) => [n.x, n.y]); window.__n0 = NFM.state.scene.nodes.length; NFM.state.reusedLayouts = 0; NFM.setV({ colorBy: 'size' }); });
+    await D.wait(idle, null, 60000); await settle(200);
+    const a = await ev(() => ({ nb: window.__nb, same: NFM.state.L === window.__L0, reused: NFM.state.reusedLayouts, n: NFM.state.scene.nodes.length === window.__n0 }));
+    say(a.nb === 0 && a.same && a.reused === 1 && a.n, `a color choice the engine does not use reuses the layout (engine builds ${a.nb}, same layout ${a.same}, reused ${a.reused})`);
+    await ev(() => { NFM.state.buildKey = null; NFM.refreshMap('options'); }); await D.wait(() => window.__nb >= 1 && NFM.state.sceneOk && !NFM.state.mapBusy, null, 60000); await settle(200);
+    const b = await ev(() => { const P = NFM.state.L.nodes.slice(0, 300).map((n) => [n.x, n.y]); return { nb: window.__nb, equal: P.length === window.__pos0.length && P.every((p, i) => p[0] === window.__pos0[i][0] && p[1] === window.__pos0[i][1]), n: NFM.state.scene.nodes.length === window.__n0 }; });
+    say(b.nb === 1 && b.equal && b.n, `a full rebuild gives the same layout and picture as the reused one (positions of 300 items equal ${b.equal})`);
+    await ev(() => { NFM.setV({ colorBy: 'found' }); }); await D.wait(() => window.__nb >= 2 && NFM.state.sceneOk && !NFM.state.mapBusy, null, 60000);
+    say(await ev(() => window.__nb === 2), 'a color choice the engine uses (found groups) still works the layout out again');
+    await ev((c) => { NFM.setV({ colorBy: c }); }, was); await D.wait(() => NFM.state.sceneOk && !NFM.state.mapBusy, null, 60000); await settle(200); }
+
   /* turning a big 3D map on the card: the picture while turning is the ordinary picture, labels and selection survive, and the full picture comes back once the turning stops */
   await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(800, 9, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'force3d' }); });
   await D.wait(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length > 750, null, 90000); await settle(300);
