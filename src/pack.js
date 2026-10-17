@@ -61,6 +61,15 @@ var NFMPack = (function () {
     return { n: n, keys: keys, cols: cols };
   }
 
+  /** False on a page whose own security policy leaves out 'unsafe-eval' (the Netflow Map pages): building code from text would only be refused and logged. Node and workers have no page, so they say yes. */
+  function evalAllowed() {
+    try {
+      var m = typeof document === 'object' && document.querySelector && document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+      if (m && !/unsafe-eval/.test(m.getAttribute('content') || '')) return false;
+    } catch (e) { /* no page */ }
+    return true;
+  }
+
   /** The text column back as an array of strings. */
   function textOf(col, n) {
     var out = new Array(n), p = 0, len = col.len, s = col.text;
@@ -81,7 +90,8 @@ var NFMPack = (function () {
     }
     var kinds = P.cols.map(function (x) { return x.k; });
     var make = null;
-    try {   // one object literal with the fields in the engine's order: the fastest way to build a million alike objects
+    try {   // one object literal with the fields in the engine's order: the fastest way to build a million alike objects (skipped on a page whose policy has no 'unsafe-eval': the loop below builds the same objects, about 6 times slower in Firefox, 0.5 s for a million)
+      if (!evalAllowed()) throw new Error('no eval');
       var names = [], lit = [];
       for (c = 0; c < K; c++) { names.push('c' + c); lit.push(JSON.stringify(keys[c]) + ':' + (kinds[c] === 'b' ? 'c' + c + '[i]===1' : 'c' + c + '[i]')); }
       make = new Function(names.join(','), 'n', 'out', 'for(var i=0;i<n;i++)out[i]={' + lit.join(',') + '};return out;');
