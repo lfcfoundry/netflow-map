@@ -333,26 +333,28 @@ var NFMProbe = (function () {
           var p = cfg.wait === 'every' ? r.flush() : cfg.wait === 'pace' ? (r.pace ? r.pace(3) : r.flush()) : typeof cfg.wait === 'number' ? (i % cfg.wait === 0 ? r.flush() : null) : null;
           if (p) await p;
           var t4 = nowMs(), ok = await nextRefresh(), t5 = nowMs();
-          if (!ok) return null;
+          if (!ok) return { hidden: true };
           if (i === settle) tStart = t5;
           else if (i > settle) { counted++; tEnd = t5; acc.scene += t1 - t0; acc.upload += t2 - t1; acc.draw += t3 - t2; acc.fence += t4 - t3; acc.raf += t5 - t4; }
-          if (counted >= frames || (i > settle && t5 - tStart >= ms)) break;
+          /* a slow way (a huge map: half a second a picture) is given the time to show three pictures, up to 6 s, instead of being thrown away */
+          if (counted >= frames || (i > settle && ((counted >= 3 && t5 - tStart >= ms) || t5 - tStart >= 6000))) break;
         }
-        if (counted < 3) return null;
+        if (counted < 1) return { slow: true };
         var secs = Math.max(0.001, (tEnd - tStart) / 1000);
         return { fps: counted / secs, frames: counted, scene: acc.scene / counted, upload: acc.upload / counted, draw: acc.draw / counted, fence: acc.fence / counted, raf: acc.raf / counted };
       };
       return (async function () {
-        var ways = [], hidden = false;
-        await runWay({ wait: 'none' }, 5, 500);   /* warm-up: compile the programs, fill the caches; not reported */
-        for (var q = 0; q < plan.length && !hidden; q++) {
+        var ways = [], hidden = false, tooSlow = false;
+        var warmUp = await runWay({ wait: 'none' }, 5, 500); if (warmUp.hidden) hidden = true;   /* warm-up: compile the programs, fill the caches; not reported */
+        for (var q = 0; q < plan.length && !hidden && !tooSlow; q++) {
           var res = await runWay(plan[q][1], maxFrames, cap);
-          if (!res) { hidden = true; break; }
+          if (res.hidden) { hidden = true; break; }
+          if (res.slow) { tooSlow = true; break; }
           res.id = plan[q][0]; res.label = WAYS[!gpu && res.id === 'nowait' ? 'cnowait' : res.id]; ways.push(res);
         }
         var info = { device: r.device || '', software: !!r.software };
         r.destroy();
-        return gone(hidden ? { backend: n, skipped: 'the page was in the background' } : { backend: n, device: info.device, software: info.software, ways: ways });
+        return gone(hidden ? { backend: n, skipped: 'the page was in the background' } : !ways.length ? { backend: n, skipped: 'too slow to time: not even one picture could be drawn' } : { backend: n, device: info.device, software: info.software, ways: ways, partial: tooSlow || undefined });
       })();
     }).catch(function (err) { return gone({ backend: n, skipped: String(err && err.message || err) }); });
   }
