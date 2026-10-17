@@ -21,6 +21,24 @@
     $('status').textContent = t;
     var cur = sections[sections.length - 1]; if (cur && !cur.done && cur.card) { var v = cur.card.querySelector('.verdict'); if (v) v.textContent = 'Working… ' + t; }   /* the open section says what it is doing right now */
   }
+  /** The run clock at the top of the page: counts up while a run is going and stops at the total. */
+  var clockTimer = 0;
+  function clockText(ms) { var t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, sec = t % 60; return (h ? h + ':' + (m < 10 ? '0' : '') + m : m) + ':' + (sec < 10 ? '0' : '') + sec; }
+  function startClock() { clearInterval(clockTimer); var c = $('clock'); c.textContent = '⏱ 0:00'; clockTimer = setInterval(function () { c.textContent = '⏱ ' + clockText(now() - t0Run); }, 250); }
+  function stopClock() { clearInterval(clockTimer); $('clock').textContent = '⏱ ' + clockText(now() - t0Run) + ' total'; }
+  /** A live FPS counter in the corner of a viewing box: the screen's real picture rate while the test draws there, with the slowest picture of the last second. */
+  function addFpsPill(box) {
+    var pill = document.createElement('div'); pill.style.cssText = 'position:absolute;right:6px;top:6px;padding:2px 8px;border-radius:12px;font:12px/1.4 system-ui,sans-serif;background:rgba(0,0,0,.6);color:#fff;pointer-events:none;z-index:5;font-variant-numeric:tabular-nums'; pill.textContent = '… FPS'; box.appendChild(pill);
+    var last = 0, n = 0, t0 = 0, worst = 0;
+    var tick = function (ts) {
+      if (!box.isConnected) return;
+      if (last) { n++; worst = Math.max(worst, ts - last); }
+      last = ts; if (!t0) t0 = ts;
+      if (ts - t0 >= 500) { pill.textContent = Math.round(1000 * n / (ts - t0)) + ' FPS · slowest ' + Math.round(worst) + ' ms'; n = 0; worst = 0; t0 = ts; }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
   function setBar() { $('barfill').style.width = Math.min(100, Math.round(100 * doneSteps / total)) + '%'; }
   function addSection(title) {
     var card = document.createElement('div'); card.className = 'card'; card.innerHTML = '<h2></h2><div class="verdict note">Working…</div><div class="tw"></div>'; card.firstChild.textContent = title; $('out').insertBefore(card, $('out').firstChild);   /* the step being tested is always the top card */
@@ -37,7 +55,7 @@
     s.rows.push = function () { var r = Array.prototype.push.apply(s.rows, arguments); s.refresh(); return r; };
     /** A box in the open section that a test draws its map into (scaled down, but the real picture being timed). */
     s.live = function () {
-      if (!s.hostBox) { var b = document.createElement('div'); b.className = 'livebox'; b.style.cssText = 'position:relative;width:360px;max-width:100%;height:200px;overflow:hidden;border:1px solid var(--line);border-radius:8px;margin:6px 0'; card.insertBefore(b, card.querySelector('.tw')); s.hostBox = b; }
+      if (!s.hostBox) { var b = document.createElement('div'); b.className = 'livebox'; b.style.cssText = 'position:relative;width:360px;max-width:100%;height:200px;overflow:hidden;border:1px solid var(--line);border-radius:8px;margin:6px 0'; card.insertBefore(b, card.querySelector('.tw')); s.hostBox = b; addFpsPill(b); }
       return s.hostBox;
     };
     /** A small flat picture of the item positions just worked out (x, y pairs by default), so the person can watch the layouts appear. */
@@ -480,13 +498,13 @@
     window.__NFM_TESTER_RESULT = { md: md, sections: sections.map(function (s) { return { title: s.title, level: s.level, verdict: s.verdict }; }), ctx: ctx };
   }
   async function runAll() {
-    if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; $('show').style.display = 'none'; $('show').innerHTML = '<h2>The 3D map, turning</h2>'; previews.length = 0; hands = {}; document.querySelector('main').classList.remove('fin'); doneSteps = 0; if (params.get('only')) { var keep = STEPS.filter(function (x) { return x.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }); if (keep.length) { STEPS.length = 0; keep.forEach(function (x) { STEPS.push(x); }); } } total = STEPS.length; setBar(); t0Run = now();
+    if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; $('show').style.display = 'none'; $('show').innerHTML = '<h2>The 3D map, turning</h2>'; previews.length = 0; hands = {}; document.querySelector('main').classList.remove('fin'); doneSteps = 0; if (params.get('only')) { var keep = STEPS.filter(function (x) { return x.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }); if (keep.length) { STEPS.length = 0; keep.forEach(function (x) { STEPS.push(x); }); } } total = STEPS.length; setBar(); t0Run = now(); startClock();
     for (var i = 0; i < STEPS.length; i++) {
       setStatus('Step ' + (i + 1) + ' of ' + STEPS.length + ': ' + STEPS[i].name + '…'); await yieldUI();
       try { await STEPS[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(STEPS[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
       doneSteps = i + 1; setBar();
     }
-    var el = now() - t0Run; setStatus('Finished in ' + fmtMs(el) + '.'); offerResults(buildMd(el), el); startPreviews(); running = false;
+    var el = now() - t0Run; stopClock(); setStatus('Finished in ' + fmtMs(el) + '.'); offerResults(buildMd(el), el); startPreviews(); running = false;
   }
   $('again').onclick = function () { runAll(); };
   window.addEventListener('load', function () { setTimeout(runAll, 400); });
