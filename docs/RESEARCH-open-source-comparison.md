@@ -1,4 +1,4 @@
-# Net Flow Map vs. open-source code: what to keep, what to swap, what to improve
+# Netflow Map vs. open-source code: what to keep, what to swap, what to improve
 
 Copyright (c) 2026 LFC Foundry. MIT License.
 Written October 15, 2026 for JNFoo. Plain words on purpose: this file is meant to be handed to a future session as a starting point.
@@ -164,7 +164,7 @@ For a 10,000-item, 30,928-link network:
 6. **Browser benchmark page** for drawing speed at 1,000, 10,000 and 50,000 items; compare with Sigma.
 7. Optional: a no-quote fast path in the CSV reader.
 
-## 5. Adaptive layout: what the Story Editor lessons say about Net Flow Map
+## 5. Adaptive layout: what the Story Editor lessons say about Netflow Map
 
 I measured the current app in Chromium at 390 x 844 (touch), 700 x 800, 1,000 and 1,440 with the supply-chain example loaded.
 

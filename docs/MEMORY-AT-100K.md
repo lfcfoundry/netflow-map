@@ -2,7 +2,7 @@
 
 Copyright (c) 2026 LFC Foundry. MIT License.
 
-Handoff for anyone building a memory compressor or a leaner scene for Net Flow Map. Everything here was measured in Node 22 with `--expose-gc` on 2026-10-17 unless it says otherwise. Code lives in `src/scene.js` (`make`, `networkScene`, `makeRig`), `src/render.js` (`tessellate`, the renderers' `setScene`) and `src/app/30-map.js` (`makeScene`, `scheduleScene`, `warmCardSoon`).
+Handoff for anyone building a memory compressor or a leaner scene for Netflow Map. Everything here was measured in Node 22 with `--expose-gc` on 2026-10-17 unless it says otherwise. Code lives in `src/scene.js` (`make`, `networkScene`, `makeRig`), `src/render.js` (`tessellate`, the renderers' `setScene`) and `src/app/30-map.js` (`makeScene`, `scheduleScene`, `warmCardSoon`).
 
 ## What holds the memory (one 3D network of 100,000 items, about 300,000 links)
 

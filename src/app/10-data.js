@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 2: the Data tab (bring in, what I found, columns workbench). Copyright (c) 2026 LFC Foundry. MIT License.
+ * Netflow Map app, part 2: the Data tab (bring in, what I found, columns workbench). Copyright (c) 2026 LFC Foundry. MIT License.
  */
 /* ---------------------------------------------------------------- intake */
 var TEXT_EXT = /\.(md|markdown|txt|text|csv|tsv|tab|psv|dsv|prn|json|canvas|jsonl|ndjson|dot|gv|gml|graphml|gexf|xml)$/i, ARCHIVE_EXT = /\.(zip|xlsx|xlsm)$/i, NOTE_EXT = /\.(md|markdown|txt)$/i;

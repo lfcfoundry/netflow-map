@@ -1,5 +1,5 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License.
- * Net Flow Map's stress layout (pair building, the one-time shuffle, the forward/backward sweeps) and the overlap push-apart, in C for WebAssembly.
+ * Netflow Map's stress layout (pair building, the one-time shuffle, the forward/backward sweeps) and the overlap push-apart, in C for WebAssembly.
  * Mirrors stressComponent and separate in src/engine.js step for step, so the picture is the same to the last digit. Pairs are kept as two item numbers
  * (4 bytes each) plus one Uint16 "hop code" (the hop count, +512 when the pivot weight applies); distance and weight come from two 1,024-entry tables
  * the page fills with the same float32 rounding the JavaScript used, so 10 bytes a pair instead of 16. All memory is handed in by the page. */

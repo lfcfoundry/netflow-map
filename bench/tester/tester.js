@@ -1,5 +1,5 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License.
- * Net Flow Map Tester: opens, runs the research checks by itself, explains each result in plain words, and writes a results file (.md).
+ * Netflow Map Tester: opens, runs the research checks by itself, explains each result in plain words, and writes a results file (.md).
  * Needs: NFMColumns, NFMImport, NFMEngine, NFMCheck, NFMGen, NFMGpuStress (the build puts them in this page). */
 (function () {
   'use strict';
@@ -168,7 +168,7 @@
     else if (dev.error) { say = 'WebGPU not detected (' + dev.error + '). The layout math runs on the processor. ' + draw; cls = 'warn'; }
     else if (dev.software) { say = 'WebGPU detected, but only as a software stand-in (' + dev.info + ') that the app does not use. The layout math runs on the processor. ' + draw; cls = 'warn'; }
     else { say = 'WebGPU detected (' + dev.info + '): used for the layout math on the graphics card. ' + draw; cls = 'ok'; }
-    el.textContent = say; el.className = 'gpuline ' + cls; ctx.gpuLine = say; document.title = 'Net Flow Map Tester · ' + (dev && !dev.error && !dev.software ? 'WebGPU detected' : 'WebGPU not used') + ' · ' + (gl2 ? 'WebGL 2 draws' : 'basic drawing');
+    el.textContent = say; el.className = 'gpuline ' + cls; ctx.gpuLine = say; document.title = 'Netflow Map Tester · ' + (dev && !dev.error && !dev.software ? 'WebGPU detected' : 'WebGPU not used') + ' · ' + (gl2 ? 'WebGL 2 draws' : 'basic drawing');
   }
 
   var STEPS = [];
@@ -542,7 +542,7 @@
     return out;
   }
   function buildMd(elapsed) {
-    var L = ['# Net Flow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), '', '**' + (ctx.gpuLine || '') + '**', ''];
+    var L = ['# Netflow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), '', '**' + (ctx.gpuLine || '') + '**', ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
     var sv = steadyVerdict(); L.push('## Was the computer steady during the run?', '', '**' + sv.level.toUpperCase() + '** ' + (sv.level === 'ok' ? 'Yes. The screen refresh and a fixed bit of arithmetic gave the same readings each time, so the timings above can be compared.' : 'No. Timings from the slow parts are not reliable: close other programs, plug the laptop in, turn battery saver off, and run again.'), '');
     L.push(mdTable(['When', 'Blank screen refresh (FPS)', 'Fixed arithmetic (ms)'], steadyLog.map(function (r) { return [r.at, r.hidden ? 'in the background' : String(r.fps), r.hidden ? '-' : String(r.cpuMs)]; }))); sv.lines.forEach(function (t) { L.push('_' + t + '_', ''); });
@@ -558,7 +558,7 @@
     sections.forEach(function (s) { $('out').appendChild(s.card); });   /* back into test order */
     document.querySelector('main').classList.add('fin'); window.scrollTo(0, 0);   /* finished: the 'All done' buttons first, then the turning 3D map, then every step */
     $('done').style.display = ''; var sv0 = steadyVerdict(); if (sv0.level !== 'ok' && worst === 'ok') worst = 'warn'; $('finalsay').textContent = (sv0.level !== 'ok' ? 'The computer was not steady during this run (see "Was the computer steady" in the results), so some timings are unreliable. ' : '') + (worst === 'ok' ? 'Every check passed. Total time ' + fmtMs(elapsed) + '.' : worst === 'warn' ? 'Finished with some notes above (total time ' + fmtMs(elapsed) + ').' : 'Finished, and at least one check failed (total time ' + fmtMs(elapsed) + '). The results file explains what.');
-    $('dl').onclick = function () { md = buildMd(elapsed); if (window.__NFM_TESTER_RESULT) window.__NFM_TESTER_RESULT.md = md; var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'net-flow-map-tester-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
+    $('dl').onclick = function () { md = buildMd(elapsed); if (window.__NFM_TESTER_RESULT) window.__NFM_TESTER_RESULT.md = md; var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'netflow-map-tester-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
     $('cp').onclick = function () { md = buildMd(elapsed); if (window.__NFM_TESTER_RESULT) window.__NFM_TESTER_RESULT.md = md; if (navigator.clipboard) navigator.clipboard.writeText(md).then(function () { $('cp').textContent = 'Copied'; }, function () { $('cp').textContent = 'Copy blocked'; }); };
     window.__NFM_TESTER_RESULT = { md: md, sections: sections.map(function (s) { return { title: s.title, level: s.level, verdict: s.verdict }; }), ctx: ctx };
   }
