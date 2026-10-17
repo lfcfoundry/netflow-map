@@ -9,7 +9,7 @@ const which = process.argv[2] || 'chromium', outDir = process.argv[3] || '/tmp';
 const strict = which === 'chromium' || !!process.env.NFM_STRICT;
 const flags = ['--no-sandbox', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist'];
 const T0 = Date.now(); let tLast = T0;   /* NFM_TIMES=1 puts the seconds since the last line in front of every line: where the time goes */
-let fails = 0; const say = (ok, t) => { if (ok === false) fails++; const now = Date.now(), pre = process.env.NFM_TIMES ? String(((now - tLast) / 1000).toFixed(1)).padStart(5) + 's ' : ''; tLast = now; console.log(pre + (ok === true ? 'ok   ' : ok === false ? 'FAIL ' : 'note ') + t); };
+let fails = 0, oks = 0; const say = (ok, t) => { if (ok === false) fails++; if (ok === true) oks++; const now = Date.now(), pre = process.env.NFM_TIMES ? String(((now - tLast) / 1000).toFixed(1)).padStart(5) + 's ' : ''; tLast = now; console.log(pre + (ok === true ? 'ok   ' : ok === false ? 'FAIL ' : 'note ') + t); };
 let slept = 0, sleeps = 0; const sleep = (ms) => { slept += ms; sleeps++; return new Promise((r) => setTimeout(r, ms)); };
 /* Short pauses only let the screen catch up after a click or drag. Wait for three real animation frames plus a quarter of the old pause instead of the whole pause (NFM_SLOW=1 restores the full pauses). Long pauses (over 450 ms) are real time (easing, playback) and stay as they were. */
 
@@ -362,5 +362,10 @@ async function open() {
   }
   await ev(() => NFM.manager().use('auto'));
   say(errs.length === 0, 'no errors in the console' + (errs.length ? ': ' + errs.slice(0, 4).join(' | ') : ''));
-  await D.close(); if (process.env.NFM_TIMES) console.log(`total ${((Date.now() - T0) / 1000).toFixed(1)} s, of which fixed waits: ${sleeps} sleeps = ${(slept / 1000).toFixed(1)} s`); console.log(fails ? `${fails} FAILED` : 'browser test: all passed'); process.exitCode = fails ? 1 : 0;
+  await D.close(); if (process.env.NFM_TIMES) console.log(`total ${((Date.now() - T0) / 1000).toFixed(1)} s, of which fixed waits: ${sleeps} sleeps = ${(slept / 1000).toFixed(1)} s`); {   /* a run that quietly skips checks must fail: fewer ok lines than the last all-green run of this browser is a failure (NFM_BLESS=1 after a reviewed change saves the new count) */
+    const BL = require('./baseline.js'), v = BL.verdict(which, oks, fails, process.env.NFM_PAGE);
+    console.log(v.line); if (v.fail) fails++;
+    if (process.env.NFM_BLESS === '1' && !fails && !process.env.NFM_PAGE) console.log(BL.bless(which, oks));
+  }
+  console.log(fails ? `${fails} FAILED` : 'browser test: all passed'); process.exitCode = fails ? 1 : 0;
 })().catch((e) => { console.log('crash', e && e.stack || e); process.exit(2); });
