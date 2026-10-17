@@ -20,7 +20,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.16.2215.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.16.2319.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="show" class="card" style="display:none"><h2>The 3D map, turning</h2></div>
@@ -7000,21 +7000,21 @@ var NFMProbe = (function () {
     if (!res || res.skipped || !res.ways) return { level: 'warn', say: nm + ' was skipped: ' + ((res && res.skipped) || 'not usable here') + '.', lines: lines, cause: null };
     var by = {}; res.ways.forEach(function (w) { by[w.id] = w; });
     var keep = by.keep, full = by.full, angle = by.angle, still = by.still, all = by.g_all, links = by.g_links, itemsW = by.g_items, names = by.g_names, half = by.g_half;
-    lines.push('Turning as the app does it: ' + f0(full.fps) + ' pictures per second' + runsOf(full) + '; a picture took ' + ms1(full.gapMed) + ' ms in the middle, ' + ms1(full.gapP95) + ' ms for the slower 1 in 20, ' + ms1(full.gapMax) + ' ms for the slowest' + (full.slow > 0 ? ' (' + Math.round(full.slow * 100) + '% took over 20 ms)' : '') + '.');
-    lines.push('Angle math alone: ' + ms1(angle.angleMed) + ' ms of work per angle (slowest ' + ms1(angle.angleMax) + ' ms); with nothing drawn the screen refresh still ran at ' + f0(angle.fps) + ' per second.');
-    lines.push('Drawing alone, the same angle each time: ' + f0(still.fps) + ' per second.');
-    if (by.tex) lines.push('Sending the paint order through a texture instead: ' + f0(by.tex.fps) + ' per second' + runsOf(by.tex) + (by.tex.fps > full.fps + 3 ? ' (faster than the current way, ' + f0(full.fps) + ')' : by.tex.fps < full.fps - 3 ? ' (slower than the current way, ' + f0(full.fps) + ')' : ' (about the same as the way the app uses)') + '.');
+    lines.push('Turning as the app does it: ' + f0(full.fps) + ' FPS' + runsOf(full) + '; a picture took ' + ms1(full.gapMed) + ' ms in the middle, ' + ms1(full.gapP95) + ' ms for the slower 1 in 20, ' + ms1(full.gapMax) + ' ms for the slowest' + (full.slow > 0 ? ' (' + Math.round(full.slow * 100) + '% took over 20 ms)' : '') + '.');
+    lines.push('Angle math alone: ' + ms1(angle.angleMed) + ' ms of work per angle (slowest ' + ms1(angle.angleMax) + ' ms); with nothing drawn the screen refresh still ran at ' + f0(angle.fps) + ' FPS.');
+    lines.push('Drawing alone, the same angle each time: ' + f0(still.fps) + ' FPS.');
+    if (by.tex) lines.push('Sending the paint order through a texture instead: ' + f0(by.tex.fps) + ' FPS' + runsOf(by.tex) + (by.tex.fps > full.fps + 3 ? ' (faster than the current way, ' + f0(full.fps) + ')' : by.tex.fps < full.fps - 3 ? ' (slower than the current way, ' + f0(full.fps) + ')' : ' (about the same as the way the app uses)') + '.');
     ['ring', 'map'].forEach(function (id) {
       var w = by[id]; if (!w) return;
-      lines.push('Sending the paint order ' + (id === 'ring' ? 'to a ring of three card buffers' : 'through staging buffers written directly') + ': ' + f0(w.fps) + ' per second' + runsOf(w) + ', slowest 1 in 20 ' + ms1(w.gapP95) + ' ms, slowest ' + ms1(w.gapMax) + ' ms' + (w.fps > full.fps + 1 || w.gapP95 + 3 < full.gapP95 ? ' (steadier than the way the app uses)' : w.fps < full.fps - 1 || w.gapP95 > full.gapP95 + 3 ? ' (worse than the way the app uses)' : ' (about the same as the way the app uses)') + '.');
+      lines.push('Sending the paint order ' + (id === 'ring' ? 'to a ring of three card buffers' : 'through staging buffers written directly') + ': ' + f0(w.fps) + ' FPS' + runsOf(w) + ', slowest 1 in 20 ' + ms1(w.gapP95) + ' ms, slowest ' + ms1(w.gapMax) + ' ms' + (w.fps > full.fps + 1 || w.gapP95 + 3 < full.gapP95 ? ' (steadier than the way the app uses)' : w.fps < full.fps - 1 || w.gapP95 > full.gapP95 + 3 ? ' (worse than the way the app uses)' : ' (about the same as the way the app uses)') + '.');
     });
-    if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' per second.');
+    if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' FPS.');
     lines.push('Time the card needs per picture: ' + ms1(all.ms) + ' ms for everything; links alone ' + ms1(links.ms) + ' ms; items alone ' + ms1(itemsW.ms) + ' ms; names alone ' + ms1(names.ms) + ' ms; everything at half size ' + ms1(half.ms) + ' ms.');
-    var say = 'Turning the ' + big + ' map with ' + nm + ' ran at ' + f0(full.fps) + ' pictures per second. ', cause, level;
+    var say = 'Turning the ' + big + ' map with ' + nm + ' ran at ' + f0(full.fps) + ' FPS. ', cause, level;
     if (full.fps >= 58) { cause = 'smooth'; level = 'ok'; say += 'That is a steady 60: nothing to fix.'; }
-    else if (keep && keep.fps >= 57 && (keep.fps >= full.fps + 2 || keep.slow + 0.03 < full.slow || keep.gapP95 + 5 < full.gapP95)) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' per second' + (full.slow > 0 ? ' with no pauses' : '') + '. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
-    else if ((keep ? keep.fps : angle.fps) < 57) { cause = 'angle'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The limit is on the main thread: even with the paint order left out, only ' + f0(keep ? keep.fps : angle.fps) + ' pictures per second got through (' + ms1(angle.angleMed) + ' ms of angle work each).'; }
-    else if (keep && keep.fps >= full.fps + 5) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' per second. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
+    else if (keep && keep.fps >= 57 && (keep.fps >= full.fps + 2 || keep.slow + 0.03 < full.slow || keep.gapP95 + 5 < full.gapP95)) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' FPS' + (full.slow > 0 ? ' with no pauses' : '') + '. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
+    else if ((keep ? keep.fps : angle.fps) < 57) { cause = 'angle'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The limit is on the main thread: even with the paint order left out, only ' + f0(keep ? keep.fps : angle.fps) + ' FPS got through (' + ms1(angle.angleMed) + ' ms of angle work each).'; }
+    else if (keep && keep.fps >= full.fps + 5) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' FPS. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
     else if (all.ms > 14) {
       cause = 'card'; level = full.fps >= 45 ? 'ok' : 'warn';
       var parts = [['the links', links.ms], ['the items', itemsW.ms], ['the names', names.ms]].sort(function (a, b) { return b[1] - a[1]; });
@@ -7103,18 +7103,18 @@ var NFMProbe = (function () {
     parts.other = Math.max(0, period - parts.scene - parts.upload - parts.draw - parts.fence - parts.raf);
     var dom = Object.keys(parts).sort(function (a, b) { return parts[b] - parts[a]; })[0], share = parts[dom] / period;
     if (gpu.software) say += 'This WebGPU runs on the processor (a software stand-in), so these numbers show the code path, not your graphics chip. ';
-    say += 'The old way drew ' + f0(old.fps) + ' pictures per second, ' + ms1(period) + ' ms each; most of that time (' + ms1(parts[dom]) + ' ms, ' + Math.round(100 * share) + '%) was spent ' + PHASES[dom] + '. ';
-    say += 'The fastest way on this computer was "' + fast.label.toLowerCase() + '" at ' + f0(fast.fps) + ' pictures per second' + (fast.id === old.id ? '.' : (fast.fps > old.fps * 1.1 ? ', ' + (fast.fps / old.fps).toFixed(1) + ' times the old way.' : ', about the same as the old way.'));
-    if (by.blank && fast.fps < 40 && by.blank.fps <= fast.fps * 1.3) say += ' Even a blank picture only reaches ' + f0(by.blank.fps) + ' per second, so the limit is the browser\'s own step of putting a WebGPU picture on screen, not how much is drawn.';
-    else if (by.half && by.nowait && by.half.fps >= by.nowait.fps * 1.5 && by.nowait.fps < 40) say += ' A half-size picture runs at ' + f0(by.half.fps) + ' per second, so the cost follows the number of pixels.';
+    say += 'The old way drew ' + f0(old.fps) + ' FPS, ' + ms1(period) + ' ms each; most of that time (' + ms1(parts[dom]) + ' ms, ' + Math.round(100 * share) + '%) was spent ' + PHASES[dom] + '. ';
+    say += 'The fastest way on this computer was "' + fast.label.toLowerCase() + '" at ' + f0(fast.fps) + ' FPS' + (fast.id === old.id ? '.' : (fast.fps > old.fps * 1.1 ? ', ' + (fast.fps / old.fps).toFixed(1) + ' times the old way.' : ', about the same as the old way.'));
+    if (by.blank && fast.fps < 40 && by.blank.fps <= fast.fps * 1.3) say += ' Even a blank picture only reaches ' + f0(by.blank.fps) + ' FPS, so the limit is the browser\'s own step of putting a WebGPU picture on screen, not how much is drawn.';
+    else if (by.half && by.nowait && by.half.fps >= by.nowait.fps * 1.5 && by.nowait.fps < 40) say += ' A half-size picture runs at ' + f0(by.half.fps) + ' FPS, so the cost follows the number of pixels.';
     if (ctl && ctl.ways && ctl.ways.length) {
       var cw = ctl.ways.slice().sort(function (a, b) { return b.fps - a.fps; })[0], cb = ctl.ways.filter(function (w) { return w.id === 'blank'; })[0];
-      say += ' For comparison WebGL 2 reached ' + f0(cw.fps) + ' per second' + (cb ? ' (blank: ' + f0(cb.fps) + ')' : '') + '.' + (cw.fps > fast.fps * 1.5 && !gpu.software ? ' WebGL 2 is the better choice on this computer.' : '');
+      say += ' For comparison WebGL 2 reached ' + f0(cw.fps) + ' FPS' + (cb ? ' (blank: ' + f0(cb.fps) + ')' : '') + '.' + (cw.fps > fast.fps * 1.5 && !gpu.software ? ' WebGL 2 is the better choice on this computer.' : '');
     }
-    if (by.old && by.reuse) lines.push('Keeping the buffers instead of making new ones: ' + f0(by.old.fps) + ' to ' + f0(by.reuse.fps) + ' pictures per second.');
-    if (by.reuse && by.nowait) lines.push('Not waiting for the card after every picture: ' + f0(by.reuse.fps) + ' to ' + f0(by.nowait.fps) + ' pictures per second. The card\'s "done" signal took ' + ms1(by.reuse.fence) + ' ms to come back on average.');
-    if (by.pace) lines.push('Letting up to three pictures be in flight (the new default): ' + f0(by.pace.fps) + ' pictures per second.');
-    if (fast.id === 'nowait' && by.pace) say += ' Never waiting lets pictures pile up on a slow card, so the app loops allow three at a time instead; that reached ' + f0(by.pace.fps) + ' per second.';
+    if (by.old && by.reuse) lines.push('Keeping the buffers instead of making new ones: ' + f0(by.old.fps) + ' to ' + f0(by.reuse.fps) + ' FPS.');
+    if (by.reuse && by.nowait) lines.push('Not waiting for the card after every picture: ' + f0(by.reuse.fps) + ' to ' + f0(by.nowait.fps) + ' FPS. The card\'s "done" signal took ' + ms1(by.reuse.fence) + ' ms to come back on average.');
+    if (by.pace) lines.push('Letting up to three pictures be in flight (the new default): ' + f0(by.pace.fps) + ' FPS.');
+    if (fast.id === 'nowait' && by.pace) say += ' Never waiting lets pictures pile up on a slow card, so the app loops allow three at a time instead; that reached ' + f0(by.pace.fps) + ' FPS.';
     var level = fast.fps >= 45 ? 'ok' : fast.fps >= 20 ? 'warn' : 'bad';
     if (gpu.software) level = 'warn';
     return { level: level, say: say, lines: lines, dominant: { phase: dom, ms: parts[dom], share: share }, fastest: fast.id };
@@ -7203,11 +7203,11 @@ var NFMProbe = (function () {
         var rounded = typeof EnvProbes !== 'undefined' && EnvProbes.timerRounded && EnvProbes.timerRounded();
         results.forEach(function (r) {
           var nm = r.n === 'webgpu' ? 'WebGPU' : r.n === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
-          say(r.fps >= 45 ? true : r.fps >= 20 ? null : false, nm + ': about ' + (r.fps >= 100 ? Math.round(r.fps / 10) * 10 : Math.round(r.fps)) + ' pictures per second on a large map (' + stress.nodes.length.toLocaleString('en-US') + ' items, ' + (stress.curves.length + stress.ribbons.length).toLocaleString('en-US') + ' links).' + (rounded ? ' This browser blurs its clock, so treat this as a rough number.' : ''));
+          say(r.fps >= 45 ? true : r.fps >= 20 ? null : false, nm + ': about ' + (r.fps >= 100 ? Math.round(r.fps / 10) * 10 : Math.round(r.fps)) + ' FPS on a large map (' + stress.nodes.length.toLocaleString('en-US') + ' items, ' + (stress.curves.length + stress.ribbons.length).toLocaleString('en-US') + ' links).' + (rounded ? ' This browser blurs its clock, so treat this as a rough number.' : ''));
         });
         if (turn && turn.fps) {
           var tf = turn.fps >= 100 ? Math.round(turn.fps / 10) * 10 : Math.round(turn.fps);
-          say(turn.fps >= 45 ? true : turn.fps >= 20 ? null : false, 'Turning a 3D map: about ' + tf + ' pictures per second' + (turn.fps < 45 ? ' (working out each new angle takes ' + turn.sceneMs.toFixed(1) + ' ms and drawing it ' + turn.drawMs.toFixed(1) + ' ms)' : '') + '. ' + (turn.fps >= 45 ? 'Rotating and zooming will feel smooth.' : turn.fps >= 20 ? 'Rotating works but will feel a little steppy on big maps.' : 'Rotating a big 3D map will feel choppy here.'));
+          say(turn.fps >= 45 ? true : turn.fps >= 20 ? null : false, 'Turning a 3D map: about ' + tf + ' FPS' + (turn.fps < 45 ? ' (working out each new angle takes ' + turn.sceneMs.toFixed(1) + ' ms and drawing it ' + turn.drawMs.toFixed(1) + ' ms)' : '') + '. ' + (turn.fps >= 45 ? 'Rotating and zooming will feel smooth.' : turn.fps >= 20 ? 'Rotating works but will feel a little steppy on big maps.' : 'Rotating a big 3D map will feel choppy here.'));
           data.turn = { backend: turn.backend, fps: turn.fps, sceneMs: turn.sceneMs, drawMs: turn.drawMs };
         } else if (turn && turn.skipped) data.turn = { backend: turn.backend, skipped: turn.skipped };
         if (soft) say(null, 'Speed for the graphics paths that run on the processor is not reported, because it would say little about a real graphics chip.');
@@ -7245,7 +7245,7 @@ var NFMProbe = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.16.2215', EDGE = 130;
+  var VERSION = '2026.10.16.2319', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -7478,7 +7478,7 @@ var NFMProbe = (function () {
   /* ------------------------------------------------------------- where the drawing time goes: WebGPU phases, several loop shapes, WebGL 2 as the control */
   STEPS.push({ name: 'Where the drawing time goes (WebGPU)', run: async function () {
     var s = addSection('Where the drawing time goes: WebGPU against WebGL 2'), sizes = params.get('plan3d') ? params.get('plan3d').split(',').map(Number) : QUICK ? [600] : [5000, 25000, 50000, 100000], n = sizes[sizes.length - 1];
-    s.head = ['Way of drawing', 'Pictures per second', 'New angle (ms)', 'Copy to card (ms)', 'Draw commands (ms)', 'Wait for card (ms)', 'Wait for refresh (ms)'];
+    s.head = ['Way of drawing', 'FPS', 'New angle (ms)', 'Copy to card (ms)', 'Draw commands (ms)', 'Wait for card (ms)', 'Wait for refresh (ms)'];
     var c = await NFMProbe.canary(), gpu = null, ctl = null, ex = null, byN = [], row = function (nm, w) { return [n.toLocaleString() + ' items, ' + nm + ': ' + w.label, r1(w.fps), r1(w.scene), r1(w.upload), r1(w.draw), r1(w.fence), r1(w.raf)]; };
     if (!c.webgpu.ok) { var why = 'WebGPU is not usable here' + (c.webgpu.why ? ' (' + c.webgpu.why + ')' : '') + ', so there is nothing to time. Nothing is wrong with the app: it draws with WebGL 2 or basic drawing instead.'; ctx.timing = { skipped: why }; s.finish('warn', why); return { level: 'warn', say: why }; }
     for (var zi = 0; zi < sizes.length; zi++) {
@@ -7547,6 +7547,17 @@ var NFMProbe = (function () {
 
   /* ------------------------------------------------------------- 3D: layouts, turning speed, spinning previews */
   var previews = [];   /* (kept so a new run can clear it) */
+  var hands = {};   /* frame times measured while the person drags, scrolls or watches the turning picture: { 'size|way': { backend, n, drag: {gaps, draw}, zoom: ..., rotate: ... } } */
+  function pct(a, q) { if (!a.length) return 0; var b = a.slice().sort(function (x, y) { return x - y; }); return b[Math.min(b.length - 1, Math.floor(q * b.length))]; }
+  /** Rows for the results file: what the picture did under the person's hands. */
+  function handsRows() {
+    var rows = [], names = { drag: 'Dragging to turn', zoom: 'Scrolling to zoom', rotate: 'Turning by itself' };
+    Object.keys(hands).forEach(function (k) { ['drag', 'zoom', 'rotate'].forEach(function (m) {
+      var h = hands[k][m]; if (!h || h.gaps.length < 8) return; var g = h.gaps, mean = g.reduce(function (a, b) { return a + b; }, 0) / g.length, bad = g.filter(function (x) { return x > 34; }).length, worst = Math.max.apply(null, g);
+      rows.push([hands[k].n.toLocaleString() + ' items, ' + hands[k].backend, names[m], String(g.length), r1(1000 / mean), r1(pct(g, 0.5)), r1(pct(g, 0.95)), r1(worst), bad + ' of ' + g.length, r1(pct(h.draw, 0.5)), r1(Math.max.apply(null, h.draw))]);
+    }); });
+    return rows;
+  }
   /** A draggable, spinning picture of a 3D layout, drawn with the app's own scene and renderer. Spins when visible; click to pause; drag to turn; wheel to zoom. */
   /** The turning 3D picture at the end. It works the way the app does for a big map: the map goes onto the graphics card once, then turning and zooming only send the new angle and view, so a big map zooms in and out as smoothly as it turns. Buttons switch between the sizes that were built. */
   async function addPreview(card, entries, backend) {
@@ -7556,6 +7567,7 @@ var NFMProbe = (function () {
     var make = backend === 'webgpu' ? NFMRender.createWebGPU : backend === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D, r;
     try { r = await make(host, {}); } catch (e) { cap.textContent = 'Could not draw the 3D picture (' + String(e && e.message || e).slice(0, 80) + ')'; return; }
     var W = host.clientWidth || 600, H = 320, dark = matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light';
+    var meter = document.createElement('div'); meter.style.cssText = 'position:absolute;left:8px;top:8px;padding:3px 8px;border-radius:12px;font:12px/1.4 system-ui,sans-serif;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;z-index:5'; meter.textContent = 'Drag to turn, scroll to zoom'; host.appendChild(meter);
     var st = { yaw: 0.6, pitch: 0.35, zoom: 1, zt: 1, paused: false, drag: null, visible: true, dirty: true, turnedYaw: null, kmax: 0 }, cur = null, sc = null, rig = false, title = '';
     r.resize(W, H, 1);
     var cam = function () { return { yaw: st.yaw, pitch: st.pitch, persp: 2.4 }; };
@@ -7570,7 +7582,7 @@ var NFMProbe = (function () {
       cur = e; sc = null; title = '3D ' + (e.lay ? 'sphere' : 'force') + ', ' + e.n.toLocaleString() + ' items'; cap.textContent = title + ': building it…'; await yieldUI();
       var s2 = NFMScene.make(e.L3, { plan: {}, rig: true, colorBy: 'group', theme: dark, cam: cam() }); r.setScene(s2); rig = !!(s2.turnTo && r.rigPrepare); if (rig) r.rigPrepare();
       sc = s2; st.turnedYaw = null; st.kmax = 0; st.zoom = st.zt = 1; st.dirty = true;
-      cap.textContent = title + (rig ? ' (turning and zooming only send the new view to the graphics card)' : ' (this one cannot ride on the card, so it is slower)') + ' · drag to turn, wheel to zoom, click to pause';
+      cap.textContent = title + (rig ? ' (turning and zooming only send the new view to the graphics card)' : ' (this one cannot ride on the card, so it is slower)') + ' · drag to turn, wheel to zoom, click to pause. Try each for a few seconds, then press Download again: your own FPS numbers go into the results file.';
       Array.prototype.forEach.call(bar.children, function (b) { b.style.fontWeight = b.__e === e ? '700' : '400'; });
     };
     entries.forEach(function (e) { var b = document.createElement('button'); b.textContent = e.n.toLocaleString() + (e.lay ? ' (sphere)' : ''); b.__e = e; b.addEventListener('click', function () { load(e); }); bar.appendChild(b); });
@@ -7579,13 +7591,22 @@ var NFMProbe = (function () {
     host.addEventListener('pointerup', function () { if (st.drag && !st.drag.moved) st.paused = !st.paused; st.drag = null; host.style.cursor = 'grab'; });
     host.addEventListener('wheel', function (e) { e.preventDefault(); st.zt = Math.max(0.15, Math.min(8, st.zt * Math.exp(-e.deltaY * 0.0015))); st.dirty = true; }, { passive: false });
     if (typeof IntersectionObserver !== 'undefined') new IntersectionObserver(function (en) { st.visible = en[0].isIntersecting; }).observe(host);
-    var tick = function () {   /* (stops and frees the card when the page is wiped for a new run) one picture per screen refresh at most; zoom eases toward its target; nothing is drawn while nothing moves */
+    var lastTs = 0, lastMode = '', recent = [], shown = 0;
+    var tick = function (ts) {   /* (stops and frees the card when the page is wiped for a new run) one picture per screen refresh at most; zoom eases toward its target; nothing is drawn while nothing moves */
       if (!host.isConnected) { try { r.destroy(); } catch (e) { /* gone */ } return; }
       if (st.visible && !document.hidden && sc) {
+        var mode = st.drag ? 'drag' : Math.abs(st.zt - st.zoom) > 0.0005 ? 'zoom' : !st.paused ? 'rotate' : '';
         if (Math.abs(st.zt - st.zoom) > 0.0005) { st.zoom += (st.zt - st.zoom) * 0.25; st.dirty = true; }
         if (!st.paused && !st.drag) { st.yaw += 0.006; st.dirty = true; }
-        if (st.dirty) draw();
-      }
+        var d0 = performance.now(); if (st.dirty) draw(); var dms = performance.now() - d0;
+        if (mode && mode === lastMode && lastTs && ts - lastTs < 2000) {   /* the time between two screen refreshes while the same thing was going on */
+          var key = cur.n + '|' + (cur.lay ? 'sphere' : 'force'), rec = hands[key] || (hands[key] = { n: cur.n, backend: backend }), mm = rec[mode] || (rec[mode] = { gaps: [], draw: [] });
+          mm.gaps.push(ts - lastTs); mm.draw.push(dms); if (mm.gaps.length > 4000) { mm.gaps.shift(); mm.draw.shift(); }
+          recent.push(ts - lastTs); if (recent.length > 40) recent.shift();
+        } else if (mode !== lastMode) recent = [];
+        lastTs = ts; lastMode = mode;
+        if (ts - shown > 500 && recent.length > 5) { shown = ts; var mean = recent.reduce(function (a, b) { return a + b; }, 0) / recent.length; meter.textContent = Math.round(1000 / mean) + ' FPS · slowest ' + Math.round(Math.max.apply(null, recent)) + ' ms · ' + (mode === 'drag' ? 'dragging' : mode === 'zoom' ? 'zooming' : 'turning by itself'); }
+      } else { lastTs = 0; lastMode = ''; }
       requestAnimationFrame(tick);
     };
     await load(entries[entries.length - 1] && entries.filter(function (e) { return !e.lay; }).pop() || entries[entries.length - 1]);
@@ -7629,17 +7650,17 @@ var NFMProbe = (function () {
       if (tz.fps) { turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', zooming in and out on the card', Math.round(tz.fps), r1(tz.sceneMs), r1(tz.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'zoom', fps: r1(tz.fps), sceneMs: r1(tz.sceneMs), drawMs: r1(tz.drawMs) }); }
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', zooming in and out on the card', 'skipped', '-', String(tz.skipped).slice(0, 60)]);
     }
-    s.rows.push(['', '', '', '']); s.rows.push(['Turning speed', 'Pictures per second', 'New angle (ms)', 'Draw (ms)']); turnRows.forEach(function (r) { s.rows.push(r); });
+    s.rows.push(['', '', '', '']); s.rows.push(['Turning speed', 'FPS', 'New angle (ms)', 'Draw (ms)']); turnRows.forEach(function (r) { s.rows.push(r); });
     if (scenes.length) { $('show').style.display = ''; await addPreview($('show'), scenes, params.get('preview') || names[names.length - 1]); }
     s.notes.push('Hop error in 3D uses the same measure as the distance error but with three dimensions; it is lower than a flat map would give and is not colored, because the bands are for flat maps. The sphere and stacked planes are shapes first, so their hop error is higher by design. "New angle" is the time to work out the picture from the new viewing angle (done on the main thread, once per picture); "Draw" is the time to hand it to the screen.');
     warmNotes.forEach(function (w) { s.notes.push(w); });
     s.notes.push('"Math on the card" is how the app turns a big 3D map: the items and links are put on the graphics card once, and each picture is only a new angle, so "New angle" is just the paint order and the few names that can be seen. "Every angle worked out here" is the older way, kept for comparison.');
     var say, level = 'ok';
     if (!best) { say = 'Built the 3D arrangements, but could not time turning (the page may have been in the background).'; level = 'warn'; }
-    else { say = 'Turning a ' + sizes[sizes.length - 1].toLocaleString() + '-item 3D map with the math done on the graphics card ran at about ' + Math.round(best.fps) + ' pictures per second (' + r1(best.sceneMs) + ' ms to work out each new angle, ' + r1(best.drawMs) + ' ms to draw).' + (best.fps >= 45 ? ' Smooth.' : best.fps >= 20 ? ' Usable but a little steppy.' : ' Choppy.'); level = best.fps >= 45 ? 'ok' : best.fps >= 20 ? 'warn' : 'bad'; }
+    else { say = 'Turning a ' + sizes[sizes.length - 1].toLocaleString() + '-item 3D map with the math done on the graphics card ran at about ' + Math.round(best.fps) + ' FPS (' + r1(best.sceneMs) + ' ms to work out each new angle, ' + r1(best.drawMs) + ' ms to draw).' + (best.fps >= 45 ? ' Smooth.' : best.fps >= 20 ? ' Usable but a little steppy.' : ' Choppy.'); level = best.fps >= 45 ? 'ok' : best.fps >= 20 ? 'warn' : 'bad'; }
     s.finish(level, say);
-    /* the largest map again, taken apart: what holds the turning below 60 pictures per second */
-    var sp = addSection('Turning the largest map: where the time goes'), big = scenes[scenes.length - 1], splitSays = [], splitLevel = 'ok'; sp.head = ['Way', 'Pictures per second', 'Typical picture (ms)', 'Slowest 1 in 20 (ms)', 'Slowest (ms)', 'Angle math (ms)', 'Card per picture (ms)']; ctx.split = [];
+    /* the largest map again, taken apart: what holds the turning below 60 FPS */
+    var sp = addSection('Turning the largest map: where the time goes'), big = scenes[scenes.length - 1], splitSays = [], splitLevel = 'ok'; sp.head = ['Way', 'FPS', 'Typical picture (ms)', 'Slowest 1 in 20 (ms)', 'Slowest (ms)', 'Angle math (ms)', 'Card per picture (ms)']; ctx.split = [];
     if (big) for (var bj = 0; bj < names.length; bj++) {
       if (names[bj] === 'canvas2d') continue;
       var nm2 = names[bj] === 'webgpu' ? 'WebGPU' : 'WebGL 2'; setStatus('Taking the turning of the ' + big.n.toLocaleString() + '-item map apart with ' + nm2 + '…'); await yieldUI();
@@ -7671,6 +7692,9 @@ var NFMProbe = (function () {
   function buildMd(elapsed) {
     var L = ['# Net Flow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
+    var hr = handsRows(); L.push('## Your hands-on test (the turning 3D picture)', '');
+    if (hr.length) { L.push(mdTable(['Picture', 'What you did', 'Frames', 'FPS', 'Typical gap (ms)', 'Slowest 1 in 20 (ms)', 'Slowest (ms)', 'Frames over 34 ms', 'Our work per frame, typical (ms)', 'Our work per frame, worst (ms)'], hr)); L.push('_A gap is the time between two screen refreshes while you did that; 17 ms is a steady 60 FPS. "Our work per frame" is the page\'s own time (new angle plus drawing commands); if it is small while the gap is large, the wait is the graphics card or the browser._', ''); }
+    else L.push('_Not tried yet. Drag and scroll the turning picture for a few seconds, then press Download again._', '');
     L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, turn: ctx.turn || null, split: ctx.split || null, timing: ctx.timing || null, small: ctx.small || null }, null, 1), '```', '');
     return L.join('\n');
   }
@@ -7679,12 +7703,12 @@ var NFMProbe = (function () {
     sections.forEach(function (s) { $('out').appendChild(s.card); });   /* back into test order */
     document.querySelector('main').classList.add('fin'); window.scrollTo(0, 0);   /* finished: the 'All done' buttons first, then the turning 3D map, then every step */
     $('done').style.display = ''; $('finalsay').textContent = worst === 'ok' ? 'Every check passed. Total time ' + fmtMs(elapsed) + '.' : worst === 'warn' ? 'Finished with some notes above (total time ' + fmtMs(elapsed) + ').' : 'Finished, and at least one check failed (total time ' + fmtMs(elapsed) + '). The results file explains what.';
-    $('dl').onclick = function () { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'net-flow-map-tester-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
-    $('cp').onclick = function () { if (navigator.clipboard) navigator.clipboard.writeText(md).then(function () { $('cp').textContent = 'Copied'; }, function () { $('cp').textContent = 'Copy blocked'; }); };
+    $('dl').onclick = function () { md = buildMd(elapsed); var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'net-flow-map-tester-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
+    $('cp').onclick = function () { md = buildMd(elapsed); if (navigator.clipboard) navigator.clipboard.writeText(md).then(function () { $('cp').textContent = 'Copied'; }, function () { $('cp').textContent = 'Copy blocked'; }); };
     window.__NFM_TESTER_RESULT = { md: md, sections: sections.map(function (s) { return { title: s.title, level: s.level, verdict: s.verdict }; }), ctx: ctx };
   }
   async function runAll() {
-    if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; $('show').style.display = 'none'; $('show').innerHTML = '<h2>The 3D map, turning</h2>'; previews.length = 0; document.querySelector('main').classList.remove('fin'); doneSteps = 0; if (params.get('only')) { var keep = STEPS.filter(function (x) { return x.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }); if (keep.length) { STEPS.length = 0; keep.forEach(function (x) { STEPS.push(x); }); } } total = STEPS.length; setBar(); t0Run = now();
+    if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; $('show').style.display = 'none'; $('show').innerHTML = '<h2>The 3D map, turning</h2>'; previews.length = 0; hands = {}; document.querySelector('main').classList.remove('fin'); doneSteps = 0; if (params.get('only')) { var keep = STEPS.filter(function (x) { return x.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }); if (keep.length) { STEPS.length = 0; keep.forEach(function (x) { STEPS.push(x); }); } } total = STEPS.length; setBar(); t0Run = now();
     for (var i = 0; i < STEPS.length; i++) {
       setStatus('Step ' + (i + 1) + ' of ' + STEPS.length + ': ' + STEPS[i].name + '…'); await yieldUI();
       try { await STEPS[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(STEPS[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }

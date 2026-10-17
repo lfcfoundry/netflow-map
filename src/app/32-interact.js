@@ -10,7 +10,7 @@ function idsOfGroup(g) { return S.dg.nodes.filter(function (n) { return String(n
 function idsOfLane(i) {
   var name = S.L && S.L.laneNames && S.L.laneNames[i], out = [];
   if (name === undefined) return out;
-  S.scene.nodes.forEach(function (n) { if (n.nodeId !== undefined && S.L.cls[n.key] === name) out.push(n.nodeId); });
+  liveScene().nodes.forEach(function (n) { if (n.nodeId !== undefined && S.L.cls[n.key] === name) out.push(n.nodeId); });
   return out;
 }
 function idOfHit(h) { return h && (h.type === 'node' || h.type === 'label') && h.node ? h.node.nodeId : undefined; }
@@ -80,7 +80,7 @@ function endPtr(e) {
     var w0, w1, ids;
     if (q.mode === 'box') { w0 = worldOf(q.x, q.y); w1 = worldOf(p[0], p[1]); ids = NFMScene.inRect(S.scene, w0[0], w0[1], w1[0], w1[1]); }
     else { var poly = []; inkShape.pts.forEach(function (pt) { var w = worldOf(pt[0], pt[1]); poly.push(w[0], w[1]); }); ids = NFMScene.inLasso(S.scene, poly); }
-    var items = []; ids.forEach(function (k) { var n = S.scene.nodes.filter(function (x) { return x.key === k; })[0]; if (n && n.nodeId !== undefined) items.push(n.nodeId); });
+    var items = []; ids.forEach(function (k) { var n = liveScene().nodes.filter(function (x) { return x.key === k; })[0]; if (n && n.nodeId !== undefined) items.push(n.nodeId); });
     if (q.shift && S.sel.size) items = Array.from(new Set(Array.from(S.sel).concat(items)));
     setInk(null); setSel(items); if (items.length) toast(plural(items.length, 'item') + ' selected. ' + T('Right-click', 'Press and hold') + ' for what to do with them.');
     if (S.tool !== 'hand' && !e.shiftKey && !e.altKey) { /* keep the tool until the person changes it */ }
@@ -462,7 +462,7 @@ stage.addEventListener('keydown', function (e) {
   if (['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Enter'].indexOf(k) < 0) return;
   e.preventDefault();
   if (e.shiftKey && id && canDrag() && k !== 'Enter') { var nn = layoutPositions().get(id); if (nn) { var st = 12 / S.view.k, o2 = {}; o2[id] = [nn.cx + (k === 'ArrowRight' ? st : k === 'ArrowLeft' ? -st : 0), nn.cy + (k === 'ArrowDown' ? st : k === 'ArrowUp' ? -st : 0)]; setPins(o2); } return; }
-  if (!id) { var first = (S.L && S.L.startId) || (S.scene && S.scene.nodes.length && S.scene.nodes[0].nodeId); if (first) setSel([first], { center: true }); return; }
+  if (!id) { var first = (S.L && S.L.startId) || (liveScene() && S.scene.nodes.length && S.scene.nodes[0].nodeId); if (first) setSel([first], { center: true }); return; }
   if (k === 'Enter') { renderDetails(true); var dd = $('details'); if (!dd.hidden) { var b = dd.querySelector('button'); if (b) b.focus(); } return; }
   var outs = S.outAdj.get(id) || [], ins = S.inAdj.get(id) || [], dirTB = S.V.dir === 'TB' && S.V.view === 'flow';
   if (k === (dirTB ? 'ArrowDown' : 'ArrowRight') || (k === 'ArrowRight' && S.V.view === 'network')) {
