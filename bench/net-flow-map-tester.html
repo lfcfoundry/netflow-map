@@ -20,7 +20,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.17.0119.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.17.0141.</p>
 <div id="top"><div class="bar"><i id="barfill"></i></div><div class="statrow"><div id="status">Starting…</div><div id="clock" title="Time since the run started">⏱ 0:00</div><div id="fpsnow" title="How many pictures per second this page is really drawing right now (the page's own screen refresh rate)">— FPS</div></div></div>
 <div id="out"></div>
 <div id="show" class="card" style="display:none"><h2>The 3D map, turning</h2></div>
@@ -7278,7 +7278,7 @@ var NFMProbe = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.17.0119', EDGE = 130;
+  var VERSION = '2026.10.17.0141', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -7398,6 +7398,28 @@ var NFMProbe = (function () {
   var fmtMs = function (ms) { return ms >= 1000 ? (ms / 1000).toFixed(ms >= 10000 ? 1 : 2) + ' s' : Math.round(ms) + ' ms'; };
 
   /* ------------------------------------------------------------- the checks */
+  /* Is the computer steady right now? A blank screen refresh rate and a fixed bit of arithmetic. On the owner's laptop one run had a blank picture at 32 to 38 FPS (60 is normal) and sums 3 times slower: the whole computer was busy or slowed down, and every timing after that was off. Reading it at several points tells a slow computer from a slow program. */
+  var steadyLog = [];
+  function steadyProbe(where) {
+    return new Promise(function (res) {
+      if (document.hidden) { var h = { at: where, hidden: true, fps: 0, cpuMs: 0 }; steadyLog.push(h); res(h); return; }
+      var t0 = now(), n = 0, f = function () { n++; if (now() - t0 < 700) requestAnimationFrame(f); else { var fps = n * 1000 / (now() - t0), x = 0, best = 1e9; for (var rep = 0; rep < 2; rep++) { var c0 = now(); for (var i = 0; i < 12000000; i++) x += Math.sqrt(i); best = Math.min(best, now() - c0); }   /* twice, the faster one counts: the first pass includes the browser's own warm-up */
+          var r = { at: where, hidden: document.hidden, fps: r1(fps), cpuMs: Math.round(best), x: x > 0 ? 1 : 0 }; steadyLog.push(r); res(r); } };
+      requestAnimationFrame(f);
+    });
+  }
+  /** Plain words about the readings so far; level 'ok' when the computer stayed steady. */
+  function steadyVerdict() {
+    var good = steadyLog.filter(function (r) { return !r.hidden; }), hid = steadyLog.filter(function (r) { return r.hidden; }).length, lines = [], level = 'ok';
+    if (!good.length) return { level: hid ? 'warn' : 'ok', lines: hid ? ['The page was really in the background when it was checked, so timings from then are not reliable.'] : [] };
+    var bestFps = Math.max.apply(null, good.map(function (r) { return r.fps; })), bestCpu = Math.min.apply(null, good.map(function (r) { return r.cpuMs; }));
+    good.forEach(function (r) {
+      if (r.fps < Math.min(50, bestFps * 0.8)) { level = 'warn'; lines.push('At "' + r.at + '" a blank screen refresh reached only ' + r.fps + ' FPS (the best reading was ' + bestFps + '): the computer was busy or slowed down then (battery saver, other programs, heat).'); }
+      if (r.cpuMs > bestCpu * 1.5 && r.cpuMs - bestCpu > 15) { level = 'warn'; lines.push('At "' + r.at + '" a fixed bit of arithmetic took ' + r.cpuMs + ' ms (the quickest reading was ' + bestCpu + ' ms): the processor was slowed down or shared then.'); }
+    });
+    if (hid) { level = 'warn'; lines.push('The page was in the background for ' + hid + ' reading(s).'); }
+    return { level: level, lines: lines };
+  }
   var ctx = { dev: null, gpuNote: '' };
   var STEPS = [];
 
@@ -7414,6 +7436,7 @@ var NFMProbe = (function () {
       if (dev.software) { level = 'warn'; say = 'WebGPU is there, but it is a software stand-in (' + dev.info + '), not a real graphics card, so graphics-card timings will not mean much.'; ctx.softGpu = true; }
       else say = 'Graphics-card computing is available on: ' + dev.info + '.';
     }
+    var st0 = await steadyProbe('the start'); rows.push(['Screen refresh while idle (60 is normal)', st0.hidden ? 'page was in the background' : st0.fps + ' FPS']); rows.push(['Speed check (fixed arithmetic)', st0.hidden ? '-' : st0.cpuMs + ' ms']);
     s.head = ['Item', 'Value']; s.rows = rows; s.finish(level, say);
     ctx.info = { ua: ua, threads: navigator.hardwareConcurrency, mem: navigator.deviceMemory || null, gpu: dev.error ? null : dev.info, gl: glName, soft: !!dev.software, bufMB: dev.limits ? Math.round(dev.limits.maxStorageBufferBindingSize / 1048576) : null };
     return { level: level, say: say };
@@ -7539,8 +7562,9 @@ var NFMProbe = (function () {
 
   /* ------------------------------------------------------------- where the drawing time goes: WebGPU phases, several loop shapes, WebGL 2 as the control */
   STEPS.push({ name: 'Where the drawing time goes (WebGPU)', run: async function () {
-    var s = addSection('Where the drawing time goes: WebGPU against WebGL 2'), sizes = params.get('plan3d') ? params.get('plan3d').split(',').map(Number) : QUICK ? [600] : [5000, 25000, 50000, 100000], n = sizes[sizes.length - 1];
+    var s = addSection('Where the drawing time goes: WebGPU against WebGL 2'), sizes = params.get('plan3d') ? params.get('plan3d').split(',').map(Number) : QUICK ? [600] : [5000, 25000, 50000], n = sizes[sizes.length - 1];   /* 100,000 is left to the card-path turning tests: working out every picture of a 100,000-item map on the page allocates over 100 MB each and ran one laptop out of memory */
     s.head = ['Way of drawing', 'FPS', 'New angle (ms)', 'Copy to card (ms)', 'Draw commands (ms)', 'Wait for card (ms)', 'Wait for refresh (ms)'];
+    await steadyProbe('before the drawing-time tests');
     /* the graphics-card computing tests are over: close their device so the memory they used (up to gigabytes of tables) is free again for the drawing tests. It stayed open for the whole run before, and a few 1.5 to 1.9 second freezes showed up in drawing after it. */
     if (!params.get('extras') && ctx.dev && ctx.dev.device) { try { ctx.dev.device.destroy(); s.notes.push('The graphics card\'s computing device from the earlier steps was closed before these drawing tests, so its memory is free for them.'); } catch (e) { /* already gone */ } ctx.dev = null; ctx.devClosed = true; await new Promise(function (r) { setTimeout(r, 400); }); }
     var c = await NFMProbe.canary(), gpu = null, ctl = null, ex = null, byN = [], good = [], lost = [], row = function (nm, w) { return [n.toLocaleString() + ' items, ' + nm + ': ' + w.label, r1(w.fps), r1(w.scene), r1(w.upload), r1(w.draw), r1(w.fence), r1(w.raf)]; };
@@ -7695,17 +7719,21 @@ var NFMProbe = (function () {
   }
   function startPreviews() { /* the previews run their own loop since they were made */ }
   STEPS.push({ name: '3D arrangements and turning', run: async function () {
+    await steadyProbe('before the 3D tests');
     var s = addSection('3D arrangements: build time, and how smoothly they turn'), sizes = params.get('plan3d') ? params.get('plan3d').split(',').map(Number) : QUICK ? [600] : [5000, 25000, 50000, 100000], kinds = [['force3d', '3D force'], ['sphere', 'Sphere'], ['stack', 'Stacked group planes']];
     s.head = ['Items', 'Arrangement', 'Build time', 'Hop error in 3D']; var scenes = [], previewL = null;
     for (var zi = 0; zi < sizes.length; zi++) for (var ki = 0; ki < kinds.length; ki++) {
       var n = sizes[zi], ar = kinds[ki][0]; setStatus('3D, ' + n.toLocaleString() + ' items: ' + kinds[ki][1] + '…'); await yieldUI();
       if (n > 30000 && ar === 'force3d') { s.rows.push([n.toLocaleString(), kinds[ki][1], 'not built here', 'the app builds it in the background; one page would freeze too long']); continue; }
-      var g = graphFor('moderate', n), P = piece(g), dg = C.derive(JSON.parse(JSON.stringify(g))), t0 = now(), L3;
-      try { L3 = E.build(dg, { view: 'network', arrange: ar, colorBy: 'group' }); } catch (e) { s.rows.push([n.toLocaleString(), kinds[ki][1], 'failed', String(e && e.message || e).slice(0, 40)]); continue; }
-      var ms = now() - t0, X = new Float64Array(3 * P.k), pm = new Map(); L3.nodes.forEach(function (nd) { pm.set(nd.nodeId || nd.id, nd); });
-      P.ids.forEach(function (id, i) { var nd = pm.get(id) || { cx: 0, cy: 0, z: 0 }; X[3 * i] = nd.cx; X[3 * i + 1] = nd.cy; X[3 * i + 2] = nd.z || 0; });
-      s.scatter(X, P.k, kinds[ki][1] + ', ' + n.toLocaleString() + ' items, seen from the front (built in ' + fmtMs(ms) + ')', 3);
-      s.rows.push([n.toLocaleString(), kinds[ki][1], fmtMs(ms), r3(truth(P, X, 3))]);
+      var g, P, dg, t0, L3, ms, X, pm;
+      try {   /* one size running out of memory must not take the whole step (and the hands-on picture) with it */
+        g = graphFor('moderate', n); P = piece(g); dg = C.derive(JSON.parse(JSON.stringify(g))); t0 = now();
+        L3 = E.build(dg, { view: 'network', arrange: ar, colorBy: 'group' });
+        ms = now() - t0; X = new Float64Array(3 * P.k); pm = new Map(); L3.nodes.forEach(function (nd) { pm.set(nd.nodeId || nd.id, nd); });
+        P.ids.forEach(function (id, i) { var nd = pm.get(id) || { cx: 0, cy: 0, z: 0 }; X[3 * i] = nd.cx; X[3 * i + 1] = nd.cy; X[3 * i + 2] = nd.z || 0; });
+        s.scatter(X, P.k, kinds[ki][1] + ', ' + n.toLocaleString() + ' items, seen from the front (built in ' + fmtMs(ms) + ')', 3);
+        s.rows.push([n.toLocaleString(), kinds[ki][1], fmtMs(ms), r3(truth(P, X, 3))]);
+      } catch (e) { s.rows.push([n.toLocaleString(), kinds[ki][1], 'failed', String(e && e.message || e).slice(0, 60)]); g = P = dg = L3 = X = pm = null; continue; }
       if (ar === 'force3d' || (n > 30000 && ar === 'sphere')) scenes.push({ n: n, L3: L3, lay: ar === 'sphere' ? ', sphere layout' : '' }); if (!previewL && ar === 'force3d') previewL = { L3: L3, n: n };
       await yieldUI();
     }
@@ -7787,18 +7815,20 @@ var NFMProbe = (function () {
   function buildMd(elapsed) {
     var L = ['# Net Flow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
+    var sv = steadyVerdict(); L.push('## Was the computer steady during the run?', '', '**' + sv.level.toUpperCase() + '** ' + (sv.level === 'ok' ? 'Yes. The screen refresh and a fixed bit of arithmetic gave the same readings each time, so the timings above can be compared.' : 'No. Timings from the slow parts are not reliable: close other programs, plug the laptop in, turn battery saver off, and run again.'), '');
+    L.push(mdTable(['When', 'Blank screen refresh (FPS)', 'Fixed arithmetic (ms)'], steadyLog.map(function (r) { return [r.at, r.hidden ? 'in the background' : String(r.fps), r.hidden ? '-' : String(r.cpuMs)]; }))); sv.lines.forEach(function (t) { L.push('_' + t + '_', ''); });
     var hr = handsRows(); L.push('## Your hands-on test (the turning 3D picture)', '');
     if (hr.length) { L.push(mdTable(['Picture', 'What you did', 'Frames', 'FPS', 'Typical gap (ms)', 'Slowest 1 in 20 (ms)', 'Slowest (ms)', 'Frames over 34 ms', 'Our work per frame, typical (ms)', 'Our work per frame, worst (ms)'], hr)); L.push('_A gap is the time between two screen refreshes while you did that; 17 ms is a steady 60 FPS. "Our work per frame" is the page\'s own time (new angle plus drawing commands); if it is small while the gap is large, the wait is the graphics card or the browser._', ''); }
     else L.push('_Not tried yet. Drag and scroll the turning picture for a few seconds, then press Download again._', '');
     var hs = handsSummary(); hs.lines.forEach(function (t) { L.push('_' + t + '_', ''); });
-    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, turn: ctx.turn || null, split: ctx.split || null, timing: ctx.timing || null, small: ctx.small || null, hands: handsSummary().data, deviceClosedBeforeDrawing: !!ctx.devClosed }, null, 1), '```', '');
+    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, turn: ctx.turn || null, split: ctx.split || null, timing: ctx.timing || null, small: ctx.small || null, hands: handsSummary().data, steady: steadyLog, deviceClosedBeforeDrawing: !!ctx.devClosed }, null, 1), '```', '');
     return L.join('\n');
   }
   function offerResults(md, elapsed) {
     var worst = sections.some(function (s) { return s.level === 'bad'; }) ? 'bad' : sections.some(function (s) { return s.level === 'warn'; }) ? 'warn' : 'ok';
     sections.forEach(function (s) { $('out').appendChild(s.card); });   /* back into test order */
     document.querySelector('main').classList.add('fin'); window.scrollTo(0, 0);   /* finished: the 'All done' buttons first, then the turning 3D map, then every step */
-    $('done').style.display = ''; $('finalsay').textContent = worst === 'ok' ? 'Every check passed. Total time ' + fmtMs(elapsed) + '.' : worst === 'warn' ? 'Finished with some notes above (total time ' + fmtMs(elapsed) + ').' : 'Finished, and at least one check failed (total time ' + fmtMs(elapsed) + '). The results file explains what.';
+    $('done').style.display = ''; var sv0 = steadyVerdict(); if (sv0.level !== 'ok' && worst === 'ok') worst = 'warn'; $('finalsay').textContent = (sv0.level !== 'ok' ? 'The computer was not steady during this run (see "Was the computer steady" in the results), so some timings are unreliable. ' : '') + (worst === 'ok' ? 'Every check passed. Total time ' + fmtMs(elapsed) + '.' : worst === 'warn' ? 'Finished with some notes above (total time ' + fmtMs(elapsed) + ').' : 'Finished, and at least one check failed (total time ' + fmtMs(elapsed) + '). The results file explains what.');
     $('dl').onclick = function () { md = buildMd(elapsed); if (window.__NFM_TESTER_RESULT) window.__NFM_TESTER_RESULT.md = md; var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'net-flow-map-tester-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
     $('cp').onclick = function () { md = buildMd(elapsed); if (window.__NFM_TESTER_RESULT) window.__NFM_TESTER_RESULT.md = md; if (navigator.clipboard) navigator.clipboard.writeText(md).then(function () { $('cp').textContent = 'Copied'; }, function () { $('cp').textContent = 'Copy blocked'; }); };
     window.__NFM_TESTER_RESULT = { md: md, sections: sections.map(function (s) { return { title: s.title, level: s.level, verdict: s.verdict }; }), ctx: ctx };
@@ -7810,7 +7840,7 @@ var NFMProbe = (function () {
       try { await STEPS[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(STEPS[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
       doneSteps = i + 1; setBar();
     }
-    var el = now() - t0Run; stopClock(); setStatus('Finished in ' + fmtMs(el) + '.'); offerResults(buildMd(el), el); startPreviews(); running = false;
+    await steadyProbe('the end'); var el = now() - t0Run; stopClock(); setStatus('Finished in ' + fmtMs(el) + '.'); offerResults(buildMd(el), el); startPreviews(); running = false;
   }
   $('again').onclick = function () { runAll(); };
   window.addEventListener('load', function () { setTimeout(runAll, 400); });
