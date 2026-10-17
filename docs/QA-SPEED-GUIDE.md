@@ -233,7 +233,8 @@ Timing tests are only as good as the machine's quiet.
 Short answer: no tool turns live JavaScript data into something small and back again with zero cost. Practical options, cheapest first:
 
 1. **Make less garbage.** Reuse buffers while building scenes. Most of the 120 MB per 100,000-item scene is temporary.
-2. **Smaller numbers.** Store positions as 16-bit integers instead of 32-bit floats: half the memory, no decompression step. (Estimate: needs a visual check so splendor is not lost.)
+2. **Smaller numbers.** *Correction, measured later the same day:* in Net Flow Map the number buffers are only a few MB; the 150 MB per 100,000-item picture is JavaScript objects (about 300,000 links, 100,000 items, 100,000 labels, 100,000 dots). So 16-bit positions and buffer reuse would save almost nothing here. Measure what holds the memory (`process.memoryUsage()` with `--expose-gc`, then drop one list at a time) before choosing a fix.
+   Real saving found: let go of the old picture's lists before building the new one, so two never exist at once (peak 300 MB to 150 MB at 100,000 items).
 3. **Rebuild on demand and free the rest.**
 4. **Keep large data only on the graphics card** when it never needs to come back.
 5. **Real compression, only for off-screen data:**
