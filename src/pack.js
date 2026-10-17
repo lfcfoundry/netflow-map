@@ -65,7 +65,7 @@ var NFMPack = (function () {
   function evalAllowed() {
     try {
       var m = typeof document === 'object' && document.querySelector && document.querySelector('meta[http-equiv="Content-Security-Policy"]');
-      if (m && !/unsafe-eval/.test(m.getAttribute('content') || '')) return false;
+      if (m && !/'unsafe-eval'/.test(m.getAttribute('content') || '')) return false;
     } catch (e) { /* no page */ }
     return true;
   }

@@ -35,7 +35,7 @@ async function open() {
 
 (async () => {
   const D = await open(), page = D.page, errs = [];
-  page.on('pageerror', (e) => errs.push('pageerror: ' + (e.message || e)));
+  page.on('pageerror', (e) => errs.push('pageerror: ' + (e.message || e) + (e.stack ? ' @ ' + String(e.stack).split('\n').slice(0, 2).join(' < ') : '')));
   page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
   const ev = (fn, arg) => page.evaluate(fn, arg);
   const SLOW = process.env.NFM_SLOW === '1';
@@ -318,6 +318,12 @@ async function open() {
   say(await ev(() => !/right-click|ctrl\+/i.test(document.getElementById('rail').innerText)), 'no right-click or Ctrl words in the controls on touch');
   await ev(() => NFM.touch(null)); await D.size(1100, 720); await settle(200);
 
+
+  /* a big Network map shows a rough picture first and the finished one replaces it (the size limit is lowered here so a 5,000-item map counts as big) */
+  await ev(() => { NFM.engine().stressTuning.previewMin = 1000; NFM.state.roughCount = 0; NFM.setGraph(NFMExamples.bigNetwork(5000, 4, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'stress' }); });
+  await D.wait(() => NFM.state.L && NFM.state.L.view === 'network' && NFM.state.sceneOk && NFM.state.scene && NFM.state.L.nodes.length > 4900, null, 90000); await settle(300);
+  say(await ev(() => NFM.state.roughCount >= 1 && !NFM.state.L.rough && NFM.state.sceneOk), 'a big map: rough picture shown first, then replaced by the finished one');
+  await ev(() => { NFM.engine().stressTuning.previewMin = 40000; });
 
   /* turning a big 3D map on the card: the picture while turning is the ordinary picture, labels and selection survive, and the full picture comes back once the turning stops */
   await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(800, 9, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'force3d' }); });
