@@ -53,7 +53,7 @@ function keepList() {
 }
 function engineOpts() {
   var V = S.V, o = {
-    view: V.view, arrange: V.arrange, dir: V.dir, fold: V.fold, merge: V.merge, rows: V.rows, tagLen: V.tagLen, spineCol: V.spineCol, better: V.better, wrap: V.wrap, downLanes: V.downLanes, laneBy: V.laneBy, colorBy: engineColor(), sizeBy: V.sizeBy, widthBy: V.widthBy, edgeColorBy: V.edgeColorBy, agg: V.agg,
+    view: V.view, arrange: V.arrange, dir: V.dir, fold: V.fold, merge: V.merge, rows: V.rows, chapters: V.chapters === 'off' ? 0 : V.chapters === 'on' ? 1 : 1500, openCh: V.openCh, tagLen: V.tagLen, spineCol: V.spineCol, better: V.better, bundle: V.bundle, wrap: V.wrap, downLanes: V.downLanes, laneBy: V.laneBy, colorBy: engineColor(), sizeBy: V.sizeBy, widthBy: V.widthBy, edgeColorBy: V.edgeColorBy, agg: V.agg,
     block: V.block.slice(), hideKinds: V.hideKinds.slice(), mode: S.A.mode, runs: S.A.runs, weights: S.A.weights, wantFlow: V.colorBy === 'odds' || V.colorBy === 'heat'
   };
   var cut = strongestCut(); if (cut.min !== null) o.minEdge = { ch: cut.ch, min: cut.min };
@@ -115,6 +115,7 @@ function refreshMap(reason, force) {
     if (S.tab !== 'map') { if (fit) S.needFit = true; fit = false; }   /* built for export while another tab is open: the stage has no size now, so it fits when the Map is shown */
     else if (S.needFit) { S.needFit = false; fit = true; }
     makeScene(fit); lastFitKey = fk;
+    if (S.centerAfter) { var ca = S.centerAfter; S.centerAfter = null; centerOn(ca); }
     if (rough) { toast('A rough picture is up. The finished one replaces it when ready.', 30000); return; }
     S.sceneOk = true; if (S.mapBusy === seq) S.mapBusy = 0;
     S.buildKey = bk; S.buildDg = bdg;
@@ -190,7 +191,7 @@ function sceneOpts() {
   var V = S.V, sm = computeStyles(), dg = S.dg, byDg = new Map(); dg.nodes.forEach(function (n) { byDg.set(n.id, n); });
   var o = {
     theme: themeName(), colorBy: engineColor(), palette: V.palette, ramp: V.ramp, groupColors: V.groupColors, groupOrder: allGroupOrder(dg), story: S.story, lab: V.lab, widthScale: V.widthScale, widthMul: V.widthMul, hulls: V.hulls,
-    cam: V.cam, curve: V.curve, edgeValueLabels: V.valueLabels, ruler: V.ruler, lens: V.lens.on ? { x: S.lens ? S.lens.x : 0, y: S.lens ? S.lens.y : 0, r: S.lens ? S.lens.r : 0, d: V.lens.d } : null,
+    cam: V.cam, curve: V.curve, edgeValueLabels: V.valueLabels, ruler: V.ruler, taper: V.taper, vertical: V.view === 'river' && V.riverDir === 'TB', lens: V.lens.on ? { x: S.lens ? S.lens.x : 0, y: S.lens ? S.lens.y : 0, r: S.lens ? S.lens.r : 0, d: V.lens.d } : null,
     chName: function (c) { return chLabel(c, /^sys:(count|flow)$/.test(c) || c === 'weight' ? 'edges' : 'nodes'); }
   };
   if (sm.any) {
@@ -305,8 +306,22 @@ function applyStyle(noDraw) {
   if (mgr && mgr.r && mgr.r.restyle) mgr.r.restyle();
   if (!noDraw) requestDraw();
 }
+/** Opens the chapters and parts that hide any of these pages (a search hit, a selection from the details list); true when something was opened and the map is being built again. */
+function revealPages(ids) {
+  var c = S.L && S.L.chapters; if (!c) return false;
+  var open = Object.assign({}, S.V.openCh), more = false;
+  ids.forEach(function (id) { var ks = c.of[id]; if (ks) ks.forEach(function (k) { if (!open[k]) { open[k] = true; more = true; } }); });
+  if (!more) return false;
+  S.centerAfter = ids.slice(0, 1); S.V.openCh = open; setV({}); return true;
+}
+/** Opens one chapter or part (by its key), or folds it back. */
+function toggleChapter(key, on) {
+  var open = Object.assign({}, S.V.openCh); if (on) open[key] = true; else delete open[key];
+  S.V.openCh = open; setV({});
+}
 function setSel(ids, opts) {
   opts = opts || {};
+  if (ids.length && revealPages(ids)) { S.sel = new Set(ids); S.selEdges = new Set(); }
   S.sel = new Set(ids); S.selEdges = new Set(opts.edges || []); S.ring = null;
   applyStyle(); renderDetails(); renderSelbar();
   if (opts.center && ids.length) centerOn(ids);
@@ -353,7 +368,7 @@ function requestDraw() {
     }
     if (tsc && tsc.turn && tsc.turn.on && S.view.k > tsc.turn.kmax) tsc.turnTo(tsc.turn.cam, S.view.k * 2);   /* zoomed in: more names can be seen */
     if (mgr && mgr.r && S.scene) { try { mgr.r.draw({ k: S.view.k, tx: S.view.tx, ty: S.view.ty, invalidate: requestDraw }); } catch (err) { mgr.log.push('draw: ' + err.message); } }
-    drawInk();
+    drawInk(); renderMinimap();
   });
 }
 function attach(r) { r.resize(S.stageW, S.stageH, S.dpr); if (S.scene) { r.setScene(S.scene); if (S.L && S.L.is3d && r.rigPrepare) r.rigPrepare(); } requestDraw(); renderMapUI(); warmCardSoon(); }

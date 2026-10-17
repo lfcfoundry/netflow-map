@@ -2,7 +2,7 @@
 
 Copyright (c) 2026 LFC Foundry. MIT License.
 
-All seven choices are off by default; with them off the picture is exactly the old one (checked on 28 pictures pinned from the old engine in `test/topdown.test.js`, and on 480 builds against the old engine while developing). Turn them on in the View panel for Flow (top to bottom) and Top-down.
+All the choices below are off by default (chapters fold only on very big maps, see below); with them off the picture is exactly the old one (checked on 28 pictures pinned from the old engine in `test/topdown.test.js`, and on 480 builds against the old engine while developing). Turn them on in the View panel for Flow (top to bottom) and Top-down.
 
 | Choice (View panel) | In plain words | Engine option |
 |---|---|---|
@@ -13,6 +13,11 @@ All seven choices are off by default; with them off the picture is exactly the o
 | Cut a very tall map into columns | A map more than 2.2 times taller than wide is cut every few rows into side-by-side columns (about the shape of a screen); links between columns become tags. | `wrap: true` |
 | Show step numbers down the side | "step 12" beside each row; more rows show as you zoom in. | `ruler: true` |
 | One column per group (Top-down) | One band per group, left to right. | `downLanes: true` |
+| Bundle links that share a start or an end (Flow, Top-down) | Links that start at the same page share one run of stand-in stops; links that end at the same page and are alone at their start share one from the end. | `bundle: true` |
+| Taper links (thick at the start, thin at the end) | Links are drawn as shapes that narrow from the start to the end, so direction shows without arrowheads. Also in SVG export. | `taper: true` (scene) |
+| River direction: top to bottom | River runs down the page instead of across it (hand edits stay left to right only). | `riverDir: 'TB'` (view) |
+| Chapters: Auto / On / Off | On a big map, runs of pages behind a must-pass page fold into one "Chapter" box; if more than 600 boxes remain, runs of about 80 to 130 pages fold into "Part" boxes. Click a box to open it, right-click an open one to fold it back. Search and selecting a page open the box that hides it. Auto folds above 1,500 pages. | `chapters: 1500`, `openCh` |
+| Mini-map (Auto / On / Off) | A small picture of the whole map in the corner with a frame for the screen; click or drag it to move. Auto shows it when the screen sees less than 70% of the map across or down. | view `minimap` |
 
 Also a right-click item on a page: **Select every page on a route through it** (every page that can lead to it plus every page it can lead on to).
 
@@ -90,6 +95,38 @@ Test maps are seeded story-shaped maps (chapters of 2 to 4 branches that merge, 
 | tags + column | 12 | 531 | 851 | 0 | 90,351 | 59,772 x 1,446 | 0.0 | 29 | 42 |
 | tags + column + columns | 12 | 531 | 851 | 0 | 90,351 | 59,772 x 1,446 | 0.0 | 29 | 36 |
 | everything on | 19 | 2,763 | 0 | 90 | 101,789 | 26,902 x 2,286 | 0.1 | 111 | 119 |
+
+### Chapters (5,002 pages and others; smaller is better except where noted)
+
+| Map | Boxes drawn | Stand-in stops | Crossings | Width x height (px) | Build ms |
+|---|---|---|---|---|---|
+| 202 pages, today to folded | 135 to 110 | 77 to 77 | 12 to 5 | 2,100 x 6,726 to 1,810 x 6,726 | 7 to 4 |
+| 1,002 pages | 648 to 60 | 973 to 68 | 28 to 0 | 2,681 x 33,606 to 990 x 5,166 | 18 to 4 |
+| 5,002 pages | 3,267 to 88 | 33,087 to 1,697 | 1,216 to 355 | 4,223 x 160,446 to 1,019 x 9,966 | 339 to 17 |
+| 5,002 pages, one part opened (129 pages) | 144 | 1,870 | 357 | 1,320 x 13,686 | 18 |
+| 20,002 pages | refused to 252 | 5,915 | 3,730 | 2,106 x 20,046 | 120 |
+
+Plain takeaway: a folded 5,002-page story draws in 17 ms instead of 339 ms and fits about one screen of boxes; opening one part costs one more 18 ms rebuild. The mini-map's first draw is 7.4 ms and each redraw 0.01 ms at 5,002 pages.
+
+### Bundling (smaller is better)
+
+| Map | Stand-in stops | Crossings |
+|---|---|---|
+| 5,002-page story | 33,087 to 30,654 (7% fewer) | 1,216 to 1,065 (12% fewer) |
+| 5,002-page story, story order | 48,779 to 44,834 (8% fewer) | 805 to 721 (10% fewer) |
+| 1,000 pages | 973 to 947 | 28 to 25 |
+| loop-free random, 1,000 pages | 531 to 326 (39% fewer) | 90,351 to 86,508 (4% fewer) |
+| 201 pages, story order | 157 to 139 | 4 to 7 (worse) |
+
+Plain takeaway: bundling pays on big maps without tags; with tags on there is nothing left to bundle, and a small map can end with a crossing or two more, so it stays a choice.
+
+### Tapered links and vertical River
+
+Tapering costs about 1 ms per draw at 5,258 links (0.76, 1.12 and 1.19 ms in three runs, within noise). Vertical River swaps the picture's two directions after the layout is made, so the layout time is unchanged.
+
+### Not adopted: straight-line placement (Brandes-Koepf)
+
+Built and measured, then removed. It gives fewer slanted pieces (5% to 61% fewer) but more sideways drift (7% more on 201 pages, 5.7 times more on 5,002 pages) and wider maps (4,223 to 49,496 px wide at 5,002 pages), so the picture is worse where it matters. The code and tables are in `topdown-research/experiments/built/` (`bk-place.js`, `pos1.md`).
 
 ## Reading the tables
 
