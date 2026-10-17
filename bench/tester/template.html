@@ -10,8 +10,8 @@
 main{max-width:860px;margin:0 auto;padding:20px 16px 60px;display:flex;flex-direction:column}
 #out{order:5}#show{order:6}#done{order:7}main.fin #done{order:3}main.fin #show{order:4}
 h1{font-size:1.5rem;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 16px}
-.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:10px 0 6px}.bar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .2s}
-#status{color:var(--mut);min-height:1.5em}
+.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:4px 0 6px}.bar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .2s}
+#top{position:sticky;top:0;z-index:20;background:var(--bg);padding:6px 0 4px;margin-top:-6px}.statrow{display:flex;gap:12px;align-items:baseline;justify-content:space-between}#status{color:var(--mut);min-height:1.5em;flex:1}#clock{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
 .card h2{font-size:1.05rem;margin:0 0 4px}.verdict{margin:4px 0 8px}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 table{border-collapse:collapse;width:100%;font-size:.88rem;font-variant-numeric:tabular-nums}th,td{text-align:right;padding:3px 8px;border-bottom:1px solid var(--line)}th:first-child,td:first-child{text-align:left}th{color:var(--mut);font-weight:600}
@@ -21,7 +21,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
 <p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version __VERSION__.</p>
-<div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
+<div id="top"><div class="bar"><i id="barfill"></i></div><div class="statrow"><div id="status">Starting…</div><div id="clock" title="Time since the run started">⏱ 0:00</div></div></div>
 <div id="out"></div>
 <div id="show" class="card" style="display:none"><h2>The 3D map, turning</h2></div>
 <div id="done" class="card" style="display:none"><h2>All done</h2><p id="finalsay"></p>
