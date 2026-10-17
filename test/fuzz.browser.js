@@ -43,6 +43,8 @@ async function inPage(arg) {
     try { const r = await NFMUnpack.expand(b, 'f.zip'); for (const f of r.files) { try { NFMImport.importAny([f]); } catch (e) { if (!(e instanceof Error) || e instanceof TypeError || e instanceof RangeError) throw e; } } opened++; }
     catch (e) { if (!(e instanceof Error) || e instanceof TypeError || e instanceof RangeError || e instanceof ReferenceError) bad.push(e.name + ': ' + e.message); else refused++; }
     if (performance.now() - s > 2000) slow++;
+    /* hand the thread back now and then: Firefox only collects garbage between tasks, and a loop that only awaits (never yields to a task) piled up about 350 MB a second until the browser process was killed (the page came back blank, which looked like "NFMUnpack is not defined") */
+    if (((opened + refused) & 127) === 0) await new Promise((ok) => setTimeout(ok, 0));
   }
   if (arg.part === 'fuzz') return { opened, refused, bad: bad.slice(0, 5), badCount: bad.length, slow, bombs: [], heapMB: null };
   // bombs: declared small, really large; and honestly large
