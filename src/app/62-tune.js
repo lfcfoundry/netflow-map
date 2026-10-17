@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 9: the tuning test (a question at first start, a card on the Advanced tab, and the saved results used by the graphics-card path).
+ * Netflow Map app, part 9: the tuning test (a question at first start, a card on the Advanced tab, and the saved results used by the graphics-card path).
  * Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var TUNE_KEY = 'nfm-tune', TUNE_ASK = 'nfm-tune-ask';
@@ -62,8 +62,8 @@ function tuneDialog(mode) {
     mount(body, [h('h3', { id: 'dlg-h' }, 'Testing this computer…'), h('div', { id: 'tune-run' })]);
     runTuning($('tune-run'), finish, tok);
   };
-  mount(body, [h('h3', { id: 'dlg-h' }, mode === 'ask' ? 'Make Net Flow Map faster on this computer?' : 'Test this computer'),
-    h('p', null, 'Net Flow Map can run a short test (about 20 seconds) to find the quickest way to arrange big networks on this computer: it tries your processor and, if you have one that works, your graphics card, then saves the best settings in this browser.'),
+  mount(body, [h('h3', { id: 'dlg-h' }, mode === 'ask' ? 'Make Netflow Map faster on this computer?' : 'Test this computer'),
+    h('p', null, 'Netflow Map can run a short test (about 20 seconds) to find the quickest way to arrange big networks on this computer: it tries your processor and, if you have one that works, your graphics card, then saves the best settings in this browser.'),
     h('p', { class: 'muted small' }, 'The test uses made-up networks. Your data is not touched, nothing is sent anywhere, and you can stop it at any time. You can run it again from the Advanced tab.'),
     h('div', { class: 'row', style: { justifyContent: 'flex-end', flexWrap: 'wrap' } }, [
       mode === 'ask' ? h('button', { onclick: function () { LS.set(TUNE_ASK, 'never'); close(); } }, 'Don\'t ask again') : null,

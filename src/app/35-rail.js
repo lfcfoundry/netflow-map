@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 6: the left rail (Ask, Look, Filter, Find, Style, Views), the top bar and the floating key. Copyright (c) 2026 LFC Foundry. MIT License.
+ * Netflow Map app, part 6: the left rail (Ask, Look, Filter, Find, Style, Views), the top bar and the floating key. Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var RAIL = { tab: 'ask', open: true, peek: false };
 var VIEW_NOTES = {
@@ -580,7 +580,7 @@ function panelViews() {
 function printPoster(title, caption) {
   withMap(function (scene) {
     var old = $('poster'); if (old) old.remove();
-    var svg = NFMScene.toSvg(scene, title || S.graph.name), box = h('div', { id: 'poster' }, [h('h1', null, title || S.graph.name), caption ? h('p', null, caption) : null, h('div', { id: 'poster-img' }), h('p', { class: 'small' }, $('sum').textContent), h('p', { class: 'small' }, 'Made with Net Flow Map.')]);
+    var svg = NFMScene.toSvg(scene, title || S.graph.name), box = h('div', { id: 'poster' }, [h('h1', null, title || S.graph.name), caption ? h('p', null, caption) : null, h('div', { id: 'poster-img' }), h('p', { class: 'small' }, $('sum').textContent), h('p', { class: 'small' }, 'Made with Netflow Map.')]);
     document.body.appendChild(box);
     $('poster-img').innerHTML = svg; /* our own SVG; names inside it are escaped by the exporter */
     var s = $('poster-img').querySelector('svg'); if (s) { s.removeAttribute('width'); s.removeAttribute('height'); s.style.width = '100%'; s.style.height = 'auto'; }

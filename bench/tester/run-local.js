@@ -8,7 +8,7 @@ const which = process.argv[2] || 'chromium', quick = process.argv.includes('quic
   const br = await open(which, { timeout: 1800000 });
   br.page.on && br.page.on('console', (m) => { const t = m.text ? m.text() : String(m); if (/error|fail/i.test(t)) console.log('[page]', t.slice(0, 200)); });
   br.page.on && br.page.on('pageerror', (e) => console.log('[pageerror]', String(e && e.message || e).slice(0, 300)));
-  await br.goto('file://' + path.join(__dirname, '..', 'net-flow-map-tester.html') + ('?' + [quick ? 'quick=1' : '', process.env.TESTER_PLAN ? 'plan=' + process.env.TESTER_PLAN : '', process.env.TESTER_ONLY ? 'only=' + process.env.TESTER_ONLY : '', process.env.TESTER_PLAN3D ? 'plan3d=' + process.env.TESTER_PLAN3D : ''].filter(Boolean).join('&')));
+  await br.goto('file://' + path.join(__dirname, '..', 'netflow-map-tester.html') + ('?' + [quick ? 'quick=1' : '', process.env.TESTER_PLAN ? 'plan=' + process.env.TESTER_PLAN : '', process.env.TESTER_ONLY ? 'only=' + process.env.TESTER_ONLY : '', process.env.TESTER_PLAN3D ? 'plan3d=' + process.env.TESTER_PLAN3D : ''].filter(Boolean).join('&')));
   const t0 = Date.now();
   for (;;) {
     await new Promise((r) => setTimeout(r, 2000));

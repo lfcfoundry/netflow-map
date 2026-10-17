@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map columns: finds out what each column of the data holds (a number, a date, a category, free text), guesses what it
+ * Netflow Map columns: finds out what each column of the data holds (a number, a date, a category, free text), guesses what it
  * should do on the map (link width, item size, color, label), reads numbers the way people write them, and evaluates small
  * formulas for calculated columns. No DOM; runs in the page or in Node. Copyright (c) 2026 LFC Foundry. MIT License.
  *

@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map example data. Everything here is made up for the examples. Copyright (c) 2026 LFC Foundry. MIT License.
+ * Netflow Map example data. Everything here is made up for the examples. Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var NFMExamples = (function () {
   'use strict';

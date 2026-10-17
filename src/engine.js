@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map engine: pure functions, no page, no DOM. Runs on the main thread or inside a worker.
+ * Netflow Map engine: pure functions, no page, no DOM. Runs on the main thread or inside a worker.
  * Copyright (c) 2026 LFC Foundry. MIT License.
  *
  * Starts from the layered / arc / matrix / shape drawings, choke points, traffic and drawing scores of the Story Editor's

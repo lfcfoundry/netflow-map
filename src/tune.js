@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map tuning test: finds, on this computer, the fastest way to arrange big networks (processor or graphics card, how many sweeps,
+ * Netflow Map tuning test: finds, on this computer, the fastest way to arrange big networks (processor or graphics card, how many sweeps,
  * up to what size) and the real speed of each, and returns a profile the page saves and uses. Copyright (c) 2026 LFC Foundry. MIT License.
  * It runs on made-up networks in a private worker; the user's data is never touched.
  */

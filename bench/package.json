@@ -1,5 +1,5 @@
 {
-  "name": "net-flow-map-bench",
+  "name": "netflow-map-bench",
   "private": true,
   "description": "Benchmark-only dependencies (never shipped in index.html). npm install here, then: node build-libs.mjs",
   "license": "MIT",
