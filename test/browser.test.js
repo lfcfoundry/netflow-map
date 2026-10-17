@@ -635,6 +635,7 @@ async function open() {
   { const g = mkG('GroupColors', ['A', 'B', 'C'], [['A', 'B'], ['B', 'C']]); g.nodes[0].group = 'alpha'; g.nodes[1].group = 'beta'; g.nodes[2].group = 'gamma';
     await load(g, 'map'); await mapShows('B');
     const col = () => ev(() => { const S = NFM.state, l = (S.scene.legend || []).filter((x) => x.t === 'gamma')[0]; return l ? JSON.stringify(l.c) : null; });
+    for (let i = 0; i < 40 && (await col()) === null; i++) await settle(100);   // the legend can arrive a moment after the map text on a slow browser
     const before = await col();
     await ev(async () => { const S = NFM.state; window.__L2 = S.L; S.V.block = ['A']; NFM.refreshMap('options'); for (let i = 0; i < 400 && S.L === window.__L2; i++) await new Promise((q) => setTimeout(q, 25)); });
     await settle(300); const after = await col();
