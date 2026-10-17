@@ -55,6 +55,7 @@ That guarantee costs a little truth (the score ignores item size, so it favors t
 node tools/build.mjs                 # writes a minified index.html (version stamp year.month.day.HHMM, US Eastern); needs esbuild
 node tools/build.mjs --dev           # readable, larger file
 node tools/build.mjs --pack          # also writes index.packed.html, a self-extracting copy (our lzma-pack module) for downloads outside git
+node test/all.js                     # every Node test below, two at a time (about 45 s); add --full for the 90 s fuzz run
 node test/archive.test.js            # zips, Excel and graph files, including zip bombs, bad checksums and cut-off files
 node --expose-gc test/fuzz.test.js 90  # about 90 s of random and hostile input, layout shapes, dense links and leak loops
 node test/importers.test.js          # 19 quick checks of the readers, including 6,000 random tables against a plain reader

@@ -5,7 +5,9 @@
  */
 var $ = function (id) { return document.getElementById(id); };
 var esc = function (s) { return String(s === undefined || s === null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
-var debounce = function (fn, ms) { var t; var f = function () { var a = arguments, self = this; clearTimeout(t); t = setTimeout(function () { fn.apply(self, a); }, ms); }; f.now = function () { clearTimeout(t); fn(); }; return f; };
+/* DEBOUNCING counts the short (200 ms or less) screen-update delays still waiting, so a test can wait for the real finish instead of a guessed pause. The slow saves (300 ms and up) are not counted. */
+var DEBOUNCING = 0;
+var debounce = function (fn, ms) { var t, p = false, c = ms <= 200; var done = function () { if (p) { p = false; if (c) DEBOUNCING--; } }; var f = function () { var a = arguments, self = this; clearTimeout(t); if (!p) { p = true; if (c) DEBOUNCING++; } t = setTimeout(function () { done(); fn.apply(self, a); }, ms); }; f.now = function () { clearTimeout(t); done(); fn(); }; return f; };
 var LS = {
   get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set: function (k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },

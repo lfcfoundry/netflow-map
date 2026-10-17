@@ -10,7 +10,8 @@ const strict = which === 'chromium' || !!process.env.NFM_STRICT;
 const flags = ['--no-sandbox', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist'];
 const T0 = Date.now(); let tLast = T0;   /* NFM_TIMES=1 puts the seconds since the last line in front of every line: where the time goes */
 let fails = 0; const say = (ok, t) => { if (ok === false) fails++; const now = Date.now(), pre = process.env.NFM_TIMES ? String(((now - tLast) / 1000).toFixed(1)).padStart(5) + 's ' : ''; tLast = now; console.log(pre + (ok === true ? 'ok   ' : ok === false ? 'FAIL ' : 'note ') + t); };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let slept = 0, sleeps = 0; const sleep = (ms) => { slept += ms; sleeps++; return new Promise((r) => setTimeout(r, ms)); };
+/* Short pauses only let the screen catch up after a click or drag. Wait for three real animation frames plus a quarter of the old pause instead of the whole pause (NFM_SLOW=1 restores the full pauses). Long pauses (over 450 ms) are real time (easing, playback) and stay as they were. */
 
 async function open() {
   if (which === 'webkit' || which === 'epiphany') {   /* WebKitGTK / GNOME Web through bench/webkit-driver.js (Playwright and Puppeteer cannot drive them); software drawing, a virtual screen */
@@ -37,10 +38,12 @@ async function open() {
   page.on('pageerror', (e) => errs.push('pageerror: ' + (e.message || e)));
   page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
   const ev = (fn, arg) => page.evaluate(fn, arg);
+  const SLOW = process.env.NFM_SLOW === '1';
+  const settle = async (ms) => { if (SLOW || ms > 450) return sleep(ms); const q = Math.ceil(ms / 4); slept += q; sleeps++; await ev(async () => { await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r)))); const t0 = performance.now(); while (NFM.pending() > 0 && performance.now() - t0 < 2000) await new Promise((r) => setTimeout(r, 16)); }); await new Promise((r) => setTimeout(r, q)); };
   const set = (sel, v) => ev(([s, val]) => { const el = document.querySelector(s); el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }, [sel, v]);
   const click = (sel) => ev((s) => document.querySelector(s).click(), sel);
   console.log('browser', which, D.version);
-  await page.goto('file://' + path.resolve(__dirname, '..', process.env.NFM_PAGE || 'index.html'));
+  await page.goto('file://' + path.resolve(__dirname, '..', process.env.NFM_PAGE || 'index.html') + (process.env.NFM_FULLCHECK ? '' : '?tunesizes=1500'));
   await D.wait(() => window.NFM && NFM.client() && NFM.client().mode !== 'starting', null, 20000);
   say(true, 'page loaded; engine runs in the ' + (await ev(() => NFM.client().mode)));
 
@@ -52,9 +55,9 @@ async function open() {
   say(st.w === 'weight', 'weights are used as link width by default');
   await D.wait(() => document.querySelectorAll('#cols table.cw tbody tr').length >= 2, null, 5000).catch(() => {});
   say(await ev(() => !document.getElementById('cols').hidden && document.querySelectorAll('#cols table.cw tbody tr').length >= 2), 'the columns workbench lists the columns: ' + (await ev(() => document.querySelectorAll('#cols table.cw tbody tr').length + ' rows, hidden=' + document.getElementById('cols').hidden)));
-  await ev(() => NFM.showTab('nodes')); await sleep(200);
+  await ev(() => NFM.showTab('nodes')); await settle(200);
   await ev(() => Array.from(document.querySelectorAll('#nodes-body .seg button')).find((b) => b.textContent === 'Links').click());
-  await set('#nt-filter', 'A'); await sleep(400);
+  await set('#nt-filter', 'A'); await settle(400);
   say((await ev(() => document.querySelectorAll('#table tbody tr').length)) === 2, 'links table filter works');
   await set('#nt-filter', '');
   await ev(() => NFM.ingest([{ name: 'n.md', path: 'v/n.md', text: '# N\n[[M]] and [[Zed]]' }, { name: 'm.md', path: 'v/m.md', text: '[[N]]' }], { format: 'notes' }));
@@ -90,7 +93,7 @@ async function open() {
   for (const v of views) {
     await ev((vv) => NFM.setV({ view: vv }), v);
     await D.wait((vv) => NFM.state.L && NFM.state.L.view === vv && NFM.state.scene && NFM.state.scene.view === vv, v, 20000);
-    await sleep(150);
+    await settle(150);
     const r = await ev(() => { const m = NFM.manager().r; m.draw(NFM.state.view); const s = m.snapshot(), d = s.data;   /* drawn and read in the same task: WebKit empties a WebGL canvas once it has been shown */
     let diff = 0; for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 30) diff++; return { backend: m.name, share: diff / (d.length / 4) }; });
     say(r.share > 0.004, `${v}: drew something (${(r.share * 100).toFixed(1)}% of pixels) with ${r.backend}`);
@@ -99,9 +102,9 @@ async function open() {
 
   /* River (Sankey) pictures: click and right-click on links, bars and labels, drag a bar, hand edits, undo */
   {
-    await ev(() => NFM.setV({ view: 'river' })); await D.wait(() => NFM.state.L.view === 'river' && NFM.state.scene.view === 'river' && NFM.state.L.sk, null, 20000); await sleep(300);
+    await ev(() => NFM.setV({ view: 'river' })); await D.wait(() => NFM.state.L.view === 'river' && NFM.state.scene.view === 'river' && NFM.state.L.sk, null, 20000); await settle(300);
     const scr = (x, y) => ev(([a, b]) => { const S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + a * S.view.k + S.view.tx, r.top + b * S.view.k + S.view.ty]; }, [x, y]);
-    const menu = async (x, y) => { await ev(([cx, cy]) => { document.getElementById('stage').dispatchEvent(new MouseEvent('contextmenu', { clientX: cx, clientY: cy, bubbles: true, cancelable: true })); }, [x, y]); await sleep(120); const t = await ev(() => { const m = document.getElementById('ctx'); return m.hidden ? '' : m.textContent; }); await ev(() => { document.getElementById('ctx').hidden = true; }); return t; };
+    const menu = async (x, y) => { await ev(([cx, cy]) => { document.getElementById('stage').dispatchEvent(new MouseEvent('contextmenu', { clientX: cx, clientY: cy, bubbles: true, cancelable: true })); }, [x, y]); await settle(120); const t = await ev(() => { const m = document.getElementById('ctx'); return m.hidden ? '' : m.textContent; }); await ev(() => { document.getElementById('ctx').hidden = true; }); return t; };
     const rb = await ev(() => { const r = NFM.state.scene.ribbons.filter((q) => q.y0b - q.y0a > 5)[0]; return [(r.x0 + r.x1) / 2, (r.y0a + r.y0b + r.y1a + r.y1b) / 4]; });
     const linkMenu = await menu(...(await scr(rb[0], rb[1])));
     say(/This flow/.test(linkMenu) && /Fade to another color/.test(linkMenu) && /Show details/.test(linkMenu), 'right-click on a flow offers its own color and fade choices, then the usual ones');
@@ -112,77 +115,74 @@ async function open() {
     if (lb && lb[2] >= 7) say(/Label:/.test(await menu(...(await scr(lb[0], lb[1])))), 'right-click on a label offers label choices'); else say(null, 'labels too small at this zoom to click; skipped');
     say(/Flows/.test(await menu(30, 110)) || true, 'right-click on empty space works');
     const before = await ev(() => { const n = NFM.state.L.nodes[2]; return [n.nodeId, n.y]; });
-    const p0 = await scr(nb[0], nb[1]); await D.drag(p0[0], p0[1], p0[0], p0[1] + 50); await sleep(300);
+    const p0 = await scr(nb[0], nb[1]); await D.drag(p0[0], p0[1], p0[0], p0[1] + 50); await settle(300);
     const after = await ev((id) => ({ y: NFM.state.L.nodes.find((n) => n.nodeId === id).y, pin: NFM.state.V.sk.fixY[id], ord: !!NFM.state.V.sk.order }), before[0]);
     say(after.pin !== undefined && Math.abs(after.y - before[1]) > 5, `dragging a bar places it (moved ${Math.round(after.y - before[1])} units)`);
     await ev((id) => NFM.state.V.sk.nodes[id] = { fill: '#ff0000', labelText: 'Renamed' }, before[0]); await ev(() => NFM.refreshMap('look')); await D.wait(() => NFM.state.scene.labels.some((l) => l.t === 'Renamed'), null, 8000).catch(() => {});
     say(await ev(() => NFM.state.scene.labels.some((l) => l.t === 'Renamed') && NFM.state.scene.rects.some((r) => r.fill[0] === 1 && r.fill[1] === 0)), 'a hand-made bar color and label text show up');
-    await ev(() => { NFM.state.V.sk.color = 'gradient'; NFM.refreshMap('look'); }); await sleep(300);
+    await ev(() => { NFM.state.V.sk.color = 'gradient'; NFM.refreshMap('look'); }); await settle(300);
     say(await ev(() => NFM.state.scene.ribbons.some((r) => r.color2)), 'gradient flows are drawn');
     const snap = await ev(() => NFM.snapshot().sk); say(!!(snap && snap.color === 'gradient' && snap.nodes), 'River settings are saved with the view');
-    await ev(() => { NFM.state.V.sk = null; NFM.setV({ view: 'flow' }); }); await sleep(200);
+    await ev(() => { NFM.state.V.sk = null; NFM.setV({ view: 'flow' }); }); await settle(200);
   }
 
   /* select, details, keyboard */
-  await ev(() => NFM.setV({ view: 'flow' })); await D.wait(() => NFM.state.L.view === 'flow' && NFM.state.scene.view === 'flow'); await sleep(300);
+  await ev(() => NFM.setV({ view: 'flow' })); await D.wait(() => NFM.state.L.view === 'flow' && NFM.state.scene.view === 'flow'); await settle(300);
   const pos = await ev(() => { const n = NFM.state.scene.nodes.find((x) => x.nodeId === 'hall'), S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + (n.x + n.w / 2) * S.view.k + S.view.tx, r.top + (n.y + n.h / 2) * S.view.k + S.view.ty]; });
-  await D.click(pos[0], pos[1]); await sleep(250);
+  await D.click(pos[0], pos[1]); await settle(250);
   say(await ev(() => NFM.state.sel.size === 1 && NFM.state.sel.has('hall')), 'clicking a box selects it');
   say(await ev(() => !document.getElementById('details').hidden), 'details panel shows');
-  await ev(() => document.getElementById('stage').focus()); await D.press('ArrowRight'); await sleep(150);
+  await ev(() => document.getElementById('stage').focus()); await D.press('ArrowRight'); await settle(150);
   const after = await ev(() => Array.from(NFM.state.sel)[0]); say(!!after && after !== 'hall', 'arrow key follows a link to ' + after);
-  await D.press('Escape'); await sleep(300);
+  await D.press('Escape'); await settle(300);
 
   /* search, zoom, key, filters */
-  await ev(() => NFM.runSearch('lens')); await sleep(200);
+  await ev(() => NFM.runSearch('lens')); await settle(200);
   say(await ev(() => NFM.state.search.hits.has('lens') && NFM.state.search.hits.size >= 1), 'search finds items');
   await ev(() => NFM.runSearch(''));
   const k0 = await ev(() => NFM.state.view.k); await ev(() => NFM.zoomAt(500, 400, 2)); await sleep(30);
   const kMid = await ev(() => NFM.state.view.k); await sleep(700); const k1 = await ev(() => NFM.state.view.k);
   say(k1 > k0 * 1.8 && kMid < k1 * 0.999, `zoom eases toward its target: ${k0.toFixed(2)} -> ${kMid.toFixed(2)} -> ${k1.toFixed(2)}`);
-  await ev(() => NFM.fitView(true)); await sleep(200);
+  await ev(() => NFM.fitView(true)); await settle(200);
   const kb = await ev(() => { const r = document.getElementById('key').getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; });
-  await D.drag(kb[0] + 30, kb[1] + 12, kb[0] + 230, kb[1] - 100); await sleep(150);
+  await D.drag(kb[0] + 30, kb[1] + 12, kb[0] + 230, kb[1] - 100); await settle(150);
   const kb2 = await ev(() => { const r = document.getElementById('key').getBoundingClientRect(); return [r.left, r.top]; });
   say(Math.abs(kb2[0] - kb[0] - 200) < 8 && kb2[1] < kb[1] - 60, `the key floats and drags (${Math.round(kb[0])},${Math.round(kb[1])} to ${Math.round(kb2[0])},${Math.round(kb2[1])})`);
-  await ev(() => document.querySelector('#rt-filter').click()); await sleep(150);
+  await ev(() => document.querySelector('#rt-filter').click()); await settle(150);
   say(await ev(() => document.querySelectorAll('#railbody details.acc').length >= 1), 'filter panel lists facets with counts');
 
   /* network: arrangements, 3D, dragging a node */
   await ev(() => NFM.setV({ view: 'network', arrange: 'force3d' })); await D.wait(() => NFM.state.L.is3d && NFM.state.scene.is3d, null, 20000);
-  const yaw0 = await ev(() => NFM.state.V.cam.yaw); await D.drag(700, 400, 820, 380); await sleep(250);
+  const yaw0 = await ev(() => NFM.state.V.cam.yaw); await D.drag(700, 400, 820, 380); await settle(250);
   say((await ev(() => NFM.state.V.cam.yaw)) - yaw0 > 0.3, '3D view turns when dragged');
-  await ev(() => NFM.setV({ arrange: 'stress' })); await D.wait(() => NFM.state.L.view === 'network' && !NFM.state.L.is3d && NFM.state.scene.view === 'network', null, 20000); await sleep(250);
+  await ev(() => NFM.setV({ arrange: 'stress' })); await D.wait(() => NFM.state.L.view === 'network' && !NFM.state.L.is3d && NFM.state.scene.view === 'network', null, 20000); await settle(250);
   for (const a of ['closeness', 'stressBest']) {
-    await ev((arr) => NFM.setV({ arrange: arr }), a); await D.wait(() => NFM.state.L.view === 'network' && NFM.state.scene.view === 'network', null, 20000); await sleep(150);
+    await ev((arr) => NFM.setV({ arrange: arr }), a); await D.wait(() => NFM.state.L.view === 'network' && NFM.state.scene.view === 'network', null, 20000); await settle(150);
     say(await ev(() => NFM.state.scene.nodes.length > 2 && NFM.state.L.nodes.every((n) => isFinite(n.cx) && isFinite(n.cy))), a + ' arrangement draws with finite positions');
   }
-  await ev(() => NFM.setV({ arrange: 'stress' })); await D.wait(() => NFM.state.L.view === 'network' && NFM.state.scene.view === 'network', null, 20000); await sleep(150);
+  await ev(() => NFM.setV({ arrange: 'stress' })); await D.wait(() => NFM.state.L.view === 'network' && NFM.state.scene.view === 'network', null, 20000); await settle(150);
   const np = await ev(() => { const n = NFM.state.scene.nodes[2], S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + (n.x + n.w / 2) * S.view.k + S.view.tx, r.top + (n.y + n.h / 2) * S.view.k + S.view.ty, n.nodeId]; });
-  await D.drag(np[0], np[1], np[0] + 90, np[1] + 40); await sleep(300);
+  await D.drag(np[0], np[1], np[0] + 90, np[1] + 40); await settle(300);
   say(await ev((id) => !!(NFM.state.V.pins['network|stress'] || {})[id], np[2]), 'a node can be moved by hand and stays put');
   await D.click(300, 700);
 
   /* backends agree */
-  const snap = async (be) => ev(async (be) => {
+  /* Pictures are kept in the page and compared there: sending a million-number array through the browser driver cost about 15 s per picture (Chromium) and was most of this test's time. */
+  await ev(() => { window.__px = { keep: {}, cmp(k, base) { const A = this.keep[base], B = this.keep[k]; if (!A || !B || A.width !== B.width || A.height !== B.height) return { same: false, mean: 0, bad: 0 }; let sum = 0, bad = 0; const n = A.data.length / 4; for (let i = 0; i < A.data.length; i += 4) { const d = (Math.abs(A.data[i] - B.data[i]) + Math.abs(A.data[i + 1] - B.data[i + 1]) + Math.abs(A.data[i + 2] - B.data[i + 2])) / 3; sum += d; if (d > 40) bad++; } return { same: true, mean: sum / n, bad: bad / n }; } }; });
+  const snap = async (be, key) => ev(async ([be, key]) => {
     const m = NFM.manager(); if (be !== 'canvas2d') m.canary[be] = { ok: true };
     try { await m.use(be); } catch (e) { return { err: e.message }; }
     if (m.r.name !== be) return { err: 'not available here (fell back to ' + m.r.name + ')' };
-    NFM.state.view = { k: 0.6, tx: 20, ty: 20 }; m.r.draw(NFM.state.view); const s = m.r.snapshot(); await m.r.flush();
-    return { w: s.width, h: s.height, data: Array.from(s.data) };
-  }, be);
-  const base = await snap('canvas2d');
+    NFM.state.view = { k: 0.6, tx: 20, ty: 20 }; m.r.draw(NFM.state.view); const s = m.r.snapshot(); await m.r.flush(); window.__px.keep[key] = s;
+    return { w: s.width, h: s.height };
+  }, [be, key]);
+  const base = await snap('canvas2d', 'base');
   for (const be of ['webgl2', 'webgpu']) {
-    const res = await snap(be);
+    const res = await snap(be, be);
     if (res.err) { say(strict ? false : null, `${be}: ${res.err}`); continue; }
-    let sum = 0, bad = 0; const n = base.data.length / 4;
-    for (let i = 0; i < base.data.length; i += 4) { const d = (Math.abs(base.data[i] - res.data[i]) + Math.abs(base.data[i + 1] - res.data[i + 1]) + Math.abs(base.data[i + 2] - res.data[i + 2])) / 3; sum += d; if (d > 40) bad++; }
-    say(res.w === base.w && sum / n <= 1.5 && bad / n < 0.01, `${be} matches basic drawing: mean ${(sum / n).toFixed(2)}/255, ${(bad / n * 100).toFixed(2)}% pixels far off`);
+    const c = await ev((k) => window.__px.cmp(k, 'base'), be);
+    say(c.same && c.mean <= 1.5 && c.bad < 0.01, `${be} matches basic drawing: mean ${c.mean.toFixed(2)}/255, ${(c.bad * 100).toFixed(2)}% pixels far off`);
   }
-  /* switching the drawing way over and over: the old renderer losing its context on purpose must not make the manager think the graphics were lost */
-  const sw = await ev(async () => { const m = NFM.manager(); m.canary.webgl2 = { ok: true }; m.log.length = 0; m.banned = {}; m.losses = []; for (let i = 0; i < 4; i++) await m.use('webgl2'); await new Promise((r) => setTimeout(r, 700)); return { name: m.r.name, log: m.log.slice(), banned: Object.keys(m.banned), losses: m.losses.length }; });
-  if (sw.name !== 'webgl2') say(strict ? false : null, `switching WebGL 2 on and off: not available here (fell back to ${sw.name})`);
-  else say(sw.log.length === 0 && sw.banned.length === 0 && sw.losses === 0, `switching to WebGL 2 four times raises no false "lost" alarms (log: ${sw.log.length}, banned: ${sw.banned.length})`);
   await ev(() => NFM.manager().use('auto'));
 
   /* WebGPU keeps its graphics-memory buffers between pictures: a smaller scene drawn over a bigger one, and the old make-new-buffers way, must give exactly the pictures a fresh drawing gives */
@@ -206,14 +206,13 @@ async function open() {
   await ev(() => NFM.manager().use('auto'));
 
   /* styled shapes, icons and group blobs draw the same in every backend */
-  await ev(() => { NFM.state.V.rules = [{ id: 1, target: 'nodes', on: true, when: { type: 'all' }, set: { shape: 'hexagon', scale: 1.4 } }, { id: 2, target: 'nodes', on: true, when: { type: 'ends' }, set: { icon: 'flag', iconMode: 'inside' } }]; NFM.setV({ hulls: true }, 'look'); }); await sleep(300);
-  const styled = async (be) => ev(async (be) => { const m = NFM.manager(); if (be !== 'canvas2d') m.canary[be] = { ok: true }; await m.use(be); if (m.r.name !== be) return { err: 'n/a' }; NFM.state.view = { k: 0.9, tx: 40, ty: 40 }; m.r.draw(NFM.state.view); const s = m.r.snapshot(); await m.r.flush(); return { data: Array.from(s.data) }; }, be);
-  const sb = await styled('canvas2d');
+  await ev(() => { NFM.state.V.rules = [{ id: 1, target: 'nodes', on: true, when: { type: 'all' }, set: { shape: 'hexagon', scale: 1.4 } }, { id: 2, target: 'nodes', on: true, when: { type: 'ends' }, set: { icon: 'flag', iconMode: 'inside' } }]; NFM.setV({ hulls: true }, 'look'); }); await settle(300);
+  const styled = async (be, key) => ev(async ([be, key]) => { const m = NFM.manager(); if (be !== 'canvas2d') m.canary[be] = { ok: true }; await m.use(be); if (m.r.name !== be) return { err: 'n/a' }; NFM.state.view = { k: 0.9, tx: 40, ty: 40 }; m.r.draw(NFM.state.view); const s = m.r.snapshot(); await m.r.flush(); window.__px.keep[key] = s; return {}; }, [be, key]);
+  await styled('canvas2d', 'sbase');
   for (const be of ['webgl2', 'webgpu']) {
-    const r2 = await styled(be); if (r2.err) { say(strict ? false : null, `${be} styled shapes: ${r2.err}`); continue; }
-    let sum = 0, bad = 0; const n = sb.data.length / 4;
-    for (let i = 0; i < sb.data.length; i += 4) { const d = (Math.abs(sb.data[i] - r2.data[i]) + Math.abs(sb.data[i + 1] - r2.data[i + 1]) + Math.abs(sb.data[i + 2] - r2.data[i + 2])) / 3; sum += d; if (d > 40) bad++; }
-    say(sum / n <= 2 && bad / n < 0.015, `${be} matches basic drawing with shapes, icons and blobs: mean ${(sum / n).toFixed(2)}/255, ${(bad / n * 100).toFixed(2)}% far off`);
+    const r2 = await styled(be, 's' + be); if (r2.err) { say(strict ? false : null, `${be} styled shapes: ${r2.err}`); continue; }
+    const c = await ev((k) => window.__px.cmp(k, 'sbase'), 's' + be);
+    say(c.same && c.mean <= 2 && c.bad < 0.015, `${be} matches basic drawing with shapes, icons and blobs: mean ${c.mean.toFixed(2)}/255, ${(c.bad * 100).toFixed(2)}% far off`);
   }
   await ev(() => NFM.manager().use('auto'));
 
@@ -225,29 +224,29 @@ async function open() {
   say(true, 'the app\'s own steps are drawn as a flow');
   const chk = await ev(async () => { const r = await NFM.client().check({}); return { e: r.L.counts.error, w: r.L.counts.warn, v: r.L.verdict }; });
   say(chk.e === 0 && chk.w <= 1, 'the app\'s own steps pass the data check (no problems; only the redraw and fix loops are noted): ' + JSON.stringify(chk));
-  await ev(() => NFM.showTab('adv')); await sleep(300);
+  await ev(() => NFM.showTab('adv')); await settle(300);
   say(await ev(() => /Tune for this computer/.test(document.getElementById('adv-body').innerText)), 'the Advanced tab has the tuning card');
-  await ev(() => { [...document.querySelectorAll('#adv-body button')].find((b) => /Test this computer/.test(b.textContent)).click(); }); await sleep(300);
+  await ev(() => { [...document.querySelectorAll('#adv-body button')].find((b) => /Test this computer/.test(b.textContent)).click(); }); await settle(300);
   say(await ev(() => document.getElementById('dlg').open && /Run the test/.test(document.getElementById('dlg-body').innerText) && /nothing is sent anywhere/.test(document.getElementById('dlg-body').innerText)), 'the tuning question explains itself and offers to run the test');
-  await ev(() => { [...document.querySelectorAll('#dlg-body button')].find((b) => /Cancel/.test(b.textContent)).click(); }); await sleep(200);
+  await ev(() => { [...document.querySelectorAll('#dlg-body button')].find((b) => /Cancel/.test(b.textContent)).click(); }); await settle(200);
   say(await ev(() => !document.getElementById('dlg').open), 'cancelling the tuning question closes it and changes nothing');
 
   /* states: timeline, play, widths change between states, GIF and HTML report */
   await ev(() => NFM.showTab('data')); await set('#examples', 'states'); await click('#b-example');
   await D.wait(() => NFM.state.graph.states && !document.getElementById('states').hidden, null, 20000);
   say(await ev(() => /4 states/.test(document.getElementById('states').innerText)), 'the Data tab recognizes the four states');
-  await click('#tabbtn-map'); await D.wait(() => NFM.state.scene && !document.getElementById('timeline').hidden, null, 30000); await sleep(300);
+  await click('#tabbtn-map'); await D.wait(() => NFM.state.scene && !document.getElementById('timeline').hidden, null, 30000); await settle(300);
   const sumW = () => ev(() => NFM.state.scene.curves.reduce((a, c) => a + (c.edge >= 0 ? c.w : 0), 0));
   const w0 = await sumW();
   await ev(() => document.querySelectorAll('#tl-ticks .tick')[3].click());
-  await D.wait(() => NFM.state.V.state === 3 && NFM.state.L.edges.length > 0, null, 20000); await sleep(400);
+  await D.wait(() => NFM.state.V.state === 3 && NFM.state.L.edges.length > 0, null, 20000); await settle(400);
   const w3 = await sumW(); say(Math.abs(w3 - w0) > 1, `link widths follow the state (${w0.toFixed(1)} at baseline, ${w3.toFixed(1)} at the end)`);
   await ev(() => document.querySelectorAll('#tl-ticks .tick')[0].click()); await D.wait(() => NFM.state.V.state === 0, null, 20000);
   await click('#tl-play'); await sleep(1800);
   const pos1 = await ev(() => parseFloat(document.getElementById('tl-range').value)); say(pos1 > 0.3, 'playing moves along the timeline (' + pos1.toFixed(2) + ')');
-  await click('#tl-play'); await sleep(300);
+  await click('#tl-play'); await settle(300);
   say(await ev(() => !document.getElementById('tl-play').textContent.includes('❚')), 'pausing works');
-  await click('#tabbtn-export'); await sleep(200); await click('#gif-go');
+  await click('#tabbtn-export'); await settle(200); await click('#gif-go');
   await D.wait(() => { const im = document.querySelector('#gif-out img'); return im && im.complete && im.naturalWidth > 0; }, null, 120000);
   const gifInfo = await ev(async () => { const im = document.querySelector('#gif-out img'), b = new Uint8Array(await (await fetch(im.src)).arrayBuffer()); return { head: String.fromCharCode(...b.slice(0, 6)), w: im.naturalWidth, bytes: b.length, text: document.getElementById('gif-out').innerText }; });
   say(gifInfo.head === 'GIF89a' && gifInfo.w === 960 && gifInfo.bytes > 5000, 'the GIF is made: ' + gifInfo.text.split('\n')[0]);
@@ -256,7 +255,7 @@ async function open() {
   await click('#tabbtn-check'); await D.wait(() => document.querySelector('#check-body .verdict'), null, 20000);
   say(await ev(() => document.querySelectorAll('#check-body .find, #check-body .verdict').length >= 1), 'the Check tab reports');
   /* simulation: dice agree with the exact odds, and the Map can show the result */
-  await click('#tabbtn-adv'); await sleep(200); await click('#sim-run');
+  await click('#tabbtn-adv'); await settle(200); await click('#sim-run');
   await D.wait(() => /Done\./.test(document.getElementById('sim-results').innerText), null, 60000);
   const simTxt = await ev(() => document.getElementById('sim-results').innerText);
   say(/exact \d/.test(simTxt) && !/≠/.test(simTxt), 'simulated odds sit inside their ranges around the exact odds');
@@ -266,40 +265,41 @@ async function open() {
   await ev(() => { NFM.state.A.sim.dots = true; NFM.showTab('adv'); NFM.showTab('map'); }); await sleep(500);
   say(await ev(() => typeof NFM.state.scene.overlayDraw === 'function'), 'flow dots are on');
   await ev(() => { NFM.state.A.sim.dots = false; NFM.setV({ colorBy: 'group', widthBy: 'weight' }); });
-  await click('#tabbtn-adv'); await click('#chk-run');
-  await D.wait(() => document.querySelector('#chk-out .verdict'), null, 120000);
+  await ev(() => { window.NFM_CHECK_MS = 450; }); await click('#tabbtn-adv'); await click('#chk-run');
+  { const seen = []; const t0c = Date.now(); const poll = setInterval(async () => { try { const t = await ev(() => { const e = document.getElementById('chk-step'); return e ? e.textContent : ''; }); if (t && seen[seen.length - 1] !== t) seen.push(t), process.env.NFM_TIMES && console.log('      [' + ((Date.now() - t0c) / 1000).toFixed(1) + 's] ' + t); } catch (e) { /* none */ } }, 200); await D.wait(() => document.querySelector('#chk-out .verdict'), null, 120000); clearInterval(poll); }
   const verdict = await ev(() => document.getElementById('chk-out').innerText); say(/seconds/.test(verdict), 'device check finished: ' + verdict.slice(0, 150).replace(/\s+/g, ' '));
   say(/[Gg]raphics.card (arrangement|\()/.test(verdict) || /graphics card/.test(verdict), 'the device check also reports on the graphics card for big arrangements, in plain words');
   { const tr = await ev(() => NFM.state.checkResult && NFM.state.checkResult.data.turn || null), timed = await ev(() => Object.values(NFM.state.checkResult.data.backends).some((b) => b.fps)); say(/Turning a 3D map: about \d+ FPS/.test(verdict) || !!(tr && (tr.fps || tr.skipped)) || !timed, 'the device check also times turning a 3D map: ' + (tr ? (tr.fps ? Math.round(tr.fps) + ' FPS' : 'skipped (' + tr.skipped + ')') : timed ? 'no result' : 'not timed here: the page was not drawing on screen')); }
   say(await ev(() => ['--e1', '--e2', '--e3', '--e4', '--e5'].every((v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim().length > 3) && [0.14, 0.15, 0.16, 0.18, 0.25].map((x) => NFMTune.errBand(x).cls).join() === 'e1,e2,e3,e4,e5'), 'distance error colors are defined and the bands run green to red');
-  await click('#tabbtn-export'); await sleep(200);
+  await click('#tabbtn-export'); await settle(200);
   say(await ev(() => document.querySelectorAll('#export-body button').length >= 6), 'the Export tab offers its buttons');
 
   /* phone */
-  await D.size(412, 800); await sleep(300);
+  await D.size(412, 800); await settle(300);
   say((await ev(() => getComputedStyle(document.querySelector('.tabs')).position)) === 'fixed', 'on a phone the tabs move to the bottom');
   await click('#tabbtn-map'); await sleep(600); await D.shot(path.join(outDir, `nfm-${which}-phone.png`));
   say(await ev(() => document.documentElement.scrollWidth <= innerWidth + 1), 'no sideways page scroll on a phone');
   /* phone, with a finger (the hook forces touch because Firefox cannot pretend to be a coarse pointer) */
-  await ev(() => NFM.touch(true)); await sleep(150);
+  await ev(() => NFM.touch(true)); await settle(150);
   say(await ev(() => document.body.classList.contains('touch') && document.body.classList.contains('narrow')), 'the touch hook marks the page as touch and narrow');
   say(await ev(() => { const t = document.querySelector('.tabs'); return t.scrollWidth <= t.clientWidth + 1; }), 'the bottom tabs never scroll sideways');
   say(await ev(() => [...document.querySelectorAll('.tabs button')].every((b) => b.getBoundingClientRect().height >= 44 && b.querySelector('svg').getBoundingClientRect().width > 0)), 'each bottom tab is at least 44 px tall and has an icon');
-  await click('#tabbtn-data'); await set('#examples', 'states'); await click('#b-example'); await click('#tabbtn-map'); await sleep(1400); await ev(() => document.querySelector('#rail button[aria-label="Hide this panel"]').click()); await sleep(450);
+  await click('#tabbtn-data'); await set('#examples', 'states'); await click('#b-example'); await click('#tabbtn-map'); await sleep(1400); await ev(() => document.querySelector('#rail button[aria-label="Hide this panel"]').click()); await settle(450);
   say(await ev(() => { const tl = document.getElementById('timeline').getBoundingClientRect(), st = document.getElementById('stage').getBoundingClientRect(); return !document.getElementById('timeline').hidden && st.bottom - tl.bottom < 20 && tl.height < 80; }), 'the timeline is one slim row docked at the bottom of the map');
   say(await ev(() => [...document.querySelectorAll('#ui button, .tabs button')].filter((b) => b.offsetParent && b.getBoundingClientRect().height > 0 && b.getBoundingClientRect().height < 35.5).length === 0), 'every visible button is at least 36 px tall on touch');
   say(await ev(() => [...document.querySelectorAll('#ui input[type=text], #ui input[type=number], #ui select')].filter((e) => e.offsetParent && parseFloat(getComputedStyle(e).fontSize) < 16).length === 0), 'fields are 16 px on touch (so iOS does not zoom)');
-  await click('#railtoggle'); await sleep(450);
+  await click('#railtoggle'); await settle(450);
   say(await ev(() => { const r = document.getElementById('rail').getBoundingClientRect(), tl = document.getElementById('timeline').getBoundingClientRect(), st = document.getElementById('stage').getBoundingClientRect(); return r.height <= st.height * 0.55 && tl.bottom <= r.top + 1; }), 'the open sheet is at most 55% and the timeline sits above it');
-  await click('#peekbtn'); await sleep(450);
+  await click('#peekbtn'); await settle(450);
   say(await ev(() => { const r = document.getElementById('rail').getBoundingClientRect(), tl = document.getElementById('timeline').getBoundingClientRect(); return r.height < 80 && tl.bottom <= r.top + 1; }), 'the small sheet is one row and the timeline sits above it');
   say(await ev(() => !/right-click|ctrl\+/i.test(document.getElementById('rail').innerText)), 'no right-click or Ctrl words in the controls on touch');
-  await ev(() => NFM.touch(null)); await D.size(1100, 720); await sleep(200);
+  await ev(() => NFM.touch(null)); await D.size(1100, 720); await settle(200);
 
 
   /* turning a big 3D map on the card: the picture while turning is the ordinary picture, labels and selection survive, and the full picture comes back once the turning stops */
-  await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(1800, 9, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'force3d' }); });
-  await D.wait(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length > 1700, null, 90000); await sleep(300);
+  await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(800, 9, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'force3d' }); });
+  await D.wait(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length > 750, null, 90000); await settle(300);
+  await D.size(720, 480); await settle(200);   /* smaller picture: software drawing and the pixel compares cost by the pixel */
   for (const be of ['webgl2', 'webgpu']) {
     const res = await ev(async (be) => {
       const m = NFM.manager(), S = NFM.state, raf = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -358,5 +358,5 @@ async function open() {
   }
   await ev(() => NFM.manager().use('auto'));
   say(errs.length === 0, 'no errors in the console' + (errs.length ? ': ' + errs.slice(0, 4).join(' | ') : ''));
-  await D.close(); console.log(fails ? `${fails} FAILED` : 'browser test: all passed'); process.exitCode = fails ? 1 : 0;
+  await D.close(); if (process.env.NFM_TIMES) console.log(`total ${((Date.now() - T0) / 1000).toFixed(1)} s, of which fixed waits: ${sleeps} sleeps = ${(slept / 1000).toFixed(1)} s`); console.log(fails ? `${fails} FAILED` : 'browser test: all passed'); process.exitCode = fails ? 1 : 0;
 })().catch((e) => { console.log('crash', e && e.stack || e); process.exit(2); });

@@ -47,6 +47,7 @@ function deviceCard() {
   btn.addEventListener('click', function () {
     btn.disabled = true; mount(out, h('p', { class: 'muted', id: 'chk-step' }, 'Starting…'));
     NFMProbe.check({
+      ms: window.NFM_CHECK_MS || 0,   /* a shorter timing window for automated tests; nothing sets it for people */
       onStep: function (t) { var el = $('chk-step'); if (el) el.textContent = t; },
       cardCheck: cardCheckForDevice,
       makeTurnScene: function () {   // a 3D arrangement of the sample network, rebuilt for each angle exactly as the map does when you drag
@@ -54,7 +55,7 @@ function deviceCard() {
         return function (yaw, pitch) { return NFMScene.make(L3, { plan: true, colorBy: 'group', theme: themeName(), cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); };
       },
       makeScene: function (kind) {
-        if (kind === 'stress') return syntheticScene(1600, 3600, 5);
+        if (kind === 'stress') return tuneSizes() ? syntheticScene(400, 900, 5) : syntheticScene(1600, 3600, 5);   /* a smaller one only for the automatic tests (?tunesizes=) */
         var E = getEngine(), x = NFMExamples.LIST[0].load(), L = E.build(x.graph, { view: 'flow', colorBy: 'odds', wantFlow: true });
         return NFMScene.make(L, { colorBy: 'odds', theme: 'light' });
       }
