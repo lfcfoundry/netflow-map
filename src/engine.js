@@ -1311,7 +1311,7 @@ var NFMEngine = (function () {
 
   /* Tuning knobs for the stress layout (the benchmark page changes them to compare settings; the app never does). */
   var exactNow = false;
-  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, spread: 0.35, exactMax: 20000, exactIters: 0, multi: 1, multiMin: 4000, multiCoarse: 2000, multiEta: 0.12, multiIters: 6, multiJitter: 0.3 };   // exactIters 0 = by size
+  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, spread: 0.35, exactMax: 20000, exactIters: 0, multi: 1, multiMin: 4000, multiCoarse: 2000, multiEta: 0.12, multiIters: 3, multiJitter: 0.3, multiPiv: 6, multiNear: 6 };   // exactIters 0 = by size
 
   /**
    * "Best quality" stress for one connected piece: every pair of items is used, with the hop counts kept in one byte each (k*k bytes,
@@ -1467,6 +1467,7 @@ var NFMEngine = (function () {
     // Huge pieces: keep the pairs to a memory budget (about 12 million pairs, 120 MB) by using fewer pivots and fewer near neighbors.
     var near = Math.min(k > 20000 ? T.nearBig : T.near, Math.max(2, Math.floor(4e6 / k)));
     var rootL = locArr[root], nPiv = full ? k : Math.min(k, Math.max(4, Math.min(Math.max(T.pivMin, Math.min(T.pivMax, Math.round(T.pivBudget / k))), Math.floor(8e6 / k))));
+    if (eta0) { if (T.multiPiv) nPiv = Math.min(nPiv, T.multiPiv); if (T.multiNear) near = Math.min(near, T.multiNear); }   // polishing a grown-back picture needs far fewer pairs than building one from scratch
     var cap = full ? (k * (k - 1)) / 2 : nPiv * k + m2 / 2 + k * near;
     var tmax = full ? (k <= 700 ? T.fullIters : k <= 1500 ? 20 : 12) : (tIters || T.iters);
     var seed = (rnd() * 4294967296) | 0 || 1;   // drawn once, before any try, so a try that gives up leaves the next one the same random order

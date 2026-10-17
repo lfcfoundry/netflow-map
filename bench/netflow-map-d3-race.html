@@ -19,7 +19,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 details{margin-top:16px}details pre{white-space:pre-wrap;font-size:.75rem;color:var(--mut)}
 </style></head><body><main>
 <h1>Netflow Map against D3</h1>
-<p class="sub">One button. It races Netflow Map against the open-source D3 library (d3-force and d3-sankey) on the same data, in this browser. It takes a few minutes. Leave this tab in front while it runs; nothing is sent anywhere. Version 2026.10.17.1540.</p>
+<p class="sub">One button. It races Netflow Map against the open-source D3 library (d3-force and d3-sankey) on the same data, in this browser. It takes a few minutes. Leave this tab in front while it runs; nothing is sent anywhere. Version 2026.10.17.1612.</p>
 <div id="top"><div class="bar"><i id="barfill"></i></div><div class="statrow"><div id="status">Ready.</div><div id="clock">⏱ 0:00</div></div></div>
 <p><button class="p" id="go">Run the race</button></p>
 <div id="out"></div>
@@ -2024,7 +2024,7 @@ var NFMEngine = (function () {
 
   /* Tuning knobs for the stress layout (the benchmark page changes them to compare settings; the app never does). */
   var exactNow = false;
-  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, spread: 0.35, exactMax: 20000, exactIters: 0, multi: 1, multiMin: 4000, multiCoarse: 2000, multiEta: 0.12, multiIters: 6, multiJitter: 0.3 };   // exactIters 0 = by size
+  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, spread: 0.35, exactMax: 20000, exactIters: 0, multi: 1, multiMin: 4000, multiCoarse: 2000, multiEta: 0.12, multiIters: 3, multiJitter: 0.3, multiPiv: 6, multiNear: 6 };   // exactIters 0 = by size
 
   /**
    * "Best quality" stress for one connected piece: every pair of items is used, with the hop counts kept in one byte each (k*k bytes,
@@ -2180,6 +2180,7 @@ var NFMEngine = (function () {
     // Huge pieces: keep the pairs to a memory budget (about 12 million pairs, 120 MB) by using fewer pivots and fewer near neighbors.
     var near = Math.min(k > 20000 ? T.nearBig : T.near, Math.max(2, Math.floor(4e6 / k)));
     var rootL = locArr[root], nPiv = full ? k : Math.min(k, Math.max(4, Math.min(Math.max(T.pivMin, Math.min(T.pivMax, Math.round(T.pivBudget / k))), Math.floor(8e6 / k))));
+    if (eta0) { if (T.multiPiv) nPiv = Math.min(nPiv, T.multiPiv); if (T.multiNear) near = Math.min(near, T.multiNear); }   // polishing a grown-back picture needs far fewer pairs than building one from scratch
     var cap = full ? (k * (k - 1)) / 2 : nPiv * k + m2 / 2 + k * near;
     var tmax = full ? (k <= 700 ? T.fullIters : k <= 1500 ? 20 : 12) : (tIters || T.iters);
     var seed = (rnd() * 4294967296) | 0 || 1;   // drawn once, before any try, so a try that gives up leaves the next one the same random order
@@ -5298,7 +5299,7 @@ var NFMProbe = (function () {
   var E = NFMEngine, C = NFMColumns, GEN = NFMGen, D3 = D3R;
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
-  var params = new URLSearchParams(location.search), QUICK = params.has('quick'), VERSION = '2026.10.17.1540';
+  var params = new URLSearchParams(location.search), QUICK = params.has('quick'), VERSION = '2026.10.17.1612';
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var nextFrame = function () { return new Promise(function (r) { requestAnimationFrame(r); }); };
   var sections = [], running = false, t0Run = 0, clockTimer = 0, total = 3, doneSteps = 0, ctx = { layouts: {} };
