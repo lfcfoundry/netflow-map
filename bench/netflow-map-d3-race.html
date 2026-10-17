@@ -19,7 +19,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 details{margin-top:16px}details pre{white-space:pre-wrap;font-size:.75rem;color:var(--mut)}
 </style></head><body><main>
 <h1>Netflow Map against D3</h1>
-<p class="sub">One button. It races Netflow Map against the open-source D3 library (d3-force and d3-sankey) on the same data, in this browser. It takes a few minutes. Leave this tab in front while it runs; nothing is sent anywhere. Version 2026.10.17.1651.</p>
+<p class="sub">One button. It races Netflow Map against the open-source D3 library (d3-force and d3-sankey) on the same data, in this browser. It takes a few minutes. Leave this tab in front while it runs; nothing is sent anywhere. Version 2026.10.17.1830.</p>
 <div id="top"><div class="bar"><i id="barfill"></i></div><div class="statrow"><div id="status">Ready.</div><div id="clock">⏱ 0:00</div></div></div>
 <p><button class="p" id="go">Run the race</button></p>
 <div id="out"></div>
@@ -1332,8 +1332,47 @@ var NFMEngine = (function () {
   }
 
   /**
+   * Rows in the order of the story. Links that close a loop (found depth-first from the start) are set aside, then each page goes one row
+   * below the lowest page that leads to it. Pages the start cannot reach keep going below the rest, as in the shortest-route drawing.
+   */
+  function storyRows(G, layer, outs, opts, byNode) {
+    var state = {}, backE = new Set(), order = [], reach = {};
+    var dfs = function (r, isMain) {
+      if (state[r]) return;
+      state[r] = 1; if (isMain) reach[r] = true;
+      var stack = [[r, 0]];
+      while (stack.length) {
+        var t = stack[stack.length - 1], list = outs[t[0]];
+        if (t[1] < list.length) {
+          var w = list[t[1]++];
+          if (state[w] === 1) backE.add(t[0] + '>' + w);
+          else if (!state[w]) { state[w] = 1; if (isMain) reach[w] = true; stack.push([w, 0]); }
+        } else { state[t[0]] = 2; order.push(t[0]); stack.pop(); }
+      }
+    };
+    if (opts.root && byNode[opts.root]) dfs(opts.root, true);
+    G.nodes.forEach(function (n) { dfs(n.id, false); });
+    order.reverse();
+    var ins = {}, lay = {}, maxMain = -1;
+    G.nodes.forEach(function (n) { ins[n.id] = []; });
+    G.edges.forEach(function (e) { if (e.from !== e.to && !backE.has(e.from + '>' + e.to) && !reach[e.from] === !reach[e.to]) ins[e.to].push(e.from); });
+    order.forEach(function (v) {
+      var m = 0, l = ins[v];
+      for (var i = 0; i < l.length; i++) if (lay[l[i]] + 1 > m) m = lay[l[i]] + 1;
+      lay[v] = m;
+      if (reach[v] && m > maxMain) maxMain = m;
+    });
+    G.nodes.forEach(function (n) { layer[n.id] = lay[n.id] + (reach[n.id] ? 0 : maxMain + 1); });
+  }
+  /**
    * A layered drawing of G (boxes with w and h set). opts: dir 'LR'|'TB', root (box id), spine (hold choke boxes on one line),
    * lane (box -> number), prev ({boxId: 0-1 order from last time}), gapLayer, gapNode, maxVertices.
+   * Off unless asked for (the picture is then exactly the old one):
+   *   rows: 'story'   rows follow the order of the story (a page sits below every page that leads to it; only real loops go back)
+   *                   instead of the shortest route from the start,
+   *   tagLen: N       links that span more than N rows are not drawn through the rows between; they get kind 'tag' (a tag at each end),
+   *   better: true    crossing reduction with the middle value and neighbor swaps on big maps too,
+   *   wrapRows: R     a tall map is cut every R rows into columns side by side (links between columns become tags).
    */
   function layered(G, opts) {
     opts = opts || {};
@@ -1360,8 +1399,12 @@ var NFMEngine = (function () {
       if (layer[n.id] === undefined && !ins[n.id].some(function (f) { return layer[f] === undefined && f !== n.id; })) bfsFrom(n.id, maxL + 1, true);
     });
     G.nodes.forEach(function (n) { if (layer[n.id] === undefined) bfsFrom(n.id, maxL + 1, true); });
+    var tagLen = opts.tagLen > 1 ? opts.tagLen : 0, wrapR = opts.wrapRows > 1 && !opts.lane ? Math.floor(opts.wrapRows) : 0;
+    /* a link is drawn as a pair of tags when it is very long, or (when a tall map is wrapped into columns) when it leaves its column */
+    var tagged = function (la, lb) { return (tagLen && Math.abs(lb - la) > tagLen) || (wrapR && Math.floor(la / wrapR) !== Math.floor(lb / wrapR)); };
+    if (opts.rows === 'story') { storyRows(G, layer, outs, opts, byNode); maxL = 0; for (var idr in layer) if (layer[idr] > maxL) maxL = layer[idr]; }
     var dummies = 0;
-    G.edges.forEach(function (e) { var s = Math.abs(layer[e.to] - layer[e.from]); if (s > 1) dummies += s - 1; });
+    G.edges.forEach(function (e) { var s = Math.abs(layer[e.to] - layer[e.from]); if (tagged(layer[e.from], layer[e.to])) return; if (s > 1) dummies += s - 1; });
     if (dummies + G.nodes.length > (opts.maxVertices || 90000)) {
       var err = new Error('too big for a layered drawing (' + (dummies + G.nodes.length) + ' stops); use the Network view or filter first');
       err.tooBig = true;
@@ -1376,6 +1419,7 @@ var NFMEngine = (function () {
       e.chain = [];
       if (e.from === e.to) { e.kind = 'self'; return; }
       if (la === lb) { e.kind = 'flat'; return; }
+      if (tagged(la, lb)) { e.kind = 'tag'; e.tagFwd = lb > la; return; }
       e.kind = lb > la ? 'fwd' : 'back';
       var lo = Math.min(la, lb), hi = Math.max(la, lb), prevV = (lb > la ? a : b).v;
       for (var k = lo + 1; k < hi; k++) {
@@ -1426,10 +1470,12 @@ var NFMEngine = (function () {
     var totalCross = function () { var c = 0; for (var k = 0; k + 1 < nL; k++) c += crossBetween(k); return c; };
     var snapshot = function () { return L.map(function (list) { return list.slice(); }); };
     var best = snapshot(), bestC = totalCross();
+    var medianNow = false;
     var sweep = function (k, nb) {
       L[k].forEach(function (v) {
         var ns = nb[v.idx];
-        v.bary = ns.length ? ns.reduce(function (s, o) { return s + o[0].pos; }, 0) / ns.length : v.pos;
+        if (medianNow && ns.length) { var ps = ns.map(function (o) { return o[0].pos; }).sort(function (a, b) { return a - b; }), mid = ps.length >> 1; v.bary = ps.length % 2 ? ps[mid] : (ps[mid - 1] + ps[mid]) / 2; }
+        else v.bary = ns.length ? ns.reduce(function (s, o) { return s + o[0].pos; }, 0) / ns.length : v.pos;
       });
       L[k].sort(function (a, b) { return laneOf(a) - laneOf(b) || a.bary - b.bary || a.pos - b.pos; });
       L[k].forEach(function (v, i) { v.pos = i; });
@@ -1454,11 +1500,13 @@ var NFMEngine = (function () {
         }
       }
     };
-    var big = vert.length > 600;
-    for (var it = 0; it < (big ? 2 : 6) && bestC > 0; it++) {
+    var big = vert.length > 600, baseRounds = big ? 2 : 6;
+    /* "better": after the usual rounds, six more (average and middle value in turn, neighbor swaps always); the best order seen is kept, so it is never worse */
+    for (var it = 0; it < baseRounds + (opts.better ? 6 : 0) && bestC > 0; it++) {
+      medianNow = it >= baseRounds && (it - baseRounds) % 2 === 1;
       for (var k1 = 1; k1 < nL; k1++) sweep(k1, up);
       for (var k2 = nL - 2; k2 >= 0; k2--) sweep(k2, down);
-      if (!big) for (var k3 = 0; k3 < nL; k3++) transpose(k3);
+      if (!big || it >= baseRounds) for (var k3 = 0; k3 < nL; k3++) transpose(k3);
       var c = totalCross();
       if (c < bestC) { bestC = c; best = snapshot(); }
     }
@@ -1511,12 +1559,23 @@ var NFMEngine = (function () {
       depthOf[k6] = [at2, mm || 20];
       at2 += (mm || 20) + gapL;
     }
-    var minC = Infinity;
-    vert.forEach(function (v) { minC = Math.min(minC, v.c - across(v) / 2); });
-    if (!isFinite(minC)) minC = 0;
-    var pad = 20;
+    var minC = Infinity, band = function (v) { return wrapR ? Math.floor(v.layer / wrapR) : 0; }, nb = wrapR ? Math.floor((nL - 1) / wrapR) + 1 : 1;
+    var bLo = [], bHi = [], bAt = [];
     vert.forEach(function (v) {
-      var dm = depthOf[v.layer], along = dm[0] + dm[1] / 2, acrossC = v.c - minC;
+      var lo = v.c - across(v) / 2, hi = v.c + across(v) / 2, b = band(v);
+      minC = Math.min(minC, lo);
+      if (bLo[b] === undefined || lo < bLo[b]) bLo[b] = lo;
+      if (bHi[b] === undefined || hi > bHi[b]) bHi[b] = hi;
+    });
+    if (!isFinite(minC)) minC = 0;
+    var pad = 20, bX = [], bY = [], gapB = 90, run = 0;
+    for (var bb = 0; bb < nb; bb++) {
+      bY[bb] = wrapR ? depthOf[bb * wrapR][0] : 0;
+      bX[bb] = wrapR && bLo[bb] !== undefined ? run - bLo[bb] + minC : 0;   /* shift so this column starts right after the one before */
+      if (wrapR && bLo[bb] !== undefined) run += bHi[bb] - bLo[bb] + gapB;
+    }
+    vert.forEach(function (v) {
+      var b = band(v), dm = depthOf[v.layer], along = dm[0] + dm[1] / 2 - bY[b], acrossC = v.c - minC + bX[b];
       if (v.dummy) { v.x = LR ? pad + along : pad + acrossC; v.y = LR ? pad + acrossC : pad + along; return; }
       var n = v.node;
       n.layer = v.layer;
@@ -1534,7 +1593,12 @@ var NFMEngine = (function () {
     var pos = {};
     G.nodes.forEach(function (n) { pos[n.id] = n; delete n.v; });
     G.edges.forEach(function (e) { delete e.chain; });
-    return { kind: 'nodes', dir: dir, nodes: G.nodes, edges: G.edges, pos: pos, order: ord, lanes: lanes, width: W + pad + 60, height: H + pad + 30, crossings: bestC };
+    var ruler = depthOf.map(function (dm, k) { var b = wrapR ? Math.floor(k / wrapR) : 0; return { at: pad + dm[0] + dm[1] / 2 - bY[b], edge: pad + (wrapR && bLo[b] !== undefined ? bLo[b] - minC + bX[b] : 0) }; });
+    var kinds = { fwd: 0, back: 0, flat: 0, self: 0, tag: 0 };
+    var goldTags = 0;
+    G.edges.forEach(function (e) { kinds[e.kind]++; if (e.kind === 'tag' && !e.tagFwd) goldTags++; });
+    return { kind: 'nodes', dir: dir, nodes: G.nodes, edges: G.edges, pos: pos, order: ord, lanes: lanes, width: W + pad + 60, height: H + pad + 30, crossings: bestC,
+      rows: depthOf, ruler: ruler, info: { columns: nb, rows: nL, stops: vert.length - G.nodes.length, back: kinds.back, flat: kinds.flat, tags: kinds.tag, goldTags: goldTags, rowMode: opts.rows === 'story' ? 'story' : 'route' } };
   }
 
   /* ---------------------------------------------------------------- 6. the other views */
@@ -2643,7 +2707,7 @@ var NFMEngine = (function () {
       }
     } else if (L.kind !== 'matrix') {
       L.edges.forEach(function (e, ei) {
-        if (e.from === e.to) return;
+        if (e.from === e.to || e.kind === 'tag') return;   /* a tagged link is not drawn across the page, so it crosses nothing */
         var pts = [C[e.from]].concat(e.pts || [], [C[e.to]]);
         for (var q = 0; q + 1 < pts.length; q++) segs.push([pts[q], pts[q + 1], ei]);
       });
@@ -2916,9 +2980,24 @@ var NFMEngine = (function () {
     keys.forEach(function (k, i) { laneNames.push(k); laneIdx.set(k, i); });
     G.nodes.forEach(function (n) { laneOfBox[n.id] = laneIdx.get(cls[n.id]); });
     var root = P.start >= 0 ? G.groupOf[P.start] : undefined, prev = o.prev || undefined, Lr;
-    if (view === 'down') Lr = layered(G, { dir: 'TB', root: root, prev: prev });
-    else if (view === 'spine') Lr = layered(G, { dir: 'LR', root: root, prev: prev, spine: true });
-    else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, { dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } });
+    /* optional layered-drawing choices (all off by default, so the picture is the old one): see layered() */
+    var LO = { rows: o.rows === 'story' ? 'story' : undefined, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better };
+    var withLO = function (x) { return Object.assign(x, LO); };
+    /* top to bottom (and the Flow view turned that way): a map more than about twice as tall as wide can be cut into columns (o.wrap) */
+    var downLanes = view === 'down' && o.downLanes && laneNames.length > 1;
+    var topDown = function (dir) {
+      var base = { dir: dir, root: root, prev: prev, spine: !!o.spineCol }, L1;
+      if (downLanes) base.lane = function (n) { return Math.max(0, laneOfBox[n.id]); };
+      L1 = layered(G, withLO(Object.assign({}, base)));
+      if (o.wrap && dir === 'TB' && L1.height > 2.2 * L1.width) {
+        var K = Math.round(Math.sqrt(1.6 * L1.height / L1.width)), R = Math.ceil(L1.info.rows / Math.max(1, K));
+        if (K >= 2 && R >= 2 && R < L1.info.rows) L1 = layered(G, withLO(Object.assign({ wrapRows: R }, base)));
+      }
+      return L1;
+    };
+    if (view === 'down') Lr = topDown('TB');
+    else if (view === 'spine') Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, spine: true }));
+    else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } }));
     else if (view === 'river') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
     else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow })); }
     else if (view === 'matrix') {
@@ -2926,8 +3005,8 @@ var NFMEngine = (function () {
       Lr.nodes.forEach(function (n) { n.cx = n.cy = Lr.head + n.mi * Lr.cell + Lr.cell / 2; n.w = n.h = Lr.cell; });
     } else if (view === 'shape') Lr = shapeLayout(P, G);
     else if (view === 'network') { STRESS.previewStop = !!o.previewOnly; try { Lr = networkLayout(P, G, o); } finally { STRESS.previewStop = false; } }
-    else Lr = layered(G, { dir: o.dir === 'TB' ? 'TB' : 'LR', root: root, prev: prev });
-    if (view === 'lanes' && laneNames.length > 1) Lr.laneNames = laneNames;
+    else Lr = topDown(o.dir === 'TB' ? 'TB' : 'LR');
+    if ((view === 'lanes' || downLanes) && laneNames.length > 1) Lr.laneNames = laneNames;
     Lr.view = view;
     Lr.cls = cls;
     Lr.imp = {
@@ -3363,10 +3442,9 @@ var NFMScene = (function () {
     S.rects.forEach(function (r) { if (r.x < x0) x0 = r.x; if (r.y < y0) y0 = r.y; if (r.x + r.w > x1) x1 = r.x + r.w; if (r.y + r.h > y1) y1 = r.y + r.h; });
     S.dots.forEach(function (d) { if (d.cx - d.r < x0) x0 = d.cx - d.r; if (d.cy - d.r < y0) y0 = d.cy - d.r; if (d.cx + d.r > x1) x1 = d.cx + d.r; if (d.cy + d.r > y1) y1 = d.cy + d.r; });
     S.polys.forEach(function (p) { for (var i = 0; i < p.pts.length; i += 2) { if (p.pts[i] < x0) x0 = p.pts[i]; if (p.pts[i] > x1) x1 = p.pts[i]; if (p.pts[i + 1] < y0) y0 = p.pts[i + 1]; if (p.pts[i + 1] > y1) y1 = p.pts[i + 1]; } });
-    if (view === 'river' && L.sk) {
-      S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
-      if (L.height && L.height > y1) y1 = L.height;
-    }
+    if ((view === 'river' && L.sk) || S.ruler) S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
+    if (view === 'river' && L.sk && L.height && L.height > y1) y1 = L.height;
+    if (S.tagChips) S.labels.forEach(function (l) { if (!l.boundXY) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; if (b[1] < y0) y0 = b[1]; if (b[3] > y1) y1 = b[3]; } });   /* tag names beyond the last box still count for the picture's edges */
     if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 100; y1 = 100; }
     if (L.is3d && L.c3) { var R3 = (L.radius3 || 300) * 1.18; x0 = L.c3[0] - R3; x1 = L.c3[0] + R3; y0 = L.c3[1] - R3; y1 = L.c3[1] + R3; }
     S.x0 = x0 - pad; S.y0 = y0 - pad; S.w = x1 - x0 + 2 * pad; S.h = y1 - y0 + 2 * pad + (view === 'arc' ? 110 : 0);
@@ -3529,13 +3607,25 @@ var NFMScene = (function () {
       var ch = L.nodes.filter(function (n) { return n.choke; }).sort(function (a, b) { return a.x - b.x; });
       if (ch.length > 1) { var P = [ch[0].x + ch[0].w / 2, ch[0].y + ch[0].h / 2]; for (var i = 1; i < ch.length; i++) { var a = ch[i - 1], b = ch[i]; var ax = a.x + a.w / 2, ay = a.y + a.h / 2, bx = b.x + b.w / 2, by = b.y + b.h / 2; P.push(ax + (bx - ax) / 3, ay, ax + 2 * (bx - ax) / 3, by, bx, by); } S.curves.push({ P: P, w: 9, color: alpha(T.gold, 0.28), arrow: false, edge: -1, from: null, to: null }); }
     }
+    if (X.o.ruler && !LR && !river && L.ruler && L.ruler.length > 1) {
+      /* step numbers down the left edge of each column; the busy levels (every 5th, 25th ...) show only when zoomed out far enough to leave room */
+      var pitch = (L.ruler[L.ruler.length - 1].at - L.ruler[0].at) / (L.ruler.length - 1) || 100;
+      if (L.info && L.info.columns > 1) pitch = L.ruler[1].at - L.ruler[0].at || pitch;
+      L.ruler.forEach(function (rk, k) {
+        var m = 0, q = k; while (k > 0 && q % 5 === 0) { m++; q = q / 5; }
+        if (k === 0) m = 12;
+        lab(rk.edge - 14, rk.at + 4, k === 0 ? 'start' : 'step ' + k, 10, T.muted, { align: 'r', minK: Math.min(1, 62 / (pitch * Math.pow(5, Math.min(m, 12)))), bound: true });
+      });
+      S.ruler = true;
+    }
     var order = L.nodes.slice().sort(function (a, b) { return a.layer - b.layer || (LR ? a.y - b.y : a.x - b.x); });
     var slots = {};
+    var isFwd = function (e) { return e.kind === 'fwd' || (e.kind === 'tag' && e.tagFwd); };
     var sideOf = function (e, end) {
       if (e.kind === 'self') return 'R';
       if (e.kind === 'flat') return LR ? 'R' : 'B';
-      if (LR) return (e.kind === 'fwd') === (end === 'out') ? 'R' : 'L';
-      return (e.kind === 'fwd') === (end === 'out') ? 'B' : 'T';
+      if (LR) return isFwd(e) === (end === 'out') ? 'R' : 'L';
+      return isFwd(e) === (end === 'out') ? 'B' : 'T';
     };
     if (!river) {
       L.edges.forEach(function (e) {
@@ -3560,6 +3650,25 @@ var NFMScene = (function () {
         var a0 = L.pos[e.from], b0 = L.pos[e.to];
         if ((a0 && a0._st && a0._st.hide) || (b0 && b0._st && b0._st.hide)) return;
         var oo = off(e.si), end = [e.p1[0] + oo[0], e.p1[1] + oo[1]], P;
+        if (e.kind === 'tag') {
+          /* a long link is not drawn across the rows between: a short stub and a tag at each end ("goes to ..." and "comes from ...") */
+          var slen = 16 + (ei % 3) * 10, k1 = slen / HEAD, d0 = off(e.so), d1 = off(e.si), back0 = !e.tagFwd;
+          var s0 = [e.p0[0] + d0[0] * k1, e.p0[1] + d0[1] * k1], s1 = [e.p1[0] + d1[0] * k1, e.p1[1] + d1[1] * k1];
+          var line = function (a, b) { return [a[0], a[1], a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3, a[0] + 2 * (b[0] - a[0]) / 3, a[1] + 2 * (b[1] - a[1]) / 3, b[0], b[1]]; };
+          var tl = X.look(e, ei, { w: Math.min(1.5 + Math.log2(e.count) * 0.9, 4.5), color: back0 ? alpha(T.gold, 0.8) : alpha(T.line, 0.78), arrow: true });
+          if (tl.hide) return;
+          S.curves.push({ P: line(e.p0, s0), w: tl.w, color: tl.color, arrow: false, edge: ei, from: e.from, to: e.to, back: back0, dash: tl.dash });
+          S.curves.push({ P: line(s1, end), w: tl.w, color: tl.color, arrow: tl.arrow, tip: e.p1, edge: ei, from: e.from, to: e.to, back: back0, dash: tl.dash });
+          S.tagChips = true;
+          var chip = function (pt, side, text) {
+            var tx0 = side === 'R' ? pt[0] + 6 : side === 'L' ? pt[0] - 6 : pt[0], ty0 = side === 'B' ? pt[1] + 13 : side === 'T' ? pt[1] - 6 : pt[1] + 4;
+            lab(tx0, ty0, text, 10.5, back0 ? T.gold : T.muted, { minK: 0.45, edge: ei, from: e.from, to: e.to, bg: true, boundXY: true, align: side === 'R' ? 'l' : side === 'L' ? 'r' : 'c' });
+          };
+          var arrowGlyph = LR ? (e.tagFwd ? '→ ' : '← ') : (e.tagFwd ? '↓ ' : '↑ ');
+          chip(s0, e.so, arrowGlyph + clip(X.tx(L.pos[e.to]), 20));
+          chip(s1, e.si, 'from ' + clip(X.tx(L.pos[e.from]), 18));
+          return;
+        }
         if (e.kind === 'self' || e.kind === 'flat') {
           var out = 34 + (ei % 4) * 8;
           if (e.so === 'R') { var x = Math.max(e.p0[0], end[0]) + out; P = [e.p0[0], e.p0[1], x, e.p0[1], x, end[1], end[0], end[1]]; }
@@ -5349,7 +5458,7 @@ var NFMProbe = (function () {
   var E = NFMEngine, C = NFMColumns, GEN = NFMGen, D3 = D3R;
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
-  var params = new URLSearchParams(location.search), QUICK = params.has('quick'), VERSION = '2026.10.17.1651';
+  var params = new URLSearchParams(location.search), QUICK = params.has('quick'), VERSION = '2026.10.17.1830';
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var nextFrame = function () { return new Promise(function (r) { requestAnimationFrame(r); }); };
   var sections = [], running = false, t0Run = 0, clockTimer = 0, total = 3, doneSteps = 0, ctx = { layouts: {} };
