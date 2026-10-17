@@ -123,6 +123,41 @@ async function open() {
     if (v === 'flow' || v === 'river' || v === 'network') await D.shot(path.join(outDir, `nfm-${which}-${v}.png`));
   }
 
+  /* Top-down choices: story order, tags, must-pass column, harder untangling, columns, step numbers, group columns (defaults must leave the picture as it was) */
+  {
+    const mkStory = () => { /* a long story-shaped map made in the page: chapters of 2-4 branches that merge, side links, shortcuts, links back */
+      let s = 7; const r = () => { s = (s + 0x6d2b79f5) | 0; let x = Math.imul(s ^ (s >>> 15), 1 | s); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+      const E = []; let id = 0; const mk = () => id++; let cur = mk(); const ch = [cur];
+      while (id < 700) { const b = 2 + Math.floor(r() * 3), ends = [], br = []; for (let i = 0; i < b; i++) { const d = 1 + Math.floor(r() * 3); let p = cur; const l = []; for (let j = 0; j < d; j++) { const v = mk(); E.push([p, v]); p = v; l.push(v); } ends.push(p); br.push(l); }
+        for (let i = 0; i + 1 < b; i++) if (r() < 0.35) E.push([br[i][Math.floor(r() * br[i].length)], br[i + 1][Math.floor(r() * br[i + 1].length)]]);
+        const m = mk(); ends.forEach((e) => E.push([e, m])); if (r() < 0.12) E.push([m, ch[Math.floor(r() * ch.length)]]); if (r() < 0.15) E.push([cur, m]); cur = m; ch.push(m); }
+      const od = new Array(id).fill(0); E.forEach(([a]) => od[a]++); let last = -1; for (let i = id - 1; i >= 0; i--) if (!od[i]) { last = i; break; }
+      return { name: 'Long story', start: 'n0', nodes: Array.from({ length: id }, (_, i) => ({ id: 'n' + i, label: 'Page ' + i, group: 'Ch' + Math.floor(i / 60), valence: od[i] ? '' : i === last ? 'good' : 'bad', ghost: false, attrs: {} })), edges: E.map(([a, b]) => ({ from: 'n' + a, to: 'n' + b, weight: 1, label: '', kind: '' })) };
+    };
+    const fpOf = () => ev(() => { const L = NFM.state.L; return L.nodes.map((n) => n.id + ':' + Math.round(n.x) + ',' + Math.round(n.y)).join('|') + '#' + L.nodes.length; });
+    await ev((g) => { NFM.setGraph(g); NFM.showTab('map'); NFM.setV({ view: 'down', rows: 'route', tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false }); }, await ev(mkStory));
+    await D.wait(() => NFM.state.L && NFM.state.L.view === 'down' && NFM.state.L.nodes.length > 300 && NFM.state.scene && NFM.state.scene.view === 'down', null, 30000); await settle(200);
+    const base = await fpOf(), before = await ev(() => ({ gold: NFM.state.L.info.back + NFM.state.L.info.flat, stops: NFM.state.L.info.stops, rows: NFM.state.L.info.rows, cross: NFM.state.L.crossings }));
+    await ev(() => NFM.setV({ rows: 'story', tagLen: 8, spineCol: true, better: true }));
+    await D.wait(() => NFM.state.L && NFM.state.L.info && NFM.state.L.info.rowMode === 'story' && NFM.state.L.info.tags > 0 && NFM.state.scene && NFM.state.scene.labels.some((l) => /^(from |[↓↑→←] )/.test(l.t)), null, 30000); await settle(250);
+    const after = await ev(() => ({ gold: NFM.state.L.info.back + NFM.state.L.info.flat + NFM.state.L.edges.filter((e) => e.kind === 'tag' && !e.tagFwd).length, stops: NFM.state.L.info.stops, tags: NFM.state.L.info.tags, rows: NFM.state.L.info.rows, cross: NFM.state.L.crossings, mode: NFM.state.L.info.rowMode }));
+    say(after.mode === 'story' && after.tags > 0 && after.stops < before.stops && after.gold < before.gold && after.cross < before.cross, `Top-down choices work from the page: gold ${before.gold} to ${after.gold}, stand-in stops ${before.stops} to ${after.stops}, crossings ${before.cross} to ${after.cross}, ${after.tags} tags`);
+    const chips = await ev(() => { const S = NFM.state.scene, ch = S.labels.filter((l) => l.edge >= 0 && /^(from |[↓↑→←] )/.test(l.t)); let ok = 0; ch.forEach((c) => { const r = NFMScene.pickLabel(S, c.x, c.y - 3, 1); if (r && r.edge === c.edge) ok++; }); return { n: ch.length, ok, tags: NFM.state.L.info.tags }; });
+    say(chips.n === 2 * chips.tags && chips.ok === chips.n, `every tag chip names its page and picks its link (${chips.ok} of ${chips.n})`);
+    await ev(() => NFM.setV({ wrap: true, ruler: true })); await D.wait(() => NFM.state.L && NFM.state.L.info && NFM.state.L.info.columns > 1 && NFM.state.scene && NFM.state.scene.labels.some((l) => l.bound && /^step/.test(l.t)), null, 30000); await settle(250);
+    const wr = await ev(() => { const L = NFM.state.L, S = NFM.state.scene; return { cols: L.info.columns, aspect: L.height / L.width, steps: S.labels.filter((l) => l.bound && /^(step|start)/.test(l.t)).length, rows: L.info.rows, svgOk: !/NaN|undefined/.test(NFMScene.toSvg(S, 't')) }; });
+    say(wr.cols > 1 && wr.aspect < 3 && wr.steps === wr.rows && wr.svgOk, `a tall map is cut into ${wr.cols} columns (tall-to-wide ${wr.aspect.toFixed(1)}), ${wr.steps} step numbers, clean SVG export`);
+    await ev(() => NFM.setV({ wrap: false, downLanes: true })); await D.wait(() => NFM.state.L && NFM.state.L.lanes && NFM.state.L.lanes.length > 1 && NFM.state.scene && NFM.state.scene.rects.some((r) => r.lane !== undefined), null, 30000); await settle(200);
+    say(await ev(() => NFM.state.L.lanes.length > 1 && NFM.state.scene.rects.some((r) => r.lane !== undefined)), 'one column per group in Top-down draws the group bands');
+    const snap = await ev(() => { NFM.setV({ rows: 'story', tagLen: 8, spineCol: true }); const sn = NFM.snapshot(); NFM.setV({ rows: 'route', tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false }); NFM.applySnapshot(sn); return { r: NFM.state.V.rows, t: NFM.state.V.tagLen, c: NFM.state.V.spineCol }; });
+    say(snap.r === 'story' && snap.t === 8 && snap.c === true, 'the new settings are saved with a view and come back');
+    await ev(() => NFM.setV({ rows: 'route', tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false }));
+    await D.wait((b) => NFM.state.L && NFM.state.L.info && NFM.state.L.info.rowMode === 'route' && NFM.state.L.info.tags === 0 && NFM.state.scene && !NFM.state.scene.labels.some((l) => /^(from |[↓↑→←] )/.test(l.t)) && !NFM.state.scene.rects.some((r) => r.lane !== undefined), null, 30000); await settle(250);
+    say((await fpOf()) === base, 'with every choice off again the picture is exactly the old one');
+    await ev(() => NFM.showTab('data')); await set('#examples', 'story'); await click('#b-example'); await click('#tabbtn-map');   /* the example story again for the checks that follow */
+    await D.wait(() => NFM.state.scene && NFM.manager() && NFM.manager().r && NFM.state.L && NFM.state.L.nodes.length < 60, null, 30000); await settle(200);
+  }
+
   /* River (Sankey) pictures: click and right-click on links, bars and labels, drag a bar, hand edits, undo */
   {
     await ev(() => NFM.setV({ view: 'river' })); await D.wait(() => NFM.state.L.view === 'river' && NFM.state.scene.view === 'river' && NFM.state.L.sk, null, 20000); await settle(300);
