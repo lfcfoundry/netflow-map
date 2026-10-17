@@ -267,9 +267,11 @@ async function open() {
   const pos1 = await ev(() => parseFloat(document.getElementById('tl-range').value)); say(pos1 > 0.3, 'playing moves along the timeline (' + pos1.toFixed(2) + ')');
   await click('#tl-play'); await settle(300);
   say(await ev(() => !document.getElementById('tl-play').textContent.includes('❚')), 'pausing works');
-  await click('#tabbtn-export'); await settle(200); await click('#gif-go');
+  await click('#tabbtn-export'); await settle(200);
+  await ev(() => { const mk = URL.createObjectURL; window.__blobs = {}; URL.createObjectURL = function (b) { const u = mk.call(URL, b); window.__blobs[u] = b; return u; }; });   // the page's policy allows no fetch at all, so the test keeps the blobs it is handed and reads them directly
+  await click('#gif-go');
   await D.wait(() => { const im = document.querySelector('#gif-out img'); return im && im.complete && im.naturalWidth > 0; }, null, 120000);
-  const gifInfo = await ev(async () => { const im = document.querySelector('#gif-out img'), b = new Uint8Array(await (await fetch(im.src)).arrayBuffer()); return { head: String.fromCharCode(...b.slice(0, 6)), w: im.naturalWidth, bytes: b.length, text: document.getElementById('gif-out').innerText }; });
+  const gifInfo = await ev(async () => { const im = document.querySelector('#gif-out img'), b = new Uint8Array(await window.__blobs[im.src].arrayBuffer()); return { head: String.fromCharCode(...b.slice(0, 6)), w: im.naturalWidth, bytes: b.length, text: document.getElementById('gif-out').innerText }; });
   say(gifInfo.head === 'GIF89a' && gifInfo.w === 960 && gifInfo.bytes > 5000, 'the GIF is made: ' + gifInfo.text.split('\n')[0]);
   say(await ev(() => !!Array.from(document.querySelectorAll('#gif-out button')).find((b) => /HTML report/.test(b.textContent))), 'the HTML report is offered');
   /* checks tab, advanced tab (one-button device check), export */
@@ -724,6 +726,12 @@ async function open() {
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
   say(errs.length === 0, 'no errors in the console' + (errs.length ? ': ' + errs.slice(0, 4).join(' | ') : ''));
+  const pol = await ev(async () => {   // after the console check on purpose: a refused fetch is logged. (A page policy does not hold the test's own evaluate to the eval rule, so the eval refusal is not tested here; WebAssembly under the policy is covered by the two helper-thread checks above.)
+    const o = {}; const m = document.querySelector('meta[http-equiv="Content-Security-Policy"]'); o.meta = m ? m.content : '';
+    try { await fetch('data:text/plain,hi'); o.fetchNow = 'allowed'; } catch (e) { o.fetchNow = 'refused'; }
+    return o;
+  });
+  say(/script-src 'unsafe-inline' 'wasm-unsafe-eval'/.test(pol.meta) && !/'unsafe-eval'/.test(pol.meta) && /connect-src 'none'/.test(pol.meta) && pol.fetchNow === 'refused', 'the page policy allows WebAssembly and nothing looser (no eval, no network): fetch ' + pol.fetchNow);
   await D.close(); if (process.env.NFM_TIMES) console.log(`total ${((Date.now() - T0) / 1000).toFixed(1)} s, of which fixed waits: ${sleeps} sleeps = ${(slept / 1000).toFixed(1)} s`); {   /* a run that quietly skips checks must fail: fewer ok lines than the last all-green run of this browser is a failure (NFM_BLESS=1 after a reviewed change saves the new count) */
     const BL = require('./baseline.js'), v = BL.verdict(which, oks, fails, process.env.NFM_PAGE);
     console.log(v.line); if (v.fail) fails++;

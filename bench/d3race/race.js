@@ -256,6 +256,7 @@
     if (running) return; running = true; $('go').disabled = true; sections = []; $('out').textContent = ''; $('done').style.display = 'none'; doneSteps = 0; ctx = { layouts: {} }; t0Run = now(); setBar();
     clearInterval(clockTimer); clockTimer = setInterval(function () { $('clock').textContent = '⏱ ' + clockText(now() - t0Run); }, 250);
     var steps = [['Network layout', layoutStep], ['Flow layout', flowStep], ['Drawing', drawStep]];
+    var only = params.get('only'); if (only) steps = steps.filter(function (st) { return st[0].toLowerCase().indexOf(only.toLowerCase()) === 0; });   total = steps.length;   /* ?only=network or ?only=flow runs that step alone (drawing needs the network step's layouts) */
     for (var i = 0; i < steps.length; i++) {
       setStatus('Step ' + (i + 1) + ' of ' + steps.length + ': ' + steps[i][0] + '…'); await yieldUI();
       try { await steps[i][1](); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(steps[i][0]); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
