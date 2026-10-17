@@ -597,7 +597,16 @@ var NFMRender = (function () {
           return fences.length > keep ? fences[fences.length - 1 - keep].p.then(noop, noop) : Promise.resolve();
         },
         snapshot: function () { return copyViaCanvas(H.main); },
-        destroy: function () { destroyed = true; fences = []; try { Object.keys(bufs).forEach(function (k) { if (bufs[k]) bufs[k].destroy(); }); Object.keys(rbufs).forEach(function (k) { if (rbufs[k]) rbufs[k].destroy(); }); device.destroy(); } catch (e) { /* gone */ } host.textContent = ''; }
+        destroy: function () {
+          destroyed = true; fences = [];
+          var kill = function (b) { try { if (b && b.destroy) b.destroy(); } catch (e) { /* already gone */ } };
+          /* every buffer on its own, arrays too (the rings), and the device last whatever happened before: a buffer that fails to go must not keep the whole device and its memory alive */
+          Object.keys(bufs).forEach(function (k) { kill(bufs[k]); });
+          Object.keys(rbufs).forEach(function (k) { if (Array.isArray(rbufs[k])) rbufs[k].forEach(kill); else kill(rbufs[k]); });
+          if (rs.stage) rs.stage.forEach(kill);
+          try { device.destroy(); } catch (e) { /* gone */ }
+          host.textContent = '';
+        }
       };
       device.addEventListener && device.addEventListener('uncapturederror', function (ev) { if (hooks && hooks.onError) hooks.onError('webgpu', ev.error && ev.error.message); });
       return out;
