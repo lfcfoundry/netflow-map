@@ -2,6 +2,8 @@
 
 Copyright (c) 2026 LFC Foundry. MIT License. Written 2026-10-17 (US Eastern) for a fresh Claude context that has NO other background. Read this file top to bottom, then `AGENTS.md`. A second file, `docs/HANDOFF-MEMORY-COMPRESSION.md`, covers the memory-compression study; it is separate work.
 
+> **Update 2026-10-17:** the repository moved to `https://github.com/lfcfoundry/netflow-map` and the product is now called **Netflow Map**. This file is the handoff as it was written, so it keeps the old name and the old address.
+
 Owner: JNFoo ("JNFoo", GitHub user `JNFoo`). He is not a programmer. He wants world-class visuals and smooth 3D at 3,000 to 100,000+ items. His laptop: Firefox 159 on Windows, Ryzen 7 8845HS, Radeon 780M. Phone: Pixel 7 Pro (Chrome). No iOS or Safari target.
 
 ## 0. What I could and could not verify (read first)

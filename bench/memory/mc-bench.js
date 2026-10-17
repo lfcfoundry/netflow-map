@@ -1,5 +1,5 @@
 // Copyright (c) 2026 LFC Foundry. MIT License.
-// Net Flow Map at 100,000 items: what the memory-compression module does to the real layout and scene.
+// Netflow Map at 100,000 items: what the memory-compression module does to the real layout and scene.
 // Run:  node --expose-gc bench/memory/mc-bench.js [items]
 // Needs a checkout of https://github.com/lfcfoundry/JS-modules next to this repository, or set JSM to its folder:
 //   JSM=/path/to/JS-modules node --expose-gc bench/memory/mc-bench.js 100000

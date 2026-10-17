@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map river (Sankey) layout, prototype. Copyright (c) 2026 LFC Foundry. MIT License.
+ * Netflow Map river (Sankey) layout, prototype. Copyright (c) 2026 LFC Foundry. MIT License.
  * Takes the engine's River drawing (which layer each item is in, the links and how much flows on each) and lays it out the way a
  * careful Sankey should be: one scale for the whole picture (a band is as thick as its flow, everywhere), item bars as tall as the
  * flow through them, long links routed through the layers in between instead of over the top of other items, an order that

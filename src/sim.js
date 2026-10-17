@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map simulation: Monte Carlo walkers on the prepared graph (see engine.js prepare), with a menu of distributions for how
+ * Netflow Map simulation: Monte Carlo walkers on the prepared graph (see engine.js prepare), with a menu of distributions for how
  * many walkers arrive, how uncertain each link's weight is, and what each link or item costs in time or money.
  * Counter-based random numbers: trial t of seed s always gives the same numbers, no matter how the run is cut into batches.
  * No DOM; runs in the page, in a worker, or in Node. Copyright (c) 2026 LFC Foundry. MIT License.

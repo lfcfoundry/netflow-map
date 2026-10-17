@@ -179,6 +179,7 @@ t('7. what the export button writes is read back whole, even with no states, cal
   var again = I.importAny([{ name: 'Trip.json', text: JSON.stringify(g) }]).graph; assert.deepStrictEqual(JSON.parse(JSON.stringify(again)), JSON.parse(JSON.stringify(g)));
   // a graph without any items is not claimed, and a marker is honored
   var m = I.importJSON(JSON.stringify({ format: 'net-flow-map', name: 'M', start: 'x', nodes: [{ id: 'x' }], edges: [] }), 'm', {}); assert.strictEqual(m.graph.start, 'x');
+  var m2 = I.importJSON(JSON.stringify({ format: 'netflow-map', name: 'M', start: 'x', nodes: [{ id: 'x' }], edges: [] }), 'm', {}); assert.strictEqual(m2.graph.start, 'x');
 });
 
 /* ---------------------------------------------------------------- 8. Excel phonetic text */

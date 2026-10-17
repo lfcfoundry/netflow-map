@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 3: the Nodes tab (tidy up, edit the item and link tables). Copyright (c) 2026 LFC Foundry. MIT License.
+ * Netflow Map app, part 3: the Nodes tab (tidy up, edit the item and link tables). Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var NT = { table: 'items', page: 0, filter: '', sort: null, size: 100, built: false };
 var CLEANS = [['sameLabel', 'Merge items with the same name'], ['selfLinks', 'Remove links to self'], ['dupLinks', 'Remove repeated links'], ['isolated', 'Remove items with no links'], ['placeholders', 'Remove placeholders'], ['twoWay', 'Make every link two-way'], ['reverse', 'Reverse every link']];

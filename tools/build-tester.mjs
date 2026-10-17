@@ -1,4 +1,4 @@
-// Builds the one-file laptop tester: node tools/build-tester.mjs  ->  bench/net-flow-map-tester.html
+// Builds the one-file laptop tester: node tools/build-tester.mjs  ->  bench/netflow-map-tester.html
 // Copyright (c) 2026 LFC Foundry. MIT License.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -12,5 +12,5 @@ const clean = (s) => s.replace(/if \(typeof module !== 'undefined' && module\.ex
 const files = ['src/columns.js', 'src/importers.js', 'src/engine.js', 'src/sim.js', 'src/check.js', 'bench/gen.js', 'src/gpustress.js', 'src/scene.js', 'src/render.js', 'src/probe.js', 'bench/tester/tester.js'];
 const code = files.map((f) => { const s = clean(rd(f)).replace(/__VERSION__/g, version); if (/<\/script|<!--/i.test(s)) throw new Error(f + ' contains a sequence that would break the page'); return `/* ---- ${f} ---- */\n${s}`; }).join('\n');
 const html = rd('bench/tester/template.html').replace(/__VERSION__/g, version).replace('__SCRIPTS__', () => code);
-writeFileSync(join(root, 'bench/net-flow-map-tester.html'), html);
-console.log(`built bench/net-flow-map-tester.html ${(html.length / 1024) | 0} KB, version ${version}`);
+writeFileSync(join(root, 'bench/netflow-map-tester.html'), html);
+console.log(`built bench/netflow-map-tester.html ${(html.length / 1024) | 0} KB, version ${version}`);

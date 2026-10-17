@@ -25,7 +25,7 @@ const clean = (s) => s.replace(/if \(typeof module !== 'undefined' && module\.ex
 const bad = (name, s) => { if (/<\/script|<!--/i.test(s)) throw new Error(name + ' contains a sequence that would break the page'); };
 const engine = jsMin(['src/columns.js', 'src/pack.js', 'src/sankey.js', 'src/engine.js', 'src/sim.js', 'src/check.js'].map((p) => clean(rd(p))).join('\n'), 'engine'); bad('engine bundle', engine);
 const appParts = readdirSync(join(root, 'src/app')).filter((f) => f.endsWith('.js')).sort().map((f) => 'src/app/' + f);
-const appText = "/* ---- Net Flow Map app (src/app/*.js, one function) ---- */\n(function () {\n'use strict';\n" + appParts.map((p) => { const s = rd(p); bad(p, s); return `/* ---- ${p} ---- */\n` + s; }).join('\n') + '\n})();';
+const appText = "/* ---- Netflow Map app (src/app/*.js, one function) ---- */\n(function () {\n'use strict';\n" + appParts.map((p) => { const s = rd(p); bad(p, s); return `/* ---- ${p} ---- */\n` + s; }).join('\n') + '\n})();';
 const scripts = jsMin(order.map((p) => { const s = clean(rd(p)); bad(p, s); return `/* ---- ${p} ---- */\n` + s; }).join('\n') + '\n' + appText, 'app'); bad('app bundle', scripts);
 const css = cssMin(rd('src/app.css')); bad('app.css', css);
 let html = rd('src/index.template.html');
@@ -38,11 +38,11 @@ if (args.has('--pack')) {
   /* Local (non-git) downloads: our own lzma-pack makes a self-unpacking page (LZMA, hash-checked). It lives in the JS-modules repo. */
   const packers = [process.env.NFM_LZMA_PACK, join(root, '..', 'js-modules/tools/lzma-pack/pack.py'), '/home/claude/js-modules/tools/lzma-pack/pack.py'].filter(Boolean);
   const pack = packers.find((p) => { try { readFileSync(p); return true; } catch (e) { return false; } });
-  if (!pack) console.warn('lzma-pack not found: clone JNFoo/JS-modules next to this folder or set NFM_LZMA_PACK to its tools/lzma-pack/pack.py');
+  if (!pack) console.warn('lzma-pack not found: clone lfcfoundry/JS-modules next to this folder or set NFM_LZMA_PACK to its tools/lzma-pack/pack.py');
   else {
     const env = Object.assign({}, process.env); if (!env.ESBUILD) { try { const q = createRequire(join('/opt/npm-tools', 'x.js')).resolve('esbuild/package.json'); env.ESBUILD = join(dirname(q), '..', '.bin', 'esbuild'); } catch (e) { /* pack.py will look on the PATH */ } }
     const out = join(root, 'index.packed.html');
-    try { process.stdout.write(execFileSync('python3', [pack, join(root, 'index.html'), out, '--title', 'Net Flow Map', ...(args.has('--tune') ? ['--tune'] : [])], { env }).toString()); } catch (e) { console.warn('lzma-pack failed: ' + String(e.stderr || e.message).slice(0, 300)); }
+    try { process.stdout.write(execFileSync('python3', [pack, join(root, 'index.html'), out, '--title', 'Netflow Map', ...(args.has('--tune') ? ['--tune'] : [])], { env }).toString()); } catch (e) { console.warn('lzma-pack failed: ' + String(e.stderr || e.message).slice(0, 300)); }
   }
 }
 console.log(`built index.html ${(html.length / 1024).toFixed(0)} KB, version ${version}`);

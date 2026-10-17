@@ -1,6 +1,6 @@
 # River (Sankey) diagrams: research and what to improve
 
-Copyright (c) 2026 LFC Foundry. MIT License. Written 2026-10-15. The prototype is `src/sankey.js`; the before-and-after page is `bench/net-flow-map-river.html` (build: `node tools/build-sankey-lab.mjs`); tests are in `test/sankey.test.js`.
+Copyright (c) 2026 LFC Foundry. MIT License. Written 2026-10-15. The prototype is `src/sankey.js`; the before-and-after page is `bench/netflow-map-river.html` (build: `node tools/build-sankey-lab.mjs`); tests are in `test/sankey.test.js`.
 
 ## What the app does today (from reading `src/engine.js` and `src/scene.js`)
 

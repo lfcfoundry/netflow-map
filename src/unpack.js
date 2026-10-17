@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map unpack: opens .zip and .xlsx files safely and hands back plain text files for the importers.
+ * Netflow Map unpack: opens .zip and .xlsx files safely and hands back plain text files for the importers.
  * Copyright (c) 2026 LFC Foundry. MIT License. No DOM; runs in the page (DecompressionStream) or in Node (zlib).
  *
  * Safety: the zip's own table of contents is read once and checked; nothing is trusted that the bytes can't back up.
