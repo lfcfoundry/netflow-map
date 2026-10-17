@@ -91,6 +91,10 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - A layered view stops above 90,000 stops and says so; use Network or Matrix instead.
 - Not yet run on a phone (test phone) or on a real graphics chip. The tests ran on Firefox 158 and ungoogled-chromium 154 with WebGPU, WebGL 2 and basic drawing all matching to about 0.2 out of 255.
 
+## Browsers used in testing
+
+Every build up to 2026.10.16.2319 was tested in headless **Firefox 158.0** and **ungoogled-chromium 154.0.8037.97** in a cloud container, and the graphics-card work was also run by hand in **Firefox 159.0** on a laptop ((processor), (graphics)). Not yet tested: ungoogled Chromium 155, WebKitGTK/GNOME Web, Safari or iPhone, and Chrome on a phone. From now on tests use only Firefox 158, ungoogled-chromium 155 and WebKitGTK 2.52.6 from the `browsers` branch of the knowledgebase, one at a time, with the version labeled. `CHANGELOG.md` lists the browsers used for every build.
+
 ## Benchmarks
 
 `bench/` runs the same jobs in Firefox and ungoogled-chromium against Papa Parse, d3-force, ForceAtlas2, dagre, ELK, Louvain, expr-eval, gifenc and more, up to 1,000,000 items. Results and findings are in `docs/BENCHMARKS.md`; the raw numbers are in `bench/results/`. `node bench/report.js` rebuilds the tables.
