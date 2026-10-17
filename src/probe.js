@@ -99,6 +99,13 @@ var NFMProbe = (function () {
     var k = Math.min(w / S.w, h / S.h) * 0.96;
     return { k: k, tx: (w - S.w * k) / 2 - S.x0 * k, ty: (h - S.h * k) / 2 - S.y0 * k };
   }
+  /** The page the test draws on. Normally it sits almost invisible in the corner of the window; when the tester hands over a box (opts.live) it sits scaled down inside that box, so the person can watch the map being turned while it is timed. */
+  function mkHost(W, H, opts) {
+    var host = document.createElement('div');
+    if (opts && opts.live) { var sc = (opts.live.clientWidth || 360) / W; host.style.cssText = 'position:absolute;left:0;top:0;width:' + W + 'px;height:' + H + 'px;transform-origin:0 0;transform:scale(' + sc + ');pointer-events:none'; opts.live.style.height = Math.ceil(H * sc) + 'px'; opts.live.appendChild(host); }
+    else { host.style.cssText = 'position:fixed;left:0;top:0;width:' + W + 'px;height:' + H + 'px;opacity:.01;pointer-events:none;z-index:-1'; document.body.appendChild(host); }
+    return host;
+  }
   /**
    * Speed of turning a 3D map: one picture per screen refresh, each from a new angle and zoom, for about 1.3 seconds.
    * opts: { backend: 'webgpu'|'webgl2'|'canvas2d', makeScene(yaw, pitch) -> scene (built the way the page builds it for a new angle), W, H, ms }
@@ -106,8 +113,7 @@ var NFMProbe = (function () {
    * The loop does not wait for the graphics card after every picture (see wait()), only when more than three pictures are still being worked on.
    */
   function turning(opts) {
-    var W = opts.W || 900, H = opts.H || 600, n = opts.backend, host = document.createElement('div');
-    host.style.cssText = 'position:fixed;left:0;top:0;width:' + W + 'px;height:' + H + 'px;opacity:.01;pointer-events:none;z-index:-1'; document.body.appendChild(host);
+    var W = opts.W || 900, H = opts.H || 600, n = opts.backend, host = mkHost(W, H, opts);
     var make = n === 'webgpu' ? NFMRender.createWebGPU : n === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D;
     var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
     return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
@@ -166,7 +172,7 @@ var NFMProbe = (function () {
     ['keep', 'Angle math and drawing, paint order not re-sent (wrong order; timing only)', { turn: 1, draw: 1, sync: 1, dbg: { keepOrder: true } }],
     ['tex', 'Everything, with the paint order sent through a texture (WebGL 2 only)', { turn: 1, draw: 1, sync: 1, dbg: { orderVia: 'texture' }, glOnly: 1 }],
     ['ring', 'Everything, with the paint order sent to a ring of three card buffers (WebGPU only)', { turn: 1, draw: 1, sync: 1, dbg: { orderVia: 'ring' }, gpuOnly: 1 }],
-    ['write', 'Everything, with the paint order written by the browser each picture (the old way; WebGPU only)', { turn: 1, draw: 1, sync: 1, dbg: { orderVia: 'write' }, gpuOnly: 1 }],
+    ['map', 'Everything, with the paint order written straight into staging buffers (WebGPU only)', { turn: 1, draw: 1, sync: 1, dbg: { orderVia: 'map' }, gpuOnly: 1 }],
     ['g_all', 'Card time per picture: everything', { draw: 1, fence: 1 }],
     ['g_links', 'Card time per picture: links only', { draw: 1, fence: 1, dbg: { noItems: true, noNames: true } }],
     ['g_items', 'Card time per picture: items only', { draw: 1, fence: 1, dbg: { noLinks: true, noNames: true } }],
@@ -175,8 +181,7 @@ var NFMProbe = (function () {
   ];
   function pct(a, p) { if (!a.length) return 0; var b = a.slice().sort(function (x, y) { return x - y; }); return b[Math.min(b.length - 1, Math.floor(p * b.length))]; }
   function turnSplit(opts) {
-    var W = opts.W || 900, H = opts.H || 600, n = opts.backend, host = document.createElement('div');
-    host.style.cssText = 'position:fixed;left:0;top:0;width:' + W + 'px;height:' + H + 'px;opacity:.01;pointer-events:none;z-index:-1'; document.body.appendChild(host);
+    var W = opts.W || 900, H = opts.H || 600, n = opts.backend, host = mkHost(W, H, opts);
     var make = n === 'webgpu' ? NFMRender.createWebGPU : NFMRender.createWebGL2;
     var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
     return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
@@ -224,7 +229,7 @@ var NFMProbe = (function () {
           res.id = SPLIT[q][0]; res.label = SPLIT[q][1]; ways.push(res);
         }
         /* a laptop has its own pauses from run to run, so the ways that differ only in how the order is sent are run three times in turn and the middle run is reported */
-        var REP = ['full', 'keep', 'tex', 'ring', 'write'], rounds = {};
+        var REP = ['full', 'keep', 'tex', 'ring', 'map'], rounds = {};
         ways.forEach(function (w) { if (REP.indexOf(w.id) >= 0) rounds[w.id] = [w]; });
         for (var rd = 0; rd < 2; rd++) {
           for (var q2 = 0; q2 < SPLIT.length; q2++) {
@@ -257,9 +262,9 @@ var NFMProbe = (function () {
     lines.push('Angle math alone: ' + ms1(angle.angleMed) + ' ms of work per angle (slowest ' + ms1(angle.angleMax) + ' ms); with nothing drawn the screen refresh still ran at ' + f0(angle.fps) + ' per second.');
     lines.push('Drawing alone, the same angle each time: ' + f0(still.fps) + ' per second.');
     if (by.tex) lines.push('Sending the paint order through a texture instead: ' + f0(by.tex.fps) + ' per second' + runsOf(by.tex) + (by.tex.fps > full.fps + 3 ? ' (faster than the current way, ' + f0(full.fps) + ')' : by.tex.fps < full.fps - 3 ? ' (slower than the current way, ' + f0(full.fps) + ')' : ' (about the same as the way the app uses)') + '.');
-    ['ring', 'write'].forEach(function (id) {
+    ['ring', 'map'].forEach(function (id) {
       var w = by[id]; if (!w) return;
-      lines.push('Sending the paint order ' + (id === 'ring' ? 'to a ring of three card buffers' : 'the old way (the browser copies it each picture)') + ': ' + f0(w.fps) + ' per second' + runsOf(w) + ', slowest 1 in 20 ' + ms1(w.gapP95) + ' ms, slowest ' + ms1(w.gapMax) + ' ms' + (w.fps > full.fps + 1 || w.gapP95 + 3 < full.gapP95 ? ' (steadier than the way the app uses)' : w.fps < full.fps - 1 || w.gapP95 > full.gapP95 + 3 ? ' (worse than the way the app uses)' : ' (about the same as the way the app uses)') + '.');
+      lines.push('Sending the paint order ' + (id === 'ring' ? 'to a ring of three card buffers' : 'through staging buffers written directly') + ': ' + f0(w.fps) + ' per second' + runsOf(w) + ', slowest 1 in 20 ' + ms1(w.gapP95) + ' ms, slowest ' + ms1(w.gapMax) + ' ms' + (w.fps > full.fps + 1 || w.gapP95 + 3 < full.gapP95 ? ' (steadier than the way the app uses)' : w.fps < full.fps - 1 || w.gapP95 > full.gapP95 + 3 ? ' (worse than the way the app uses)' : ' (about the same as the way the app uses)') + '.');
     });
     if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' per second.');
     lines.push('Time the card needs per picture: ' + ms1(all.ms) + ' ms for everything; links alone ' + ms1(links.ms) + ' ms; items alone ' + ms1(itemsW.ms) + ' ms; names alone ' + ms1(names.ms) + ' ms; everything at half size ' + ms1(half.ms) + ' ms.');
@@ -300,8 +305,7 @@ var NFMProbe = (function () {
     cnowait: 'Never wait for the card'
   };
   function frameTiming(opts) {
-    var W = opts.W || 900, H = opts.H || 600, n = opts.backend, gpu = n === 'webgpu', host = document.createElement('div'), maxFrames = opts.frames || 60, cap = opts.ms || 700;
-    host.style.cssText = 'position:fixed;left:0;top:0;width:' + W + 'px;height:' + H + 'px;opacity:.01;pointer-events:none;z-index:-1'; document.body.appendChild(host);
+    var W = opts.W || 900, H = opts.H || 600, n = opts.backend, gpu = n === 'webgpu', host = mkHost(W, H, opts), maxFrames = opts.frames || 60, cap = opts.ms || 700;
     var make = n === 'webgpu' ? NFMRender.createWebGPU : n === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D;
     var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
     var plan = gpu ? [['old', { legacy: true, wait: 'every' }], ['reuse', { wait: 'every' }], ['nowait', { wait: 'none' }], ['every4', { wait: 4 }], ['pace', { wait: 'pace' }], ['blank', { wait: 'none', blank: true }], ['half', { wait: 'none', half: true }]]

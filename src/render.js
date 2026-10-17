@@ -538,7 +538,7 @@ var NFMRender = (function () {
       };
       var drawRig = function (view) {
         var tu = S.turn, rig = S.rig; rigSync();
-        var bg = S.theme.bg, enc = device.createCommandEncoder(), mapped = -1, seqBuf = rbufs.seq, via = (out.rigDebug && out.rigDebug.orderVia) || out.orderVia || 'map';
+        var bg = S.theme.bg, enc = device.createCommandEncoder(), mapped = -1, seqBuf = rbufs.seq, via = (out.rigDebug && out.rigDebug.orderVia) || out.orderVia || 'write';
         if ((rs.ver !== tu.ver || rs.sid2 !== S) && !(out.rigDebug && out.rigDebug.keepOrder)) {
           var sq = tu.seq.subarray(0, tu.nseq);
           if (sq.byteLength) {
