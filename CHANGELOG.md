@@ -81,3 +81,4 @@ Newest last. "Tested in" is **FF 158** (Firefox 158.0) and **UC 154** (ungoogled
 | 2026.10.16.2204 | Tester: 3D sizes 5k/25k/50k/100k, preview on the card path with a button per size, zoom in-and-out speed rows | FF 158, UC 154 |
 | 2026.10.16.2319 | FPS wording; no automatic scene rebuild after dragging; tester hands-on FPS meter | FF 158, UC 154 |
 | 2026.10.16.2348 | WebGL 2 first for drawing (WebGPU next); big 3D maps pre-loaded onto the card; tester backend buttons and accuracy fixes. Tested in the `browsers` branch builds: Firefox 158.0 and ungoogled-chromium 155.0.8059.39 (one at a time, software drawing only); WebKitGTK not run | FF 158, UC 155 |
+|  | Tester: run clock pinned at the top of the page; live FPS counter in every viewing box. Tested in the `browsers` branch builds: ungoogled-chromium 155.0.8059.39 (tester page smoke run, software drawing); Firefox and WebKitGTK not run for this change | UC 155 |
