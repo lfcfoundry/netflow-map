@@ -295,12 +295,19 @@ function applySize() {
   if (mgr && mgr.r) mgr.r.resize(z.w, z.h, z.dpr);
   requestDraw();
 }
-var drawQueued = false;
+var drawQueued = false, lastDrawView = { k: 0, tx: 0, ty: 0 };
 function requestDraw() {
   if (drawQueued) return; drawQueued = true;
   requestAnimationFrame(function () {
     drawQueued = false;
-    var tsc = S.scene; if (tsc && tsc.turn && tsc.turn.on && S.view.k > tsc.turn.kmax) tsc.turnTo(tsc.turn.cam, S.view.k * 2);   /* zoomed in: more names can be seen */
+    var tsc = S.scene, mv = S.view.k !== lastDrawView.k || S.view.tx !== lastDrawView.tx || S.view.ty !== lastDrawView.ty;
+    lastDrawView = { k: S.view.k, tx: S.view.tx, ty: S.view.ty };
+    /* zooming or panning a big 3D map rides the card just like turning it: the ordinary picture costs tens of milliseconds at 30,000 items, the card's about ten at 100,000 */
+    if (mv && tsc && tsc.turnTo && S.L && S.L.is3d && !tsc.noTurn && mgr && mgr.r && mgr.r.rigOK) {
+      if (!(tsc.turn && tsc.turn.on)) tsc.turnTo(S.V.cam, S.view.k * 2);
+      armSettle();   /* the ordinary picture is rebuilt a moment after the movement stops */
+    }
+    if (tsc && tsc.turn && tsc.turn.on && S.view.k > tsc.turn.kmax) tsc.turnTo(tsc.turn.cam, S.view.k * 2);   /* zoomed in: more names can be seen */
     if (mgr && mgr.r && S.scene) { try { mgr.r.draw({ k: S.view.k, tx: S.view.tx, ty: S.view.ty, invalidate: requestDraw }); } catch (err) { mgr.log.push('draw: ' + err.message); } }
     drawInk();
   });

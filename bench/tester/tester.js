@@ -17,15 +17,38 @@
   function errCls(v) { var x = Number(v); return !isFinite(x) ? '' : x <= 0.1475 ? 'e1' : x <= 0.1545 ? 'e2' : x <= 0.1655 ? 'e3' : x < 0.2 ? 'e4' : 'e5'; }
   function tintNums(t) { return esc(t).replace(/\b\d\.\d{3}\b/g, function (m) { var c = errCls(m); return c ? '<span class="' + c + '">' + m + '</span>' : m; }); }
   function tintSay(t) { return esc(t).replace(/(distance error )(\d\.\d+)( against )?(\d\.\d+)?/g, function (m, a, v1, mid, v2) { return a + '<span class="' + errCls(v1) + '">' + v1 + '</span>' + (mid && v2 ? mid + '<span class="' + errCls(v2) + '">' + v2 + '</span>' : ''); }); }
-  function setStatus(t) { $('status').textContent = t; }
+  function setStatus(t) {
+    $('status').textContent = t;
+    var cur = sections[sections.length - 1]; if (cur && !cur.done && cur.card) { var v = cur.card.querySelector('.verdict'); if (v) v.textContent = 'Working… ' + t; }   /* the open section says what it is doing right now */
+  }
   function setBar() { $('barfill').style.width = Math.min(100, Math.round(100 * doneSteps / total)) + '%'; }
   function addSection(title) {
     var card = document.createElement('div'); card.className = 'card'; card.innerHTML = '<h2></h2><div class="verdict note">Working…</div><div class="tw"></div>'; card.firstChild.textContent = title; $('out').insertBefore(card, $('out').firstChild);   /* the step being tested is always the top card */
     var s = { title: title, verdict: '', level: 'ok', head: null, rows: [], notes: [], card: card };
     s.finish = function (level, verdict) {
       s.level = level; s.verdict = verdict; var v = card.querySelector('.verdict'); v.className = 'verdict ' + level; v.innerHTML = tintSay(verdict);
-      if (s.head) { var h = '<table><thead><tr>' + s.head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>' + s.rows.map(function (r) { var rowErr = /distance error|^After \d+ steps|CPU math \/ graphics card/i.test(r[0]); return '<tr>' + r.map(function (x, ci) { return '<td>' + (rowErr && ci > 0 || /truth|distance error/i.test(s.head[ci] || '') ? tintNums(x) : esc(x)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; card.querySelector('.tw').innerHTML = h; }
+      s.done = true; s.refresh(); if (s.hostBox) { s.hostBox.remove(); s.hostBox = null; }
       s.notes.forEach(function (n) { var p = document.createElement('p'); p.className = 'note'; p.textContent = n; card.appendChild(p); });
+    };
+    s.refresh = function () {
+      if (s.head) { var h = '<table><thead><tr>' + s.head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>' + s.rows.map(function (r) { var rowErr = /distance error|^After \d+ steps|CPU math \/ graphics card/i.test(r[0]); return '<tr>' + r.map(function (x, ci) { return '<td>' + (rowErr && ci > 0 || /truth|distance error/i.test(s.head[ci] || '') ? tintNums(x) : esc(x)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; card.querySelector('.tw').innerHTML = h; }
+    };
+    /* rows show up one at a time while the section works */
+    s.rows.push = function () { var r = Array.prototype.push.apply(s.rows, arguments); s.refresh(); return r; };
+    /** A box in the open section that a test draws its map into (scaled down, but the real picture being timed). */
+    s.live = function () {
+      if (!s.hostBox) { var b = document.createElement('div'); b.className = 'livebox'; b.style.cssText = 'position:relative;width:360px;max-width:100%;height:200px;overflow:hidden;border:1px solid var(--line);border-radius:8px;margin:6px 0'; card.insertBefore(b, card.querySelector('.tw')); s.hostBox = b; }
+      return s.hostBox;
+    };
+    /** A small flat picture of the item positions just worked out (x, y pairs by default), so the person can watch the layouts appear. */
+    s.scatter = function (X, k, caption, stride) {
+      stride = stride || 2; var wrap = s.scat; if (!wrap) { wrap = s.scat = document.createElement('div'); wrap.style.cssText = 'margin:6px 0'; wrap.innerHTML = '<canvas width="360" height="220" style="width:360px;max-width:100%;border:1px solid var(--line);border-radius:8px"></canvas><div class="note"></div>'; card.insertBefore(wrap, card.querySelector('.tw')); }
+      var cv = wrap.firstChild, g = cv.getContext('2d'), W = cv.width, H = cv.height, x0 = 1e30, x1 = -1e30, y0 = 1e30, y1 = -1e30, i, step = Math.max(1, Math.floor(k / 6000));
+      for (i = 0; i < k; i += step) { var x = X[stride * i], y = X[stride * i + 1]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      var sc = 0.94 * Math.min(W / Math.max(1e-9, x1 - x0), H / Math.max(1e-9, y1 - y0)), ox = (W - sc * (x1 - x0)) / 2, oy = (H - sc * (y1 - y0)) / 2;
+      g.clearRect(0, 0, W, H); g.fillStyle = matchMedia('(prefers-color-scheme:dark)').matches ? 'rgba(140,180,255,.65)' : 'rgba(40,90,200,.55)';
+      for (i = 0; i < k; i += step) g.fillRect(ox + sc * (X[stride * i] - x0) - 1, oy + sc * (X[stride * i + 1] - y0) - 1, 2.2, 2.2);
+      wrap.lastChild.textContent = caption;
     };
     sections.push(s); return s;
   }
@@ -134,12 +157,12 @@
       var kind = plan[pi][0], n = plan[pi][1]; setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: processor…'); await yieldUI();
       var g = graphFor(kind, n), P = piece(g), cb = cpuBest(g), Xc = new Float64Array(2 * P.k);
       P.ids.forEach(function (id, i) { var p = cb.pos.get(id); Xc[2 * i] = p[0]; Xc[2 * i + 1] = p[1]; });
-      var tc = truth(P, Xc); setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card…'); await yieldUI();
+      var tc = truth(P, Xc); s.scatter(Xc, P.k, kind + ' ' + P.k.toLocaleString() + ' items: the processor\'s map (truth ' + r3(tc) + ', ' + fmtMs(cb.ms) + ')'); setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card…'); await yieldUI();
       var res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { steps: 40, snapshots: [20, 30] });
       if (res.error) { s.rows.push([kind, n.toLocaleString(), fmtMs(cb.ms), r3(tc), res.tooBig ? 'does not fit' : 'failed', '-', '-', '-', '-', '-', String(res.error).slice(0, 60)]); summary.push({ kind: kind, n: n, cpuMs: r1(cb.ms), cpuTruth: r3(tc), gpuError: res.error }); continue; }
       setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: graphics card, parallel pairs…'); await yieldUI();
       var rs = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, { method: 'sgd' });
-      var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t30 = truth(P, res.snapshots[30]), ts = rs.error ? null : truth(P, rs.X);
+      s.scatter(res.X, P.k, kind + ' ' + P.k.toLocaleString() + ' items: the graphics card\'s map, old steps (' + fmtMs(res.ms.total) + ')'); var tg = truth(P, res.X), t20 = truth(P, res.snapshots[20]), t30 = truth(P, res.snapshots[30]), ts = rs.error ? null : truth(P, rs.X);
       /* the whole app path with the card's picture: the engine asks for the picture of the big piece, the card makes it, the engine goes on with its own clean-up */
       setStatus('Best quality, ' + kind + ' ' + n.toLocaleString() + ' items: card picture through the app\'s clean-up…'); await yieldUI();
       var dgA = C.derive(JSON.parse(JSON.stringify(g))), TU = E.stressTuning, cap = null, whole = null, rg = null, tw = null, gpuMs = 0, capErr = null;
@@ -150,7 +173,7 @@
         if (!rg.error) {
           var t1 = now(); TU.external = function (X, k) { if (k !== cap.k) return false; for (var q2 = 0; q2 < 2 * k; q2++) X[q2] = rg.X[q2]; return true; };
           var LA = E.build(dgA, { view: 'network', arrange: 'stressBest', colorBy: 'group' }); whole = now() - t1 + rg.ms.total;
-          var pa = new Map(); LA.nodes.forEach(function (nd) { pa.set(nd.nodeId || nd.id, [nd.cx, nd.cy]); }); var Xa = new Float64Array(2 * P.k); P.ids.forEach(function (id, i2) { var p2 = pa.get(id); Xa[2 * i2] = p2[0]; Xa[2 * i2 + 1] = p2[1]; }); tw = truth(P, Xa);
+          var pa = new Map(); LA.nodes.forEach(function (nd) { pa.set(nd.nodeId || nd.id, [nd.cx, nd.cy]); }); var Xa = new Float64Array(2 * P.k); P.ids.forEach(function (id, i2) { var p2 = pa.get(id); Xa[2 * i2] = p2[0]; Xa[2 * i2 + 1] = p2[1]; }); tw = truth(P, Xa); s.scatter(Xa, P.k, kind + ' ' + P.k.toLocaleString() + ' items: the app\'s whole path with the card (truth ' + r3(tw) + ', ' + fmtMs(whole) + ')');
         }
       }
       TU.external = null;
@@ -198,7 +221,7 @@
       var kind = variants[vi][0], name = variants[vi][1], o = variants[vi][2], nn = variants[vi][3] || n; setStatus('Program comparison: ' + kind + ' ' + name + '…'); await yieldUI();
       var P = cache[kind + nn] || (cache[kind + nn] = piece(graphFor(kind, nn))), res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, o);
       if (res.error) { s.rows.push([kind, name, 'failed: ' + res.error.slice(0, 40), '']); continue; }
-      var tt = truth(P, res.X);
+      var tt = truth(P, res.X); s.scatter(res.X, P.k, kind + ' ' + P.k.toLocaleString() + ' items: ' + name + ' (truth ' + r3(tt) + ', ' + fmtMs(res.ms.total) + ')');
       s.rows.push([kind + ' ' + P.k.toLocaleString(), name, fmtMs(res.ms.total), r3(tt)]);
       out.push({ kind: kind, n: P.k, variant: name, totalMs: r1(res.ms.total), truth: r3(tt), split: res.split });
     }
@@ -223,8 +246,8 @@
     var c = await NFMProbe.canary(), gpu = null, ctl = null, row = function (nm, w) { return [nm + ': ' + w.label, r1(w.fps), r1(w.scene), r1(w.upload), r1(w.draw), r1(w.fence), r1(w.raf)]; };
     if (!c.webgpu.ok) { var why = 'WebGPU is not usable here' + (c.webgpu.why ? ' (' + c.webgpu.why + ')' : '') + ', so there is nothing to time. Nothing is wrong with the app: it draws with WebGL 2 or basic drawing instead.'; ctx.timing = { skipped: why }; s.finish('warn', why); return { level: 'warn', say: why }; }
     setStatus('Where the drawing time goes: timing WebGPU (about 8 seconds)…'); await yieldUI();
-    gpu = await NFMProbe.frameTiming({ backend: 'webgpu', W: 900, H: 600, makeScene: mk });
-    if (c.webgl2.ok) { setStatus('Where the drawing time goes: timing WebGL 2 as the control…'); await yieldUI(); ctl = await NFMProbe.frameTiming({ backend: 'webgl2', W: 900, H: 600, makeScene: mk }); }
+    gpu = await NFMProbe.frameTiming({ backend: 'webgpu', W: 900, H: 600, live: s.live(), makeScene: mk });
+    if (c.webgl2.ok) { setStatus('Where the drawing time goes: timing WebGL 2 as the control…'); await yieldUI(); ctl = await NFMProbe.frameTiming({ backend: 'webgl2', W: 900, H: 600, live: s.live(), makeScene: mk }); }
     if (gpu.ways) gpu.ways.forEach(function (w) { s.rows.push(row('WebGPU', w)); });
     if (ctl && ctl.ways) ctl.ways.forEach(function (w) { s.rows.push(row('WebGL 2', w)); });
     var ex = NFMProbe.explainTiming(gpu, ctl && ctl.ways ? ctl : null);
@@ -309,6 +332,7 @@
       try { L3 = E.build(dg, { view: 'network', arrange: ar, colorBy: 'group' }); } catch (e) { s.rows.push([n.toLocaleString(), kinds[ki][1], 'failed', String(e && e.message || e).slice(0, 40)]); continue; }
       var ms = now() - t0, X = new Float64Array(3 * P.k), pm = new Map(); L3.nodes.forEach(function (nd) { pm.set(nd.nodeId || nd.id, nd); });
       P.ids.forEach(function (id, i) { var nd = pm.get(id) || { cx: 0, cy: 0, z: 0 }; X[3 * i] = nd.cx; X[3 * i + 1] = nd.cy; X[3 * i + 2] = nd.z || 0; });
+      s.scatter(X, P.k, kinds[ki][1] + ', ' + n.toLocaleString() + ' items, seen from the front (built in ' + fmtMs(ms) + ')', 3);
       s.rows.push([n.toLocaleString(), kinds[ki][1], fmtMs(ms), r3(truth(P, X, 3))]);
       if (ar === 'force3d' || (n > 30000 && ar === 'sphere')) scenes.push({ n: n, L3: L3, lay: ar === 'sphere' ? ', sphere layout' : '' }); if (!previewL && ar === 'force3d') previewL = { L3: L3, n: n };
       await yieldUI();
@@ -320,13 +344,13 @@
       setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + '…'); await yieldUI();
       var Lx = scenes[si].L3, nm = names[bi] === 'webgpu' ? 'WebGPU' : names[bi] === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
       if (names[bi] === 'canvas2d' && scenes[si].n > 3000) continue;   /* far too slow to be worth timing */
-      var t = scenes[si].n > 30000 ? { skipped: 'far too slow to be worth timing' } : await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, makeScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      var t = scenes[si].n > 30000 ? { skipped: 'far too slow to be worth timing' } : await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, live: s.live(), makeScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
       if (t.fps) { turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', every angle worked out here', Math.round(t.fps), r1(t.sceneMs), r1(t.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'here', fps: r1(t.fps), sceneMs: r1(t.sceneMs), drawMs: r1(t.drawMs) }); }
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', every angle worked out here', 'skipped', '-', String(t.skipped).slice(0, 40)]);
       if (names[bi] === 'canvas2d') continue;
       /* the way the app turns a big 3D map: the map sits on the graphics card, each picture is only a new angle */
       setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + ', math on the card…'); await yieldUI();
-      var tc = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, rigScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      var tc = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, live: s.live(), rigScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
       if (tc.fps) { if (tc.warmMs > 400) warmNotes.push('Starting to turn the ' + scenes[si].n.toLocaleString() + '-item map with ' + nm + ': the first 24 pictures took ' + Math.round(tc.warmMs).toLocaleString() + ' ms (one-time setup on the card), then steady turning is timed below.'); turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', Math.round(tc.fps), r1(tc.sceneMs), r1(tc.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'card', warmMs: Math.round(tc.warmMs || 0), fps: r1(tc.fps), sceneMs: r1(tc.sceneMs), drawMs: r1(tc.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || tc.fps > best.fps)) best = tc; }
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', 'skipped', '-', String(tc.skipped).slice(0, 60)]);
     }
@@ -344,7 +368,7 @@
     if (big) for (var bj = 0; bj < names.length; bj++) {
       if (names[bj] === 'canvas2d') continue;
       var nm2 = names[bj] === 'webgpu' ? 'WebGPU' : 'WebGL 2'; setStatus('Taking the turning of the ' + big.n.toLocaleString() + '-item map apart with ' + nm2 + '…'); await yieldUI();
-      var Lb = big.L3, ts = await NFMProbe.turnSplit({ backend: names[bj], W: 900, H: 600, rigScene: function (yaw, pitch) { return NFMScene.make(Lb, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      var Lb = big.L3, ts = await NFMProbe.turnSplit({ backend: names[bj], W: 900, H: 600, live: sp.live(), rigScene: function (yaw, pitch) { return NFMScene.make(Lb, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
       var ex = NFMProbe.explainSplit(ts, big.n); splitSays.push(ex.say); if (ex.level === 'warn' && splitLevel === 'ok') splitLevel = 'warn'; ctx.split.push({ n: big.n, backend: names[bj], cause: ex.cause, ways: ts.ways || null, skipped: ts.skipped || null });
       if (ts.ways) ts.ways.forEach(function (w) { sp.rows.push([nm2 + ': ' + w.label, w.fps === undefined ? '-' : Math.round(w.fps), w.gapMed === undefined ? '-' : r1(w.gapMed), w.gapP95 === undefined ? '-' : r1(w.gapP95), w.gapMax === undefined ? '-' : r1(w.gapMax), w.angleMed === undefined ? '-' : r1(w.angleMed), w.ms === undefined ? '-' : r1(w.ms)]); });
       ex.lines.forEach(function (l) { sp.notes.push(nm2 + ': ' + l); });
