@@ -307,7 +307,7 @@ async function open() {
         S.view = view; let A = await shot(view);                                       /* drawn from the card */
         sc.turnTo(sc.turn.cam, 1.6); const labels2 = vis(sc, 0.8), A2 = await shot(view);
         let tex = {};                                                                    /* the other ways of sending the paint order must give the same picture as the usual way */
-        for (const via of be === 'webgl2' ? ['texture'] : ['ring', 'write']) {
+        for (const via of be === 'webgl2' ? ['texture'] : ['ring', 'map']) {
           const diff = (P, Q) => { let sm = 0; for (let i = 0; i < P.d.length; i += 4) sm += (Math.abs(P.d[i] - Q.d[i]) + Math.abs(P.d[i + 1] - Q.d[i + 1]) + Math.abs(P.d[i + 2] - Q.d[i + 2])) / 3; return sm / (P.d.length / 4); };
           let worst = 0;
           for (const cam of [sc.turn.cam, Object.assign({}, sc.turn.cam, { yaw: sc.turn.cam.yaw + 0.3 })]) {   /* two angles in a row, so a reused buffer is tested too */
@@ -315,15 +315,23 @@ async function open() {
           }
           tex[via] = worst;
         }
-        NFM.settleTurn(); const B = await shot(view), full = !(S.scene.turn && S.scene.turn.on), labelsFull = vis(S.scene, 0.8);   /* the ordinary picture of the same angle */
+        NFM.settleTurn(); const full = !(S.scene.turn && S.scene.turn.on), labelsFull = vis(S.scene, 0.8), B = await shot(view);   /* the ordinary picture of the same angle */
         let sum = 0, far = 0; const n = A.d.length / 4; for (let i = 0; i < A.d.length; i += 4) { const d = (Math.abs(A.d[i] - B.d[i]) + Math.abs(A.d[i + 1] - B.d[i + 1]) + Math.abs(A.d[i + 2] - B.d[i + 2])) / 3; sum += d; if (d > 40) far++; }
         /* a selection made while turning */
         await turn(2.4, -0.2); const id = S.scene.nodes[3].nodeId; NFM.select(id); await raf(); await raf();
         const sel = S.scene.turn && S.scene.turn.on, dim = S.scene.nodes.some((q) => q.a < 0.5);
+        /* zooming a settled big 3D map rides the card too (the logic sits above the renderers, so one backend is enough; the software WebGPU here stalls on the slow draws a zoom animation queues) */
+        let fullBefore = true, zoomed = true, zoomOn = true, zfar = 999;
+        if (be === 'webgl2') {
+          NFM.settleTurn(); await raf(); await raf(); fullBefore = !(S.scene.turn && S.scene.turn.on); const k0 = S.view.k;
+          NFM.zoomAt(400, 300, 1.5); await sleep0(900); zoomed = S.view.k > k0; zoomOn = !!(S.scene.turn && S.scene.turn.on);
+          const zs = await shot(S.view); zfar = 0; for (let i = 0; i < zs.d.length; i += 4) if (zs.d[i] + zs.d[i + 1] + zs.d[i + 2] > 30) zfar++;
+          NFM.fitView(false); await raf(); await raf(); NFM.settleTurn();   /* leave the view and the picture as they were */
+        }
         let dc = 0; const od = window.GPUDevice && GPUDevice.prototype.destroy;   /* leaving a backend must destroy its device (an early version skipped it and leaked everything) */
         if (od) GPUDevice.prototype.destroy = function () { dc++; return od.apply(this, arguments); };
         try { await m.use('auto'); } finally { if (od) GPUDevice.prototype.destroy = od; }
-        return { dc, on0, ok0, on, labels: labels2, labelsFull, full, mean: sum / n, far: far / n, sel, dim, w: A.w, tex };
+        return { fullBefore, zoomed, zoomOn, zfar, dc, on0, ok0, on, labels: labels2, labelsFull, full, mean: sum / n, far: far / n, sel, dim, w: A.w, tex };
       } finally { window.setTimeout = setTO; NFM.select(null); }
       function sleep0(ms) { return new Promise((r) => setTO(r, ms)); }
     }, be);
@@ -334,6 +342,7 @@ async function open() {
     say(res.full && res.mean <= 1.5 && res.far < 0.01, `${be}: the picture from the card matches the ordinary picture: mean ${res.mean.toFixed(2)}/255, ${(res.far * 100).toFixed(2)}% pixels far off`);
     if (be === 'webgpu') say(res.dc >= 1, `${be}: leaving it destroys the graphics device and its buffers (${res.dc})`);
     for (const [via, d] of Object.entries(res.tex || {})) say(d <= 0.5, `${be}: sending the paint order the '${via}' way gives the same picture (mean difference ${d.toFixed(3)}/255)`);
+    if (be === 'webgl2') say(res.fullBefore && res.zoomed && res.zoomOn && res.zfar > 100, `${be}: zooming a big 3D map draws from the card, not the heavy ordinary picture`);
     say(res.sel && res.dim, `${be}: selecting while turning dims the rest at once`);
   }
   await ev(() => NFM.manager().use('auto'));
