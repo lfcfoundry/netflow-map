@@ -189,7 +189,9 @@ function bindMapping() {
     imp.res = out;
     var g = imp.mode === 'merge' && imp.base.nodes.length ? NFMImport.mergeGraphs(imp.base, out.graph) : out.graph;
     imp.mapOpen = true;
-    setGraph(g, false, true);
+    /* the table is read again from the import, so edits made since (Nodes tab, fixes, merges) are replaced: remember the graph as it was, one Undo brings it back */
+    setGraph(g, true, true);
+    toast('Read the table again with your settings. Anything you edited since can be undone (' + T('Ctrl+Z', 'Undo on the Data tab') + ').', 6000);
   });
 }
 

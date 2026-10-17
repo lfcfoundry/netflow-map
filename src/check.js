@@ -299,7 +299,7 @@ var NFMCheck = (function () {
       if (vals.length < 2) return;
       var ng = nearGroups(vals).filter(function (x) { return x.members.length >= 2; });
       if (ng.length) {
-        var map = {};
+        var map = Object.create(null);   /* no built-in members: a category called "constructor" or "toString" is an ordinary name */
         ng.forEach(function (x) { var top = x.members.slice().sort(function (a, b) { return b.n - a.n; })[0]; x.members.forEach(function (mem) { if (mem !== top && !(mem.value in map)) map[mem.value] = top.value; }); });
         F(list, { id: 'catvariants:' + cc.scope + ':' + c.key, sev: 'warn', sure: ng.some(function (x) { return x.kind === 'spelling'; }) ? 'likely' : 'possible', title: col + ' spells the same category more than one way', text: nf(ng.length) + ' ' + plural(ng.length, 'category appears', 'categories appear') + ' in variants, so groups and colors split.', why: 'Each spelling gets its own color and its own group, and counts per group come out too small.', rows: pickRows(ng, MAX_ROWS).map(function (x) { return { 'Variants (count)': x.members.map(function (y) { return y.value + ' (' + y.n + ')'; }).join('  /  '), 'Probably': x.members.slice().sort(function (a, b) { return b.n - a.n; })[0].value }; }), fix: { id: 'catMap', label: 'Use the most common spelling', params: { scope: cc.scope, key: c.key, map: map } } });
       }
@@ -457,14 +457,14 @@ var NFMCheck = (function () {
       return changed ? { graph: res, text: 'merged ' + changed + ' item' + (changed === 1 ? '' : 's') + ' into their namesakes' } : null;
     }
     if (fix.id === 'catMap') {
-      var p = fix.params, map = p.map;
+      var p = fix.params, map = p.map, has = function (k) { return Object.prototype.hasOwnProperty.call(map, k); };   /* own keys only (the map may have come through a copy that has the usual object members) */
       if (p.scope === 'nodes') out.nodes = g.nodes.map(function (n) {
-        if (p.key === 'group') { if (n.group in map) { changed++; return Object.assign({}, n, { group: map[n.group] }); } return n; }
-        var v = n.attrs && n.attrs[p.key]; if (v !== undefined && String(v) in map) { changed++; var at = Object.assign({}, n.attrs); at[p.key] = map[String(v)]; return Object.assign({}, n, { attrs: at }); } return n;
+        if (p.key === 'group') { if (has(n.group)) { changed++; return Object.assign({}, n, { group: map[n.group] }); } return n; }
+        var v = n.attrs && n.attrs[p.key]; if (v !== undefined && has(String(v))) { changed++; var at = Object.assign({}, n.attrs); at[p.key] = map[String(v)]; return Object.assign({}, n, { attrs: at }); } return n;
       });
       else out.edges = g.edges.map(function (e) {
-        if (p.key === 'kind') { if (e.kind in map) { changed++; return Object.assign({}, e, { kind: map[e.kind] }); } return e; }
-        var v = e.attrs && e.attrs[p.key]; if (v !== undefined && String(v) in map) { changed++; var at = Object.assign({}, e.attrs); at[p.key] = map[String(v)]; return Object.assign({}, e, { attrs: at }); } return e;
+        if (p.key === 'kind') { if (has(e.kind)) { changed++; return Object.assign({}, e, { kind: map[e.kind] }); } return e; }
+        var v = e.attrs && e.attrs[p.key]; if (v !== undefined && has(String(v))) { changed++; var at = Object.assign({}, e.attrs); at[p.key] = map[String(v)]; return Object.assign({}, e, { attrs: at }); } return e;
       });
       return changed ? { graph: out, text: 'unified ' + changed + ' spelling' + (changed === 1 ? '' : 's') } : null;
     }

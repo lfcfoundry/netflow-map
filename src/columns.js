@@ -14,17 +14,41 @@ var NFMColumns = (function () {
   'use strict';
 
   /* ---------------------------------------------------------------- reading numbers and dates */
-  var NUM_PLAIN = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i, NUM_COMMA = /^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$/;
-  /** A number as people write it: 1,234.5  $12  (300)  12%  -4. Anything else gives NaN. */
-  function num(v) {
+  var NUM_PLAIN = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i, SPACE_GROUPED = /^[+-]?\d{1,3}([   ]\d{3})+([.,]\d+)?$/;
+  /**
+   * A number as people write it: 1234.5  1,234.5  1.234,5  1 234,5  12,5  $12  (300)  12%  -4. Anything else gives NaN (0x10 and 0b11 are not numbers).
+   * A comma or dot alone is a decimal mark unless it is exactly a thousands group (1,234); then `dec` (',' or '.', default '.') decides.
+   * The importers read the weight column with the same rules (NFMImport has its own copy; test/import-fixes.test.js checks they agree).
+   */
+  function num(v, dec) {
     if (typeof v === 'number') return isFinite(v) ? v : NaN;
     if (v === undefined || v === null || typeof v === 'boolean') return NaN;
     var s = String(v).trim();
     if (!s || s.length > 40) return NaN;
-    var neg = false;
+    var neg = false; dec = dec || '.';
     if (s.charAt(0) === '(' && s.charAt(s.length - 1) === ')') { neg = true; s = s.slice(1, -1).trim(); }
     s = s.replace(/[$€£¥]/g, '').replace(/\s*%$/, '').trim();
-    if (NUM_COMMA.test(s)) s = s.replace(/,/g, '');
+    if (SPACE_GROUPED.test(s)) s = s.replace(/[   ]/g, '');
+    if (s.indexOf(',') >= 0 || s.indexOf('.') >= 0) {
+      var sign = '';
+      if (s.charAt(0) === '+' || s.charAt(0) === '-') { sign = s.charAt(0); s = s.slice(1); }
+      var mm = /^([\d.,]+)([eE][+-]?\d+)?$/.exec(s);
+      if (!mm) return NaN;
+      var body = mm[1], lc = body.lastIndexOf(','), ld = body.lastIndexOf('.'), dm;
+      if (lc >= 0 && ld >= 0) dm = lc > ld ? ',' : '.';
+      else {
+        var ch = lc >= 0 ? ',' : '.', at = body.indexOf(ch), many = body.indexOf(ch, at + 1) >= 0;
+        if (many) dm = '';
+        else if (body.length - at - 1 === 3 && at >= 1 && at <= 3 && body.charAt(0) !== '0') dm = dec === ch ? ch : '';
+        else dm = ch;
+      }
+      var thou = dm === ',' ? '.' : dm === '.' ? ',' : (lc >= 0 ? ',' : '.');
+      var ip = body, fp = '';
+      if (dm) { var cut = body.lastIndexOf(dm); ip = body.slice(0, cut); fp = body.slice(cut + 1); if (fp.indexOf(thou) >= 0 || fp.indexOf(dm) >= 0) return NaN; }
+      if (ip !== '' && ip.indexOf(thou) >= 0) { if (!(thou === ',' ? /^\d{1,3}(,\d{3})+$/ : /^\d{1,3}(\.\d{3})+$/).test(ip)) return NaN; ip = ip.split(thou).join(''); }
+      else if (ip.indexOf(dm === '' ? thou : dm) >= 0) return NaN;
+      s = sign + ip + (dm ? '.' + fp : '') + (mm[2] || '');
+    }
     if (!NUM_PLAIN.test(s)) return NaN;
     var x = parseFloat(s);
     return isFinite(x) ? (neg ? -x : x) : NaN;
@@ -37,6 +61,7 @@ var NFMColumns = (function () {
     var t = Date.parse(/^\d{4}-\d{1,2}$/.test(s) ? s + '-01' : s);
     return isFinite(t) ? t : NaN;
   }
+  function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   function isEmpty(v) { return v === undefined || v === null || v === ''; }
 
   /* ---------------------------------------------------------------- number formats */
@@ -127,13 +152,13 @@ var NFMColumns = (function () {
     if (c.t === 'weight') return num(obj.weight);
     if (c.t !== 'col') return NaN;
     var at = obj.attrs;
-    if (at && c.key in at) return num(at[c.key]);
+    if (at && own(at, c.key)) return num(at[c.key]);
     return num(obj[c.key]);
   }
   function catOf(obj, ch) {
     var c = typeof ch === 'string' ? split(ch) : ch;
     if (!c || c.t !== 'col') return c && c.t === 'weight' ? '' : '';
-    var at = obj.attrs, v = at && c.key in at ? at[c.key] : obj[c.key];
+    var at = obj.attrs, v = at && own(at, c.key) ? at[c.key] : obj[c.key];
     return isEmpty(v) ? '' : String(v);
   }
 
@@ -174,7 +199,13 @@ var NFMColumns = (function () {
   var FUNCS = {
     abs: Math.abs, sqrt: Math.sqrt, ln: Math.log, log10: Math.log10, log2: Math.log2, log: Math.log10, exp: Math.exp,
     floor: Math.floor, ceil: Math.ceil, sign: Math.sign, pow: Math.pow, sin: Math.sin, cos: Math.cos,
-    round: function (x, d) { var f = Math.pow(10, d || 0); return Math.round(x * f) / f; },
+    round: function (x, d) {
+      d = d || 0;
+      if (!isFinite(x) || !isFinite(d) || Math.abs(d) > 15) return x;
+      var t = String(x);   // 1.005 is 1.00499999999999989... in binary, so shift the decimal point in the text, not by multiplying
+      if (t.indexOf('e') < 0) return Number(Math.round(Number(t + 'e' + d)) + 'e' + -d);
+      var f = Math.pow(10, d); return Math.round(x * f) / f;
+    },
     min: function () { var m = Infinity, a = arguments; for (var i = 0; i < a.length; i++) if (a[i] < m) m = a[i]; return m; },
     max: function () { var m = -Infinity, a = arguments; for (var i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return m; },
     clamp: function (x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
@@ -375,7 +406,7 @@ var NFMColumns = (function () {
    */
   function buildStates(g, spec) {
     var out = Object.assign({}, g), ns, i, e;
-    var attr = function (ed, k) { var v = ed.attrs && k in ed.attrs ? ed.attrs[k] : ed[k]; return v; };
+    var attr = function (ed, k) { var v = ed.attrs && own(ed.attrs, k) ? ed.attrs[k] : ed[k]; return v; };
     if (spec.mode === 'cols') {
       var keys = spec.keys.slice(0, 60); ns = keys.length;
       if (ns < 2) throw new Error('Pick at least two columns.');
@@ -389,8 +420,8 @@ var NFMColumns = (function () {
       return out;
     }
     if (spec.mode === 'rows') {
-      var key = spec.key, seen = [], vset = {};
-      g.edges.forEach(function (ed) { var v = String(attr(ed, key) === undefined || attr(ed, key) === null ? '' : attr(ed, key)); if (!(v in vset)) { vset[v] = 1; seen.push(v); } });
+      var key = spec.key, seen = [], vset = new Set();
+      g.edges.forEach(function (ed) { var v = String(attr(ed, key) === undefined || attr(ed, key) === null ? '' : attr(ed, key)); if (!vset.has(v)) { vset.add(v); seen.push(v); } });
       var order = spec.order && spec.order.length ? spec.order.map(String) : seen.slice();
       if (!spec.order) {
         var allNum = seen.every(function (v) { return v !== '' && num(v) === num(v); }), allDate = !allNum && seen.every(function (v) { return v !== '' && dateMs(v) === dateMs(v); });

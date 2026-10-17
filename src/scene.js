@@ -156,7 +156,7 @@ var NFMScene = (function () {
       gs.forEach(function (g, i) { groupIdx.set(g, i); });
     }
     var gcol = function (g) {
-      if (g !== undefined && gOver[g]) return hex(gOver[g]);
+      if (g !== undefined && Object.prototype.hasOwnProperty.call(gOver, g) && gOver[g]) return hex(gOver[g]);
       var i = groupIdx.get(g || '') || 0; return g === '(none)' ? T.neutral : T.groups[i % T.groups.length];
     };
     var maxVisits = 0, maxTraffic = 0.0001;
@@ -194,15 +194,16 @@ var NFMScene = (function () {
       if (st && st.opacity !== undefined) f = alpha(f, Math.min(f[3], st.opacity));
       return f;
     };
-    var legendSet = {};
-    var legend = function (c, t, key) { if (!legendSet[t]) { legendSet[t] = 1; S.legend.push({ k: 'swatch', c: c, t: t, key: key || t }); } };
+    var legendSet = new Set();
+    var legend = function (c, t, key) { if (!legendSet.has(t)) { legendSet.add(t); S.legend.push({ k: 'swatch', c: c, t: t, key: key || t }); } };
 
     /* per-item looks the person asked for */
     (L.nodes || []).forEach(function (n) { n._st = o.nodeStyle ? o.nodeStyle(n) : null; });
-    var edgeCats = null, ecR = CH.ecolor && CH.ecolor.kind === 'num' ? CH.ecolor : null, widthR = CH.width && CH.width.n ? CH.width : null;
+    var edgeCats = null, edgeCatIdx = null, ecR = CH.ecolor && CH.ecolor.kind === 'num' ? CH.ecolor : null, widthR = CH.width && CH.width.n ? CH.width : null;
     if (CH.ecolor && CH.ecolor.kind === 'cat') {
       var cnt = new Map(); (L.edges || []).forEach(function (e) { if (e.colorC) cnt.set(e.colorC, (cnt.get(e.colorC) || 0) + 1); });
       edgeCats = Array.from(cnt.keys()).sort(function (a, b) { return cnt.get(b) - cnt.get(a) || (a < b ? -1 : 1); });
+      edgeCatIdx = new Map(); edgeCats.forEach(function (c, ix) { edgeCatIdx.set(c, ix); });
     }
     var wmul = o.widthMul || 1, wscale = o.widthScale || 'sqrt';
     var m0 = (L.edges || []).length;
@@ -217,7 +218,7 @@ var NFMScene = (function () {
         if (v !== v) r.color = alpha(c, c[3] * 0.4);
       }
       if (ecR) { var te = e.colorV === e.colorV ? (ecR.max > ecR.min ? (e.colorV - ecR.min) / (ecR.max - ecR.min) : 0.5) : NaN; r.color = te === te ? alpha(rampAt('plasma', 1 - te), Math.max(0.45, c[3])) : alpha(T.neutral, 0.3); }
-      else if (edgeCats && e.colorC) { var ix = edgeCats.indexOf(e.colorC); r.color = alpha(ix >= 0 ? T.groups[(ix + 3) % T.groups.length] : T.neutral, Math.max(0.55, c[3])); }
+      else if (edgeCats && e.colorC) { var ix = edgeCatIdx.has(e.colorC) ? edgeCatIdx.get(e.colorC) : -1; r.color = alpha(ix >= 0 ? T.groups[(ix + 3) % T.groups.length] : T.neutral, Math.max(0.55, c[3])); }
       var ls = o.linkStyle ? o.linkStyle(e, ei) : null;
       if (ls) {
         if (ls.hide) r.hide = true;
@@ -376,10 +377,14 @@ var NFMScene = (function () {
   function edgeIndex(S) {
     if (S.eidx) return S.eidx;
     var cell = Math.max(30, Math.max(S.w, S.h) / 120), map = new Map(), segs = [];
-    var put = function (ref, ax, ay, bx, by) {
-      var id = segs.length; segs.push([ax, ay, bx, by, ref]);
+    var put = function (ref, ax, ay, bx, by, depth) {
       var c0 = Math.floor((Math.min(ax, bx) - S.x0) / cell), c1 = Math.floor((Math.max(ax, bx) - S.x0) / cell), r0 = Math.floor((Math.min(ay, by) - S.y0) / cell), r1 = Math.floor((Math.max(ay, by) - S.y0) / cell);
-      if ((c1 - c0 + 1) * (r1 - r0 + 1) > 400) return;
+      if ((c1 - c0 + 1) * (r1 - r0 + 1) > 400 && (depth || 0) < 24) {   /* a long straight link: cut it in halves until each piece covers few cells (it used to be skipped, so it could not be hovered) */
+        var mx = (ax + bx) / 2, my = (ay + by) / 2;
+        put(ref, ax, ay, mx, my, (depth || 0) + 1); put(ref, mx, my, bx, by, (depth || 0) + 1);
+        return;
+      }
+      var id = segs.length; segs.push([ax, ay, bx, by, ref]);
       for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) { var k = r * 100003 + c, a = map.get(k); if (a) a.push(id); else map.set(k, [id]); }
     };
     S.curves.forEach(function (cv, ci) {
@@ -393,6 +398,13 @@ var NFMScene = (function () {
     var maxHw = 0; S.curves.forEach(function (cv) { if (cv.loop && cv.w / 2 > maxHw) maxHw = cv.w / 2; });
     S.eidx = { cell: cell, map: map, segs: segs, maxHw: maxHw };
     return S.eidx;
+  }
+  /** The link cell of a matrix picture under a point (cells are drawn on top of the row bands, so they win over them), or null. */
+  function matrixCellAt(S, wx, wy) {
+    var M = S.matrix; if (!M) return null;
+    var jx = Math.floor((wx - M.head) / M.cell), iy = Math.floor((wy - M.head) / M.cell);
+    if (jx >= 0 && iy >= 0 && jx < M.n && iy < M.n) { var ee = M.at.get(iy * M.n + jx); if (ee !== undefined) return { edge: ee, from: M.ids[iy], to: M.ids[jx], cell: true }; }
+    return null;
   }
   function pickEdge(S, wx, wy, tol) {
     var I = edgeIndex(S), cs = I.cell, best = null, bd = tol * tol, reach = tol + I.maxHw;
@@ -415,11 +427,7 @@ var NFMScene = (function () {
       var ya = rb.y0a * w0 + rb.y1a * w1, yb = rb.y0b * w0 + rb.y1b * w1;
       if (wy >= Math.min(ya, yb) - tol && wy <= Math.max(ya, yb) + tol) return { edge: rb.edge, from: rb.from, to: rb.to, ribbon: q };
     }
-    if (S.matrix) {
-      var M = S.matrix, jx = Math.floor((wx - M.head) / M.cell), iy = Math.floor((wy - M.head) / M.cell);
-      if (jx >= 0 && iy >= 0 && jx < M.n && iy < M.n) { var ee = M.at.get(iy * M.n + jx); if (ee !== undefined) return { edge: ee, from: M.ids[iy], to: M.ids[jx], cell: true }; }
-    }
-    return null;
+    return matrixCellAt(S, wx, wy);
   }
   /** Rough box of a label in world units (for clicking labels). */
   function labelBox(l) {
@@ -447,7 +455,9 @@ var NFMScene = (function () {
    */
   function hit(S, wx, wy, k, opt) {
     opt = opt || {};
-    var slop = (opt.slop || 6) / k, n = pick(S, wx, wy, slop);
+    var slop = (opt.slop || 6) / k, mc = S.matrix ? matrixCellAt(S, wx, wy) : null;
+    if (mc) return { type: 'edge', edge: mc.edge, from: mc.from, to: mc.to, cell: true };
+    var n = pick(S, wx, wy, slop);
     if (n) return { type: 'node', node: n, key: n.key };
     var l = pickLabel(S, wx, wy, k);
     if (l) { if (l.group !== undefined) return { type: 'group', group: l.group }; if (l.node >= 0 && S.nodes[l.node]) return { type: 'label', node: S.nodes[l.node], key: S.nodes[l.node].key, label: l }; if (l.edge !== undefined && l.edge >= 0) { var cv = S.curves.filter(function (c) { return c.edge === l.edge; })[0]; return { type: 'edge', edge: l.edge, from: l.from !== undefined ? l.from : cv && cv.from, to: l.to !== undefined ? l.to : cv && cv.to }; } }
@@ -606,21 +616,26 @@ var NFMScene = (function () {
     }
   }
   /** Total flow through an item in the data's own units (sum of the link amounts), or NaN. */
-  function sankeyTotal(L, n) {
-    var a = 0, b = 0, any = false;
-    L.edges.forEach(function (e) { if (e.widthV !== e.widthV || e.kind === 'self') return; if (e.to === n.id) { a += e.widthV; any = true; } if (e.from === n.id) { b += e.widthV; any = true; } });
-    return any ? Math.max(a, b) : NaN;
+  function sankeyTotal(X, n) {
+    if (!X.skTotals) {   /* every item's totals in one pass over the links (not one pass per item) */
+      var tin = new Map(), tout = new Map();
+      X.L.edges.forEach(function (e) { if (e.widthV !== e.widthV || e.kind === 'self') return; tin.set(e.to, (tin.get(e.to) || 0) + e.widthV); tout.set(e.from, (tout.get(e.from) || 0) + e.widthV); });
+      X.skTotals = { tin: tin, tout: tout };
+    }
+    var hasIn = X.skTotals.tin.has(n.id), hasOut = X.skTotals.tout.has(n.id);
+    return hasIn || hasOut ? Math.max(X.skTotals.tin.get(n.id) || 0, X.skTotals.tout.get(n.id) || 0) : NaN;
   }
   function sankeyNode(X, n) {
-    var S = X.S, L = X.L, T = X.T, st = n._st, sk = X.o.sk || {}, lastCol = 0;
+    var S = X.S, L = X.L, T = X.T, st = n._st, sk = X.o.sk || {};
     if (st && st.hide) return;
-    L.nodes.forEach(function (q) { if (q.layer > lastCol) lastCol = q.layer; });
+    if (X.skLastCol === undefined) { X.skLastCol = 0; L.nodes.forEach(function (q) { if (q.layer > X.skLastCol) X.skLastCol = q.layer; }); }
+    var lastCol = X.skLastCol;
     var rec = X.addNode(n, n.x, n.y, n.w, n.h), bc = sankeyColor(X, n);
     if (st && st.opacity !== undefined) bc = alpha(bc, st.opacity);
     S.rects.push({ x: n.x, y: n.y, w: n.w, h: n.h, r: Math.min(3, n.w / 2), fill: bc, stroke: st && st.stroke ? hex(st.stroke) : n.start ? T.accent : [0, 0, 0, 0], sw: st && st.stroke ? (st.sw === undefined ? 1.5 : st.sw) : n.start ? 2 : 0, layer: 1, node: rec.i });
     var side = (st && st.labelSide) || sk.labels || 'auto';
     var left = side === 'left' || (side === 'auto' && n.layer === 0 && lastCol > 0);
-    var size = 14, text = X.tx(n), tot = sk.nodeValues ? sankeyTotal(L, n) : NaN, cx = left ? n.x - 7 : n.x + n.w + 7;
+    var size = 14, text = X.tx(n), tot = sk.nodeValues ? sankeyTotal(X, n) : NaN, cx = left ? n.x - 7 : n.x + n.w + 7;
     var col = X.labColor(n, bc), cy = n.y + n.h / 2, two = tot === tot;
     var l1 = X.lab(cx, cy + (two ? -1 : 4), clip(text, 30), size, col, n.start ? { align: left ? 'r' : 'l', node: rec.i, minK: 0.2, bold: true, bound: true } : { align: left ? 'r' : 'l', node: rec.i, minK: 0.2, bound: true });
     if (two && l1) X.lab(cx, cy + 12.5, fmtNum(tot), 10.5, T.muted, { align: left ? 'r' : 'l', node: rec.i, minK: 0.4, sub: true, bound: true });
@@ -725,7 +740,9 @@ var NFMScene = (function () {
     var PN = new Map(), list = [], i;
     /* turning a 3D map only changes the camera: what each item and link looks like is worked out once and kept in o.plan for the next picture */
     var P3 = n3 && o.plan ? (o.plan === true ? (L.__plan || (L.__plan = {})) : o.plan) : null, ST = null;
-    if (P3) { if (P3.L !== L || !P3.net) { P3.L = L; P3.net = { nodes: new Array(L.nodes.length), edges: new Array(L.edges.length), rk: null, idxOf: null }; } ST = P3.net; }
+    /* the kept looks are only good for the same theme, palette, color mode and (for the built-in cache on L) label function */
+    var planKey = (o.theme || 'light') + '|' + (o.palette || '') + '|' + (o.colorBy || 'group');
+    if (P3) { if (P3.L !== L || !P3.net || P3.key !== planKey || (o.plan === true && P3.lf !== o.labelFn)) { P3.L = L; P3.key = planKey; P3.lf = o.labelFn; P3.net = { nodes: new Array(L.nodes.length), edges: new Array(L.edges.length), rk: null, idxOf: null }; } ST = P3.net; }
     var cy3 = Math.cos(cam.yaw), sy3 = Math.sin(cam.yaw), cp3 = Math.cos(cam.pitch), sp3 = Math.sin(cam.pitch), R3 = L.radius3 || 300, D3 = R3 * (cam.persp || 2.4);
     var recs = new Array(L.nodes.length);
     L.nodes.forEach(function (n, qi) {
@@ -1017,41 +1034,47 @@ var NFMScene = (function () {
   function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function toSvg(S, title) {
     var T = S.theme, f = function (n) { return +n.toFixed(2); }, out = [];
+    var op = function (o) { return o.a !== undefined && o.a < 1 ? ' opacity="' + f(Math.max(0, o.a)) + '"' : ''; };   /* dimmed things (a < 1) are exported dimmed, like the canvas draws them */
     out.push('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="' + f(S.x0) + ' ' + f(S.y0) + ' ' + f(S.w) + ' ' + f(S.h) + '" width="' + Math.round(Math.min(S.w, 3000)) + '" height="' + Math.round(Math.min(S.w, 3000) * S.h / S.w) + '" font-family="system-ui, sans-serif">');
     if (title) out.push('<title>' + esc(title) + '</title>');
     out.push('<rect x="' + f(S.x0) + '" y="' + f(S.y0) + '" width="' + f(S.w) + '" height="' + f(S.h) + '" fill="' + css(T.bg) + '"/>');
-    S.rects.filter(function (r) { return r.layer === 0; }).forEach(function (r) { out.push(rectSvg(r, css, f)); });
-    S.polys.forEach(function (p) { var d = 'M'; for (var i = 0; i < p.pts.length; i += 2) d += (i ? 'L' : '') + f(p.pts[i]) + ' ' + f(p.pts[i + 1]); out.push('<path d="' + d + 'Z" fill="' + css(p.fill) + '" stroke="' + css(p.stroke) + '" stroke-width="1.5"/>'); });
+    S.rects.filter(function (r) { return r.layer === 0; }).forEach(function (r) { out.push(rectSvg(r, css, f, op)); });
+    S.polys.forEach(function (p) { var d = 'M'; for (var i = 0; i < p.pts.length; i += 2) d += (i ? 'L' : '') + f(p.pts[i]) + ' ' + f(p.pts[i + 1]); out.push('<path d="' + d + 'Z" fill="' + css(p.fill) + '" stroke="' + css(p.stroke) + '" stroke-width="1.5"' + op(p) + '/>'); });
     var defs = [];
-    S.ribbons.forEach(function (r, ri) { var fill = css(r.color); if (r.color2) { defs.push('<linearGradient id="rg' + ri + '" gradientUnits="userSpaceOnUse" x1="' + f(r.x0) + '" y1="0" x2="' + f(r.x1) + '" y2="0"><stop offset="0" stop-color="' + css([r.color[0], r.color[1], r.color[2], 1]) + '"/><stop offset="1" stop-color="' + css([r.color2[0], r.color2[1], r.color2[2], 1]) + '"/></linearGradient>'); fill = 'url(#rg' + ri + ')'; } out.push('<path d="M' + f(r.x0) + ' ' + f(r.y0a) + 'C' + f(r.xm) + ' ' + f(r.y0a) + ' ' + f(r.xm) + ' ' + f(r.y1a) + ' ' + f(r.x1) + ' ' + f(r.y1a) + 'L' + f(r.x1) + ' ' + f(r.y1b) + 'C' + f(r.xm) + ' ' + f(r.y1b) + ' ' + f(r.xm) + ' ' + f(r.y0b) + ' ' + f(r.x0) + ' ' + f(r.y0b) + 'Z" fill="' + fill + '"' + (r.color2 ? ' fill-opacity="' + f(r.color[3]) + '"' : '') + '/>'); });
+    S.ribbons.forEach(function (r, ri) { var fill = css(r.color); if (r.color2) { defs.push('<linearGradient id="rg' + ri + '" gradientUnits="userSpaceOnUse" x1="' + f(r.x0) + '" y1="0" x2="' + f(r.x1) + '" y2="0"><stop offset="0" stop-color="' + css([r.color[0], r.color[1], r.color[2], 1]) + '"/><stop offset="1" stop-color="' + css([r.color2[0], r.color2[1], r.color2[2], 1]) + '"/></linearGradient>'); fill = 'url(#rg' + ri + ')'; } out.push('<path d="M' + f(r.x0) + ' ' + f(r.y0a) + 'C' + f(r.xm) + ' ' + f(r.y0a) + ' ' + f(r.xm) + ' ' + f(r.y1a) + ' ' + f(r.x1) + ' ' + f(r.y1a) + 'L' + f(r.x1) + ' ' + f(r.y1b) + 'C' + f(r.xm) + ' ' + f(r.y1b) + ' ' + f(r.xm) + ' ' + f(r.y0b) + ' ' + f(r.x0) + ' ' + f(r.y0b) + 'Z" fill="' + fill + '"' + (r.color2 ? ' fill-opacity="' + f(r.color[3]) + '"' : '') + op(r) + '/>'); });
     if (defs.length) out.splice(out.length - S.ribbons.length, 0, '<defs>' + defs.join('') + '</defs>');
     S.curves.forEach(function (c) {
       var d = 'M' + f(c.P[0]) + ' ' + f(c.P[1]);
       for (var i = 2; i < c.P.length; i += 6) d += 'C' + f(c.P[i]) + ' ' + f(c.P[i + 1]) + ' ' + f(c.P[i + 2]) + ' ' + f(c.P[i + 3]) + ' ' + f(c.P[i + 4]) + ' ' + f(c.P[i + 5]);
-      out.push('<path d="' + d + '" fill="none" stroke="' + css(c.color) + '" stroke-width="' + f(c.w) + '"' + (c.dash ? ' stroke-dasharray="' + (c.dash === 1 ? '1 ' + f(c.w * 2.2) + '" stroke-linecap="round' : c.dash === 3 ? f(c.w * 6) + ' ' + f(c.w * 3) : f(c.w * 3) + ' ' + f(c.w * 2)) + '"' : '') + '/>');
-      if (c.arrow) { var tri = arrowTri(c); out.push('<path d="M' + tri.map(f).join(' ').replace(/(\S+ \S+) /g, '$1L') + 'Z" fill="' + css(c.color) + '"/>'); }
+      out.push('<path d="' + d + '" fill="none" stroke="' + css(c.color) + '" stroke-width="' + f(c.w) + '"' + (c.dash ? ' stroke-dasharray="' + (c.dash === 1 ? '1 ' + f(c.w * 2.2) + '" stroke-linecap="round' : c.dash === 3 ? f(c.w * 6) + ' ' + f(c.w * 3) : f(c.w * 3) + ' ' + f(c.w * 2)) + '"' : '') + op(c) + '/>');
+      if (c.arrow) { var tri = arrowTri(c); out.push('<path d="M' + tri.map(f).join(' ').replace(/(\S+ \S+) /g, '$1L') + 'Z" fill="' + css(c.color) + '"' + op(c) + '/>'); }
     });
-    S.rects.filter(function (r) { return r.layer === 1; }).forEach(function (r) { out.push(rectSvg(r, css, f)); });
+    S.rects.filter(function (r) { return r.layer === 1; }).forEach(function (r) { out.push(rectSvg(r, css, f, op)); });
     S.dots.forEach(function (d) {
-      var k = d.kind === undefined ? 1 : d.kind, attrs = 'fill="' + css(d.fill) + '" stroke="' + css(d.stroke) + '" stroke-width="' + f(d.sw) + '"';
+      var k = d.kind === undefined ? 1 : d.kind, attrs = 'fill="' + css(d.fill) + '" stroke="' + css(d.stroke) + '" stroke-width="' + f(d.sw) + '"' + op(d);
       if (k === 1) out.push('<circle cx="' + f(d.cx) + '" cy="' + f(d.cy) + '" r="' + f(d.r) + '" ' + attrs + '/>');
       else if (k === 0) out.push('<rect x="' + f(d.cx - d.r) + '" y="' + f(d.cy - d.r) + '" width="' + f(2 * d.r) + '" height="' + f(2 * d.r) + '" rx="3" ' + attrs + '/>');
       else { var p = shapePts(k, d.cx, d.cy, d.r), dd = 'M'; for (var i = 0; i < p.length; i += 2) dd += (i ? 'L' : '') + f(p[i]) + ' ' + f(p[i + 1]); out.push('<path d="' + dd + 'Z" ' + attrs + ' stroke-linejoin="round"/>'); }
     });
     S.icons.forEach(function (ic) {
-      if (ic.img) out.push('<image x="' + f(ic.cx - ic.r) + '" y="' + f(ic.cy - ic.r) + '" width="' + f(2 * ic.r) + '" height="' + f(2 * ic.r) + '" xlink:href="' + esc(ic.img) + '" preserveAspectRatio="xMidYMid meet"/>');
-      else if (ICONS[ic.icon]) { var sc = ic.r * 2 / 24; out.push('<path transform="translate(' + f(ic.cx - ic.r) + ' ' + f(ic.cy - ic.r) + ') scale(' + f(sc) + ')" d="' + ICONS[ic.icon] + '" fill="none" stroke="' + css(ic.color) + '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'); }
-      else if (ic.icon) out.push('<text x="' + f(ic.cx) + '" y="' + f(ic.cy + ic.r * 0.35) + '" font-size="' + f(ic.r * 1.2) + '" text-anchor="middle" fill="' + css(ic.color) + '">' + esc(ic.icon) + '</text>');
+      if (ic.img) out.push('<image x="' + f(ic.cx - ic.r) + '" y="' + f(ic.cy - ic.r) + '" width="' + f(2 * ic.r) + '" height="' + f(2 * ic.r) + '" xlink:href="' + esc(ic.img) + '" preserveAspectRatio="xMidYMid meet"' + op(ic) + '/>');
+      else if (ICONS[ic.icon]) { var sc = ic.r * 2 / 24; out.push('<path transform="translate(' + f(ic.cx - ic.r) + ' ' + f(ic.cy - ic.r) + ') scale(' + f(sc) + ')" d="' + ICONS[ic.icon] + '" fill="none" stroke="' + css(ic.color) + '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"' + op(ic) + '/>'); }
+      else if (ic.icon) out.push('<text x="' + f(ic.cx) + '" y="' + f(ic.cy + ic.r * 0.35) + '" font-size="' + f(ic.r * 1.2) + '" text-anchor="middle" fill="' + css(ic.color) + '"' + op(ic) + '>' + esc(ic.icon) + '</text>');
     });
-    S.labels.forEach(function (l) {
-      if (S.labels.length > 1500 && l.minK > 0.6) return;
+    var bgFill = css(alpha(T.bg, 0.82));
+    S.labels.forEach(function (l, li) {
+      if (li >= 2500) return;   /* the canvas stops at 2,500 labels, in list order: the export keeps the same ones */
       var anchor = l.align === 'l' ? 'start' : l.align === 'r' ? 'end' : 'middle';
-      out.push('<text x="' + f(l.x) + '" y="' + f(l.y) + '" font-size="' + f(l.size) + '" text-anchor="' + anchor + '" fill="' + css(l.color) + '"' + (l.bold ? ' font-weight="700"' : '') + (l.rot ? ' transform="rotate(' + l.rot + ' ' + f(l.x) + ' ' + f(l.y) + ')"' : '') + '>' + esc(l.t) + '</text>');
+      if (l.bg) {   /* the pale backing the canvas puts behind link labels (width estimated the way labelBox does) */
+        var tw = l.t.length * l.size * 0.55, bx = l.align === 'l' ? l.x - 2 : l.align === 'r' ? l.x - tw - 2 : l.x - tw / 2 - 2;
+        out.push('<rect x="' + f(bx) + '" y="' + f(l.y - l.size) + '" width="' + f(tw + 4) + '" height="' + f(l.size + 3) + '" fill="' + bgFill + '"' + (l.rot ? ' transform="rotate(' + l.rot + ' ' + f(l.x) + ' ' + f(l.y) + ')"' : '') + op(l) + '/>');
+      }
+      out.push('<text x="' + f(l.x) + '" y="' + f(l.y) + '" font-size="' + f(l.size) + '" text-anchor="' + anchor + '" fill="' + css(l.color) + '"' + (l.bold ? ' font-weight="700"' : '') + (l.rot ? ' transform="rotate(' + l.rot + ' ' + f(l.x) + ' ' + f(l.y) + ')"' : '') + op(l) + '>' + esc(l.t) + '</text>');
     });
     out.push('</svg>');
     return out.join('\n');
   }
-  function rectSvg(r, css, f) { return '<rect x="' + f(r.x) + '" y="' + f(r.y) + '" width="' + f(r.w) + '" height="' + f(r.h) + '" rx="' + f(Math.min(r.r, r.w / 2, r.h / 2)) + '" fill="' + css(r.fill) + '" stroke="' + (r.sw ? css(r.stroke) : 'none') + '" stroke-width="' + f(r.sw) + '"/>'; }
+  function rectSvg(r, css, f, op) { return '<rect x="' + f(r.x) + '" y="' + f(r.y) + '" width="' + f(r.w) + '" height="' + f(r.h) + '" rx="' + f(Math.min(r.r, r.w / 2, r.h / 2)) + '" fill="' + css(r.fill) + '" stroke="' + (r.sw ? css(r.stroke) : 'none') + '" stroke-width="' + f(r.sw) + '"' + (op ? op(r) : '') + '/>'; }
   /** Arrow triangle for a curve: tip at c.tip (or the curve end), base at the curve end. Returns [x1,y1,x2,y2,x3,y3]. */
   function arrowTri(c) {
     var P = c.P, ex = P[P.length - 2], ey = P[P.length - 1], tip = c.tip || [ex, ey], dx = tip[0] - ex, dy = tip[1] - ey, d = Math.hypot(dx, dy), half = Math.max(4.2, (c.w || 1) * 1.3);

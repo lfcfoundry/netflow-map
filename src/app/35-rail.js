@@ -333,7 +333,7 @@ function panelFilter() {
   return kids;
 }
 function strongText(cut) { return cut.min === null ? 'Showing all ' + nfmt(cut.total) + ' links.' : 'Showing ' + nfmt(cut.shown) + ' of ' + nfmt(cut.total) + ' links (those with ' + chLabel(cut.ch, 'edges') + ' of ' + NFMColumns.fmt(cut.min) + ' or more).'; }
-var refreshMapSoon = debounce(function () { refreshMap('options'); }, 140);
+var refreshMapSoon = debounce(function () { refreshMap('options'); }, 140);   /* (the simulation's own, slower refresh is refreshMapThrottled in 61-sim.js: the two shared one name and the throttle never ran) */
 function strongestLive() { saveView(); var c = strongestCut(), el = $('strongcount'); if (el) el.textContent = strongText(c); refreshMapSoon(); }
 
 /* ---- Find */
@@ -506,7 +506,9 @@ function cleanSnapshot(o) {
     else if (k === 'lab' || k === 'lens' || k === 'cam') { if (v && typeof v === 'object') { var q = JSON.parse(JSON.stringify(D[k])); Object.keys(q).forEach(function (a) { if (v[a] && typeof v[a] === 'object' && typeof q[a] === 'object') { Object.keys(q[a]).forEach(function (b) { if (typeof v[a][b] === typeof q[a][b]) q[a][b] = v[a][b]; }); } else if (typeof v[a] === typeof q[a]) q[a] = v[a]; }); out[k] = q; } }
   });
   if (out.view && !VIEWS.some(function (x) { return x[0] === out.view; })) delete out.view;
-  if (out.arrange && !ARR[out.arrange]) delete out.arrange;
+  if (out.arrange !== undefined && !own(ARR, out.arrange)) delete out.arrange;
+  if (out.palette !== undefined && !own(NFMScene.PALETTES, out.palette)) delete out.palette;   /* names on a fixed list only: "constructor" used to be accepted and then broke every drawing */
+  if (out.ramp !== undefined && !own(NFMScene.RAMPS, out.ramp)) delete out.ramp;
   return out;
 }
 var RULE_SET_KEYS = { fill: 's', stroke: 's', shape: 's', scale: 'n', opacity: 'n', icon: 's', image: 's', iconMode: 's', hide: 'b', labelShow: 'b', labelColor: 's', labelSize: 'n', labelBold: 'b', labelText: 's', color: 's', wmul: 'n', dash: 's', arrow: 'b', label: 's', bend: 'n', w: 'n' };
@@ -576,13 +578,13 @@ function panelViews() {
   return kids;
 }
 function printPoster(title, caption) {
-  settleTurn();
-  if (!S.scene) { toast('Nothing to print yet.'); return; }
-  var old = $('poster'); if (old) old.remove();
-  var svg = NFMScene.toSvg(S.scene, title || S.graph.name), box = h('div', { id: 'poster' }, [h('h1', null, title || S.graph.name), caption ? h('p', null, caption) : null, h('div', { id: 'poster-img' }), h('p', { class: 'small' }, $('sum').textContent), h('p', { class: 'small' }, 'Made with Net Flow Map.')]);
-  document.body.appendChild(box);
-  $('poster-img').innerHTML = svg; /* our own SVG; names inside it are escaped by the exporter */
-  var s = $('poster-img').querySelector('svg'); if (s) { s.removeAttribute('width'); s.removeAttribute('height'); s.style.width = '100%'; s.style.height = 'auto'; }
-  setTimeout(function () { window.print(); setTimeout(function () { box.remove(); }, 800); }, 60);
+  withMap(function (scene) {
+    var old = $('poster'); if (old) old.remove();
+    var svg = NFMScene.toSvg(scene, title || S.graph.name), box = h('div', { id: 'poster' }, [h('h1', null, title || S.graph.name), caption ? h('p', null, caption) : null, h('div', { id: 'poster-img' }), h('p', { class: 'small' }, $('sum').textContent), h('p', { class: 'small' }, 'Made with Net Flow Map.')]);
+    document.body.appendChild(box);
+    $('poster-img').innerHTML = svg; /* our own SVG; names inside it are escaped by the exporter */
+    var s = $('poster-img').querySelector('svg'); if (s) { s.removeAttribute('width'); s.removeAttribute('height'); s.style.width = '100%'; s.style.height = 'auto'; }
+    setTimeout(function () { window.print(); setTimeout(function () { box.remove(); }, 800); }, 60);
+  });
 }
 HOOKS.graph.push(function () { S.styleMap = null; strongestCut.c = null; S.search = { q: '', hits: new Set(), list: [], cur: 0 }; S.route = null; });

@@ -360,6 +360,342 @@ async function open() {
     say(res.sel && res.dim, `${be}: selecting while turning dims the rest at once`);
   }
   await ev(() => NFM.manager().use('auto'));
+  /* ================================================================ bug-hunt regression checks
+     Each check below was seen FAILING on the build from before its fix (and passing after it). Odd names, saving, undo, export of fresh data, input, rules, the engine worker and the drawing manager. */
+  await D.size(1100, 720); await settle(200);
+  const W = (fn, arg, ms) => D.wait(fn, arg, ms || 20000).then(() => true, () => false);
+  const mkG = (name, ids, links, attrs) => ({ name, nodes: ids.map((id) => Object.assign({ id, label: id }, attrs && attrs[id] ? { attrs: attrs[id] } : {})), edges: (links || ids.slice(1).map((id, i) => [ids[i], id])).map((l) => ({ from: l[0], to: l[1] })) });
+  const load = (g, tab) => ev(([gg, t]) => { NFM.setGraph(NFMImport.sanitizeGraph(gg)); if (t) NFM.showTab(t); }, [g, tab || null]);
+  const loadBig = (n, m, seed, tab) => ev(([a, b, c, tt]) => { NFM.setGraph(NFMExamples.bigNetwork(a, b, c)); if (tt) NFM.showTab(tt); }, [n, m, seed, tab || null]);
+  const loadStory = () => ev(() => { NFM.setGraph(NFMExamples.LIST.filter((e) => e.id === 'story')[0].load().graph); NFM.showTab('map'); });
+  const mapShows = (first) => W((lb) => { const S = NFM.state; return S.tab === 'map' && S.L && S.L.nodes.some((n) => n.label === lb || n.nodeId === lb) && S.scene && S.scene.nodes.length > 0; }, first);
+
+  /* 1. odd names as keys in plain objects */
+  try {
+  { const r = await ev(() => {
+      const out = {};
+      try {
+        localStorage.setItem('nfm-v:OddView', '{"__proto__":{"nfmPolluted":1},"block":null,"hideKinds":null,"facets":null,"hulls":true,"palette":"constructor","ramp":"toString","arrange":"constructor"}');
+        NFM.setGraph(NFMImport.sanitizeGraph({ name: 'OddView', nodes: [{ id: 'A' }, { id: 'B' }], edges: [{ from: 'A', to: 'B' }] }));
+      } catch (e) { out.err = String(e && e.message || e); }
+      out.polluted = ({}).nfmPolluted !== undefined; delete Object.prototype.nfmPolluted;
+      const V = NFM.state.V; out.lists = !!V && Array.isArray(V.block) && Array.isArray(V.hideKinds) && !!V.facets && typeof V.facets === 'object'; out.hulls = V && V.hulls; out.palette = V && V.palette; out.ramp = V && V.ramp; out.arrange = V && V.arrange;
+      localStorage.removeItem('nfm-v:OddView');
+      try { NFM.setGraph(NFMImport.sanitizeGraph({ name: 'OddView2', nodes: [{ id: 'A' }, { id: 'B' }], edges: [{ from: 'A', to: 'B' }] })); } catch (e) { /* a broken page stays broken; the checks above have said so */ }
+      return out;
+    });
+    say(!r.polluted, 'a saved view with a "__proto__" key does not change every object in the page');
+    say(!r.err && r.lists && r.hulls === true, 'a saved view with "block":null opens without an error, keeps its lists, and still applies its valid settings' + (r.err ? ' (' + r.err + ')' : ''));
+    say(r.palette === 'standard' && r.ramp === 'warm' && r.arrange === 'stress', 'color set, color scale and arrangement names that are not on the lists fall back to the defaults (' + [r.palette, r.ramp, r.arrange].join(', ') + ')'); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  await mapShows('A');
+  try {
+  { const r = await ev(async () => {
+      const S = NFM.state, before = { palette: S.V.palette, ramp: S.V.ramp, arrange: S.V.arrange }; let ok = null; try { ok = NFM.applySnapshot({ palette: 'constructor', ramp: 'toString', arrange: 'constructor', hulls: true }); } catch (e) { ok = String(e && e.message || e); }
+      const after = { palette: S.V.palette, ramp: S.V.ramp, arrange: S.V.arrange, hulls: S.V.hulls };
+      S.V.palette = before.palette; S.V.ramp = before.ramp; S.V.arrange = before.arrange; S.V.hulls = false;   /* leave the page working whatever happened */
+      return { before, after, ok };
+    });
+    say(r.ok === true && r.after.hulls === true && r.after.palette === r.before.palette && r.after.ramp === r.before.ramp && r.after.arrange === r.before.arrange, 'shared view text naming a color set, scale or arrangement that does not exist keeps the current ones and still applies the rest (' + JSON.stringify(r.after) + ')'); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  await ev(() => NFM.refreshMap('options')); await settle(300);
+  try {
+  { const g = mkG('OddCat', ['n0', 'n1', 'n2', 'n3', 'n4', 'm', 'q'], [['n0', 'n1'], ['n1', 'n2'], ['n2', 'n3'], ['n3', 'n4'], ['n4', 'm'], ['m', 'q']]);
+    g.nodes.forEach((n, i) => { n.group = i < 5 ? 'Constructor' : i === 5 ? 'constructor' : 'Other'; });
+    await load(g, 'data');
+    const r = await ev(async () => {
+      const res = await NFM.client().check({}), f = res.L.findings.find((x) => /^catvariants:nodes/.test(x.id)), map = f && f.fix && f.fix.params.map;
+      const mine = !!map && Object.prototype.hasOwnProperty.call(map, 'constructor') && map.constructor === 'Constructor';
+      const fixed = f ? NFMCheck.applyFix(NFM.state.graph, f.fix) : null;
+      const noop = NFMCheck.applyFix(NFM.state.graph, { id: 'catMap', params: { scope: 'nodes', key: 'group', map: { red: 'Red' } } });
+      return { found: !!f, mine, groups: fixed ? fixed.graph.nodes.map((n) => typeof n.group === 'string' ? n.group : typeof n.group).join() : null, noop: noop === null };
+    });
+    say(r.found && r.mine && /^(Constructor,){6}Other$/.test(r.groups || '') && r.noop, 'a category called "constructor" is mapped to its common spelling, and a map that does not name it leaves it alone: ' + JSON.stringify(r)); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  try {
+  { await load({ name: 'OddPins', nodes: ['constructor', 'toString', 'A', 'B'].map((id) => ({ id })), edges: [['A', 'B'], ['A', 'constructor'], ['constructor', 'toString'], ['B', 'toString']].map((l) => ({ from: l[0], to: l[1] })) }, 'map');
+    await ev(() => NFM.setV({ view: 'network', arrange: 'stress' })); await W(() => NFM.state.L && NFM.state.L.view === 'network' && !NFM.state.L.is3d && NFM.state.L.nodes.length === 4 && NFM.state.scene && NFM.state.scene.view === 'network');
+    const r = await ev(async () => {
+      const S = NFM.state; window.__L0 = S.L; S.V.pins['network|stress'] = { A: [10, 20] }; NFM.refreshMap('options');
+      for (let i = 0; i < 400 && S.L === window.__L0; i++) await new Promise((q) => setTimeout(q, 25));
+      const nodes = S.L.nodes; return { same: S.L === window.__L0, finite: nodes.every((n) => isFinite(n.cx) && isFinite(n.cy)), pinned: nodes.some((n) => (n.nodeId || n.id) === 'A' && n.cx === 10 && n.cy === 20), n: nodes.length };
+    });
+    say(!r.same && r.finite && r.pinned, 'after a drag, items called "constructor" or "toString" keep their places (no NaN) and the dragged item stays where it was put: ' + JSON.stringify(r));
+    await ev(() => { delete NFM.state.V.pins['network|stress']; }); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
+  /* 2. saving: told when it fails, flushed when the page goes away */
+  try {
+  { await load(mkG('SaveA', ['A', 'B']), 'data');
+    const r = await ev(() => {
+      NFM.setV({ hulls: true }, 'none'); window.dispatchEvent(new Event('pagehide'));
+      const g = JSON.parse(localStorage.getItem('nfm-graph') || 'null'), v = JSON.parse(localStorage.getItem('nfm-v:SaveA') || 'null');
+      NFM.setV({ hulls: false }, 'none'); return { name: g && g.name, hulls: v && v.hulls };
+    });
+    say(r.name === 'SaveA' && r.hulls === true, 'leaving the page saves an edit made less than a second ago, graph and view (pagehide): ' + JSON.stringify(r));
+    await load(mkG('SaveB', ['A', 'B', 'C']), 'data');
+    const r2 = await ev(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); delete document.hidden;
+      const g = JSON.parse(localStorage.getItem('nfm-graph') || 'null'); return { name: g && g.name };
+    });
+    say(r2.name === 'SaveB', 'hiding the tab saves a pending edit at once (visibilitychange): ' + JSON.stringify(r2));
+    const r3 = await ev(async () => {
+      const t = document.getElementById('toast'), orig = Storage.prototype.setItem, wait = (ms) => new Promise((q) => setTimeout(q, ms)), out = {};
+      Storage.prototype.setItem = function () { throw new DOMException('full', 'QuotaExceededError'); };
+      try {
+        t.hidden = true; t.textContent = ''; NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SaveFull', nodes: [{ id: 'A' }, { id: 'B' }], edges: [{ from: 'A', to: 'B' }] })); await wait(900);
+        out.first = !t.hidden && /could not be saved on this computer/.test(t.textContent) && /Export/.test(t.textContent);
+        t.hidden = true; t.textContent = ''; NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SaveFull', nodes: [{ id: 'A' }, { id: 'B' }, { id: 'C' }], edges: [{ from: 'A', to: 'B' }] })); await wait(900);
+        out.again = !t.hidden;
+      } finally { Storage.prototype.setItem = orig; }
+      return out;
+    });
+    say(r3.first === true && r3.again === false, 'a save that fails (storage full or blocked) says so once, in plain words: ' + JSON.stringify(r3));
+    const r4 = await ev(async () => {
+      const t = document.getElementById('toast'), real = JSON.stringify; t.hidden = true; t.textContent = '';
+      /* a small graph whose saved text is made to come out too long, so the page is not asked to hold megabytes */
+      JSON.stringify = function (v) { return v && v.name === 'SaveBig' ? 'x'.repeat(1900000) : real.apply(this, arguments); };
+      try {
+        NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SaveBig', nodes: [{ id: 'A' }, { id: 'B' }], edges: [{ from: 'A', to: 'B' }] }));
+        await new Promise((q) => setTimeout(q, 1000));
+      } finally { JSON.stringify = real; }
+      return { shown: !t.hidden, text: t.textContent };
+    });
+    say(r4.shown && /too big/.test(r4.text), 'data too big to keep on this computer says so (not silently dropped): ' + JSON.stringify(r4.text));
+    await load(mkG('SaveEnd', ['A', 'B']), 'data'); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
+  /* 3. changing how the table is read keeps an Undo step for edits made since */
+  try {
+  { await ev(() => NFM.showTab('data'));
+    await ev(() => NFM.ingest([{ name: 'rd.csv', text: 'source,target,weight\nA,B,2\nB,C,1\nA,C,3\nC,D,1\n' }]));
+    const r = await ev(() => {
+      const S = NFM.state, g0 = S.graph;
+      NFM.setGraph(Object.assign({}, g0, { nodes: g0.nodes.filter((n) => n.id !== 'D'), edges: g0.edges.filter((e) => e.to !== 'D') }));
+      const edited = S.graph, sel = document.querySelector('#mapping select[data-map="header"]');
+      if (!sel) return { err: 'no mapping box' };
+      sel.value = '0'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+      const rebuilt = S.graph !== edited, toastText = document.getElementById('toast').textContent;
+      document.getElementById('b-undo').click();
+      return { rebuilt, back: S.graph === edited, toast: toastText };
+    });
+    say(!r.err && r.rebuilt && r.back, 'one Undo after changing how the table is read brings the edited data back: ' + JSON.stringify(r));
+    say(/read the table again/i.test(r.toast || '') && /undone/i.test(r.toast || ''), 'changing how the table is read says so in one line and mentions Undo: ' + JSON.stringify(r.toast)); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
+  /* 4. export, poster and the GIF use the data as it is now */
+  try {
+  { await ev(() => { window.__blobs = []; const o = URL.createObjectURL; URL.createObjectURL = function (b) { window.__blobs.push(b); return o.call(URL, b); }; window.print = () => { window.__poster = (document.getElementById('poster-img') || {}).innerHTML || ''; }; });
+    const svgBlob = async (n) => { if (!(await W((k) => window.__blobs.length > k, n - 1, 15000))) return null; return ev(async (k) => await window.__blobs[k].text(), n - 1); };
+    await load(mkG('ExpOld', ['OldAlpha', 'OldBeta', 'OldGamma']), 'map'); await mapShows('OldAlpha');
+    await ev(() => NFM.showTab('export')); await settle(200);
+    const clickBtn = (re) => ev((src) => { const b = [...document.querySelectorAll('#export-body button')].find((x) => new RegExp(src).test(x.textContent)); b.click(); }, re.source);
+    await clickBtn(/SVG/); const svg0 = await svgBlob(1);
+    say(!!svg0 && /OldAlpha/.test(svg0), 'the SVG export holds the names of the data that is shown (control)');
+    await ev(() => NFM.showTab('data')); await load(mkG('ExpNew', ['NewAlpha', 'NewBeta', 'NewGamma', 'NewDelta']), 'export'); await settle(200);
+    await clickBtn(/SVG/); const svg1 = await svgBlob(2);
+    say(!!svg1 && /NewAlpha/.test(svg1) && !/OldAlpha/.test(svg1), 'after new data is brought in, the SVG export shows the new data, not the old map' + (svg1 ? '' : ' (nothing was saved)'));
+    await ev(() => NFM.showTab('data')); await load(mkG('ExpPoster', ['PosterAlpha', 'PosterBeta', 'PosterGamma']), 'export'); await settle(200);
+    await clickBtn(/Poster/); const posterOk = await W(() => !!window.__poster, null, 15000), poster = posterOk ? await ev(() => window.__poster) : '';
+    say(/PosterAlpha/.test(poster) && !/NewAlpha/.test(poster), 'after new data is brought in, the poster shows the new data');
+    /* a setting changed on another tab shows when the Map is opened */
+    await ev(() => { NFM.showTab('map'); }); await mapShows('PosterAlpha');
+    await ev(() => { NFM.setV({ view: 'flow', dir: 'LR' }); NFM.showTab('map'); }); await mapShows('PosterAlpha'); await settle(300);
+    const seenDir = await ev(async () => {
+      const c = NFM.client(), orig = c.build; let seen = null;
+      c.build = function (o) { if (!seen) seen = o; return orig.apply(this, arguments); };
+      try { NFM.showTab('adv'); NFM.setV({ dir: 'TB' }, 'none'); NFM.showTab('map'); for (let i = 0; i < 60 && !seen; i++) await new Promise((q) => setTimeout(q, 50)); } finally { c.build = orig; }
+      return seen && seen.dir;
+    });
+    say(seenDir === 'TB', 'a setting changed on the Advanced tab (direction) is used to draw the Map when it is opened again (' + seenDir + ')');
+    await ev(() => NFM.setV({ dir: 'LR' })); await settle(300); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  try {
+  { await loadBig(40, 3, 5, 'map'); await ev(() => NFM.setV({ view: 'network', arrange: 'force3d' }));   /* a small 3D map for the GIF checks */
+    await W(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length === NFM.state.graph.nodes.length, null, 30000);
+    await ev(() => NFM.showTab('export')); await settle(200);
+    await ev(() => { const sel = [...document.querySelectorAll('#gif-card select')], put = (s, v) => { s.value = v; s.dispatchEvent(new Event('change', { bubbles: true })); }; put(sel[0], '640'); put(sel[4], '0.6'); put(sel[5], '6'); });
+    await click('#gif-go');
+    const made = await W(() => { const im = document.querySelector('#gif-out img'); return im && im.complete && im.naturalWidth > 0; }, null, 60000);
+    say(made, 'a turn-around GIF of the 3D map is made (control for the next checks)');
+    await ev(() => { document.getElementById('gif-go').click(); setTimeout(() => NFM.setGraph(NFMImport.sanitizeGraph({ name: 'GifOther', nodes: [{ id: 'A' }, { id: 'B' }], edges: [{ from: 'A', to: 'B' }] })), 40); });
+    await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled; }, null, 60000); await settle(200);
+    const r = await ev(() => ({ img: !!document.querySelector('#gif-out img'), text: (document.getElementById('gif-out') || {}).textContent || '' }));
+    say(!r.img && /data changed/i.test(r.text), 'a GIF made while the data changed is dropped, not attached to the new data: ' + JSON.stringify(r.text.slice(0, 90)));
+    await loadBig(40, 3, 5, 'map'); await ev(() => NFM.setV({ view: 'network', arrange: 'force3d' })); await W(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length === NFM.state.graph.nodes.length, null, 30000);
+    await ev(() => NFM.showTab('export')); await settle(200);
+    await ev(() => { const sel = [...document.querySelectorAll('#gif-card select')], put = (s, v) => { s.value = v; s.dispatchEvent(new Event('change', { bubbles: true })); }; put(sel[0], '640'); put(sel[4], '0.6'); put(sel[5], '6'); document.getElementById('gif-go').click(); document.getElementById('gif-cancel').click(); });
+    await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled; }, null, 60000); await settle(200);
+    say(await ev(() => (document.getElementById('gif-out') || {}).textContent) === 'Canceled.', 'canceling the GIF says "Canceled." (American spelling)'); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
+  /* 5. undo: River steps belong to one dataset; going back across a rename brings back the other data's settings */
+  try {
+  { await loadStory(); await ev(() => NFM.setV({ view: 'river' })); await W(() => NFM.state.L && NFM.state.L.view === 'river' && NFM.state.L.sk && NFM.state.scene && NFM.state.scene.view === 'river');
+    await ev(() => { document.getElementById('rt-look').click(); const f = [...document.querySelectorAll('#railbody label.field')].find((l) => /Flow color/.test(l.textContent)); const s = f.querySelector('select'); s.value = 'source'; s.dispatchEvent(new Event('change', { bubbles: true })); }); await settle(300);
+    const r = await ev(() => {
+      const first = NFM.state.graph.name; localStorage.setItem('nfm-v:SkOther', '{"view":"river"}');
+      NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SkOther', start: 'A', nodes: [{ id: 'A' }, { id: 'B' }, { id: 'C' }], edges: [{ from: 'A', to: 'B' }, { from: 'B', to: 'C' }] }));
+      const view = NFM.state.V.view; document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
+      localStorage.removeItem('nfm-v:SkOther'); return { first, now: NFM.state.graph.name, view };
+    });
+    say(r.view === 'river' && r.now === r.first, 'after new data is brought in, Ctrl+Z undoes the data change, not a River step of the old data: ' + JSON.stringify(r)); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  try {
+  { await load(mkG('UndoOne', ['A', 'B', 'C']), 'map'); await mapShows('A');
+    await ev(() => { NFM.setV({ hulls: true }, 'none'); NFM.setGraph(NFMImport.sanitizeGraph({ name: 'UndoTwo', nodes: [{ id: 'X' }, { id: 'Y' }], edges: [{ from: 'X', to: 'Y' }] })); });
+    await sleep(800);
+    const keep = await ev(() => { const o = JSON.parse(localStorage.getItem('nfm-v:UndoOne') || 'null'); return !!o && o.hulls === true; });
+    say(keep, 'bringing in other data right after a setting change still saves the old data\'s setting under the old name');
+    await ev(() => document.getElementById('b-undo').click()); await sleep(800);
+    const r = await ev(() => { const one = JSON.parse(localStorage.getItem('nfm-v:UndoOne') || 'null'), two = JSON.parse(localStorage.getItem('nfm-v:UndoTwo') || 'null'); return { name: NFM.state.graph.name, hulls: NFM.state.V.hulls, savedOne: !!one && one.hulls === true, savedTwoHulls: !!two && two.hulls === true }; });
+    say(r.name === 'UndoOne' && r.hulls === true && r.savedOne && !r.savedTwoHulls, 'undoing back to the earlier data brings back its own settings and does not save the later data\'s settings over them: ' + JSON.stringify(r)); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
+  /* 6. a chosen link stays the same link when the view changes */
+  try {
+  { await loadStory(); await ev(() => NFM.setV({ view: 'flow' })); await W(() => NFM.state.L && NFM.state.L.view === 'flow' && NFM.state.scene && NFM.state.scene.view === 'flow');
+    const sig = () => ev(() => NFM.state.L.edges.map((e) => (e.orig || []).join('+')));
+    const flowSig = await sig(); await ev(() => NFM.setV({ view: 'network', arrange: 'stress' })); await W(() => NFM.state.L && NFM.state.L.view === 'network' && NFM.state.scene && NFM.state.scene.view === 'network');
+    const netSig = await sig(); let pick = -1;
+    for (let i = 0; i < flowSig.length && pick < 0; i++) { const a = new Set(flowSig[i].split('+')); if (flowSig[i] && (i >= netSig.length || !netSig[i].split('+').some((x) => a.has(x)))) pick = i; }
+    if (pick < 0) say(null, 'chosen link and view change: no link number changes meaning between Flow and Network in this example, nothing to test');
+    else {
+      await ev(() => NFM.setV({ view: 'flow' })); await W(() => NFM.state.L && NFM.state.L.view === 'flow' && NFM.state.scene && NFM.state.scene.view === 'flow');
+      const r = await ev(async (i) => {
+        const S = NFM.state, orig = new Set(S.L.edges[i].orig); NFM.setSel([], { edges: [i] }); NFM.setV({ view: 'network', arrange: 'stress' });
+        for (let k = 0; k < 400 && !(S.L.view === 'network' && S.scene && S.scene.view === 'network'); k++) await new Promise((q) => setTimeout(q, 25));
+        const sel = Array.from(S.selEdges); return { sel: sel.length, ok: sel.every((j) => S.L.edges[j] && (S.L.edges[j].orig || []).some((x) => orig.has(x))), shown: sel.length === 0 || !document.getElementById('details').hidden };
+      }, pick);
+      say(r.ok, 'a chosen link stays the same link (or is let go) when the view changes, instead of pointing at another link: ' + JSON.stringify(r)); } }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
+  /* 7. input */
+  try {
+  { await load(mkG('InputFlow', ['A', 'B', 'C', 'D']), 'map'); await ev(() => NFM.setV({ view: 'flow' })); await mapShows('A'); await settle(300);
+    const r = await ev(() => {
+      const S = NFM.state, st = document.getElementById('stage'), rc = st.getBoundingClientRect();
+      const fire = (type, id, x, y) => st.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 1, clientX: rc.left + x, clientY: rc.top + y, button: 0, bubbles: true, cancelable: true }));
+      NFM.fitView(true);
+      fire('pointerdown', 1, 300, 500); fire('pointerdown', 2, 400, 500); fire('pointermove', 2, 420, 500); fire('pointerup', 1, 300, 500);
+      const tx0 = S.view.tx, ty0 = S.view.ty; fire('pointermove', 2, 470, 520); const dx = S.view.tx - tx0, dy = S.view.ty - ty0; fire('pointerup', 2, 470, 520);
+      NFM.fitView(true); return { dx, dy };
+    });
+    say(Math.abs(r.dx - 50) < 1 && Math.abs(r.dy - 20) < 1, 'after a pinch, the finger that stays down pans the map (moved ' + r.dx.toFixed(1) + ', ' + r.dy.toFixed(1) + ' for a drag of 50, 20)');
+    const k = await ev(() => {
+      const st = document.getElementById('stage'); st.focus();
+      const key = (kk, mods) => { const e = new KeyboardEvent('keydown', Object.assign({ key: kk, bubbles: true, cancelable: true }, mods)); st.dispatchEvent(e); return e.defaultPrevented; };
+      const out = { plain: [key('-', {}), key('=', {}), key('0', {})], ctrl: [key('-', { ctrlKey: true }), key('=', { ctrlKey: true }), key('+', { ctrlKey: true }), key('0', { ctrlKey: true }), key('0', { metaKey: true }), key('-', { altKey: true })] };
+      NFM.fitView(true); return out;
+    });
+    say(k.plain.every((x) => x === true) && k.ctrl.every((x) => x === false), 'the map keys + - 0 work alone but leave Ctrl/Cmd/Alt + - 0 (browser zoom) to the browser: ' + JSON.stringify(k)); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  try {
+  { await loadBig(60, 4, 3, 'map'); await ev(() => NFM.setV({ view: 'network', arrange: 'force3d' }));
+    await W(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length === NFM.state.graph.nodes.length, null, 30000); await settle(300);
+    await ev(() => { document.getElementById('rt-look').click(); const lab = [...document.querySelectorAll('#railbody label')].find((l) => /Spin slowly/.test(l.textContent)); lab.querySelector('input').click(); });
+    const yaw = () => ev(() => NFM.state.V.cam.yaw);
+    const y0 = await yaw(); await sleep(350); const y1 = await yaw();
+    await ev(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); }); await sleep(200); const y2 = await yaw(); await sleep(250); const y3 = await yaw();
+    await ev(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); }); await sleep(400); const y4 = await yaw();
+    say(y1 > y0 && Math.abs(y3 - y2) < 1e-9 && y4 > y3, 'a spinning 3D map stops while the tab is hidden and spins again when it is shown (' + [y0, y1, y2, y3, y4].map((x) => x.toFixed(3)).join(' ') + ')');
+    await ev(() => { const lab = [...document.querySelectorAll('#railbody label')].find((l) => /Spin slowly/.test(l.textContent)); lab.querySelector('input').click(); }); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
+  /* 8. style rules, link filters, the tuning dialog, the odds table, the sweep */
+  try {
+  { await load(mkG('RuleBlank', ['A', 'B', 'C', 'D'], [['A', 'B'], ['B', 'C'], ['C', 'D']], { A: { score: 3 }, B: { score: 7 }, D: { score: '' } }), 'map'); await mapShows('A');
+    const rules = (op, value) => ev(([o, v]) => { const S = NFM.state; S.V.rules = [{ id: 1, target: 'nodes', on: true, when: { type: 'column', col: 'score', op: o, value: v }, set: { fill: '#ff0000' } }]; S.styleMap = null; NFM.setV({ hulls: !S.V.hulls }, 'look'); const m = S.styleMap && S.styleMap.nodes; return m ? Array.from(m.keys()).sort().join() : null; }, [op, value]);
+    const lt = await rules('<', '5'), ge = await rules('>=', '7');
+    say(lt === 'A', 'a style rule "score < 5" catches only items that have a score under 5, not items with no score: ' + lt);
+    say(ge === 'B', 'a style rule "score >= 7" does not catch items with no score: ' + ge);
+    await ev(() => { NFM.state.V.rules = []; NFM.state.styleMap = null; }); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  try {
+  { const g = mkG('FacetTwo', ['A', 'B', 'C']); g.edges = [{ from: 'A', to: 'B', attrs: { c1: 'x', c2: 'p' } }, { from: 'A', to: 'C', attrs: { c1: 'x', c2: 'q' } }, { from: 'B', to: 'C', attrs: { c1: 'y', c2: 'p' } }];
+    await load(g, 'map'); await mapShows('A');
+    const r = await ev(async () => {
+      const S = NFM.state, c = NFM.client(), orig = c.build; let seen = null;
+      c.build = function (o) { seen = o; return orig.apply(this, arguments); };
+      try { S.V.facets = { 'e:c1': ['x'], 'e:c2': ['p'] }; window.__L1 = S.L; NFM.refreshMap('options'); } finally { c.build = orig; }
+      for (let i = 0; i < 400 && S.L === window.__L1; i++) await new Promise((q) => setTimeout(q, 25));
+      const out = { n: seen && (seen.edgeFacets || []).length, first: !!(seen && seen.edgeFacet), edges: S.L.edges.length };
+      S.V.facets = {}; NFM.refreshMap('options'); return out;
+    });
+    say(r.n === 2 && r.first, 'both link filters of the panel are sent to the engine: ' + JSON.stringify(r));
+    say(r.edges === 1 ? true : null, r.edges === 1 ? 'two link filters together keep only the links that pass both' : 'two link filters together: the engine used only one of them (' + r.edges + ' links kept, 1 expected); the engine has to read edgeFacets (see the report)');
+    await settle(300); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  try {
+  { await ev(() => NFM.showTab('adv')); await settle(300);
+    const had = await ev(() => !!NFM.state.tune);
+    await ev(() => { [...document.querySelectorAll('#adv-body button')].find((b) => /Test this computer|Run the test again/.test(b.textContent)).click(); });
+    await ev(() => { [...document.querySelectorAll('#dlg-body button')].find((b) => /Run the test/.test(b.textContent)).click(); }); await sleep(500);
+    await D.press('Escape');
+    const ended = await W(() => /did not change anything|settings saved/.test(document.getElementById('dlg-body').textContent), null, 90000);
+    const r = await ev(() => ({ open: document.getElementById('dlg').open, text: document.getElementById('dlg-body').textContent.slice(0, 60), tuned: !!NFM.state.tune }));
+    say(ended && !r.open && !r.tuned && !had && /did not change anything/.test(r.text), 'pressing Escape in the tuning test stops it and saves nothing: ' + JSON.stringify(r)); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  try {
+  { const g = { name: 'SimOdd', start: 'S', nodes: ['S', 'M1', 'M2', 'constructor', 'toString'].map((id) => ({ id })), edges: [['S', 'M1'], ['S', 'M2'], ['M1', 'constructor'], ['M1', 'toString'], ['M2', 'toString']].map((l) => ({ from: l[0], to: l[1], weight: 1 })) };
+    await load(g, 'adv'); await settle(300);
+    const runSim = async (rule) => { await ev((ru) => { const S = NFM.state; S.A.sim = Object.assign({}, S.A.sim, { walkers: 1000, repeats: 10, rule: ru, starts: [] }); NFM.showTab('data'); NFM.showTab('adv'); }, rule); await settle(200); await click('#sim-run'); await W(() => /Done\./.test(document.getElementById('sim-results').textContent), null, 60000); await sleep(300); };
+    const rows = () => ev(() => [...document.querySelectorAll('#sim-results .eprow')].map((r) => ({ name: r.querySelector('button').textContent, num: r.querySelector('.epnum').textContent })));
+    await runSim('weights'); const w = await rows();
+    say(w.length === 2 && w.every((x) => /exact \d/.test(x.num)), 'odds table with ends called "constructor" and "toString": each shows its exact odds (control): ' + JSON.stringify(w.map((x) => x.name)));
+    /* the ranking: switch Items/Links while it is working */
+    await ev(() => { document.getElementById('sim-sweep').click(); [...document.querySelectorAll('#sim-results .seg button')].find((b) => b.textContent === 'Links').click(); }); await sleep(900);
+    const sw = await ev(() => { const t = [...document.querySelectorAll('#sim-results table.t')].find((x) => /Odds that move/.test(x.textContent)); return t ? [...t.querySelectorAll('tbody tr td:first-child')].map((c) => c.textContent) : []; });
+    say(sw.every((x) => x.indexOf('→') >= 0), 'a ranking started for items is not shown after switching to links: ' + JSON.stringify(sw));
+    await runSim('curious'); const c = await rows();
+    say(c.length === 2 && c.every((x) => !/exact|≠|NaN/.test(x.num)), 'when the exact odds are not available, ends called "constructor" and "toString" show no exact odds: ' + JSON.stringify(c.map((x) => x.num))); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
+  /* the unit of work behind every name: no name declared twice in the page's shared scope (a second `refreshMapSoon` hid the throttle for the simulation) */
+  try {
+  { const fs = require('fs'), dir = path.resolve(__dirname, '..', 'src', 'app'), seen = {};
+    fs.readdirSync(dir).filter((f) => /\.js$/.test(f)).sort().forEach((f) => fs.readFileSync(path.join(dir, f), 'utf8').split('\n').forEach((l) => { const m = /^function (\w+)\(/.exec(l) || /^var (\w+)\s*=/.exec(l); if (m) (seen[m[1]] = seen[m[1]] || []).push(f); }));
+    const dups = Object.keys(seen).filter((k) => seen[k].length > 1).map((k) => k + ' (' + seen[k].join(', ') + ')');
+    say(dups.length === 0, 'no function or variable is declared twice at the top of src/app' + (dups.length ? ': ' + dups.join('; ') : '')); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
+  /* 9. the drawing manager never keeps a destroyed renderer; a worker that dies mid-job does not wedge the engine */
+  try {
+  { const r = await ev(async () => {
+      const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:-9999px;width:200px;height:100px'; document.body.appendChild(host);
+      const out = {}, gc = HTMLCanvasElement.prototype.getContext;
+      try {
+        const m = new NFMRender.Manager(host, {}); await m.use('canvas2d'); const r0 = m.r;
+        HTMLCanvasElement.prototype.getContext = function () { return null; };
+        let rej = null; try { await m.use('canvas2d'); } catch (e) { rej = e.message; } finally { HTMLCanvasElement.prototype.getContext = gc; }
+        out.rejected = !!rej; out.stale = m.r === r0;
+        const m2 = new NFMRender.Manager(host, {}); await m2.use('canvas2d'); const r1 = m2.r, s0 = m2.start; let n = 0;
+        m2.start = function () { if (n++ === 0) HTMLCanvasElement.prototype.getContext = function () { return null; }; return s0.call(this).finally(() => { HTMLCanvasElement.prototype.getContext = gc; }); };
+        let rej2 = null; let got = null; try { got = await m2.use('canvas2d'); } catch (e) { rej2 = e.message; }
+        out.rescued = !rej2 && !!m2.r && m2.r !== r1 && m2.r.name === 'canvas2d' && got === m2.r && typeof m2.r.draw === 'function';
+      } finally { HTMLCanvasElement.prototype.getContext = gc; host.remove(); }
+      return out;
+    });
+    say(r.rejected && !r.stale, 'when no drawing method can start, the manager does not keep the old destroyed renderer: ' + JSON.stringify(r));
+    say(r.rescued === true, 'when the list of drawing methods fails, switching falls back to the plain canvas and draws'); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  await settle(400);
+  try {
+  { const r = await ev(async () => {
+      const c = NFM.client(); if (c.mode !== 'worker') return { skip: c.mode };
+      const realPost = c.w.postMessage; c.w.postMessage = function () { /* the dying worker never answers */ };
+      const opts = { view: 'flow', colorBy: 'group' }, p = c.build(opts).then(() => 'resolved', (e) => 'rejected: ' + e.message);
+      const busyBefore = !!c.busy; c.w.dispatchEvent(new ErrorEvent('error', { message: 'test crash' }));
+      const first = await Promise.race([p, new Promise((q) => setTimeout(() => q('hang'), 1500))]);
+      await new Promise((q) => setTimeout(q, 30));
+      const out = { busyBefore, first, busyAfter: !!c.busy, mode: c.mode };
+      if (first === 'hang') { c.w.postMessage = realPost; return out; }
+      const second = await Promise.race([c.build(opts).then((x) => x && x.L && x.L.nodes ? 'built' : 'empty', (e) => 'rejected: ' + e.message), new Promise((q) => setTimeout(() => q('hang'), 8000))]);
+      out.second = second; return out;
+    });
+    say(!r.skip && r.busyBefore && /^rejected: .*(stopped|canceled)/i.test(r.first || '') && !r.busyAfter && r.mode === 'page' && r.second === 'built', 'a worker that dies in the middle of a job: the job fails in plain words, the engine is free again, and later maps are built on the page: ' + JSON.stringify(r)); }
+  } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
   say(errs.length === 0, 'no errors in the console' + (errs.length ? ': ' + errs.slice(0, 4).join(' | ') : ''));
   await D.close(); if (process.env.NFM_TIMES) console.log(`total ${((Date.now() - T0) / 1000).toFixed(1)} s, of which fixed waits: ${sleeps} sleeps = ${(slept / 1000).toFixed(1)} s`); {   /* a run that quietly skips checks must fail: fewer ok lines than the last all-green run of this browser is a failure (NFM_BLESS=1 after a reviewed change saves the new count) */
     const BL = require('./baseline.js'), v = BL.verdict(which, oks, fails, process.env.NFM_PAGE);

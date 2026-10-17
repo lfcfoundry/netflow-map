@@ -293,7 +293,7 @@ var NFMSim = (function () {
     };
     if (weightsFixed) buildCum(makeRng(1));
     var st = {
-      P: P, cfg: cfg, T: T, trial: 0, K: K, ends: ends, epOf: epOf, walkers: 0, stuck: 0,
+      P: P, cfg: cfg, T: T, trial: 0, limited: false, K: K, ends: ends, epOf: epOf, walkers: 0, stuck: 0,
       visits: new Float64Array(n), moves: new Float64Array(m), epCount: new Float64Array(K), epSum: new Float64Array(K), epSumSq: new Float64Array(K), epShareSum: new Float64Array(K), epShareSq: new Float64Array(K), shareTrials: 0,
       epPerTrial: [], epCosts: [], costs: [], costSeen: 0, steps: [], stepSeen: 0, trace: [], nextTrace: 10, lastRng: null, startedAt: 0, busyMs: 0
     };
@@ -327,7 +327,7 @@ var NFMSim = (function () {
     st.run = function (maxTrials, budgetMs) {
       var t0 = Date.now(), done = 0;
       if (!srcs.length) { st.trial = T; return { done: true, trials: st.trial }; }
-      while (st.trial < T && done < maxTrials && (Date.now() - t0 < budgetMs || done === 0)) {
+      while (st.trial < T && !st.limited && done < maxTrials && (Date.now() - t0 < budgetMs || done === 0)) {
         var rng = rngFor(seed, st.trial);
         if (!weightsFixed) buildCum(rng);
         var count = Math.max(0, Math.round(dArr(rng, 0)));
@@ -363,15 +363,16 @@ var NFMSim = (function () {
         if (count > 0) st.shareTrials++;
         for (k = 0; k < K; k++) { var pa = st.epPerTrial[k]; pa.n = (pa.n || 0) + 1; pushSample(pa, pa.n, EP_CAP, trialCounts[k], rng); }
         st.trial++; done++;
-        if (st.walkers >= st.nextTrace || st.trial === T) {
+        var hitLimit = st.walkers >= maxWalkers && st.trial < T;
+        if (st.walkers >= st.nextTrace || st.trial === T || hitLimit) {
           var row = { walkers: st.walkers, trial: st.trial, shares: [] };
           for (k = 0; k < K; k++) row.shares.push(st.walkers ? st.epCount[k] / st.walkers : 0);
           st.trace.push(row); st.nextTrace = Math.ceil(st.walkers * 1.25) + 5;
         }
-        if (st.walkers >= maxWalkers) { st.trial = T; break; }
+        if (hitLimit) { st.limited = true; break; }   /* the trials really run stay in st.trial: means are per trial run */
       }
       st.busyMs += Date.now() - t0;
-      return { done: st.trial >= T, trials: st.trial };
+      return { done: st.trial >= T || st.limited, trials: st.trial, limited: st.limited };
     };
     /** A plain copy of the results so far (typed arrays are copied, so the next batch does not change what you hold). */
     st.snapshot = function () {
@@ -390,7 +391,7 @@ var NFMSim = (function () {
         });
       }
       var out = {
-        trials: st.trial, planned: T, walkers: st.walkers, stuck: st.stuck, stuckShare: st.walkers ? st.stuck / st.walkers : 0,
+        trials: st.trial, planned: T, limited: st.limited, note: st.limited ? 'Stopped early: the limit of ' + maxWalkers + ' walkers was reached after ' + st.trial + ' of the ' + T + ' trials planned, so every result here comes from the ' + st.trial + ' trials that ran.' : '', walkers: st.walkers, stuck: st.stuck, stuckShare: st.walkers ? st.stuck / st.walkers : 0,
         endpoints: eps, visits: st.visits.map(function (x) { return x / W0; }), moves: st.moves.map(function (x) { return x / W0; }),
         steps: histogram(st.steps, 40, true), stepStats: null, cost: null, trace: st.trace.slice(), busyMs: st.busyMs, weightsFixed: weightsFixed, rule: rule
       };
@@ -427,7 +428,7 @@ var NFMSim = (function () {
     var imp = E.importance(Q);
     var r = E.absorb(Q, imp, { sources: seeds, cap: cfg.stepCap || 400 }, function (v) { return epOf[v]; }, K);
     var got = 0; for (i = 0; i < K; i++) got += r.start[i];
-    return { ends: ends, p: r.start, stuck: Math.max(0, 1 - got), visits: r.visits, moves: r.moves, weights: w, Q: Q, imp: imp, epOf: epOf, seeds: seeds, K: K };
+    return { ends: ends, p: r.start, stuck: Math.max(0, 1 - got), converged: r.converged, residual: r.residual, note: r.converged ? '' : 'These odds did not fully settle: a loop of items is too big to solve in the work allowed, so the numbers are close but not exact.', visits: r.visits, moves: r.moves, weights: w, Q: Q, imp: imp, epOf: epOf, seeds: seeds, K: K };
   }
 
   /* ---------------------------------------------------------------- settings from the screen -> the numbers the simulation wants */
@@ -480,7 +481,7 @@ var NFMSim = (function () {
   function exactSummary(P, cfg) {
     var x = exactEndpoints(P, cfg);
     if (!x) return null;
-    return { ends: x.ends.map(function (v) { return P.nodes[v].id; }), p: Array.prototype.slice.call(x.p), stuck: x.stuck, visits: x.visits, moves: x.moves };
+    return { ends: x.ends.map(function (v) { return P.nodes[v].id; }), p: Array.prototype.slice.call(x.p), stuck: x.stuck, converged: x.converged, note: x.note, visits: x.visits, moves: x.moves };
   }
 
   function tv(a, sa, b, sb) {
@@ -507,17 +508,19 @@ var NFMSim = (function () {
       cand.sort(function (a, b) { return base.moves[b] - base.moves[a]; });
     }
     cand = cand.slice(0, top);
+    var allSettled = base.converged !== false;
     for (var ci = 0; ci < cand.length; ci++) {
       if (Date.now() - t0 > budget) break;
       var w2 = Float64Array.from(base.weights), c = cand[ci];
       if (what === 'items') { for (e = 0; e < P.m; e++) if (P.to[e] === c) w2[e] = 0; } else w2[c] = 0;
       var Q2 = Object.assign({}, P, { w: w2 }), r = E.absorb(Q2, base.imp, { sources: base.seeds, cap: cfg.stepCap || 400 }, function (v) { return base.epOf[v]; }, base.K);
+      if (!r.converged) allSettled = false;
       var got = 0; for (i = 0; i < base.K; i++) got += r.start[i];
       var stuck = Math.max(0, 1 - got);
       rows.push(what === 'items' ? { kind: 'item', v: c, id: P.nodes[c].id, shift: tv(base.p, base.stuck, r.start, stuck), stuck: stuck, after: Array.prototype.slice.call(r.start) } : { kind: 'link', e: c, from: P.nodes[P.from[c]].id, to: P.nodes[P.to[c]].id, shift: tv(base.p, base.stuck, r.start, stuck), stuck: stuck, after: Array.prototype.slice.call(r.start) });
     }
     rows.sort(function (a, b) { return b.shift - a.shift; });
-    return { ok: true, what: what, ends: base.ends.map(function (v) { return P.nodes[v].id; }), before: Array.prototype.slice.call(base.p), beforeStuck: base.stuck, rows: rows, partial: cand.length > rows.length };
+    return { ok: true, what: what, ends: base.ends.map(function (v) { return P.nodes[v].id; }), before: Array.prototype.slice.call(base.p), beforeStuck: base.stuck, rows: rows, partial: cand.length > rows.length, converged: allSettled };
   }
 
   return { DISTS: DISTS, DIST_BY: DIST_BY, DRAW: DRAW, moments: moments, drawer: drawer, makeRng: makeRng, rngFor: rngFor, lgamma: lgamma, create: create, exactEndpoints: exactEndpoints, exactSummary: exactSummary, fromSpec: fromSpec, resolveSpec: resolveSpec, sweep: sweep, wilson: wilson, quantile: quantile };
