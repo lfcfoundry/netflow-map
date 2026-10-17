@@ -1187,6 +1187,78 @@ Three things stood out. (1) The stress start is what removes the size problem; i
 
 **Limits.** Hub-heavy (complex) networks stay about 0.13 to 0.15 above 3,000 items: the hubs' extra push in the force steps pulls them away from the stress picture, and a gentler start gives 0.12 but loses some group separation. Above 20,000 items only 5 force steps run, so groups blend more (distinctness 0.73 at 20,000 and 0.81 at 40,000; the old picture had 0.68 at 20,000); 40,000 items take about 3 s on the laptop's class of machine (7 s here). The tester's "3D arrangements" table shows the new numbers after a re-run; the old 3,000-item row (0.193) is the "before". Test: `node test/force3d.test.js` (hop error under 0.125 on moderate and under 0.15 on complex at 3,000 items, spread not collapsed, same data same picture, empty / one / two / loners / self-links / repeated links / several pieces / a 2,000-leaf hub / a 3,000-item chain).
 
+## 21. WebAssembly for the Force arrangement, and two plain-JavaScript speed-ups (2026-10-17)
+
+Browsers and engines, one at a time: Node 22.22.0, ungoogled-chromium 155.0.8059.39, Firefox 158.0, WebKitGTK 2.52.6 and GNOME Web 46.5 (software drawing in a cloud container, so read the numbers as "A against B", not as phone or laptop speed). Firefox's timer shows whole milliseconds. Every table is **milliseconds, lower is better**, except "times faster", where higher is better.
+
+**Force arrangement rounds, JavaScript against WebAssembly** (`wasm/force.c`, 7,260 bytes; `node bench/force-wasm.js <engine>`; a random graph with about two links per item, median of 3 runs, saved in `bench/results/force-wasm-*.json`). The two give the same positions to the last digit in every row (largest position difference 0), including the rare case of two items on the very same spot, which draws from the page's own random generator.
+
+| Engine | Items | Shape | Rounds | JavaScript ms | WebAssembly ms | Times faster | Largest position difference |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| Node 22.22.0 (V8) | 2,000 | 2D | 240 | 1,252 | 677 | 1.85 | 0 |
+| Node 22.22.0 (V8) | 10,000 | 2D | 120 | 4,462 | 2,540 | 1.76 | 0 |
+| Node 22.22.0 (V8) | 30,000 | 2D | 60 | 7,813 | 4,659 | 1.68 | 0 |
+| Node 22.22.0 (V8) | 10,000 | 3D | 90 | 6,873 | 3,460 | 1.99 | 0 |
+| ungoogled-chromium 155.0.8059.39 | 2,000 | 2D | 240 | 1,231 | 634 | 1.94 | 0 |
+| ungoogled-chromium 155.0.8059.39 | 10,000 | 2D | 120 | 4,734 | 2,223 | 2.13 | 0 |
+| ungoogled-chromium 155.0.8059.39 | 30,000 | 2D | 60 | 7,969 | 4,812 | 1.66 | 0 |
+| ungoogled-chromium 155.0.8059.39 | 10,000 | 3D | 90 | 5,991 | 3,258 | 1.84 | 0 |
+| Firefox 158.0 | 2,000 | 2D | 240 | 1,095 | 755 | 1.45 | 0 |
+| Firefox 158.0 | 10,000 | 2D | 120 | 3,895 | 2,567 | 1.52 | 0 |
+| Firefox 158.0 | 30,000 | 2D | 60 | 7,748 | 5,093 | 1.52 | 0 |
+| Firefox 158.0 | 10,000 | 3D | 90 | 7,801 | 4,044 | 1.93 | 0 |
+| WebKitGTK 2.52.6 | 2,000 | 2D | 240 | 1,150 | 641 | 1.79 | 0 |
+| WebKitGTK 2.52.6 | 10,000 | 2D | 120 | 3,728 | 2,357 | 1.58 | 0 |
+| WebKitGTK 2.52.6 | 30,000 | 2D | 60 | 7,719 | 5,162 | 1.50 | 0 |
+| WebKitGTK 2.52.6 | 10,000 | 3D | 90 | 3,891 | 3,506 | 1.11 | 0 |
+| GNOME Web 46.5 | 2,000 | 2D | 240 | 975 | 632 | 1.54 | 0 |
+| GNOME Web 46.5 | 10,000 | 2D | 120 | 3,224 | 2,287 | 1.41 | 0 |
+| GNOME Web 46.5 | 30,000 | 2D | 60 | 6,980 | 4,286 | 1.63 | 0 |
+| GNOME Web 46.5 | 10,000 | 3D | 90 | 3,628 | 3,181 | 1.14 | 0 |
+
+Smaller pictures (150 and 300 items, 150 rounds) were 1.5 to 2.1 times faster in all five engines, so the page uses WebAssembly from 150 items up and stays on JavaScript below that (a 100-item picture costs under 40 ms either way, and the first call in a fresh page includes JavaScript warm-up, which flatters WebAssembly). The kernel is a line-for-line port with the compiler told not to fuse multiplies and adds, so every rounding step is the one JavaScript makes. Cost to the page: +11,442 bytes (712,344 to 723,786; gzipped 253,567 to 259,227).
+
+**Closeness arrangement, fixed-exponent `Math.pow` removed** (`bench/closeness-pow.js`; the exponents are always 1 and 0 in the app, so the power is the value itself and the pictures are identical in every row). Whole `build` call, best of 6 runs.
+
+| Engine | Items | Structure | Before ms | After ms | Times faster | Identical pictures |
+| --- | ---: | --- | ---: | ---: | ---: | --- |
+| Node 22.22.0 (V8) | 3,000 | moderate | 1,322 | 1,220 | 1.08 | yes |
+| Node 22.22.0 (V8) | 10,000 | moderate | 1,732 | 1,649 | 1.05 | yes |
+| Node 22.22.0 (V8) | 10,000 | complex | 2,067 | 1,800 | 1.15 | yes |
+| ungoogled-chromium 155.0.8059.39 | 3,000 | moderate | 2,174 | 1,762 | 1.23 | yes |
+| ungoogled-chromium 155.0.8059.39 | 10,000 | moderate | 4,276 | 2,797 | 1.53 | yes |
+| ungoogled-chromium 155.0.8059.39 | 10,000 | complex | 5,198 | 3,316 | 1.57 | yes |
+| Firefox 158.0 | 3,000 | moderate | 1,727 | 1,827 | 0.95 | yes |
+| Firefox 158.0 | 10,000 | moderate | 2,281 | 2,144 | 1.06 | yes |
+| Firefox 158.0 | 10,000 | complex | 2,754 | 2,355 | 1.17 | yes |
+| WebKitGTK 2.52.6 | 3,000 | moderate | 1,374 | 1,047 | 1.31 | yes |
+| WebKitGTK 2.52.6 | 10,000 | moderate | 1,608 | 1,561 | 1.03 | yes |
+| WebKitGTK 2.52.6 | 10,000 | complex | 2,261 | 1,790 | 1.26 | yes |
+| GNOME Web 46.5 | 3,000 | moderate | 1,259 | 1,340 | 0.94 | yes |
+| GNOME Web 46.5 | 10,000 | moderate | 1,876 | 1,880 | 1.00 | yes |
+| GNOME Web 46.5 | 10,000 | complex | 2,916 | 2,344 | 1.24 | yes |
+
+The gain is small and uneven (0.94 to 1.57 times; two rows are slightly slower, which is within the noise of one run). Chromium gains most.
+
+**Simulator, 1,000 runs, bookkeeping kept only for the ends that were hit** (`bench/sim-sparse.js`). A 100,000-item simple tree has 66,667 ends and most ends are hit by no walker in a given run; the old code touched every end in every run (66 million visits for 1,000 runs) and kept 66 million numbers. Now only ends that were hit are visited and stored; the zeros are added back when the results are read, so every number, interval and percentile is exactly the old one (checked by `test/sim.test.js`, section 4, against the old bookkeeping kept behind `denseEnds`). The "moderate" row has no ends at all and is the control.
+
+| Engine | Items | Structure | Before ms | After ms | Times faster | Identical results |
+| --- | ---: | --- | ---: | ---: | ---: | --- |
+| Node 22.22.0 (V8) | 100,000 | simple (66,667 ends) | 9,188 | 300 | 30.6 | yes |
+| Node 22.22.0 (V8) | 100,000 | moderate (0 ends) | 93 | 103 | 0.9 | yes |
+| ungoogled-chromium 155.0.8059.39 | 100,000 | simple (66,667 ends) | 9,022 | 201 | 44.9 | yes |
+| ungoogled-chromium 155.0.8059.39 | 100,000 | moderate (0 ends) | 160 | 145 | 1.1 | yes |
+| Firefox 158.0 | 100,000 | simple (66,667 ends) | 10,401 | 98 | 106.1 | yes |
+| Firefox 158.0 | 100,000 | moderate (0 ends) | 128 | 101 | 1.3 | yes |
+| WebKitGTK 2.52.6 | 100,000 | simple (66,667 ends) | 9,115 | 174 | 52.4 | yes |
+| WebKitGTK 2.52.6 | 100,000 | moderate (0 ends) | 210 | 125 | 1.7 | yes |
+| GNOME Web 46.5 | 100,000 | simple (66,667 ends) | 8,028 | 154 | 52.1 | yes |
+| GNOME Web 46.5 | 100,000 | moderate (0 ends) | 164 | 122 | 1.3 | yes |
+
+It applies up to 4,000 trials; above that the old method (a random sample of at most 4,000 trial counts per end) is still used. Not run: the 1,000,000-item case that ran out of memory in Firefox before; the memory for the 66 million numbers is gone, so it should no longer do that, but that is not measured.
+
+Not measured: 100,000-item Force (it takes about a minute in JavaScript), and any phone.
+
 ## Reproduce
 
 ```
@@ -1197,6 +1269,8 @@ node run.js chromium typed
 node run.js chromium compare
 node run.js chromium forceOurs                       # or: firefox; our Force arrangement alone (section 18)
 node run.js chromium cold                       # or: firefox; first run against later runs (section 19)
+node force-wasm.js chromium                           # or: firefox, webkit, epiphany, node; Force rounds in JavaScript against WebAssembly (section 21)
+node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)
 node ../test/force3d.test.js                      # 3D force: hop error at 3,000 items, not flat, robust cases (section 20)
 TESTER_ONLY=3d TESTER_PLAN3D=1000,3000 node tester/run-local.js chromium   # the tester's 3D step alone (section 20)
 node tools/build-tester.mjs                       # the laptop tester page (section 19)

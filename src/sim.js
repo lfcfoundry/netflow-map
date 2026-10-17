@@ -298,7 +298,7 @@ var NFMSim = (function () {
       epPerTrial: [], epCosts: [], costs: [], costSeen: 0, steps: [], stepSeen: 0, trace: [], nextTrace: 10, lastRng: null, startedAt: 0, busyMs: 0
     };
     for (i = 0; i < K; i++) { st.epPerTrial.push([]); st.epCosts.push([]); }
-    var seen = new Int32Array(n).fill(-1), stamp = 0, trialCounts = new Float64Array(K), EP_CAP = 4000, COST_CAP = 100000, STEP_CAP = 100000, EPCOST_CAP = 5000;
+    var seen = new Int32Array(n).fill(-1), stamp = 0, trialCounts = new Float64Array(K), EP_CAP = 4000, sparse = T <= EP_CAP && !cfg.denseEnds, hit = [],   /* denseEnds: the old bookkeeping, kept so a test can check that both give the same results */ COST_CAP = 100000, STEP_CAP = 100000, EPCOST_CAP = 5000;
 
     function pickEdge(v, rng) {
       var a = P.outStart[v], b = P.outStart[v + 1], od = b - a, k;
@@ -333,7 +333,7 @@ var NFMSim = (function () {
         var count = Math.max(0, Math.round(dArr(rng, 0)));
         if (st.walkers + count > maxWalkers) count = Math.max(0, maxWalkers - st.walkers);
         var k;
-        for (k = 0; k < K; k++) trialCounts[k] = 0;
+        if (sparse) { for (k = 0; k < hit.length; k++) trialCounts[hit[k]] = 0; hit.length = 0; } else for (k = 0; k < K; k++) trialCounts[k] = 0;   // sparse: only the ends hit in this trial are looked at (most ends are hit by none; the sums are the same, since adding 0 changes nothing)
         for (var wk = 0; wk < count; wk++) {
           var s = srcs[0].v;
           if (srcs.length > 1) { var xr = rng() * tot, si = 0; while (si < srcs.length - 1 && srcCum[si] < xr) si++; s = srcs[si].v; }
@@ -354,14 +354,16 @@ var NFMSim = (function () {
           if (dCost || dDwell) { st.costSeen++; pushSample(st.costs, st.costSeen, COST_CAP, cost, rng); }
           if (isEnd[v]) {
             var ep = epOf[v];
+            if (sparse && trialCounts[ep] === 0) hit.push(ep);
             trialCounts[ep]++;
             if (dCost || dDwell) { var ce = st.epCosts[ep]; ce.n = (ce.n || 0) + 1; pushSample(ce, ce.n, EPCOST_CAP, cost, rng); }
           } else st.stuck++;
         }
-        var nz = 0;
-        for (k = 0; k < K; k++) { st.epCount[k] += trialCounts[k]; st.epSum[k] += trialCounts[k]; st.epSumSq[k] += trialCounts[k] * trialCounts[k]; if (count > 0) { var sh = trialCounts[k] / count; st.epShareSum[k] += sh; st.epShareSq[k] += sh * sh; } nz++; }
+        var nz = 0, nk = sparse ? hit.length : K, kk;
+        for (kk = 0; kk < nk; kk++) { k = sparse ? hit[kk] : kk; st.epCount[k] += trialCounts[k]; st.epSum[k] += trialCounts[k]; st.epSumSq[k] += trialCounts[k] * trialCounts[k]; if (count > 0) { var sh = trialCounts[k] / count; st.epShareSum[k] += sh; st.epShareSq[k] += sh * sh; } nz++; }
         if (count > 0) st.shareTrials++;
-        for (k = 0; k < K; k++) { var pa = st.epPerTrial[k]; pa.n = (pa.n || 0) + 1; pushSample(pa, pa.n, EP_CAP, trialCounts[k], rng); }
+        if (sparse) { for (kk = 0; kk < nk; kk++) st.epPerTrial[hit[kk]].push(trialCounts[hit[kk]]); }   // only the trials with a hit are kept; the zeros are added back when the results are read (snapshot)
+        else for (k = 0; k < K; k++) { var pa = st.epPerTrial[k]; pa.n = (pa.n || 0) + 1; pushSample(pa, pa.n, EP_CAP, trialCounts[k], rng); }
         st.trial++; done++;
         var hitLimit = st.walkers >= maxWalkers && st.trial < T;
         if (st.walkers >= st.nextTrace || st.trial === T || hitLimit) {
@@ -378,7 +380,7 @@ var NFMSim = (function () {
     st.snapshot = function () {
       var W0 = st.walkers || 1, eps = [], k;
       for (k = 0; k < K; k++) {
-        var cnt = st.epCount[k], wl = wilson(cnt, st.walkers), share = st.walkers ? cnt / st.walkers : 0, tr = st.epPerTrial[k].slice().sort(function (a, b) { return a - b; });
+        var cnt = st.epCount[k], wl = wilson(cnt, st.walkers), share = st.walkers ? cnt / st.walkers : 0, tr = (sparse ? new Array(st.trial - st.epPerTrial[k].length).fill(0).concat(st.epPerTrial[k]) : st.epPerTrial[k].slice()).sort(function (a, b) { return a - b; });
         var mean = st.trial ? st.epSum[k] / st.trial : 0, sd = st.trial > 1 ? Math.sqrt(Math.max(0, st.epSumSq[k] / st.trial - mean * mean) * st.trial / (st.trial - 1)) : 0;
         var smean = st.shareTrials ? st.epShareSum[k] / st.shareTrials : 0, ssd = st.shareTrials > 1 ? Math.sqrt(Math.max(0, st.epShareSq[k] / st.shareTrials - smean * smean) * st.shareTrials / (st.shareTrials - 1)) : 0;
         var lo = wl[0], hi = wl[1];

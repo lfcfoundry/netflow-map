@@ -35,6 +35,7 @@ Rules for anyone (person or AI) changing this repository.
 - Anything that reads a user's file (zip, xlsx, XML, GML, DOT, CSV, JSON) must have a limit counted on what is really read, a plain-words message when it refuses, and a case in `test/archive.test.js` or `test/fuzz.test.js`. Writes past the end of a typed array are silently ignored in JavaScript: guard them.
 - Never edit a file in place that the user attached or dropped in; the app works on copies.
 - Imported text is untrusted: no `innerHTML` without `esc()`, CSV export neutralizes leading `= + - @`.
+- **WebAssembly Force (2026-10-17):** `wasm/force.c` is a line-for-line port of `forceSim`'s rounds; `src/engine.js` carries its bytes between `WASM:BEGIN` and `WASM:END`. If you change the JavaScript `forceSimJs`, change `force.c` the same way, then `sh wasm/build.sh && python3 wasm/embed.py && node tools/build.mjs`; `test/force-wasm.test.js` must show a largest position difference of 0. The JavaScript stays the fallback. See `wasm/README.md`.
 
 ## Map of the code
 Engine (`src/engine.js`): `prepare` (flat arrays) → `importance` (choke points by dominators, traffic in log space) → `flowExact` / `flowSim` → `mapGraph` → a layout (`layered`, `arcLayout`, `matrixLayout`, `shapeLayout`, `networkLayout`) → `build`. `compare` scores every view.

@@ -1,0 +1,1 @@
+{"version":"Node v22.22.0","rows":[{"n":3000,"kind":"moderate","old":1536,"new":1397,"old2":1322,"new2":1220,"same":true},{"n":10000,"kind":"moderate","old":2179,"new":2099,"old2":1732,"new2":1649,"same":true},{"n":10000,"kind":"complex","old":2075,"new":1800,"old2":2067,"new2":1993,"same":true}]}
