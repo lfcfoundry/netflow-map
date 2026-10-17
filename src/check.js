@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map check: looks hard at the data and says what is broken, what looks wrong, what looks odd, and what is interesting.
+ * Netflow Map check: looks hard at the data and says what is broken, what looks wrong, what looks odd, and what is interesting.
  * Builds on the Story Editor's checker (dead ends, unreachable items, traps) and adds data checks: spellings, categories, numbers,
  * outliers, flow that does not add up, odds that do not add to 100%, jumps between states.
  * Every finding says how sure it is, shows the rows behind it, and may offer a fix. No DOM; runs in the page, a worker or Node.

@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 LFC Foundry. MIT License. Net Flow Map: one round of the Force arrangement's Barnes-Hut loop (engine.js forceSim) in C for WebAssembly.
+/* Copyright (c) 2026 LFC Foundry. MIT License. Netflow Map: one round of the Force arrangement's Barnes-Hut loop (engine.js forceSim) in C for WebAssembly.
    Build: sh wasm/build.sh   Embed: python3 wasm/embed.py   (see wasm/README.md). */
 /* A line-for-line port of one round of forceSim: Barnes-Hut tree, repulsion, springs, gravity and move.
    The caller (JS) computes the temperature, so it matches the JS Math.pow exactly. */

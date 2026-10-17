@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map app, part 8: the Advanced tab (layout and fold settings, check this device; the simulation lives here too). Copyright (c) 2026 LFC Foundry. MIT License.
+ * Netflow Map app, part 8: the Advanced tab (layout and fold settings, check this device; the simulation lives here too). Copyright (c) 2026 LFC Foundry. MIT License.
  */
 S.A = { mode: 'random', runs: 2000, weights: false, amounts: false };
 var AKEY = function () { return 'nfm-a:' + (S.graph.name || 'Untitled'); };

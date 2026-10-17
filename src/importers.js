@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map importers: turn text, tables, JSON and notes into one graph, and say what was kept, changed or dropped.
+ * Netflow Map importers: turn text, tables, JSON and notes into one graph, and say what was kept, changed or dropped.
  * Copyright (c) 2026 LFC Foundry. MIT License. No DOM; runs in the page or in Node.
  *
  * Graph: { name, start, nodes: [{id, label, group, valence, ghost, attrs}], edges: [{from, to, label, weight, kind, attrs}] }
@@ -434,7 +434,7 @@ var NFMImport = (function () {
   /** The file the "JSON (everything)" button writes: a marker, or any of its own fields (states, calc, roles), or items that carry ghost and attrs with links that use from and to. */
   function isOwnFormat(data) {
     if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) return false;
-    if (data.format === 'net-flow-map' || data.states || data.calc || data.roles) return true;
+    if (data.format === 'net-flow-map' || data.format === 'netflow-map' || data.states || data.calc || data.roles) return true;
     return data.nodes.length > 0 && data.nodes.every(function (n) { return n && typeof n.ghost === 'boolean' && n.attrs && typeof n.attrs === 'object' && !Array.isArray(n.attrs); }) &&
       data.edges.every(function (e) { return e && e.from !== undefined && e.to !== undefined; });
   }
@@ -457,7 +457,7 @@ var NFMImport = (function () {
     if (isOwnFormat(data)) {
       var sg = sanitizeGraph(Object.assign({}, data, { name: data.name || name }));
       var gh = sg.nodes.filter(function (x) { return x.ghost; }).length;
-      return { graph: sg, report: { format: 'Net Flow Map JSON', nodes: sg.nodes.length, edges: sg.edges.length, ghosts: gh, notes: ['Read back as a Net Flow Map file, with its start, story or data setting, placeholders and extra columns' + (sg.calc || sg.roles || sg.states ? ', and its calculated columns, column roles' + (sg.states ? ' and ' + sg.states.names.length + ' states' : '') + ' where the file had them' : '') + '.'] } };
+      return { graph: sg, report: { format: 'Netflow Map JSON', nodes: sg.nodes.length, edges: sg.edges.length, ghosts: gh, notes: ['Read back as a Netflow Map file, with its start, story or data setting, placeholders and extra columns' + (sg.calc || sg.roles || sg.states ? ', and its calculated columns, column roles' + (sg.states ? ' and ' + sg.states.names.length + ' states' : '') + ' where the file had them' : '') + '.'] } };
     }
     var B = new Builder(name, opts), shape = 'unknown';
     var nodeProps = function (o) {

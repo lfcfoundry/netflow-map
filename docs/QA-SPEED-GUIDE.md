@@ -1,6 +1,6 @@
 # Making QA Checks and Browser Tests Fast, Cheap and Trustworthy
 
-Written 2026-10-17 from the Net Flow Map project (repo JNFoo/net-flow-map). Everything marked **Measured** was timed in this project. Everything marked **Estimate** is reasoning, not a measurement, and should be checked before relying on it.
+Written 2026-10-17 from the Netflow Map project (repo lfcfoundry/netflow-map). Everything marked **Measured** was timed in this project. Everything marked **Estimate** is reasoning, not a measurement, and should be checked before relying on it.
 
 Written in plain words: each technique says what it is, why it works, what it cost or saved, and the trap to avoid. Drop this file into a new project's first conversation so the speed habits start on day one.
 
@@ -68,7 +68,7 @@ NFM_TIMES=1 node test/browser.test.js firefox
 **The fix:** wait for the actual condition.
 
 1. **Wait for real animation frames** (two `requestAnimationFrame` ticks) so the screen has painted what you changed.
-2. **Wait for the app's own "nothing pending" signal.** Net Flow Map exposes `NFM.pending()` which counts short screen-update delays (debounces of 200 ms or less) still waiting to fire. `settle(ms)` waits for frames *and* `NFM.pending() === 0`.
+2. **Wait for the app's own "nothing pending" signal.** Netflow Map exposes `NFM.pending()` which counts short screen-update delays (debounces of 200 ms or less) still waiting to fire. `settle(ms)` waits for frames *and* `NFM.pending() === 0`.
 3. **Keep real sleeps only for real time:** easing animations, playback, a typing delay the page does not count.
 
 **Trap that actually bit us:** after shortening a pause, the check "links table filter works" failed because the table filter used a 400 ms debounce, longer than the 200 ms the counter tracked. The fix was to count that debounce too, not to put the long pause back. Lesson: when a shortened wait fails, find what the test was silently waiting for and make the page announce it.
@@ -233,14 +233,14 @@ Timing tests are only as good as the machine's quiet.
 Short answer: no tool turns live JavaScript data into something small and back again with zero cost. Practical options, cheapest first:
 
 1. **Make less garbage.** Reuse buffers while building scenes. Most of the 120 MB per 100,000-item scene is temporary.
-2. **Smaller numbers.** *Correction, measured later the same day:* in Net Flow Map the number buffers are only a few MB; the 150 MB per 100,000-item picture is JavaScript objects (about 300,000 links, 100,000 items, 100,000 labels, 100,000 dots). So 16-bit positions and buffer reuse would save almost nothing here. Measure what holds the memory (`process.memoryUsage()` with `--expose-gc`, then drop one list at a time) before choosing a fix.
+2. **Smaller numbers.** *Correction, measured later the same day:* in Netflow Map the number buffers are only a few MB; the 150 MB per 100,000-item picture is JavaScript objects (about 300,000 links, 100,000 items, 100,000 labels, 100,000 dots). So 16-bit positions and buffer reuse would save almost nothing here. Measure what holds the memory (`process.memoryUsage()` with `--expose-gc`, then drop one list at a time) before choosing a fix.
    Real saving found: let go of the old picture's lists before building the new one, so two never exist at once (peak 300 MB to 150 MB at 100,000 items).
 3. **Rebuild on demand and free the rest.**
 4. **Keep large data only on the graphics card** when it never needs to come back.
 5. **Real compression, only for off-screen data:**
    - Browser built-in `CompressionStream` / `DecompressionStream`: free, but asynchronous, so not usable inside a frame.
    - `fflate` (fast JavaScript deflate), `pako` (standard, slower), `lz4js` or a WebAssembly LZ4 (fastest class). **Estimate:** a few hundred MB/s for the deflate family, 1 GB/s or more for LZ4; float coordinates compress poorly (perhaps 10 to 30%).
-   - JNFoo/JS-modules already has `save-kit` and `zip-open` using the built-in streams, and `lzma-decode` / `ppmd-decode` (slow, for download packages, not for live memory).
+   - lfcfoundry/JS-modules already has `save-kit` and `zip-open` using the built-in streams, and `lzma-decode` / `ppmd-decode` (slow, for download packages, not for live memory).
 
 ---
 

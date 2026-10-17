@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map drawing backends: WebGPU, WebGL2 and Canvas2D draw the same scene (see scene.js) and look the same.
+ * Netflow Map drawing backends: WebGPU, WebGL2 and Canvas2D draw the same scene (see scene.js) and look the same.
  * Shapes are drawn as signed-distance quads (a 1-pixel soft edge instead of MSAA); lines and ribbons are triangle strips
  * with the same soft edge. Labels always go on a 2D overlay canvas. Picking is done on the CPU (scene.js).
  * Copyright (c) 2026 LFC Foundry. MIT License.
