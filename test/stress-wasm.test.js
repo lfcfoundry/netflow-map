@@ -14,9 +14,20 @@ function chain(n) { const nodes = [], edges = []; for (let i = 0; i < n; i++) no
 function rng(s) { return function () { s |= 0; s = s + 0x6D2B79F5 | 0; let q = Math.imul(s ^ s >>> 15, 1 | s); q = q + Math.imul(q ^ q >>> 7, 61 | q) ^ q; return ((q ^ q >>> 14) >>> 0) / 4294967296; }; }
 
 t('the WebAssembly kernel loads', () => { ok(W.b64.length > 1000, 'no bytes embedded: run python3 wasm/embed.py'); ok(typeof WebAssembly === 'object', 'this Node has no WebAssembly'); const r = both(derive(GEN.graph('moderate', 400, 2))); ok(r.stress === 1 && r.sep > 0, 'wasm did not run: ' + W.error); });
-for (const [n, kind] of [[150, 'moderate'], [1200, 'moderate'], [4500, 'moderate'], [3000, 'complex']]) {
+for (const [n, kind] of [[150, 'moderate'], [1200, 'moderate'], [4500, 'moderate'], [3000, 'complex'], [22000, 'moderate']]) {   // 22,000 is over the size where a very crowded picture gets one bigger stretch first
   t(`same picture, ${n} items (${kind})`, () => { const r = both(derive(GEN.graph(kind, n, 3))); ok(r.stress >= 1, 'stress did not use wasm'); const d = diff(r.a, r.b); ok(d === 0, 'largest position difference ' + d); return r.stress + ' stress, ' + r.sep + ' push-apart runs'; });
 }
+t('early preview: a rough picture first, then the finished one is the same as without a preview', () => {
+  const dg = derive(GEN.graph('moderate', 12000, 3)), opt = { view: 'network', arrange: 'stress', colorBy: 'group' };
+  const want = E.build(dg, opt);   // no preview
+  const t0 = Date.now(), rough = E.build(dg, Object.assign({ previewOnly: true }, opt)), tRough = Date.now() - t0;
+  ok(rough.rough === true, 'the preview build did not stop early'); ok(rough.nodes.every((n) => Number.isFinite(n.cx) && Number.isFinite(n.cy)), 'preview positions are not numbers');
+  const t1 = Date.now(), fin = E.build(dg, opt), tFin = Date.now() - t1;
+  ok(!fin.rough, 'the finished build says it is rough'); ok(diff(want, fin) === 0, 'the finished picture changed after a preview (largest gap ' + diff(want, fin) + ')');
+  const again = E.build(dg, opt); ok(diff(want, again) === 0, 'a second build changed (the kept preview was used twice)');
+  const small = E.build(derive(GEN.graph('moderate', 800, 4)), Object.assign({ previewOnly: true }, opt)); ok(!small.rough, 'a small map claims a preview');
+  return 'preview ' + tRough + ' ms, finish after it ' + tFin + ' ms';
+});
 t('same picture in Closeness and Group clusters (they start from the stress picture)', () => { for (const arr of ['closeness', 'groups']) { const r = both(derive(GEN.graph('moderate', 800, 4)), arr); const d = diff(r.a, r.b); ok(d === 0, arr + ': largest position difference ' + d); } });
 t('hop counts over 511 stay on the Float32 lists and give the same picture', () => { const r = both(derive(chain(700))); ok(diff(r.a, r.b) === 0, 'differs'); ok(r.stress === 0, 'the code cannot hold 700 hops, so wasm must hand back to JavaScript'); });
 t('small pictures stay on JavaScript', () => { const r = both(derive(GEN.graph('moderate', 60, 4))); ok(r.stress === 0 && r.sep === 0, 'used wasm for 60 items'); ok(diff(r.a, r.b) === 0, 'differs'); });

@@ -156,10 +156,20 @@ var NFMEngineClient = (function () {
   /** Saved results of the tuning test (or null): the page sets this at start-up and after a test. */
   Client.prototype.setTune = function (t) { this.tune = t || null; if (this.card && this.card.state === 'ready') this.card.prof = t && t.card || null; };
   /** "Distances, best quality" on a big piece: the card makes the picture, the engine finishes it. Any problem: the processor does it as before. */
-  Client.prototype.build = function (opts) {
+  Client.prototype.build = function (opts, onPreview) {
     var self = this, tok = this.buildTok = (this.buildTok || 0) + 1, big = false, E = null;
     try { E = this.onMain(); big = opts && opts.arrange === 'stressBest' && this.graph && this.graph.nodes.length > E.stressTuning.fullMax && !this.cardOff && !(this.tune && this.tune.card && this.tune.card.use === false) && !(this.card && this.card.state !== 'ready'); } catch (e) { big = false; }
-    if (!big) return this.run('build', opts);
+    if (!big) {
+      /* A big Network map first gets a rough picture (the start of the layout, grown back but not yet polished or cleaned of touching items), handed to onPreview; the finished build follows and continues from it. */
+      var Tn = E && E.stressTuning;
+      if (!onPreview || !Tn || !opts || opts.view !== 'network' || opts.arrange !== 'stress' || !this.graph || this.graph.nodes.length < Tn.previewMin) return this.run('build', opts);
+      return this.run('build', Object.assign({}, opts, { previewOnly: true })).then(function (r) {
+        if (!r.L || !r.L.rough) return r;   // nothing to polish later: this already is the finished picture
+        if (tok !== self.buildTok) throw new Error('superseded');
+        try { onPreview(r); } catch (err) { /* a preview that cannot be shown must not stop the real build */ }
+        return self.run('build', opts);
+      });
+    }
     var stale = function () { return tok !== self.buildTok; }, plain = function () { if (stale()) throw new Error('superseded'); return self.run('build', opts); };
     return this.cardProbe().then(function (card) {
       if (stale()) throw new Error('superseded');
