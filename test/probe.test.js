@@ -96,6 +96,8 @@ const fence = async () => { for (let i = 0; i < 5; i++) await Promise.resolve();
     e = NFMProbe.explainSplit(split({ fps: 40 }, { fps: 60 }, { all: 24, links: 18, items: 5, names: 1, half: 9 }), 30000); ok(/follows the number of pixels/.test(e.say), e.say);
     e = NFMProbe.explainSplit(split({ fps: 52, gapP95: 34, gapMax: 80, slow: 0.1 }, { fps: 60 }, g0), 30000); ok(e.cause === 'hiccups' && /pause/.test(e.say), e.say);
     e = NFMProbe.explainSplit(split({ fps: 52 }, { fps: 60 }, g0), 30000); ok(e.cause === 'unclear', e.say);
+    const nz = split({ fps: 40 }, { fps: 60 }, g0); nz.ways[0].fpsAll = [40, 58, 30]; nz.ways.push({ id: 'keep', label: 'k', fps: 60, fpsAll: [60, 41, 60], gapMed: 16.7, gapP95: 18, gapMax: 18, slow: 0, angleMed: 5, angleMax: 6 });
+    e = NFMProbe.explainSplit(nz, 100000); ok(e.cause === 'hiccups' && /run to run/.test(e.say) && /WebGL 2/.test(e.say), e.say);   /* runs that swing wildly are pauses from the browser, not the way the order is sent */
     e = NFMProbe.explainSplit({ backend: 'webgl2', skipped: 'the page was in the background' }, 30000); ok(e.level === 'warn' && /WebGL 2 was skipped/.test(e.say), e.say);
   });
   if (bad) { console.log(bad + ' failed'); process.exit(1); } console.log('probe tests passed');
