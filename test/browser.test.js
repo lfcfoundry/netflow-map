@@ -44,6 +44,9 @@ async function open() {
   const click = (sel) => ev((s) => document.querySelector(s).click(), sel);
   console.log('browser', which, D.version);
   await page.goto('file://' + path.resolve(__dirname, '..', process.env.NFM_PAGE || 'index.html') + (process.env.NFM_FULLCHECK ? '' : '?tunesizes=1500'));
+  { const c = await ev(() => { const m = new NFMRender.Manager(document.createElement('div'), {}); const auto = m.candidates(); m.choice = 'webgpu'; return { auto, asked: m.candidates(), off: NFMRender.webgpuDrawing() }; });
+    say(!c.off && !c.auto.includes('webgpu') && !c.asked.includes('webgpu') && c.auto[0] === 'webgl2', 'the app does not draw with WebGPU (Automatic: ' + c.auto.join(', ') + '; even when asked for: ' + c.asked.join(', ') + ')'); }
+  await ev(() => NFMRender.setWebGPUDrawing(true));   /* the app does not draw with WebGPU; the tests still check that code */
   await D.wait(() => window.NFM && NFM.client() && NFM.client().mode !== 'starting', null, 20000);
   say(true, 'page loaded; engine runs in the ' + (await ev(() => NFM.client().mode)));
 
