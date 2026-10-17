@@ -26,6 +26,17 @@
   function clockText(ms) { var t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, sec = t % 60; return (h ? h + ':' + (m < 10 ? '0' : '') + m : m) + ':' + (sec < 10 ? '0' : '') + sec; }
   function startClock() { clearInterval(clockTimer); var c = $('clock'); c.textContent = '⏱ 0:00'; clockTimer = setInterval(function () { c.textContent = '⏱ ' + clockText(now() - t0Run); }, 250); }
   function stopClock() { clearInterval(clockTimer); $('clock').textContent = '⏱ ' + clockText(now() - t0Run) + ' total'; }
+  /** The page's own screen refresh rate, always on in the top strip: frames counted over each half second (so a stall shows at once), whatever the page is doing. */
+  (function () {
+    var el = $('fpsnow'), last = 0, n = 0, t0 = 0, worst = 0;
+    var tick = function (ts) {
+      if (last) { n++; worst = Math.max(worst, ts - last); } last = ts; if (!t0) t0 = ts;
+      if (ts - t0 >= 500) { var f = Math.round(1000 * n / (ts - t0)); el.textContent = f + ' FPS' + (worst > 60 ? ' · pause ' + Math.round(worst) + ' ms' : ''); n = 0; worst = 0; t0 = ts; }
+      requestAnimationFrame(tick);
+    };
+    document.addEventListener('visibilitychange', function () { if (document.hidden) el.textContent = 'tab hidden'; last = 0; t0 = 0; n = 0; worst = 0; });
+    requestAnimationFrame(tick);
+  })();
   /** A live FPS counter in the corner of a viewing box: the screen's real picture rate while the test draws there, with the slowest picture of the last second. */
   function addFpsPill(box) {
     var pill = document.createElement('div'); pill.style.cssText = 'position:absolute;right:6px;top:6px;padding:2px 8px;border-radius:12px;font:12px/1.4 system-ui,sans-serif;background:rgba(0,0,0,.6);color:#fff;pointer-events:none;z-index:5;font-variant-numeric:tabular-nums'; pill.textContent = '… FPS'; box.appendChild(pill);
@@ -347,7 +358,7 @@
     var makeOf = function (b) { return b === 'webgpu' ? NFMRender.createWebGPU : b === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D; }, r;
     try { r = await makeOf(backend)(host, {}); } catch (e) { cap.textContent = 'Could not draw the 3D picture (' + String(e && e.message || e).slice(0, 80) + ')'; return; }
     var W = host.clientWidth || 600, H = 320, dark = matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light';
-    var meter = document.createElement('div'); meter.style.cssText = 'position:absolute;left:8px;top:8px;padding:3px 8px;border-radius:12px;font:12px/1.4 system-ui,sans-serif;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;z-index:5'; meter.textContent = 'Drag to turn, scroll to zoom'; host.appendChild(meter);
+    var meter = document.createElement('div'); meter.style.cssText = 'position:absolute;left:8px;top:8px;padding:4px 10px;border-radius:12px;font:600 13px/1.4 system-ui,sans-serif;background:rgba(0,0,0,.7);color:#fff;pointer-events:none;z-index:50;font-variant-numeric:tabular-nums'; meter.textContent = '… FPS · drag to turn, scroll to zoom'; host.appendChild(meter);
     var st = { yaw: 0.6, pitch: 0.35, zoom: 1, zt: 1, paused: false, drag: null, visible: true, dirty: true, turnedYaw: null, kmax: 0 }, cur = null, sc = null, rig = false, title = '';
     r.resize(W, H, 1);
     var cam = function () { return { yaw: st.yaw, pitch: st.pitch, persp: 2.4 }; };
@@ -374,16 +385,17 @@
       catch (e) { cap.textContent = 'Could not switch to ' + b + ' (' + String(e && e.message || e).slice(0, 80) + ')'; }
       Array.prototype.forEach.call(bbar.querySelectorAll('button'), function (x) { x.style.fontWeight = x.__b === backend ? '700' : '400'; }); switching = false;
     };
-    (avail || [backend]).forEach(function (b) { var x = document.createElement('button'); x.textContent = b === 'webgpu' ? 'WebGPU' : b === 'webgl2' ? 'WebGL 2' : 'Basic'; x.__b = b; x.style.fontWeight = b === backend ? '700' : '400'; x.addEventListener('click', function () { setBackend(b); }); bbar.appendChild(x); });
+    (avail && avail.length ? avail : [backend]).forEach(function (b) { var x = document.createElement('button'); x.textContent = b === 'webgpu' ? 'WebGPU' : b === 'webgl2' ? 'WebGL 2' : 'Basic'; x.__b = b; x.style.fontWeight = b === backend ? '700' : '400'; x.addEventListener('click', function () { setBackend(b); }); bbar.appendChild(x); });
     entries.forEach(function (e) { var b = document.createElement('button'); b.textContent = e.n.toLocaleString() + (e.lay ? ' (sphere)' : ''); b.__e = e; b.addEventListener('click', function () { load(e); }); bar.appendChild(b); });
     host.addEventListener('pointerdown', function (e) { st.drag = { x: e.clientX, y: e.clientY, moved: false }; host.setPointerCapture(e.pointerId); host.style.cursor = 'grabbing'; });
     host.addEventListener('pointermove', function (e) { if (!st.drag) return; var dx = e.clientX - st.drag.x, dy = e.clientY - st.drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) st.drag.moved = true; st.drag.x = e.clientX; st.drag.y = e.clientY; st.yaw += dx * 0.01; st.pitch = Math.max(-1.4, Math.min(1.4, st.pitch + dy * 0.01)); st.dirty = true; });
     host.addEventListener('pointerup', function () { if (st.drag && !st.drag.moved) st.paused = !st.paused; st.drag = null; host.style.cursor = 'grab'; });
     host.addEventListener('wheel', function (e) { e.preventDefault(); st.zt = Math.max(0.15, Math.min(8, st.zt * Math.exp(-e.deltaY * 0.0015))); st.dirty = true; }, { passive: false });
     if (typeof IntersectionObserver !== 'undefined') new IntersectionObserver(function (en) { st.visible = en[0].isIntersecting; }).observe(host);
-    var lastTs = 0, lastMode = '', recent = [], shown = 0;
+    var lastTs = 0, lastMode = '', recent = [], shown = 0, all = [], prevTs = 0;
     var tick = function (ts) {   /* (stops and frees the card when the page is wiped for a new run) one picture per screen refresh at most; zoom eases toward its target; nothing is drawn while nothing moves */
       if (!host.isConnected) { try { r.destroy(); } catch (e) { /* gone */ } return; }
+      if (prevTs && ts - prevTs < 2000) all.push(ts - prevTs); prevTs = ts; if (all.length > 120) all.shift();
       if (st.visible && !document.hidden && sc) {
         var mode = st.drag ? 'drag' : Math.abs(st.zt - st.zoom) > 0.0005 ? 'zoom' : !st.paused ? 'rotate' : '';
         if (Math.abs(st.zt - st.zoom) > 0.0005) { st.zoom += (st.zt - st.zoom) * 0.25; st.dirty = true; }
@@ -395,7 +407,7 @@
           recent.push(ts - lastTs); if (recent.length > 40) recent.shift();
         } else if (mode !== lastMode) recent = [];
         lastTs = ts; lastMode = mode;
-        if (ts - shown > 500 && recent.length > 5) { shown = ts; var mean = recent.reduce(function (a, b) { return a + b; }, 0) / recent.length; meter.textContent = Math.round(1000 / mean) + ' FPS · slowest ' + Math.round(Math.max.apply(null, recent)) + ' ms · ' + (mode === 'drag' ? 'dragging' : mode === 'zoom' ? 'zooming' : 'turning by itself'); }
+        if (ts - shown > 500 && all.length > 3) { shown = ts; var mean = all.reduce(function (a, b) { return a + b; }, 0) / all.length; meter.textContent = Math.round(1000 / mean) + ' FPS · slowest ' + Math.round(Math.max.apply(null, all)) + ' ms · ' + (mode === 'drag' ? 'dragging' : mode === 'zoom' ? 'zooming' : mode === 'rotate' ? 'turning by itself' : 'still'); all = []; }
       } else { lastTs = 0; lastMode = ''; }
       requestAnimationFrame(tick);
     };

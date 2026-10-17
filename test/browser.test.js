@@ -8,7 +8,8 @@ const path = require('path');
 const which = process.argv[2] || 'chromium', outDir = process.argv[3] || '/tmp';
 const strict = which === 'chromium' || !!process.env.NFM_STRICT;
 const flags = ['--no-sandbox', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist'];
-let fails = 0; const say = (ok, t) => { if (ok === false) fails++; console.log((ok === true ? 'ok   ' : ok === false ? 'FAIL ' : 'note ') + t); };
+const T0 = Date.now(); let tLast = T0;   /* NFM_TIMES=1 puts the seconds since the last line in front of every line: where the time goes */
+let fails = 0; const say = (ok, t) => { if (ok === false) fails++; const now = Date.now(), pre = process.env.NFM_TIMES ? String(((now - tLast) / 1000).toFixed(1)).padStart(5) + 's ' : ''; tLast = now; console.log(pre + (ok === true ? 'ok   ' : ok === false ? 'FAIL ' : 'note ') + t); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function open() {
