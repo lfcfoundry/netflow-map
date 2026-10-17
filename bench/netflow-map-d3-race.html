@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; worker-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <title>Netflow Map against D3</title>
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--ink:#1f2430;--mut:#667;--line:#dcd9d0;--ok:#2f7d4f;--warn:#b26a00;--bad:#b3362f;--acc:#3b6ea5}
@@ -19,7 +19,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 details{margin-top:16px}details pre{white-space:pre-wrap;font-size:.75rem;color:var(--mut)}
 </style></head><body><main>
 <h1>Netflow Map against D3</h1>
-<p class="sub">One button. It races Netflow Map against the open-source D3 library (d3-force and d3-sankey) on the same data, in this browser. It takes a few minutes. Leave this tab in front while it runs; nothing is sent anywhere. Version 2026.10.17.1507.</p>
+<p class="sub">One button. It races Netflow Map against the open-source D3 library (d3-force and d3-sankey) on the same data, in this browser. It takes a few minutes. Leave this tab in front while it runs; nothing is sent anywhere. Version 2026.10.17.1540.</p>
 <div id="top"><div class="bar"><i id="barfill"></i></div><div class="statrow"><div id="status">Ready.</div><div id="clock">⏱ 0:00</div></div></div>
 <p><button class="p" id="go">Run the race</button></p>
 <div id="out"></div>
@@ -2024,7 +2024,7 @@ var NFMEngine = (function () {
 
   /* Tuning knobs for the stress layout (the benchmark page changes them to compare settings; the app never does). */
   var exactNow = false;
-  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, spread: 0.35, exactMax: 20000, exactIters: 0 };   // exactIters 0 = by size
+  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, spread: 0.35, exactMax: 20000, exactIters: 0, multi: 1, multiMin: 4000, multiCoarse: 2000, multiEta: 0.12, multiIters: 6, multiJitter: 0.3 };   // exactIters 0 = by size
 
   /**
    * "Best quality" stress for one connected piece: every pair of items is used, with the hop counts kept in one byte each (k*k bytes,
@@ -2105,13 +2105,51 @@ var NFMEngine = (function () {
     for (r = 0; r < k; r++) { X[2 * rp[r]] = Yx[r]; X[2 * rp[r] + 1] = Yy[r]; }
   }
 
+  /** Shrinks a piece by about half: each item is paired with an unpaired neighbor (the neighbor with the fewest links first, items taken in a random order); pairs become one item. Returns the map from items to merged items and the merged piece's links (compressed rows). */
+  function coarsenCsr(k, off, nbr, rnd) {
+    var map = new Int32Array(k).fill(-1), ord = new Int32Array(k), i, j, kc = 0;
+    for (i = 0; i < k; i++) ord[i] = i;
+    for (i = k - 1; i > 0; i--) { j = (rnd() * (i + 1)) | 0; var t = ord[i]; ord[i] = ord[j]; ord[j] = t; }
+    for (i = 0; i < k; i++) {
+      var u = ord[i]; if (map[u] >= 0) continue;
+      var best = -1, bd = 1e9;
+      for (j = off[u]; j < off[u + 1]; j++) { var w = nbr[j]; if (map[w] < 0 && w !== u) { var dw = off[w + 1] - off[w]; if (dw < bd) { bd = dw; best = w; } } }
+      map[u] = kc; if (best >= 0) map[best] = kc; kc++;
+    }
+    var cnt = new Int32Array(kc + 1), stamp = new Int32Array(kc).fill(-1), members = new Int32Array(k), mo = new Int32Array(kc + 1);
+    for (i = 0; i < k; i++) cnt[map[i] + 1]++;
+    for (i = 0; i < kc; i++) cnt[i + 1] += cnt[i];
+    var fill = cnt.slice(0, kc);
+    for (i = 0; i < k; i++) members[fill[map[i]]++] = i;
+    var off2 = new Int32Array(kc + 1), nb2 = new Int32Array(nbr.length), m = 0;
+    for (var c = 0; c < kc; c++) {
+      for (var q = cnt[c]; q < cnt[c + 1]; q++) {
+        var v = members[q];
+        for (j = off[v]; j < off[v + 1]; j++) { var d = map[nbr[j]]; if (d !== c && stamp[d] !== c) { stamp[d] = c; nb2[m++] = d; } }
+      }
+      off2[c + 1] = m;
+    }
+    return { kc: kc, map: map, off: off2, nbr: nb2.slice(0, m) };
+  }
+  /** The scale (positions times it) at which the page's distances best fit the hop counts times EDGE, from a few breadth-first searches. */
+  function fitScale(X, k, off, nbr, EDGE) {
+    var dist = new Int32Array(k), queue = new Int32Array(k), num = 0, den = 0, ns = Math.min(8, k), s, t;
+    for (s = 0; s < ns; s++) {
+      var src = Math.floor(s * k / ns); dist.fill(-1); dist[src] = 0; queue[0] = src;
+      var h = 0, tl = 1;
+      while (h < tl) { var u = queue[h++]; for (var e = off[u]; e < off[u + 1]; e++) { var w = nbr[e]; if (dist[w] < 0) { dist[w] = dist[u] + 1; queue[tl++] = w; } } }
+      for (t = 0; t < k; t += 3) if (t !== src && dist[t] > 0) { var ex = Math.hypot(X[2 * src] - X[2 * t], X[2 * src + 1] - X[2 * t + 1]) / (dist[t] * EDGE); num += ex; den += ex * ex; }
+    }
+    return den > 0 && num > 0 ? num / den : 1;
+  }
+
   /**
    * Stress layout of one connected piece: X (x,y per item) is moved so that the distance on the page follows the hop count.
    * Hop counts come from every item (small pieces) or from far-apart "pivot" items plus the links and a few near neighbors (big pieces).
    * Pairs live in typed arrays (two Int32 index lists, two Float32 lists), not one small array per pair: about a fifth of the memory and
    * no garbage for the collector.
    */
-  function stressComponent(X, k, members, adj, locArr, root, EDGE, rnd) {
+  function stressComponent(X, k, members, adj, locArr, root, EDGE, rnd, deep) {
     var T = STRESS, full = k <= T.fullMax, i, j, h, u, w;
     var off = new Int32Array(k + 1), m2 = 0;
     for (i = 0; i < k; i++) { m2 += adj[members[i]].length; off[i + 1] = m2; }
@@ -2123,15 +2161,31 @@ var NFMEngine = (function () {
       try { if (stressExact(X, k, off, nbr, EDGE, rnd, T.exactIters || (k <= 12000 ? 3 : 2)) !== false) return; } catch (err) { if (!(err instanceof RangeError)) throw err; }
       X.set(X0);
     }
+    var eta0 = 0, tIters = 0;
+    if (T.multi && (deep ? k > T.multiCoarse : !full && k > T.multiMin)) {   // multilevel start: lay out a half-size copy first (itself multilevel when still big), grow it back, then polish with gentle sweeps
+      var cs = coarsenCsr(k, off, nbr, rnd), Xc = new Float64Array(cs.kc * 2), ci;
+      if (cs.kc < k * 0.95) {
+        var cadj = [], cmem = new Int32Array(cs.kc), cloc = new Int32Array(cs.kc), croot = 0, cbd = -1;
+        for (ci = 0; ci < cs.kc; ci++) { var row = []; for (var cj = cs.off[ci]; cj < cs.off[ci + 1]; cj++) row.push(cs.nbr[cj]); cadj.push(row); cmem[ci] = ci; cloc[ci] = ci; if (row.length > cbd) { cbd = row.length; croot = ci; } }
+        var cseen = new Uint8Array(cs.kc), cord = [croot]; cseen[croot] = 1;
+        for (var co = 0; co < cord.length; co++) cadj[cord[co]].forEach(function (w) { if (!cseen[w]) { cseen[w] = 1; cord.push(w); } });
+        cord.forEach(function (g, r) { var a = r * 2.399963, rad = EDGE * 0.6 * Math.sqrt(r + 1); Xc[g * 2] = rad * Math.cos(a); Xc[g * 2 + 1] = rad * Math.sin(a); });
+        stressComponent(Xc, cs.kc, cmem, cadj, cloc, croot, EDGE, rnd, true);
+        var jit = EDGE * T.multiJitter;
+        for (i = 0; i < k; i++) { var pc2 = cs.map[i]; X[2 * i] = Xc[2 * pc2] + (rnd() - 0.5) * jit; X[2 * i + 1] = Xc[2 * pc2 + 1] + (rnd() - 0.5) * jit; }
+        var sc = fitScale(X, k, off, nbr, EDGE); for (i = 0; i < 2 * k; i++) X[i] *= sc;
+        eta0 = T.multiEta; tIters = T.multiIters; full = false;
+      }
+    }
     // Huge pieces: keep the pairs to a memory budget (about 12 million pairs, 120 MB) by using fewer pivots and fewer near neighbors.
     var near = Math.min(k > 20000 ? T.nearBig : T.near, Math.max(2, Math.floor(4e6 / k)));
     var rootL = locArr[root], nPiv = full ? k : Math.min(k, Math.max(4, Math.min(Math.max(T.pivMin, Math.min(T.pivMax, Math.round(T.pivBudget / k))), Math.floor(8e6 / k))));
     var cap = full ? (k * (k - 1)) / 2 : nPiv * k + m2 / 2 + k * near;
-    var tmax = full ? (k <= 700 ? T.fullIters : k <= 1500 ? 20 : 12) : T.iters;
+    var tmax = full ? (k <= 700 ? T.fullIters : k <= 1500 ? 20 : 12) : (tIters || T.iters);
     var seed = (rnd() * 4294967296) | 0 || 1;   // drawn once, before any try, so a try that gives up leaves the next one the same random order
     var wm = STRESS_WASM.on && !T.reshuffle && k >= STRESS_WASM.minItems ? wasmLoad(STRESS_WASM) : null;
     if (wm) {   // the WebAssembly build of everything below (wasm/stress.c): the same picture to the last digit; any trouble falls through to JavaScript with X untouched
-      try { if (stressWasm(wm, X, k, off, nbr, EDGE, seed, full, nPiv, near, rootL, cap, tmax, T)) { STRESS_WASM.calls++; return; } } catch (err) { STRESS_WASM.error = String(err && err.message || err); }
+      try { if (stressWasm(wm, X, k, off, nbr, EDGE, seed, full, nPiv, near, rootL, cap, tmax, T, eta0)) { STRESS_WASM.calls++; return; } } catch (err) { STRESS_WASM.error = String(err && err.message || err); }
     }
     var OVER = {};
     if (T.reshuffle) return stressJs(false);
@@ -2179,7 +2233,7 @@ var NFMEngine = (function () {
         }
       }
       STRESS_WASM.pairs = cnt;
-      var wMin = 1 / (maxD * maxD), etaMax = 1 / wMin, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
+      var wMin = 1 / (maxD * maxD), etaMax = eta0 || 1 / wMin, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
       var s = seed, t, p, q;
       function nextInt(n) { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) / 4294967296 * n) | 0; }
       if (T.reshuffle) {   // a fresh random order every sweep (an index list is shuffled; the pairs stay where they are)
@@ -2224,7 +2278,7 @@ var NFMEngine = (function () {
     return ptr;
   }
   /** stressComponent's pair building, shuffle and sweeps in WebAssembly. Returns true when X holds the finished picture, false when this piece needs the JavaScript (a hop count over 511, a full pair list); X is written only at the end. */
-  function stressWasm(mod, X, k, off, nbr, EDGE, seed, full, nPiv, near, rootL, cap, tmax, T) {
+  function stressWasm(mod, X, k, off, nbr, EDGE, seed, full, nPiv, near, rootL, cap, tmax, T, eta0) {
     var ex = new WebAssembly.Instance(mod, {}).exports, mem = ex.memory, n = X.length;
     var ptr = wasmLayout(ex, [n * 8, (k + 1) * 4, nbr.length * 4 + 4, cap * 4, cap * 4, cap * 2, k * 4, k * 4 + 4, k * 4, k * 4, k * 4, 8, tmax * 8, 4096, 4096]);
     new Float64Array(mem.buffer, ptr[0], n).set(X); new Int32Array(mem.buffer, ptr[1], k + 1).set(off); new Int32Array(mem.buffer, ptr[2], nbr.length).set(nbr);
@@ -2232,7 +2286,7 @@ var NFMEngine = (function () {
     var cnt = ex.build(k, ptr[1], ptr[2], ptr[3], ptr[4], ptr[5], cap, full ? 0 : 1, nPiv, near, rootL, T.pivW && T.pivW !== 1 ? 1 : 0, ptr[6], ptr[7], ptr[8], ptr[9], ptr[10], ptr[11]);
     if (cnt < 0) return false;
     STRESS_WASM.pairs = cnt;
-    var maxD = new Int32Array(mem.buffer, ptr[11], 1)[0], wMin = 1 / (maxD * maxD), etaMax = 1 / wMin, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
+    var maxD = new Int32Array(mem.buffer, ptr[11], 1)[0], wMin = 1 / (maxD * maxD), etaMax = eta0 || 1 / wMin, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
     ex.shuffle(ptr[3], ptr[4], ptr[5], cnt, seed >>> 0);
     var et = new Float64Array(mem.buffer, ptr[12], tmax); for (var t = 0; t < tmax; t++) et[t] = etaMax * Math.exp(-lambda * t);
     ex.sweeps(ptr[0], ptr[3], ptr[4], ptr[5], ptr[13], ptr[14], cnt, ptr[12], tmax);
@@ -5244,7 +5298,7 @@ var NFMProbe = (function () {
   var E = NFMEngine, C = NFMColumns, GEN = NFMGen, D3 = D3R;
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
-  var params = new URLSearchParams(location.search), QUICK = params.has('quick'), VERSION = '2026.10.17.1507';
+  var params = new URLSearchParams(location.search), QUICK = params.has('quick'), VERSION = '2026.10.17.1540';
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var nextFrame = function () { return new Promise(function (r) { requestAnimationFrame(r); }); };
   var sections = [], running = false, t0Run = 0, clockTimer = 0, total = 3, doneSteps = 0, ctx = { layouts: {} };
@@ -5493,6 +5547,7 @@ var NFMProbe = (function () {
     if (running) return; running = true; $('go').disabled = true; sections = []; $('out').textContent = ''; $('done').style.display = 'none'; doneSteps = 0; ctx = { layouts: {} }; t0Run = now(); setBar();
     clearInterval(clockTimer); clockTimer = setInterval(function () { $('clock').textContent = '⏱ ' + clockText(now() - t0Run); }, 250);
     var steps = [['Network layout', layoutStep], ['Flow layout', flowStep], ['Drawing', drawStep]];
+    var only = params.get('only'); if (only) steps = steps.filter(function (st) { return st[0].toLowerCase().indexOf(only.toLowerCase()) === 0; });   total = steps.length;   /* ?only=network or ?only=flow runs that step alone (drawing needs the network step's layouts) */
     for (var i = 0; i < steps.length; i++) {
       setStatus('Step ' + (i + 1) + ' of ' + steps.length + ': ' + steps[i][0] + '…'); await yieldUI();
       try { await steps[i][1](); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(steps[i][0]); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
