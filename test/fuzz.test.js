@@ -10,6 +10,7 @@ const ok = (name, extra) => { const now = Date.now(), pre = process.env.NFM_TIME
 const bad = (name, e) => { fails++; process.exitCode = 1; console.log('FAIL ' + name + '\n  ' + (e && e.stack || e)); };
 let seed = Number(process.env.NFM_SEED) || 20261015; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647, pick = (a) => a[Math.floor(rnd() * a.length)], ri = (n) => Math.floor(rnd() * n);
 const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
+const QUICK = BUDGET < 20000;   /* the everyday run (test/all.js): same checks, smaller sizes; node test/all.js --full runs them at full size */
 const timeLeft = (share) => Date.now() - T0 < BUDGET * share;
 
 /* what every graph that comes out of an importer must satisfy */
@@ -134,7 +135,7 @@ try {
   try {
     const dense = (n, per) => { const t = []; let s = 7; const r = () => (s = (s * 16807) % 2147483647) / 2147483647; let text = 'source,target\n'; const rows = []; for (let i = 0; i < n; i++) for (let k = 0; k < per; k++) { const j = Math.floor(r() * n); if (j !== i) rows.push('n' + i + ',n' + j); } void t; return text + rows.join('\n'); };
     const lines = [];
-    for (const [n, per] of [[200, 100], [1000, 100], [2000, 100], [1000, 400]]) {
+    for (const [n, per] of (QUICK ? [[200, 100], [1000, 100]] : [[200, 100], [1000, 100], [2000, 100], [1000, 400]])) {
       gc(); const m0 = process.memoryUsage().heapUsed, t1 = Date.now();
       const r = I.importAny([{ name: 'd.csv', text: dense(n, per) }]), tImp = Date.now() - t1;
       assert.equal(r.graph.nodes.length, n); assert.ok(r.graph.edges.length > n * per * 0.9 * 0.6, 'links were dropped: ' + r.graph.edges.length);
@@ -148,9 +149,9 @@ try {
     const rs = I.importAny([{ name: 's.csv', text: star }]);
     assert.equal(rs.graph.nodes.length, 150001); assert.equal(rs.graph.edges.length, 150000); checks++;
     ok('one item with 150,000 links read whole', rs.graph.nodes.length.toLocaleString('en-US') + ' items');
-    const capped = I.importAny([{ name: 'c.csv', text: dense(1500, 700) }], { maxEdges: 800000 });
-    assert.ok(capped.graph.edges.length <= 800000); assert.ok(capped.report.notes.some((q) => /very large/.test(q)) === (capped.graph.edges.length >= 800000)); checks++;
-    ok('the link cap (800,000) is reported in plain words when reached', capped.graph.edges.length.toLocaleString('en-US') + ' links kept');
+    const CAP = QUICK ? 100000 : 800000, capped = I.importAny([{ name: 'c.csv', text: QUICK ? dense(500, 400) : dense(1500, 700) }], { maxEdges: CAP });
+    assert.ok(capped.graph.edges.length <= CAP); assert.ok(capped.report.notes.some((q) => /very large/.test(q)) === (capped.graph.edges.length >= CAP)); checks++;
+    ok('the link cap (' + CAP.toLocaleString('en-US') + ') is reported in plain words when reached', capped.graph.edges.length.toLocaleString('en-US') + ' links kept');
   } catch (e) { bad('dense links', e); }
 
   /* ---------- 8. leaks: the same work over and over must not keep growing ---------- */
@@ -162,11 +163,12 @@ try {
       const zip = Z.makeZip([{ name: 'e.csv', data: csv }, { name: 'x.xlsx', data: book }]);
       const lap = async () => { const r = await U.expand(new Uint8Array(zip), 'z.zip'); const g = I.importAny(r.files).graph; E.build(g, { view: 'network' }); E.build({ start: g.nodes[0].id, nodes: g.nodes.slice(0, 40), edges: g.edges.filter((e) => g.nodes.slice(0, 40).some((q) => q.id === e.from) && g.nodes.slice(0, 40).some((q) => q.id === e.to)) }, { view: 'flow' }); };
       for (let i = 0; i < 5; i++) await lap();
+      const ROUNDS = QUICK ? 5 : 12;
       gc(); const base = process.memoryUsage(), samples = [];
-      for (let round = 0; round < 4; round++) { for (let i = 0; i < 12; i++) await lap(); gc(); samples.push(process.memoryUsage().heapUsed); }
-      const growth = samples[3] - samples[0], total = 48 * 1;
+      for (let round = 0; round < 4; round++) { for (let i = 0; i < ROUNDS; i++) await lap(); gc(); samples.push(process.memoryUsage().heapUsed); }
+      const growth = samples[3] - samples[0], total = 4 * ROUNDS;
       assert.ok(growth < 8 * 1048576, 'heap grew by ' + mb(growth) + ' over ' + total + ' more rounds');
-      ok('48 rounds of unzip, read and two layouts: no leak', `heap ${mb(base.heapUsed)} -> ${mb(samples[3])}; external buffers ${mb(base.arrayBuffers)} -> ${mb(process.memoryUsage().arrayBuffers)}`); checks++;
+      ok(4 * ROUNDS + ' rounds of unzip, read and two layouts: no leak', `heap ${mb(base.heapUsed)} -> ${mb(samples[3])}; external buffers ${mb(base.arrayBuffers)} -> ${mb(process.memoryUsage().arrayBuffers)}`); checks++;
       // hostile zips repeated: the bomb path frees what it started
       const bomb = Z.makeZip([{ name: 'a.csv', raw: zlib.deflateRawSync(Buffer.alloc(120e6)), usize: 100, crc: 0, data: 'x' }, { name: 'b.csv', data: csv }]);
       for (let i = 0; i < 3; i++) await U.expand(new Uint8Array(bomb), 'b.zip');

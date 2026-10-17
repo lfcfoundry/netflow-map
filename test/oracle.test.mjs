@@ -33,7 +33,7 @@ for (let seed = 1; seed <= 40; seed++) {
   if (generalized) { gen++; chokeOk++; } else if (same) chokeOk++; else { fails++; console.log(`seed ${seed}: choke points differ`, [...oracleChoke].join(','), '|', [...myChoke].join(',')); }
   let worst = 0; ids.forEach((id) => { const a = imp.traffic[id], b = mine.traffic[P.index.get(id)]; if (a !== undefined && b !== undefined) worst = Math.max(worst, Math.abs(a - b)); });
   if (worst < 1e-6) trafficOk++; else { fails++; console.log(`seed ${seed}: traffic differs by up to ${worst.toExponential(2)}`); }
-  const exact = E.flowExact(P, mine, {}), sim = SM.playtest(project, { runs: 20000, mode: 'random' });
+  const exact = E.flowExact(P, mine, {}), sim = SM.playtest(project, { runs: process.env.NFM_FULL ? 20000 : 8000, mode: 'random' });
   const oc = sim.outcome, tot = (oc.good + oc.bad + (oc.neutral || 0) + (oc.stuck || 0)) || 1;
   const d = Math.abs(oc.good / tot - exact.outcome.good); oddsWorst = Math.max(oddsWorst, d);
   if (d > 0.02) { fails++; console.log(`seed ${seed}: good-ending odds exact ${exact.outcome.good.toFixed(3)} vs oracle sim ${(oc.good / tot).toFixed(3)}`); }
