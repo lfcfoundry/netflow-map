@@ -41,4 +41,26 @@ t('broken or blocked WebAssembly: JavaScript takes over with the same picture', 
   ok(diff(want, got2) === 0, 'no-WebAssembly picture differs');
   W.mod = keep.mod; W.tried = keep.tried; W.b64 = keep.b64; W.error = '';
 });
+function sampledStress(g, L) {   /* mean of (hops - scale*distance)^2 / hops^2 over 12 breadth-first sources: lower is truer */
+  const idx = new Map(g.nodes.map((n, i) => [n.id, i])), adj = g.nodes.map(() => []), pos = new Map(L.nodes.map((n) => [n.nodeId || n.id, [n.cx, n.cy]]));
+  g.edges.forEach((e) => { const a = idx.get(e.from), b = idx.get(e.to); if (a !== undefined && b !== undefined && a !== b) { adj[a].push(b); adj[b].push(a); } });
+  const k = g.nodes.length, pairs = []; let num = 0, den = 0;
+  for (let s = 0; s < 12; s++) {
+    const src = Math.floor(s * k / 12), d = new Int32Array(k).fill(-1), q = [src]; d[src] = 0;
+    for (let h = 0; h < q.length; h++) for (const w of adj[q[h]]) if (d[w] < 0) { d[w] = d[q[h]] + 1; q.push(w); }
+    const p = pos.get(g.nodes[src].id);
+    for (let t = 0; t < k; t += 5) if (d[t] > 0) { const r = pos.get(g.nodes[t].id), e = Math.hypot(p[0] - r[0], p[1] - r[1]); pairs.push([d[t], e]); num += e / d[t]; den += e * e / (d[t] * d[t]); }
+  }
+  const sc = num / den; let st = 0; pairs.forEach(([h, e]) => { st += Math.pow(h - sc * e, 2) / (h * h); });
+  return st / pairs.length;
+}
+t('multilevel start: big pieces come out truer, the same every run, and the option can be switched off', () => {
+  const g = GEN.graph('moderate', 6000, 5), T = E.stressTuning, keep = T.multi;
+  T.multi = 0; const off = build(derive(g)); T.multi = 1; const on = build(derive(g)), again = build(derive(g)); T.multi = keep;
+  ok(diff(on, again) === 0, 'two runs differ');
+  const a = sampledStress(g, off), b = sampledStress(g, on); ok(b < a * 0.95, 'multilevel truth ' + b.toFixed(3) + ' is not clearly better than ' + a.toFixed(3));
+  T.multi = 1; const small = GEN.graph('moderate', 1200, 5); T.multi = 0; const s0 = build(derive(small)); T.multi = 1; const s1 = build(derive(small)); T.multi = keep;
+  ok(diff(s0, s1) === 0, 'a piece under the size limit changed');
+  return 'truth ' + a.toFixed(3) + ' -> ' + b.toFixed(3) + ' (lower is truer)';
+});
 console.log(bad ? bad + ' FAILED' : 'all passed'); process.exit(bad ? 1 : 0);
