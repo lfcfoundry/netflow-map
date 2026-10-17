@@ -1259,6 +1259,64 @@ It applies up to 4,000 trials; above that the old method (a random sample of at 
 
 Not measured: 100,000-item Force (it takes about a minute in JavaScript), and any phone.
 
+## 22. WebAssembly for the Distances (stress) layout and the push-apart, and smaller pair lists (2026-10-17, build 2026.10.17.1424)
+
+The Distances arrangement (and Closeness, which starts from it) builds a list of item pairs, shuffles it once, sweeps it, then pushes overlapping items apart. Two changes, one table below.
+
+1. **Hop codes.** Each pair used to take 16 bytes (two item numbers, a Float32 distance, a Float32 weight). It now takes 10: two item numbers and one Uint16 code (the hop count, plus 512 for a pivot pair); distance and weight come from two 1,024-entry tables rounded to float32 exactly as before, so the picture does not change. A piece with a hop count over 511 keeps the old 16-byte lists. Pair memory, **lower is better**: 10,000 items 20.2 to 12.6 MB, 30,000 items 42.5 to 26.6 MB, 3,000 items (every pair) 68.6 to 42.9 MB: **37.5% less** in every row.
+2. **WebAssembly pipeline** (`wasm/stress.c`, 5,616 bytes): pair building, the one-time shuffle, all sweeps and the grid push-apart run in WebAssembly from 150 items up; the JavaScript stays the fallback (no WebAssembly, blocked by the page, a hop count over 511, any error). The settle step after the push-apart stays in JavaScript.
+
+Milliseconds for the whole `build()` of a Distances arrangement, **lower is better**; "times faster" is previous build divided by WebAssembly, **higher is better**. The largest difference in any position between the three variants was 0 in every row, so the pictures are identical. Each variant ran in a fresh page (a page that has run one variant has trained the compiler on it). The previous build is commit 64c2585.
+
+**Node 22.22.0** (median of 3 runs, a fresh page for each of the three variants)
+
+| items | previous build ms | new JavaScript ms | WebAssembly ms | WebAssembly vs previous (times faster, higher is better) | largest position difference |
+|---|---|---|---|---|---|
+| 3,000 moderate | 1,477 | 1,279 | 916 | 1.61 | 0 |
+| 10,000 moderate | 1,170 | 1,101 | 928 | 1.26 | 0 |
+| 30,000 moderate | 3,842 | 3,914 | 3,139 | 1.22 | 0 |
+| 10,000 complex | 1,305 | 1,053 | 908 | 1.44 | 0 |
+
+**ungoogled-chromium 155.0.8059.39** (median of 3 runs, a fresh page for each of the three variants)
+
+| items | previous build ms | new JavaScript ms | WebAssembly ms | WebAssembly vs previous (times faster, higher is better) | largest position difference |
+|---|---|---|---|---|---|
+| 3,000 moderate | 1,752 | 1,324 | 798 | 2.20 | 0 |
+| 10,000 moderate | 1,233 | 1,148 | 841 | 1.47 | 0 |
+| 30,000 moderate | 3,754 | 3,809 | 2,696 | 1.39 | 0 |
+| 10,000 complex | 1,202 | 1,106 | 854 | 1.41 | 0 |
+
+**Firefox 158.0** (median of 3 runs, a fresh page for each of the three variants)
+
+| items | previous build ms | new JavaScript ms | WebAssembly ms | WebAssembly vs previous (times faster, higher is better) | largest position difference |
+|---|---|---|---|---|---|
+| 3,000 moderate | 1,521 | 1,439 | 915 | 1.66 | 0 |
+| 10,000 moderate | 1,290 | 1,423 | 844 | 1.53 | 0 |
+| 30,000 moderate | 4,138 | 4,660 | 2,857 | 1.45 | 0 |
+| 10,000 complex | 1,421 | 1,515 | 961 | 1.48 | 0 |
+
+**WebKitGTK 2.52.6** (median of 3 runs, a fresh page for each of the three variants)
+
+| items | previous build ms | new JavaScript ms | WebAssembly ms | WebAssembly vs previous (times faster, higher is better) | largest position difference |
+|---|---|---|---|---|---|
+| 3,000 moderate | 2,088 | 849 | 1,046 | 2.00 | 0 |
+| 10,000 moderate | 1,029 | 957 | 1,003 | 1.03 | 0 |
+| 30,000 moderate | 4,005 | 3,206 | 3,019 | 1.33 | 0 |
+| 10,000 complex | 1,615 | 990 | 1,025 | 1.58 | 0 |
+
+**GNOME Web 46.5** (median of 3 runs, a fresh page for each of the three variants)
+
+| items | previous build ms | new JavaScript ms | WebAssembly ms | WebAssembly vs previous (times faster, higher is better) | largest position difference |
+|---|---|---|---|---|---|
+| 3,000 moderate | 1,871 | 1,452 | 983 | 1.90 | 0 |
+| 10,000 moderate | 1,102 | 1,301 | 887 | 1.24 | 0 |
+| 30,000 moderate | 4,420 | 3,134 | 3,180 | 1.39 | 0 |
+| 10,000 complex | 1,494 | 1,121 | 999 | 1.50 | 0 |
+
+Plain takeaway: 1.2 to 2.2 times faster in every engine except one WebKitGTK row (1.03 at 10,000 items); WebKitGTK was the engine whose timings varied most from run to run. Its new JavaScript alone is already faster than the previous build at 3,000 items (849 against 2,088 ms), because the pair lists are 37.5% smaller. Gains are limited because the work is memory-bound: before this change the profile was sweeps about 30%, push-apart 19 to 34%, pair building 12 to 18%; with WebAssembly about 770 of 819 ms at 10,000 items is spent inside the WebAssembly calls. Not measured: 100,000 items (minutes), phones.
+
+**Other small changes in the same build.** The report page base64-encodes its GIF with `Uint8Array.toBase64()` where the browser has it (4 MB of bytes: 28.8, 28, 53 and 60 ms with the old `btoa` loop in Chromium 155, Firefox 158, WebKitGTK 2.52.6 and GNOME Web 46.5, and 2.5, 4, 3 and 1 ms with the new call; identical text; a 121 KB GIF saves under 1 ms). Embedded WebAssembly bytes are read with `Uint8Array.fromBase64()` when present. Headings use `text-wrap: balance` and paragraphs `text-wrap: pretty`: on 36 sample titles at 280, 360 and 480 px wide the lonely last words went from 11, 9 and 12 to 2 to 3, 0 and 0 with `balance` (Chromium 155, Firefox 158, WebKitGTK 2.52.6, GNOME Web 46.5; `pretty` is ignored by Firefox 158). The prototype measurements behind these are in the project's shared files at `tech-ideas/PROTOTYPE-RESULTS.md`. `ArrayBuffer.transfer()` was measured (200 MB: about 150 ms with a copy, 0 ms transferred) but this page already transfers its buffers, so there is no call site to change.
+
 ## Reproduce
 
 ```
@@ -1270,6 +1328,7 @@ node run.js chromium compare
 node run.js chromium forceOurs                       # or: firefox; our Force arrangement alone (section 18)
 node run.js chromium cold                       # or: firefox; first run against later runs (section 19)
 node force-wasm.js chromium                           # or: firefox, webkit, epiphany, node; Force rounds in JavaScript against WebAssembly (section 21)
+node stress-wasm.js chromium                          # or: firefox, webkit, epiphany, node; Distances layout: previous build, new JavaScript, WebAssembly (section 22; NFM_OLD_REV names the previous commit)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)
 node ../test/force3d.test.js                      # 3D force: hop error at 3,000 items, not flat, robust cases (section 20)
 TESTER_ONLY=3d TESTER_PLAN3D=1000,3000 node tester/run-local.js chromium   # the tester's 3D step alone (section 20)

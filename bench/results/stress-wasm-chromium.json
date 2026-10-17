@@ -1,0 +1,153 @@
+{
+ "version": "chromium 155.0.8059.39",
+ "rev": "HEAD",
+ "reps": 3,
+ "out": {
+  "before": [
+   {
+    "n": 3000,
+    "kind": "moderate",
+    "ms": 1752,
+    "best": 1533,
+    "pairs": 0,
+    "pairMB": null,
+    "ran": null
+   },
+   {
+    "n": 10000,
+    "kind": "moderate",
+    "ms": 1233,
+    "best": 1226,
+    "pairs": 0,
+    "pairMB": null,
+    "ran": null
+   },
+   {
+    "n": 30000,
+    "kind": "moderate",
+    "ms": 3754,
+    "best": 3677,
+    "pairs": 0,
+    "pairMB": null,
+    "ran": null
+   },
+   {
+    "n": 10000,
+    "kind": "complex",
+    "ms": 1202,
+    "best": 1195,
+    "pairs": 0,
+    "pairMB": null,
+    "ran": null
+   }
+  ],
+  "js": [
+   {
+    "n": 3000,
+    "kind": "moderate",
+    "ms": 1324,
+    "best": 1215,
+    "pairs": 4498500,
+    "pairMB": 42.9,
+    "ran": {
+     "stress": 0,
+     "push": 0,
+     "error": ""
+    }
+   },
+   {
+    "n": 10000,
+    "kind": "moderate",
+    "ms": 1148,
+    "best": 1088,
+    "pairs": 1324722,
+    "pairMB": 12.6,
+    "ran": {
+     "stress": 0,
+     "push": 0,
+     "error": ""
+    }
+   },
+   {
+    "n": 30000,
+    "kind": "moderate",
+    "ms": 3809,
+    "best": 3538,
+    "pairs": 2788166,
+    "pairMB": 26.6,
+    "ran": {
+     "stress": 0,
+     "push": 0,
+     "error": ""
+    }
+   },
+   {
+    "n": 10000,
+    "kind": "complex",
+    "ms": 1106,
+    "best": 1097,
+    "pairs": 1334057,
+    "pairMB": 12.7,
+    "ran": {
+     "stress": 0,
+     "push": 0,
+     "error": ""
+    }
+   }
+  ],
+  "wasm": [
+   {
+    "n": 3000,
+    "kind": "moderate",
+    "ms": 798,
+    "best": 785,
+    "pairs": 4498500,
+    "pairMB": 42.9,
+    "ran": {
+     "stress": 3,
+     "push": 6,
+     "error": ""
+    }
+   },
+   {
+    "n": 10000,
+    "kind": "moderate",
+    "ms": 841,
+    "best": 824,
+    "pairs": 1324722,
+    "pairMB": 12.6,
+    "ran": {
+     "stress": 6,
+     "push": 30,
+     "error": ""
+    }
+   },
+   {
+    "n": 30000,
+    "kind": "moderate",
+    "ms": 2696,
+    "best": 2626,
+    "pairs": 2788166,
+    "pairMB": 26.6,
+    "ran": {
+     "stress": 9,
+     "push": 63,
+     "error": ""
+    }
+   },
+   {
+    "n": 10000,
+    "kind": "complex",
+    "ms": 854,
+    "best": 827,
+    "pairs": 1334057,
+    "pairMB": 12.7,
+    "ran": {
+     "stress": 12,
+     "push": 87,
+     "error": ""
+    }
+   }
+  ]
+ }
+}
