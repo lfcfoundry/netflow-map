@@ -231,6 +231,7 @@ var NFMProbe = (function () {
         var ways = [];
         for (var q = 0; q < SPLIT.length; q++) {
           if ((SPLIT[q][2].glOnly && n === 'webgpu') || (SPLIT[q][2].gpuOnly && n !== 'webgpu')) continue;
+          if (opts.onWay) opts.onWay(SPLIT[q][1]);   /* lets the tester's caption name the part being timed */
           var res = await runWay(SPLIT[q][2]);
           if (!res) { r.destroy(); return gone({ backend: n, skipped: 'the page was in the background' }); }
           res.id = SPLIT[q][0]; res.label = SPLIT[q][1]; ways.push(res);
@@ -241,6 +242,7 @@ var NFMProbe = (function () {
         for (var rd = 0; rd < 2; rd++) {
           for (var q2 = 0; q2 < SPLIT.length; q2++) {
             var id = SPLIT[q2][0]; if (!rounds[id]) continue;
+            if (opts.onWay) opts.onWay(SPLIT[q2][1] + ' (repeat)');
             var again = await runWay(SPLIT[q2][2]);
             if (!again) { r.destroy(); return gone({ backend: n, skipped: 'the page was in the background' }); }
             again.id = id; again.label = SPLIT[q2][1]; rounds[id].push(again);

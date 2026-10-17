@@ -18,9 +18,11 @@ table{border-collapse:collapse;width:100%;font-size:.88rem;font-variant-numeric:
 .tw{overflow-x:auto}
 button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:8px;cursor:pointer;margin:4px 8px 4px 0}button.p{background:var(--acc);color:#fff;border-color:var(--acc)}button:disabled{opacity:.5;cursor:default}
 .note{color:var(--mut);font-size:.9rem}
+.gpuline{margin:-8px 0 14px;padding:8px 12px;border:1px solid var(--line);border-left-width:4px;border-radius:8px;background:var(--card);font-weight:600}.gpuline.ok{border-left-color:var(--ok)}.gpuline.warn{border-left-color:var(--warn)}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
 <p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version __VERSION__.</p>
+<p class="gpuline" id="gpuline">Checking for WebGPU…</p>
 <div id="top"><div class="bar"><i id="barfill"></i></div><div class="statrow"><div id="status">Starting…</div><div id="clock" title="Time since the run started">⏱ 0:00</div><div id="fpsnow" title="How many pictures per second this page is really drawing right now (the page's own screen refresh rate)">— FPS</div></div></div>
 <div id="out"></div>
 <div id="show" class="card" style="display:none"><h2>The 3D map, turning</h2></div>
