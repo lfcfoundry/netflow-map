@@ -20,7 +20,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.17.0141.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.17.0209.</p>
 <div id="top"><div class="bar"><i id="barfill"></i></div><div class="statrow"><div id="status">Starting…</div><div id="clock" title="Time since the run started">⏱ 0:00</div><div id="fpsnow" title="How many pictures per second this page is really drawing right now (the page's own screen refresh rate)">— FPS</div></div></div>
 <div id="out"></div>
 <div id="show" class="card" style="display:none"><h2>The 3D map, turning</h2></div>
@@ -7278,7 +7278,7 @@ var NFMProbe = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.17.0141', EDGE = 130;
+  var VERSION = '2026.10.17.0209', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -7673,7 +7673,9 @@ var NFMProbe = (function () {
       r.draw(v); st.dirty = false;
     };
     var load = async function (e) {
-      cur = e; sc = null; title = '3D ' + (e.lay ? 'sphere' : 'force') + ', ' + e.n.toLocaleString() + ' items'; cap.textContent = title + ': building it…'; await yieldUI();
+      if (cur && cur !== e) cur.L3 = null;   /* only the map on show stays in memory */
+      sc = null; if (!e.L3 && e.rebuild) { cap.textContent = e.n.toLocaleString() + ' items: building it…'; await yieldUI(); e.L3 = e.rebuild(); }
+      cur = e; title = '3D ' + (e.lay ? 'sphere' : 'force') + ', ' + e.n.toLocaleString() + ' items'; cap.textContent = title + ': building it…'; await yieldUI();
       var s2 = NFMScene.make(e.L3, { plan: {}, rig: true, colorBy: 'group', theme: dark, cam: cam() }); r.setScene(s2); rig = !!(s2.turnTo && r.rigPrepare); if (rig) { r.rigPrepare(); for (var wi = 0; wi < 40 && !r.rigOK; wi++) await new Promise(function (ok) { setTimeout(ok, 25); }); if (r.rigOK && r.rigWarm) { r.rigWarm(); try { await r.flush(); } catch (e) { /* none */ } } }   /* the app does this a moment after a map appears: the map goes onto the card now, not during the first turn */
       sc = s2; st.turnedYaw = null; st.kmax = 0; st.zoom = st.zt = 1; st.dirty = true;
       cap.textContent = title + (rig ? ' (turning and zooming only send the new view to the graphics card)' : ' (this one cannot ride on the card, so it is slower)') + ' · drag to turn, wheel to zoom, click to pause. Try each for a few seconds, then press Download again: your own FPS numbers go into the results file.';
@@ -7706,7 +7708,7 @@ var NFMProbe = (function () {
         var d0 = performance.now(); if (st.dirty) draw(); var dms = performance.now() - d0;
         if (mode && mode === lastMode && lastTs && ts - lastTs < 2000) {   /* the time between two screen refreshes while the same thing was going on */
           var key = cur.n + '|' + (cur.lay ? 'sphere' : 'force') + '|' + backend, rec = hands[key] || (hands[key] = { n: cur.n, backend: backend }), mm = rec[mode] || (rec[mode] = { gaps: [], draw: [] });
-          mm.gaps.push(ts - lastTs); mm.draw.push(dms); if (mm.gaps.length > 4000) { mm.gaps.shift(); mm.draw.shift(); }
+          mm.gaps.push(ts - lastTs); mm.draw.push(dms); if (ts - lastTs > 250) (mm.stalls || (mm.stalls = [])).push({ ms: Math.round(ts - lastTs), zoom: Math.round(st.zoom * 100) / 100 }); if (mm.gaps.length > 4000) { mm.gaps.shift(); mm.draw.shift(); }
           recent.push(ts - lastTs); if (recent.length > 40) recent.shift();
         } else if (mode !== lastMode) recent = [];
         lastTs = ts; lastMode = mode;
@@ -7734,7 +7736,7 @@ var NFMProbe = (function () {
         s.scatter(X, P.k, kinds[ki][1] + ', ' + n.toLocaleString() + ' items, seen from the front (built in ' + fmtMs(ms) + ')', 3);
         s.rows.push([n.toLocaleString(), kinds[ki][1], fmtMs(ms), r3(truth(P, X, 3))]);
       } catch (e) { s.rows.push([n.toLocaleString(), kinds[ki][1], 'failed', String(e && e.message || e).slice(0, 60)]); g = P = dg = L3 = X = pm = null; continue; }
-      if (ar === 'force3d' || (n > 30000 && ar === 'sphere')) scenes.push({ n: n, L3: L3, lay: ar === 'sphere' ? ', sphere layout' : '' }); if (!previewL && ar === 'force3d') previewL = { L3: L3, n: n };
+      if (ar === 'force3d' || (n > 30000 && ar === 'sphere')) scenes.push({ n: n, L3: L3, lay: ar === 'sphere' ? ', sphere layout' : '', rebuild: (function (n0, ar0) { return function () { var g0 = graphFor('moderate', n0), d0 = C.derive(JSON.parse(JSON.stringify(g0))); return E.build(d0, { view: 'network', arrange: ar0, colorBy: 'group' }); }; })(n, ar) }); if (!previewL && ar === 'force3d') previewL = { L3: L3, n: n };
       await yieldUI();
     }
     /* turning speed with each usable way of drawing, on the force layout of each size */
@@ -7760,7 +7762,7 @@ var NFMProbe = (function () {
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', zooming in and out on the card', 'skipped', '-', String(tz.skipped).slice(0, 60)]);
     }
     s.rows.push(['', '', '', '']); s.rows.push(['Turning speed', 'FPS', 'New angle (ms)', 'Draw (ms)']); turnRows.forEach(function (r) { s.rows.push(r); });
-    if (scenes.length) { $('show').style.display = ''; await addPreview($('show'), scenes, params.get('preview') || (names.indexOf('webgl2') >= 0 ? 'webgl2' : names[names.length - 1]), names.filter(function (x) { return x !== 'canvas2d'; })); }
+    ctx.previewArgs = scenes.length ? [scenes, params.get('preview') || (names.indexOf('webgl2') >= 0 ? 'webgl2' : names[names.length - 1]), names.filter(function (x) { return x !== 'canvas2d'; })] : null;   /* the turning picture starts after every test: running beside them it drew all through the tests and added pauses to them */
     s.notes.push('Hop error in 3D uses the same measure as the distance error but with three dimensions; it is lower than a flat map would give and is not colored, because the bands are for flat maps. The sphere and stacked planes are shapes first, so their hop error is higher by design. "New angle" is the time to work out the picture from the new viewing angle (done on the main thread, once per picture); "Draw" is the time to hand it to the screen.');
     warmNotes.forEach(function (w) { s.notes.push(w); });
     s.notes.push('"Math on the card" is how the app turns a big 3D map: the items and links are put on the graphics card once, and each picture is only a new angle, so "New angle" is just the paint order and the few names that can be seen. "Every angle worked out here" is the older way, kept for comparison.');
@@ -7781,6 +7783,7 @@ var NFMProbe = (function () {
     sp.notes.push('"Typical picture" is the time from one screen refresh to the next; the slowest 1 in 20 and the slowest show whether the speed is steady or has pauses. "Angle math" is the work on the main thread for each new angle; "Card per picture" is the time the graphics card needs for one picture, found by timing a batch of 20 and a batch of 120 pictures sent back to back and dividing the difference by 100 (so the fixed waits browsers add do not count). The browser rounds its clock to about a millisecond, so small numbers are rough. Links alone, items alone and names alone show which part costs the most.');
     if (!splitSays.length) { sp.finish('warn', 'Could not take the turning apart (no usable way of drawing, or the page was in the background).'); }
     else sp.finish(splitLevel, splitSays.join(' '));
+    scenes.forEach(function (x) { x.L3 = null; }); previewL = null; Lx = Lb = L3 = big = null;   /* the turning picture rebuilds the one it shows; hundreds of megabytes of finished maps are let go before it starts */
     return { level: level, say: say };
   } });
 
@@ -7804,7 +7807,7 @@ var NFMProbe = (function () {
     Object.keys(hands).forEach(function (k) { ['drag', 'zoom', 'rotate'].forEach(function (m) {
       var h = hands[k][m]; if (!h || !h.gaps.length) return; var b = by[hands[k].backend] || (by[hands[k].backend] = { frames: 0, f250: 0, f1000: 0, worst: 0, where: [] });
       h.gaps.forEach(function (g) { b.frames++; if (g > 250) b.f250++; if (g > 1000) b.f1000++; if (g > b.worst) b.worst = g; });
-      var w = Math.max.apply(null, h.gaps); if (w > 250) b.where.push(hands[k].n.toLocaleString() + ' items, ' + ({ drag: 'dragging', zoom: 'scrolling to zoom', rotate: 'turning by itself' })[m] + ' (' + Math.round(w) + ' ms)');
+      var w = Math.max.apply(null, h.gaps); if (w > 250) { var worstSt = (h.stalls || []).slice().sort(function (x, y) { return y.ms - x.ms; })[0]; b.where.push(hands[k].n.toLocaleString() + ' items, ' + ({ drag: 'dragging', zoom: 'scrolling to zoom', rotate: 'turning by itself' })[m] + ' (' + Math.round(w) + ' ms' + (worstSt ? ', zoom x' + worstSt.zoom : '') + ')'); }
     }); });
     Object.keys(by).forEach(function (be) { var b = by[be]; out.data[be] = { frames: b.frames, over250: b.f250, over1000: b.f1000, worstMs: Math.round(b.worst) };
       out.lines.push((nm[be] || be) + ': ' + b.frames.toLocaleString() + ' pictures watched, ' + (b.f250 ? b.f250 + ' freezes over a quarter second (' + b.f1000 + ' over a second, worst ' + (b.worst / 1000).toFixed(1) + ' s) at ' + b.where.slice(0, 4).join('; ') : 'no freeze over a quarter second') + '.'); });
@@ -7840,6 +7843,7 @@ var NFMProbe = (function () {
       try { await STEPS[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(STEPS[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
       doneSteps = i + 1; setBar();
     }
+    if (ctx.previewArgs) { setStatus('Starting the turning picture…'); await yieldUI(); $('show').style.display = ''; try { await addPreview($('show'), ctx.previewArgs[0], ctx.previewArgs[1], ctx.previewArgs[2]); } catch (e) { /* the picture is a bonus */ } ctx.previewArgs = null; }
     await steadyProbe('the end'); var el = now() - t0Run; stopClock(); setStatus('Finished in ' + fmtMs(el) + '.'); offerResults(buildMd(el), el); startPreviews(); running = false;
   }
   $('again').onclick = function () { runAll(); };
