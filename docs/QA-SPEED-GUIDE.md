@@ -29,6 +29,18 @@ Written in plain words: each technique says what it is, why it works, what it co
 
 Same checks, same pass criteria. Checks only got cheaper to run, not weaker.
 
+**Second round, 2026-10-17 evening** (container with 4 cores; seconds, lower is better; `NFM_TIMES=1` totals):
+
+| Test | Before | After | What changed |
+|---|---:|---:|---|
+| All Node tests (`node test/all.js`) | 27.2 s | about 17 s (16.8 to 17.8 over nine runs) | The fuzz test's everyday run uses smaller sizes (4 s of random cases, two of four dense-link sizes, a 100,000-link cap check instead of 800,000, 20 leak rounds instead of 48); the oracle test plays 8,000 simulated runs per story instead of 20,000 (worst gap to the exact answer 0.0088 of the 0.02 allowed; 20,000 gave 0.0070); longest tests start first so none starts last. `--full` restores every size. |
+| Browser test, Chromium 155.0.8059.39 | 48.9 s | 41.2 s | Fixed pauses replaced by waiting for the real condition (file import, timeline play, undo, example load). Fixed waits 18.3 s to 9.1 s. 137 of 137 checks. |
+| Browser test, Firefox 158.0 | 40.9 s | 34.6 s | Same. 117 of 117 checks. |
+| Browser test, WebKitGTK 2.52.6 | not measured before | 39.0 s | 126 of 126 checks. |
+| Browser test, GNOME Web (Epiphany) 46.5 | not measured before | 50.1 s | 126 of 126 checks. |
+
+Where the rest of the browser time goes: `NFM_TIMES=1` now also prints the eight source lines with the most fixed waiting (`by line: 685:900 ...`, line then milliseconds), so the next cut starts from a list. Also: GNOME Web sometimes answers "session not created" right after a previous run was killed; wait 20 s and run it again.
+
 ---
 
 ## 2. Principles (the reasoning behind every technique)
@@ -126,7 +138,7 @@ Different checks need different amounts of data.
 - **Lane count = min(cores, 4).** More lanes than cores makes every test slower and noisier.
 - **Separate processes**, not threads, so one test's memory or crash cannot affect another.
 - **Pass `--expose-gc`** where a test measures memory so it can force a clean-up before measuring.
-- **Time budget on random tests.** The fuzz test gets 10 s in the normal run (`node test/all.js`) and 90 s in the full run (`--full`).
+- **Time budget on random tests.** The fuzz test gets 4 s (and smaller sizes) in the normal run (`node test/all.js`) and 90 s in the full run (`--full`).
 - **Exit code** is non-zero if anything failed so scripts and hooks can rely on it.
 
 **Estimate:** on a 16-thread laptop, 4 lanes would be the cap here, and a 2-core cloud container was already saturated at 2.
