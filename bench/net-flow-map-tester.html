@@ -20,7 +20,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.17.0236.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.17.0304.</p>
 <div id="top"><div class="bar"><i id="barfill"></i></div><div class="statrow"><div id="status">Starting…</div><div id="clock" title="Time since the run started">⏱ 0:00</div><div id="fpsnow" title="How many pictures per second this page is really drawing right now (the page's own screen refresh rate)">— FPS</div></div></div>
 <div id="out"></div>
 <div id="show" class="card" style="display:none"><h2>The 3D map, turning</h2></div>
@@ -7278,7 +7278,7 @@ var NFMProbe = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.17.0236', EDGE = 130;
+  var VERSION = '2026.10.17.0304', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -7327,7 +7327,7 @@ var NFMProbe = (function () {
     var s = { title: title, verdict: '', level: 'ok', head: null, rows: [], notes: [], card: card };
     s.finish = function (level, verdict) {
       s.level = level; s.verdict = verdict; var v = card.querySelector('.verdict'); v.className = 'verdict ' + level; v.innerHTML = tintSay(verdict);
-      s.done = true; s.refresh(); if (s.hostBox) { s.hostBox.remove(); s.hostBox = null; }
+      s.done = true; s.refresh(); if (s.hostBox) { s.hostBox.remove(); s.hostBox = null; } if (s.liveCap) { s.liveCap.remove(); s.liveCap = null; }
       s.notes.forEach(function (n) { var p = document.createElement('p'); p.className = 'note'; p.textContent = n; card.appendChild(p); });
     };
     s.refresh = function () {
@@ -7336,8 +7336,12 @@ var NFMProbe = (function () {
     /* rows show up one at a time while the section works */
     s.rows.push = function () { var r = Array.prototype.push.apply(s.rows, arguments); s.refresh(); return r; };
     /** A box in the open section that a test draws its map into (scaled down, but the real picture being timed). */
-    s.live = function () {
-      if (!s.hostBox) { var b = document.createElement('div'); b.className = 'livebox'; b.style.cssText = 'position:relative;width:360px;max-width:100%;height:200px;overflow:hidden;border:1px solid var(--line);border-radius:8px;margin:6px 0'; card.insertBefore(b, card.querySelector('.tw')); s.hostBox = b; addFpsPill(b); }
+    s.live = function (label) {   /* label: what is being drawn in the box RIGHT NOW (every test that draws here must say so; the box is live only while a test runs, between tests it holds the last picture) */
+      if (!s.hostBox) {
+        var cp = document.createElement('div'); cp.className = 'note livecap'; cp.style.cssText = 'margin:6px 0 0;font-weight:600'; card.insertBefore(cp, card.querySelector('.tw'));
+        var b = document.createElement('div'); b.className = 'livebox'; b.style.cssText = 'position:relative;width:360px;max-width:100%;height:200px;overflow:hidden;border:1px solid var(--line);border-radius:8px;margin:2px 0 6px'; card.insertBefore(b, card.querySelector('.tw')); s.hostBox = b; s.liveCap = cp; addFpsPill(b);
+      }
+      if (s.liveCap) s.liveCap.textContent = 'Live picture: ' + (label || s.title) + ' (shows the last picture between tests)';
       return s.hostBox;
     };
     /** A small flat picture of the item positions just worked out (x, y pairs by default), so the person can watch the layouts appear. */
@@ -7348,7 +7352,7 @@ var NFMProbe = (function () {
       var sc = 0.94 * Math.min(W / Math.max(1e-9, x1 - x0), H / Math.max(1e-9, y1 - y0)), ox = (W - sc * (x1 - x0)) / 2, oy = (H - sc * (y1 - y0)) / 2;
       g.clearRect(0, 0, W, H); g.fillStyle = matchMedia('(prefers-color-scheme:dark)').matches ? 'rgba(140,180,255,.65)' : 'rgba(40,90,200,.55)';
       for (i = 0; i < k; i += step) g.fillRect(ox + sc * (X[stride * i] - x0) - 1, oy + sc * (X[stride * i + 1] - y0) - 1, 2.2, 2.2);
-      wrap.lastChild.textContent = caption;
+      wrap.lastChild.textContent = 'Finished flat picture (not live): ' + caption;
     };
     sections.push(s); return s;
   }
@@ -7575,8 +7579,8 @@ var NFMProbe = (function () {
       var g = graphFor('moderate', n), dg = C.derive(JSON.parse(JSON.stringify(g))), L3 = E.build(dg, { view: 'network', arrange: arr, colorBy: 'group' });
       var mk = function (yaw, pitch) { return NFMScene.make(L3, { plan: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); };
       setStatus('Where the drawing time goes: ' + n.toLocaleString() + ' items, timing WebGPU (about 8 seconds)…'); await yieldUI();
-      gpu = await NFMProbe.frameTiming({ backend: 'webgpu', W: 900, H: 600, live: s.live(), makeScene: mk });
-      ctl = null; if (c.webgl2.ok) { setStatus('Where the drawing time goes: ' + n.toLocaleString() + ' items, timing WebGL 2 as the control…'); await yieldUI(); ctl = await NFMProbe.frameTiming({ backend: 'webgl2', W: 900, H: 600, live: s.live(), makeScene: mk }); }
+      gpu = await NFMProbe.frameTiming({ backend: 'webgpu', W: 900, H: 600, live: s.live('WebGPU drawing, ' + n.toLocaleString() + ' items, where the drawing time goes'), makeScene: mk });
+      ctl = null; if (c.webgl2.ok) { setStatus('Where the drawing time goes: ' + n.toLocaleString() + ' items, timing WebGL 2 as the control…'); await yieldUI(); ctl = await NFMProbe.frameTiming({ backend: 'webgl2', W: 900, H: 600, live: s.live('WebGL 2 drawing (the control), ' + n.toLocaleString() + ' items, where the drawing time goes'), makeScene: mk }); }
       if (gpu.ways) gpu.ways.forEach(function (w) { s.rows.push(row('WebGPU', w)); });
       if (ctl && ctl.ways) ctl.ways.forEach(function (w) { s.rows.push(row('WebGL 2', w)); });
       ex = NFMProbe.explainTiming(gpu, ctl && ctl.ways ? ctl : null); byN.push({ items: n, webgpu: gpu.ways || gpu.skipped, webgl2: ctl && (ctl.ways || ctl.skipped) || null, fastest: ex.fastest, dominant: ex.dominant });
@@ -7646,6 +7650,8 @@ var NFMProbe = (function () {
   /** Rows for the results file: what the picture did under the person's hands. */
   function handsRows() {
     var rows = [], names = { drag: 'Dragging to turn', zoom: 'Scrolling to zoom', rotate: 'Turning by itself' };
+    var zn = { out: 'Drawing time zoomed OUT (below 0.8x)', mid: 'Drawing time at the fitted size', 'in': 'Drawing time zoomed IN (above 1.25x)' };
+    Object.keys(hands).forEach(function (k) { var zb = hands[k].zb; if (!zb) return; ['out', 'mid', 'in'].forEach(function (m) { var d = zb[m]; if (d.length < 8) return; rows.push([hands[k].n.toLocaleString() + ' items, ' + hands[k].backend, zn[m], String(d.length), '-', '-', '-', '-', '-', r1(pct(d, 0.5)), r1(Math.max.apply(null, d))]); }); });
     Object.keys(hands).forEach(function (k) { ['drag', 'zoom', 'rotate'].forEach(function (m) {
       var h = hands[k][m]; if (!h || h.gaps.length < 8) return; var g = h.gaps, mean = g.reduce(function (a, b) { return a + b; }, 0) / g.length, bad = g.filter(function (x) { return x > 34; }).length, worst = Math.max.apply(null, g);
       rows.push([hands[k].n.toLocaleString() + ' items, ' + hands[k].backend, names[m], String(g.length), r1(1000 / mean), r1(pct(g, 0.5)), r1(pct(g, 0.95)), r1(worst), bad + ' of ' + g.length, r1(pct(h.draw, 0.5)), r1(Math.max.apply(null, h.draw))]);
@@ -7695,17 +7701,24 @@ var NFMProbe = (function () {
     host.addEventListener('pointerdown', function (e) { st.drag = { x: e.clientX, y: e.clientY, moved: false }; host.setPointerCapture(e.pointerId); host.style.cursor = 'grabbing'; });
     host.addEventListener('pointermove', function (e) { if (!st.drag) return; var dx = e.clientX - st.drag.x, dy = e.clientY - st.drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) st.drag.moved = true; st.drag.x = e.clientX; st.drag.y = e.clientY; st.yaw += dx * 0.01; st.pitch = Math.max(-1.4, Math.min(1.4, st.pitch + dy * 0.01)); st.dirty = true; });
     host.addEventListener('pointerup', function () { if (st.drag && !st.drag.moved) st.paused = !st.paused; st.drag = null; host.style.cursor = 'grab'; });
-    host.addEventListener('wheel', function (e) { e.preventDefault(); st.zt = Math.max(0.15, Math.min(8, st.zt * Math.exp(-e.deltaY * 0.0015))); st.dirty = true; }, { passive: false });
+    host.style.overscrollBehavior = 'contain';
+    host.addEventListener('wheel', function (e) { e.preventDefault(); var dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1) * (e.ctrlKey ? 4 : 1); dy = Math.max(-240, Math.min(240, dy)); st.zt = Math.max(0.15, Math.min(8, st.zt * Math.exp(-dy * 0.0015))); st.dirty = true; }, { passive: false });
+    /* Ctrl + wheel (and a trackpad pinch) over the whole picture area, its buttons and captions included, must never zoom the web page itself */
+    var noPageZoom = function (e) { if (e.ctrlKey && wrap.contains(e.target)) e.preventDefault(); };
+    window.addEventListener('wheel', noPageZoom, { passive: false, capture: true });
     if (typeof IntersectionObserver !== 'undefined') new IntersectionObserver(function (en) { st.visible = en[0].isIntersecting; }).observe(host);
     var lastTs = 0, lastMode = '', recent = [], shown = 0, all = [], prevTs = 0;
     var tick = function (ts) {   /* (stops and frees the card when the page is wiped for a new run) one picture per screen refresh at most; zoom eases toward its target; nothing is drawn while nothing moves */
-      if (!host.isConnected) { try { r.destroy(); } catch (e) { /* gone */ } return; }
-      if (prevTs && ts - prevTs < 2000) all.push(ts - prevTs); prevTs = ts; if (all.length > 120) all.shift();
+      if (!host.isConnected) { try { r.destroy(); } catch (e) { /* gone */ } window.removeEventListener('wheel', noPageZoom, { capture: true }); return; }
+      var prevTs0 = prevTs; if (prevTs && ts - prevTs < 2000) all.push(ts - prevTs); prevTs = ts; if (all.length > 120) all.shift();
       if (st.visible && !document.hidden && sc) {
-        var mode = st.drag ? 'drag' : Math.abs(st.zt - st.zoom) > 0.0005 ? 'zoom' : !st.paused ? 'rotate' : '';
-        if (Math.abs(st.zt - st.zoom) > 0.0005) { st.zoom += (st.zt - st.zoom) * 0.25; st.dirty = true; }
+        var mode = st.drag ? 'drag' : Math.abs(Math.log(st.zt / st.zoom)) > 0.0007 ? 'zoom' : !st.paused ? 'rotate' : '';
+        if (Math.abs(Math.log(st.zt / st.zoom)) > 0.0007) { var ez = 1 - Math.exp(-Math.min(100, ts - (prevTs0 || ts - 16.7)) / 70); st.zoom = Math.exp(Math.log(st.zoom) + (Math.log(st.zt) - Math.log(st.zoom)) * ez); st.dirty = true; }   /* eased in LOG steps and by real time, so zooming out and in feel the same (the old straight-line easing made zooming out crawl) */
         if (!st.paused && !st.drag) { st.yaw += 0.006; st.dirty = true; }
-        var d0 = performance.now(); if (st.dirty) draw(); var dms = performance.now() - d0;
+        var d0 = performance.now(), wasDirty = st.dirty; if (st.dirty) draw(); var dms = performance.now() - d0;
+        if (wasDirty && cur) {   /* drawing time by zoom: zooming OUT puts every item and link on screen at once, so it may cost more than zooming in (the results file shows it) */
+          var zk = cur.n + '|' + (cur.lay ? 'sphere' : 'force') + '|' + backend, zr = hands[zk] || (hands[zk] = { n: cur.n, backend: backend }), zb = zr.zb || (zr.zb = { out: [], mid: [], 'in': [] }), zs = st.zoom < 0.8 ? zb.out : st.zoom > 1.25 ? zb['in'] : zb.mid; zs.push(dms); if (zs.length > 600) zs.shift();
+        }
         if (mode && mode === lastMode && lastTs && ts - lastTs < 2000) {   /* the time between two screen refreshes while the same thing was going on */
           var key = cur.n + '|' + (cur.lay ? 'sphere' : 'force') + '|' + backend, rec = hands[key] || (hands[key] = { n: cur.n, backend: backend }), mm = rec[mode] || (rec[mode] = { gaps: [], draw: [] });
           mm.gaps.push(ts - lastTs); mm.draw.push(dms); if (ts - lastTs > 250) (mm.stalls || (mm.stalls = [])).push({ ms: Math.round(ts - lastTs), zoom: Math.round(st.zoom * 100) / 100 }); if (mm.gaps.length > 4000) { mm.gaps.shift(); mm.draw.shift(); }
@@ -7746,18 +7759,18 @@ var NFMProbe = (function () {
       setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + '…'); await yieldUI();
       var Lx = scenes[si].L3, nm = names[bi] === 'webgpu' ? 'WebGPU' : names[bi] === 'webgl2' ? 'WebGL 2' : 'Basic drawing';
       if (names[bi] === 'canvas2d' && scenes[si].n > 3000) continue;   /* far too slow to be worth timing */
-      var t = scenes[si].n > 30000 ? { skipped: 'far too slow to be worth timing' } : await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, live: s.live(), makeScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      var t = scenes[si].n > 30000 ? { skipped: 'far too slow to be worth timing' } : await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, live: s.live(scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + names[bi] + ', every angle worked out here'), makeScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
       if (t.fps) { turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', every angle worked out here', Math.round(t.fps), r1(t.sceneMs), r1(t.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'here', fps: r1(t.fps), sceneMs: r1(t.sceneMs), drawMs: r1(t.drawMs) }); }
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', every angle worked out here', 'skipped', '-', String(t.skipped).slice(0, 40)]);
       if (names[bi] === 'canvas2d') continue;
       /* the way the app turns a big 3D map: the map sits on the graphics card, each picture is only a new angle */
       setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + ', math on the card…'); await yieldUI();
-      var tc = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, live: s.live(), rigScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      var tc = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, live: s.live(scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + names[bi] + ', turning with the math on the card'), rigScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
       if (tc.fps) { if (tc.preloadMs > 50 || tc.warmMs > 400) warmNotes.push('Starting to turn the ' + scenes[si].n.toLocaleString() + '-item map with ' + nm + ': the pre-load onto the card (the app does it a moment after a map appears) took ' + Math.round(tc.preloadMs || 0).toLocaleString() + ' ms, and the first 24 pictures after it took ' + Math.round(tc.warmMs).toLocaleString() + ' ms, then steady turning is timed below.'); if (tc.fps) ctx.preload = (ctx.preload || []).concat([{ n: scenes[si].n, backend: names[bi], preloadMs: Math.round(tc.preloadMs || 0), first24Ms: Math.round(tc.warmMs || 0) }]); turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', Math.round(tc.fps), r1(tc.sceneMs), r1(tc.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'card', warmMs: Math.round(tc.warmMs || 0), fps: r1(tc.fps), sceneMs: r1(tc.sceneMs), drawMs: r1(tc.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || tc.fps > best.fps)) best = tc; }
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', 'skipped', '-', String(tc.skipped).slice(0, 60)]);
       /* the same map on the card while the view zooms in and out (a quarter size to four times), because zooming out draws every item and link at once */
       setStatus('Zooming a ' + scenes[si].n.toLocaleString() + '-item 3D map in and out with ' + names[bi] + '…'); await yieldUI();
-      var tz = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, live: s.live(), zoomSweep: true, rigScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      var tz = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, live: s.live(scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + names[bi] + ', zooming in and out on the card'), zoomSweep: true, rigScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
       if (tz.fps) { turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', zooming in and out on the card', Math.round(tz.fps), r1(tz.sceneMs), r1(tz.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'zoom', fps: r1(tz.fps), sceneMs: r1(tz.sceneMs), drawMs: r1(tz.drawMs) }); }
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', zooming in and out on the card', 'skipped', '-', String(tz.skipped).slice(0, 60)]);
     }
@@ -7775,7 +7788,7 @@ var NFMProbe = (function () {
     if (big) for (var bj = 0; bj < names.length; bj++) {
       if (names[bj] === 'canvas2d') continue;
       var nm2 = names[bj] === 'webgpu' ? 'WebGPU' : 'WebGL 2'; setStatus('Taking the turning of the ' + big.n.toLocaleString() + '-item map apart with ' + nm2 + '…'); await yieldUI();
-      var Lb = big.L3, ts = await NFMProbe.turnSplit({ backend: names[bj], W: 900, H: 600, live: sp.live(), rigScene: function (yaw, pitch) { return NFMScene.make(Lb, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
+      var Lb = big.L3, ts = await NFMProbe.turnSplit({ backend: names[bj], W: 900, H: 600, live: sp.live('the largest 3D map, ' + names[bj] + ', turning split into parts'), rigScene: function (yaw, pitch) { return NFMScene.make(Lb, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
       var ex = NFMProbe.explainSplit(ts, big.n); splitSays.push(ex.say); if (ex.level === 'warn' && splitLevel === 'ok') splitLevel = 'warn'; ctx.split.push({ n: big.n, backend: names[bj], cause: ex.cause, ways: ts.ways || null, skipped: ts.skipped || null });
       if (ts.ways) ts.ways.forEach(function (w) { sp.rows.push([nm2 + ': ' + w.label, w.fps === undefined ? '-' : Math.round(w.fps), w.gapMed === undefined ? '-' : r1(w.gapMed), w.gapP95 === undefined ? '-' : r1(w.gapP95), w.gapMax === undefined ? '-' : r1(w.gapMax), w.angleMed === undefined ? '-' : r1(w.angleMed), w.ms === undefined ? '-' : r1(w.ms)]); });
       ex.lines.forEach(function (l) { sp.notes.push(nm2 + ': ' + l); });
