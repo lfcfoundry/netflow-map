@@ -1,6 +1,6 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. Runs every Node test at once, two at a time (one per processor core), longest first.
- * Run: node test/all.js          (the fuzz test gets 10 s of random cases; about 45 s in all instead of about 90 s one after another)
- *      node test/all.js --full   (the fuzz test gets 90 s)
+ * Run: node test/all.js          (the fuzz test gets 4 s of random cases and smaller sizes; the everyday run takes about 20 s)
+ *      node test/all.js --full   (the fuzz test gets 90 s and full sizes; the oracle test plays 20,000 runs per story instead of 8,000)
  *      node test/all.js --only=REGEX   (only the tests whose file name matches, e.g. --only=card|force3d)
  *      node test/all.js --changed      (only the tests that load a source file changed since the last commit; browser-page-only changes run none and say so; an unrecognized change runs everything)
  * One line per test with its time; the last lines of any failing test are printed. The browser test is separate (node test/browser.test.js firefox|chromium|webkit). */
@@ -32,12 +32,12 @@ if (changedArg) {
 }
 files.length = 0; pick.forEach((f) => files.push(f));
 if (why) console.log('selection' + why + ': ' + (files.length ? files.join(', ') : 'no Node test needed'));
-const weight = (f) => (f.startsWith('fuzz') ? 1000 : f.startsWith('oracle') ? 500 : f.startsWith('card') ? 7 : f.startsWith('layout') ? 6 : f.startsWith('tune') ? 5 : 1);
+const weight = (f) => (f.startsWith('fuzz') ? 1000 : f.startsWith('oracle') ? 500 : f.startsWith('stress-wasm') ? 100 : f.startsWith('engine-fixes') ? 90 : f.startsWith('tune') ? 8 : f.startsWith('card') ? 7 : f.startsWith('layout') ? 6 : f.startsWith('force-wasm') ? 5 : f.startsWith('archive') ? 4 : 1);   /* longest first (seconds, everyday run) so no long test starts last */
 files.sort((a, b) => weight(b) - weight(a));
 const T0 = Date.now(); let next = 0, active = 0, fails = 0; const lanes = Math.max(1, Math.min(os.cpus().length, 4));
 const run = (f) => new Promise((res) => {
-  const t = Date.now(), args = ['--expose-gc', path.join(__dirname, f)]; if (f.startsWith('fuzz')) args.push(full ? '90' : '10');
-  const p = spawn(process.execPath, args, { cwd: path.join(__dirname, '..') }); let out = '';
+  const t = Date.now(), args = ['--expose-gc', path.join(__dirname, f)]; if (f.startsWith('fuzz')) args.push(full ? '90' : '4');
+  const p = spawn(process.execPath, args, { cwd: path.join(__dirname, '..'), env: full ? Object.assign({}, process.env, { NFM_FULL: '1' }) : process.env }); let out = '';
   p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { out += d; });
   p.on('close', (code) => { const s = ((Date.now() - t) / 1000).toFixed(1).padStart(5); console.log((code === 0 ? 'ok   ' : 'FAIL ') + f.padEnd(22) + s + ' s'); if (code !== 0) { fails++; console.log(out.split('\n').slice(-12).join('\n')); } res(); });
 });
