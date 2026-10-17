@@ -5,7 +5,8 @@ const assert = require('assert'), zlib = require('zlib');
 const I = require('../src/importers.js'), U = require('../src/unpack.js'), E = require('../src/engine.js'), Z = require('./zipmake.js');
 const BUDGET = (Number(process.argv[2]) || 90) * 1000, T0 = Date.now(), gc = global.gc || (() => {});
 let fails = 0, checks = 0;
-const ok = (name, extra) => console.log('ok   ' + name + (extra ? ' ' + extra : ''));
+let tLast = Date.now();   /* NFM_TIMES=1 puts the seconds since the last line in front of every line: where the time goes */
+const ok = (name, extra) => { const now = Date.now(), pre = process.env.NFM_TIMES ? String(((now - tLast) / 1000).toFixed(1)).padStart(5) + ' s  ' : ''; tLast = now; console.log(pre + 'ok   ' + name + (extra ? ' ' + extra : '')); };
 const bad = (name, e) => { fails++; process.exitCode = 1; console.log('FAIL ' + name + '\n  ' + (e && e.stack || e)); };
 let seed = Number(process.env.NFM_SEED) || 20261015; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647, pick = (a) => a[Math.floor(rnd() * a.length)], ri = (n) => Math.floor(rnd() * n);
 const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
