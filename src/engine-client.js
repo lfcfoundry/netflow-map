@@ -78,12 +78,22 @@ var NFMEngineClient = (function () {
         var blob = new Blob([self.src + WORKER_MAIN], { type: 'text/javascript' }), url = URL.createObjectURL(blob);
         self.w = new Worker(url);
         URL.revokeObjectURL(url);
-        self.w.onerror = function (ev) { if (self.mode === 'starting') fallback('The worker could not start (' + (ev && ev.message || 'blocked') + ').'); };
+        self.w.onerror = function (ev) { if (self.mode === 'starting') fallback('The worker could not start (' + (ev && ev.message || 'blocked') + ').'); else self.died('The background engine stopped (' + (ev && ev.message || 'unknown reason') + ').'); };
+        self.w.onmessageerror = function () { if (self.mode !== 'starting') self.died('The background engine sent something the page could not read.'); };
         self.w.onmessage = function (e) { self.onMsg(e.data); };
         var t = setTimeout(function () { if (self.mode === 'starting') fallback('The worker did not answer in time.'); }, 3000);
         self.call({ type: 'ping' }).then(function () { clearTimeout(t); if (self.mode === 'starting') { self.mode = 'worker'; resolve(self); } }, function () { clearTimeout(t); fallback('The worker test failed.'); });
       } catch (err) { fallback(String(err && err.message || err)); }
     });
+  };
+  /** The worker died or broke while jobs were out: every job waiting for it fails with a plain-words message (the one running frees the line), and from now on the page does the work itself, as when a worker cannot start. */
+  Client.prototype.died = function (why) {
+    if (this.mode === 'page') return;
+    var self = this, waiting = Array.from(this.pending.values());
+    this.mode = 'page'; this.why = why; this.st = null;
+    if (this.w) { try { this.w.terminate(); } catch (e) { /* gone */ } this.w = null; }
+    this.pending.clear();
+    waiting.forEach(function (p) { if (p.type === 'graph') p.resolve(true); else p.reject(new Error('The background engine stopped, so that step was canceled. Try again: the page will do the work itself now.')); });
   };
   Client.prototype.onMsg = function (d) {
     var p = this.pending.get(d.id);
@@ -93,7 +103,7 @@ var NFMEngineClient = (function () {
   };
   Client.prototype.call = function (msg) {
     var self = this, id = ++this.seq;
-    return new Promise(function (resolve, reject) { self.pending.set(id, { resolve: resolve, reject: reject }); msg.id = id; try { self.w.postMessage(msg); } catch (err) { self.pending.delete(id); reject(err); } });
+    return new Promise(function (resolve, reject) { self.pending.set(id, { resolve: resolve, reject: reject, type: msg.type }); msg.id = id; try { self.w.postMessage(msg); } catch (err) { self.pending.delete(id); reject(err); } });
   };
   /** Gives the engine a new graph. Call whenever the data changes. */
   Client.prototype.setGraph = function (graph) {

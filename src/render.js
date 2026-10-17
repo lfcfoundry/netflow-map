@@ -644,10 +644,14 @@ var NFMRender = (function () {
     var self = this, order = this.choice === 'auto' ? this.order : [this.choice].concat(this.order.filter(function (x) { return x !== self.choice; }));
     return order.filter(function (n) { return !self.banned[n] && (n !== 'webgpu' || webgpuDrawing) && (n === 'canvas2d' || !self.canary || (self.canary[n] && self.canary[n].ok)); });
   };
+  Manager.prototype.hooks = function () {
+    var self = this;
+    return { onLost: function (name, why) { self.lost(name, why); }, onError: function (name, msg) { self.log.push(name + ': ' + msg); } };
+  };
   /** Builds the best backend that works. Resolves to the renderer. */
   Manager.prototype.start = function () {
     var self = this, list = this.candidates(), i = 0;
-    var hooks = { onLost: function (name, why) { self.lost(name, why); }, onError: function (name, msg) { self.log.push(name + ': ' + msg); } };
+    var hooks = this.hooks();
     var next = function () {
       if (i >= list.length) return Promise.reject(new Error('Nothing could draw.'));
       var name = list[i++];
@@ -656,15 +660,31 @@ var NFMRender = (function () {
     };
     return next();
   };
+  /** The old renderer is gone and the list found nothing: try the plain canvas once more, which needs nothing special. mgr.r is then either a working renderer or null, never a destroyed one. */
+  Manager.prototype.rescue = function () {
+    var self = this, hooks = this.hooks(); this.r = null;
+    try { this.host.textContent = ''; } catch (e) { /* none */ }
+    return Promise.resolve().then(function () { return MAKERS.canvas2d(self.host, hooks); }).then(function (r) {
+      self.r = r; self.name = 'canvas2d'; self.banned.canvas2d = 0; self.log.push('fell back to canvas2d');
+      if (self.opts.onChange) self.opts.onChange(r);
+      return r;
+    });
+  };
   Manager.prototype.lost = function (name, why) {
     var now = Date.now(), self = this;
     this.log.push(name + ' lost' + (why ? ': ' + why : ''));
     this.losses = this.losses.filter(function (t) { return now - t < 60000; }); this.losses.push(now);
     if (this.losses.length >= 3) { this.banned[name] = 1; this.losses = []; if (this.opts.onStepDown) this.opts.onStepDown(name); }
     try { if (this.r) this.r.destroy(); } catch (e) { /* ignore */ }
-    this.start().then(function (r) { if (self.opts.onRebuilt) self.opts.onRebuilt(r); });
+    this.r = null;
+    this.start().catch(function () { return self.rescue(); }).then(function (r) { if (r && self.opts.onRebuilt) self.opts.onRebuilt(r); }, function (err) { self.log.push('could not draw again: ' + (err && err.message)); });
   };
-  Manager.prototype.use = function (choice) { this.choice = choice; this.banned = {}; this.losses = []; try { if (this.r) this.r.destroy(); } catch (e) { /* ignore */ } return this.start(); };
+  Manager.prototype.use = function (choice) {
+    var self = this; this.choice = choice; this.banned = {}; this.losses = [];
+    try { if (this.r) this.r.destroy(); } catch (e) { /* ignore */ }
+    this.r = null;
+    return this.start().catch(function (err) { self.log.push('start failed: ' + (err && err.message)); return self.rescue(); });
+  };
 
   return { Manager: Manager, setWebGPUDrawing: function (on) { webgpuDrawing = !!on; }, webgpuDrawing: function () { return webgpuDrawing; }, tessellate: tessellate, drawLabels: drawLabels, createCanvas2D: createCanvas2D, createWebGL2: createWebGL2, createWebGPU: createWebGPU, copyViaCanvas: copyViaCanvas };
 })();

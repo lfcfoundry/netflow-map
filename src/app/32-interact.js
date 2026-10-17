@@ -71,7 +71,7 @@ stage.addEventListener('pointermove', function (e) {
 function endPtr(e) {
   var had = ptrs.has(e.pointerId); ptrs.delete(e.pointerId); lastDist = 0; stage.classList.remove('drag', 'pick', 'move'); clearTimeout(pressTimer);
   if (!had) return;
-  if (ptrs.size === 1 && P0) { P0.moved = true; P0.mode = 'pan'; var r = Array.from(ptrs.values())[0]; P0.x = r[0]; P0.y = r[1]; return; }
+  if (ptrs.size === 1 && P0) { P0.moved = true; P0.mode = 'pan'; var r = Array.from(ptrs.values())[0]; P0.x = r[0]; P0.y = r[1]; P0.pid = Array.from(ptrs.keys())[0]; return; }   /* after a pinch the finger that is left carries on as the pan (whichever one was lifted) */
   var q = P0; P0 = null; if (!q || q.pid !== e.pointerId) { setInk(null); return; }
   var p = local(e);
   if (e.type === 'pointercancel') { setInk(null); return; }
@@ -205,7 +205,7 @@ function spinLoop() {
   if (spinning) return; spinning = true;
   var last = performance.now();
   (function f(t) {
-    if (!(S.V.cam.spin && S.L && S.L.is3d && S.tab === 'map' && !document.hidden)) { spinning = false; return; }
+    if (!(S.V && S.V.cam.spin && S.L && S.L.is3d && S.tab === 'map' && !document.hidden)) { spinning = false; return; }
     var dt = Math.min(64, t - last); last = t;
     if (!P0) { S.V.cam.yaw += dt * 0.00032; scheduleScene(true); }
     requestAnimationFrame(f);
@@ -259,7 +259,7 @@ function openContext(x, y, hh, touch) {
   if (touch && navigator.vibrate) { try { navigator.vibrate(12); } catch (e) { /* none */ } }
 }
 function nodeMenu(id) {
-  var g = S.byId.get(id), outs = S.outAdj.get(id) || [], blocked = S.V.block.indexOf(id) >= 0, pinned = !!(S.V.pins[pinKey()] || {})[id];
+  var g = S.byId.get(id), outs = S.outAdj.get(id) || [], blocked = S.V.block.indexOf(id) >= 0, pinned = own(S.V.pins[pinKey()], id);
   var it = [{ hd: g ? g.label : id },
     { t: 'Show details', fn: function () { renderDetails(true); } },
     { t: 'Zoom to it and its neighbors', fn: function () { var v = fitTarget(Array.from(neighborIds([id]))); if (v) viewTo(v, 480); } },
@@ -452,9 +452,10 @@ stage.addEventListener('keydown', function (e) {
   var k = e.key, ids = Array.from(S.sel), id = ids.length === 1 ? ids[0] : null, W = S.stageW / 2, H = S.stageH / 2;
   if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'a') { e.preventDefault(); setSel(S.dg.nodes.map(function (n) { return n.id; })); return; }
   if (k === '/' || ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'f')) { e.preventDefault(); railTab('find'); var si = $('search'); if (si) si.focus(); return; }
-  if (k === '+' || k === '=') { zoomAt(W, H, 1.35); e.preventDefault(); return; }
-  if (k === '-' || k === '_') { zoomAt(W, H, 1 / 1.35); e.preventDefault(); return; }
-  if (k === '0') { fitView(); e.preventDefault(); return; }
+  var plainKey = !e.ctrlKey && !e.metaKey && !e.altKey;   /* Ctrl + / - / 0 is the browser's own page zoom: leave it alone */
+  if (plainKey && (k === '+' || k === '=')) { zoomAt(W, H, 1.35); e.preventDefault(); return; }
+  if (plainKey && (k === '-' || k === '_')) { zoomAt(W, H, 1 / 1.35); e.preventDefault(); return; }
+  if (plainKey && k === '0') { fitView(); e.preventDefault(); return; }
   if (k === 'f' && ids.length) { var v = fitTarget(ids); if (v) viewTo(v, 480); return; }
   if (k === 'ContextMenu' || (e.shiftKey && k === 'F10')) { e.preventDefault(); var n0 = ids.length ? sceneNodeFor(ids[0]) : null, px = n0 ? (n0.x + n0.w / 2) * S.view.k + S.view.tx : W, py = n0 ? (n0.y + n0.h / 2) * S.view.k + S.view.ty : H; openContext(px, py, n0 ? { type: 'node', node: n0 } : { type: 'bg' }, false); return; }
   if (k === 'Escape') { if (S.search.q) { runSearch(''); var si2 = $('search'); if (si2) si2.value = ''; } else if (S.route) { S.route = null; applyStyle(); renderMapUI(); } else if (ids.length || S.selEdges.size) setSel([]); return; }

@@ -45,7 +45,7 @@ var NFMEngine = (function () {
    */
   function prepare(graph, opts) {
     opts = opts || {};
-    var block = new Set(opts.block || []), hide = new Set(opts.hideKinds || []), keep = opts.keep ? new Set(opts.keep) : null, ef = opts.edgeFacet && opts.edgeFacet.col ? opts.edgeFacet : null;
+    var block = new Set(opts.block || []), hide = new Set(opts.hideKinds || []), keep = opts.keep ? new Set(opts.keep) : null, efs = (opts.edgeFacets && opts.edgeFacets.length ? opts.edgeFacets : opts.edgeFacet ? [opts.edgeFacet] : []).filter(function (x) { return x && x.col; });   /* the panel offers two link filters: an edge stays only when it passes every one */
     var nodes = [], index = new Map(), no = [];
     for (var i = 0; i < graph.nodes.length; i++) {
       var nd = graph.nodes[i];
@@ -58,7 +58,8 @@ var NFMEngine = (function () {
     for (var k = 0; k < graph.edges.length; k++) {
       var e = graph.edges[k];
       if (hide.has(e.kind || '')) continue;
-      if (ef && ef.values.indexOf(C.catOf(e, 'col:' + ef.col)) < 0) continue;
+      var efOut = false; for (var fi = 0; fi < efs.length; fi++) if (efs[fi].values.indexOf(C.catOf(e, 'col:' + efs[fi].col)) < 0) { efOut = true; break; }
+      if (efOut) continue;
       var a = index.get(e.from), b = index.get(e.to);
       if (a === undefined || b === undefined) continue;
       if (me) { var mv = C.numOf(e, me.ch); if (mv === mv && mv < me.min) continue; }
@@ -204,6 +205,7 @@ var NFMEngine = (function () {
       while (x2 !== start && x2 >= 0 && x2 < n && hops++ <= n) { res.choke[x2] = 1; x2 = idom[x2]; }
     }
     res.spine = reached.filter(function (v) { return res.choke[v]; }).sort(function (a, b) { return depth[a] - depth[b] || a - b; });
+    res.idom = idom; res.rpo = order.filter(function (v) { return v < n; }).reverse();   /* the dominator tree, parents before children (the shape view reads it) */
     /* --- traffic: drop arrows that loop back (iterative depth-first), then count routes in log space --- */
     var state = new Uint8Array(n), keep = new Uint8Array(P.m), post = [];
     sp = 0; it = new Int32Array(n); stack = new Int32Array(n + 1);
@@ -255,7 +257,7 @@ var NFMEngine = (function () {
     for (var i = 0; i < n; i++) { pg[i] = r.c[i * 3]; pb[i] = r.c[i * 3 + 1]; pn[i] = r.c[i * 3 + 2]; }
     var oc = { good: r.start[0], bad: r.start[1], neutral: r.start[2], stuck: 0 };
     oc.stuck = Math.max(0, 1 - oc.good - oc.bad - oc.neutral);
-    return { exact: true, runs: 1, visits: r.visits, moves: r.moves, pGood: pg, pBad: pb, pNeutral: pn, outcome: oc, mode: 'random' };
+    return { exact: r.converged, converged: r.converged, residual: r.residual, note: r.converged ? '' : NOT_SETTLED, runs: 1, visits: r.visits, moves: r.moves, pGood: pg, pBad: pb, pNeutral: pn, outcome: oc, mode: 'random' };
   }
   /** The seeds of a flow: [{v, mass}] from o.sources (ids with relative masses), else the start with mass 1. */
   function seedsOf(P, o) {
@@ -308,7 +310,7 @@ var NFMEngine = (function () {
     var ord = [];
     for (i = 0; i < n; i++) if (outdeg(P, i)) ord.push(i);
     ord.sort(function (a, b) { return imp.depth[b] - imp.depth[a] || a - b; });
-    var acc = new Float64Array(K);
+    var acc = new Float64Array(K), converged = false;
     for (var sweep = 0; sweep < 500; sweep++) {
       var delta = 0;
       for (var oi = 0; oi < ord.length; oi++) {
@@ -323,11 +325,131 @@ var NFMEngine = (function () {
         for (q = 0; q < K; q++) { d += Math.abs(acc[q] - c[v * K + q]); c[v * K + q] = acc[q]; }
         if (d > delta) delta = d;
       }
-      if (delta < 1e-12) break;
+      if (delta < 1e-12) { converged = true; break; }
+    }
+    var residual = 0;
+    if (!converged) {   /* the sweeps ran out (heavy self-links, long back-and-forth paths): solve each loop of items as a block instead */
+      var sv = solveLoops(P, p, c, K, ord);
+      converged = sv.converged; residual = sv.residual;
     }
     var seeds = seedsOf(P, o), sp = spread(P, p, seeds, cap), start = new Float64Array(K);
     seeds.forEach(function (s) { for (var q = 0; q < K; q++) start[q] += s.mass * c[s.v * K + q]; });
-    return { c: c, K: K, start: start, visits: sp.visits, moves: sp.moves, p: p };
+    return { c: c, K: K, start: start, visits: sp.visits, moves: sp.moves, p: p, converged: converged, residual: residual };
+  }
+  var NOT_SETTLED = 'These odds did not fully settle: a loop of items is too big to solve in the work allowed, so the numbers are close but not exact.';
+  /**
+   * For chains the plain sweeps cannot finish (a heavy link back to itself, a long back-and-forth path): solves the end odds loop by loop.
+   * Items are grouped into loops (strongly connected parts of the links that can really be taken) and solved from the ends backward.
+   * A small loop is solved directly (Gaussian elimination), a big one by sweeping inside it up to a work limit.
+   * Overwrites c for the items in `ord` (items with a way on). Returns { converged, residual: the biggest change one more sweep would still make }.
+   */
+  function solveLoops(P, p, c, K, ord) {
+    var n = P.n, active = new Uint8Array(n), i, k, e, q;
+    for (i = 0; i < ord.length; i++) { active[ord[i]] = 1; for (q = 0; q < K; q++) c[ord[i] * K + q] = 0; }
+    /* Tarjan, without recursion, over items with a way on and links with a real chance */
+    var idx = new Int32Array(n).fill(-1), low = new Int32Array(n), onS = new Uint8Array(n), stack = [], cs = [], cp = [], counter = 0, comps = [];
+    for (var r = 0; r < ord.length; r++) {
+      var root = ord[r]; if (idx[root] >= 0) continue;
+      cs.push(root); cp.push(P.outStart[root]); idx[root] = low[root] = counter++; stack.push(root); onS[root] = 1;
+      while (cs.length) {
+        var v = cs[cs.length - 1], at = cp[cp.length - 1];
+        if (at < P.outStart[v + 1]) {
+          cp[cp.length - 1] = at + 1; e = P.outEdge[at];
+          var w = P.to[e]; if (!(p[e] > 0) || !active[w]) continue;
+          if (idx[w] < 0) { idx[w] = low[w] = counter++; stack.push(w); onS[w] = 1; cs.push(w); cp.push(P.outStart[w]); }
+          else if (onS[w] && idx[w] < low[v]) low[v] = idx[w];
+        } else {
+          cs.pop(); cp.pop();
+          if (cs.length) { var par = cs[cs.length - 1]; if (low[v] < low[par]) low[par] = low[v]; }
+          if (low[v] === idx[v]) {
+            var members = [], x;
+            do { x = stack.pop(); onS[x] = 0; members.push(x); } while (x !== v);
+            comps.push(members);
+          }
+        }
+      }
+    }
+    var denseLeft = 6e8, sweepLeft = 1.2e8;
+    for (var ci = 0; ci < comps.length; ci++) {   /* Tarjan lists a loop only after everything it leads to */
+      var mem = comps[ci], s = mem.length, out = new Float64Array(s * K), leaves = false, j, local = new Map();
+      for (j = 0; j < s; j++) local.set(mem[j], j);
+      for (j = 0; j < s; j++) {
+        var u = mem[j];
+        for (k = P.outStart[u]; k < P.outStart[u + 1]; k++) {
+          e = P.outEdge[k]; if (!(p[e] > 0)) continue;
+          var t2 = P.to[e];
+          if (local.has(t2)) continue;
+          leaves = true;
+          for (q = 0; q < K; q++) out[j * K + q] += p[e] * c[t2 * K + q];
+        }
+      }
+      if (!leaves) continue;   /* a closed loop never finishes: its odds stay 0 */
+      if (s === 1) {
+        var u1 = mem[0], self = 0;
+        for (k = P.outStart[u1]; k < P.outStart[u1 + 1]; k++) { e = P.outEdge[k]; if (P.to[e] === u1 && p[e] > 0) self += p[e]; }
+        for (q = 0; q < K; q++) c[u1 * K + q] = out[q] / (1 - self);
+        continue;
+      }
+      var cost = s * s * s / 3 + s * s * K;
+      if (cost <= denseLeft) {
+        denseLeft -= cost;
+        var A = new Float64Array(s * s), B = out;
+        for (j = 0; j < s; j++) {
+          A[j * s + j] += 1;
+          var u2 = mem[j];
+          for (k = P.outStart[u2]; k < P.outStart[u2 + 1]; k++) { e = P.outEdge[k]; if (p[e] > 0 && local.has(P.to[e])) A[j * s + local.get(P.to[e])] -= p[e]; }
+        }
+        for (var col = 0; col < s; col++) {   /* Gaussian elimination, biggest pivot first */
+          var piv = col, best = Math.abs(A[col * s + col]);
+          for (j = col + 1; j < s; j++) if (Math.abs(A[j * s + col]) > best) { best = Math.abs(A[j * s + col]); piv = j; }
+          if (piv !== col) {
+            for (k = 0; k < s; k++) { var tA = A[col * s + k]; A[col * s + k] = A[piv * s + k]; A[piv * s + k] = tA; }
+            for (q = 0; q < K; q++) { var tB = B[col * K + q]; B[col * K + q] = B[piv * K + q]; B[piv * K + q] = tB; }
+          }
+          var d = A[col * s + col]; if (!(Math.abs(d) > 1e-300)) continue;
+          for (j = col + 1; j < s; j++) {
+            var f = A[j * s + col] / d; if (f === 0) continue;
+            for (k = col; k < s; k++) A[j * s + k] -= f * A[col * s + k];
+            for (q = 0; q < K; q++) B[j * K + q] -= f * B[col * K + q];
+          }
+        }
+        for (j = s - 1; j >= 0; j--) {
+          for (q = 0; q < K; q++) {
+            var sum = B[j * K + q];
+            for (k = j + 1; k < s; k++) sum -= A[j * s + k] * B[k * K + q];
+            B[j * K + q] = sum / A[j * s + j];
+          }
+        }
+        for (j = 0; j < s; j++) for (q = 0; q < K; q++) c[mem[j] * K + q] = Math.max(0, B[j * K + q]);
+      } else {   /* too big to solve directly: sweep inside the loop until it settles or the work limit is used */
+        var edgesIn = 0; for (j = 0; j < s; j++) edgesIn += P.outStart[mem[j] + 1] - P.outStart[mem[j]];
+        var perSweep = (edgesIn + s) * K, maxSw = Math.max(1, Math.floor(sweepLeft / perSweep)), dl = 1, sw;
+        for (sw = 0; sw < maxSw && dl >= 1e-13; sw++) {
+          dl = 0;
+          for (j = 0; j < s; j++) {
+            var u3 = mem[j];
+            for (q = 0; q < K; q++) {
+              var a3 = 0;
+              for (k = P.outStart[u3]; k < P.outStart[u3 + 1]; k++) { e = P.outEdge[k]; if (p[e] > 0) a3 += p[e] * c[P.to[e] * K + q]; }
+              dl += Math.abs(a3 - c[u3 * K + q]); c[u3 * K + q] = a3;
+            }
+          }
+        }
+        sweepLeft = Math.max(0, sweepLeft - sw * perSweep);
+      }
+    }
+    /* the leftover: how much would one more sweep still change anything */
+    var residual = 0;
+    for (i = 0; i < ord.length; i++) {
+      var v2 = ord[i], dd = 0;
+      for (q = 0; q < K; q++) {
+        var ac = 0;
+        for (k = P.outStart[v2]; k < P.outStart[v2 + 1]; k++) { e = P.outEdge[k]; ac += p[e] * c[P.to[e] * K + q]; }
+        dd += Math.abs(ac - c[v2 * K + q]);
+      }
+      if (dd > residual) residual = dd;
+    }
+    return { converged: residual < 1e-9, residual: residual };
   }
   /**
    * The end classes for any data. A story with good/bad marks gets good / bad / other. Everything else gets its busiest
@@ -418,11 +540,11 @@ var NFMEngine = (function () {
     };
     var hasPrev = new Uint8Array(n);
     for (i = 0; i < n; i++) { var cn = chainNext(i); if (cn >= 0) hasPrev[cn] = 1; }
-    var runs = [], inRun = new Int32Array(n).fill(-1);
+    var runs = [], inRun = new Int32Array(n).fill(-1);   /* inRun[v] = the run (by start item) that already took v, so a long run is never searched item by item */
     for (i = 0; i < n; i++) {
       if (hasPrev[i] || i === P.start || imp.depth[i] < 0) continue;
-      var run = [i], v2 = chainNext(i);
-      while (v2 >= 0 && run.indexOf(v2) < 0 && run.length < 100000) { run.push(v2); v2 = chainNext(v2); }
+      var run = [i], v2 = chainNext(i); inRun[i] = i;
+      while (v2 >= 0 && inRun[v2] !== i && run.length < 100000) { inRun[v2] = i; run.push(v2); v2 = chainNext(v2); }
       if (run.length >= 2) runs.push(run);
     }
     var runOf = new Int32Array(n).fill(-1);
@@ -721,13 +843,15 @@ var NFMEngine = (function () {
   function shapeLayout(P, G) {
     var imp = G.imp, spine = imp.spine.slice(), n = P.n, i;
     var owner = new Int32Array(n).fill(-1);
-    spine.forEach(function (c, si) {
-      var without = bfs(P, P.start, c);
-      for (i = 0; i < n; i++) if (i !== c && without[i] < 0 && imp.depth[i] >= 0) owner[i] = si;
+    /* The stretch an item belongs to is the nearest choke point that every route to it passes: its closest spine ancestor in the dominator tree (no search per choke point). */
+    var isSpine = new Uint8Array(n), spineAt = new Int32Array(n).fill(-1);
+    spine.forEach(function (c, si) { isSpine[c] = 1; spineAt[c] = si; });
+    if (imp.idom) imp.rpo.forEach(function (v) {
+      if (v === P.start) return;
+      var d = imp.idom[v];
+      if (d >= 0) owner[v] = spineAt[d] >= 0 ? spineAt[d] : owner[d];
     });
     spine.forEach(function (c, si) { owner[c] = si; });
-    var isSpine = new Uint8Array(n);
-    spine.forEach(function (c) { isSpine[c] = 1; });
     var segs = spine.map(function (c, si) { return { i: si, from: c, to: spine[si + 1] !== undefined ? spine[si + 1] : -1, pages: [], endings: { good: 0, bad: 0, neutral: 0 } }; });
     for (i = 0; i < n; i++) {
       if (imp.depth[i] < 0 || isSpine[i]) continue;
@@ -735,6 +859,13 @@ var NFMEngine = (function () {
       if (!s) continue;
       s.pages.push(i);
       if (!outdeg(P, i)) s.endings[P.valence[i] === 1 ? 'good' : P.valence[i] === 2 ? 'bad' : 'neutral']++;
+    }
+    /* a stretch has a loop when one of its links goes back (or sideways) in depth without leaving it: every item sits in one stretch, so one pass over the links finds them all */
+    var segOf = new Int32Array(n).fill(-1);
+    segs.forEach(function (sg, si) { segOf[sg.from] = si; sg.pages.forEach(function (pi) { segOf[pi] = si; }); });
+    for (var e0 = 0; e0 < P.m; e0++) {
+      var a0 = P.from[e0], b0 = P.to[e0], sa = segOf[a0];
+      if (sa >= 0 && sa === segOf[b0] && imp.depth[b0] <= imp.depth[a0] && b0 !== segs[sa].to) segs[sa].loops = true;
     }
     segs.forEach(function (s) {
       var inside = new Set(s.pages.concat([s.from])), end = s.to, memo = new Map(), onPath = new Set();
@@ -763,11 +894,7 @@ var NFMEngine = (function () {
         return result;
       };
       s.routes = end >= 0 ? count(s.from) : 0;
-      var loops = false;
-      for (var e = 0; e < P.m && !loops; e++) {
-        var a = P.from[e], b = P.to[e];
-        if (inside.has(a) && inside.has(b) && imp.depth[b] <= imp.depth[a] && b !== end) loops = true;
-      }
+      var loops = s.loops === true;
       s.loops = loops;
       var ends = s.endings.good + s.endings.bad + s.endings.neutral;
       var rest = s.pages.filter(function (id) { return outdeg(P, id) > 0; }).length;
@@ -792,6 +919,10 @@ var NFMEngine = (function () {
       }
       if (!moved) break;
     }
+  }
+  /** Pushes the group circles of the "Group clusters" arrangement apart. Every pair is checked only while there are few groups (as before); thousands of groups use the grid, which stays fast. */
+  function separateGroups(X, k, rad) {
+    if (k <= 600) separateBig(X, k, 2, rad, 200); else clearOverlaps(X, k, 2, rad, 60, 4, 1.1);
   }
   function separate(X, k, dim, rad, passes) {
     var rads = new Float64Array(k), cellOf = new Int32Array(k), sorted = new Int32Array(k), start = null, i, o, pass, rmax = 0;
@@ -1034,7 +1165,9 @@ var NFMEngine = (function () {
       var gp = []; between.forEach(function (c, kk) { gp.push(Math.floor(kk / 100003), kk % 100003); });
       g3.keys.forEach(function (g, q) { var a = q * 2.399963, r = Math.sqrt(q + 1) * 160; gc[q * 2] = r * Math.cos(a); gc[q * 2 + 1] = r * Math.sin(a); });
       var gm2 = new Float64Array(gi).fill(1); for (i = 0; i < gi; i++) gm2[i] = grad[i] / 40;
-      if (gi > 1) { forceSim(gc, gi, 2, gp, gm2, 160, 220, rnd); separateBig(gc, gi, 2, function (q) { return grad[q] + 10; }, 200); }
+      if (gi > 1) { forceSim(gc, gi, 2, gp, gm2, 160, 220, rnd);
+        separateGroups(gc, gi, function (q) { return grad[q] + 10; });
+      }
       g3.keys.forEach(function (g, q) { g3.map.get(g).forEach(function (ix, r) { var a = r * 2.399963, rad = avgSize * 0.62 * Math.sqrt(r + 0.5) * 1.35; X[ix * 2] = gc[q * 2] + rad * Math.cos(a); X[ix * 2 + 1] = gc[q * 2 + 1] + rad * Math.sin(a); }); });
     } else if (kind === 'sphere') {
       var g4 = gOrder(), ord4 = []; g4.keys.forEach(function (g) { g4.map.get(g).forEach(function (ix) { ord4.push(ix); }); });
@@ -1550,13 +1683,17 @@ var NFMEngine = (function () {
   function metrics(L, ms, cls, prevPos, quick) {
     var nodes = L.nodes, n = nodes.length, C = {};
     nodes.forEach(function (nd) { C[nd.id] = [nd.cx !== undefined ? nd.cx : nd.x + nd.w / 2, nd.cy !== undefined ? nd.cy : nd.y + nd.h / 2]; });
-    var cross = 0, segs = [];
+    var cross = 0, segs = [], notMeasured = [];
     if (L.kind === 'arc') {
-      var side = function (e) { return L.pos[e.to].ai > L.pos[e.from].ai ? 1 : -1; };
-      var iv = L.edges.filter(function (e) { return e.from !== e.to; }).map(function (e) { return [Math.min(L.pos[e.from].ai, L.pos[e.to].ai), Math.max(L.pos[e.from].ai, L.pos[e.to].ai), side(e)]; });
-      if (iv.length <= 3000) for (var i = 0; i < iv.length; i++) for (var j = i + 1; j < iv.length; j++) {
-        var a = iv[i][0], b = iv[i][1], s = iv[i][2], c2 = iv[j][0], d = iv[j][1], t = iv[j][2];
-        if (s === t && ((a < c2 && c2 < b && b < d) || (c2 < a && a < d && d < b))) cross++;
+      /* every arc is drawn above the line, forward or back, so two arcs cross when their ends interleave: a < c < b < d. Counted in n log n (a tree over the right ends). */
+      var iv = L.edges.filter(function (e) { return e.from !== e.to; }).map(function (e) { return [Math.min(L.pos[e.from].ai, L.pos[e.to].ai), Math.max(L.pos[e.from].ai, L.pos[e.to].ai)]; });
+      iv.sort(function (p, q) { return p[0] - q[0]; });
+      var bit = new Float64Array(n + 3), bitAdd = function (x) { for (x += 1; x < bit.length; x += x & -x) bit[x]++; }, bitSum = function (x) { var r = 0; for (x += 1; x > 0; x -= x & -x) r += bit[x]; return r; };
+      for (var i = 0; i < iv.length;) {
+        var i2 = i; while (i2 < iv.length && iv[i2][0] === iv[i][0]) i2++;
+        for (var j = i; j < i2; j++) cross += bitSum(iv[j][1] - 1) - bitSum(iv[j][0]);
+        for (j = i; j < i2; j++) bitAdd(iv[j][1]);
+        i = i2;
       }
     } else if (L.kind !== 'matrix') {
       L.edges.forEach(function (e, ei) {
@@ -1572,7 +1709,7 @@ var NFMEngine = (function () {
           if (segs[x][2] === segs[y][2]) continue;
           if (segCross(segs[x][0], segs[x][1], segs[y][0], segs[y][1])) cross++;
         }
-      } else cross = L.crossings || 0;
+      } else { cross = null; notMeasured.push('crossings'); }   /* too many segments to test every pair: say so, never report a perfect score */
     }
     var fwd = 0, fl = 0;
     L.edges.forEach(function (e) {
@@ -1581,10 +1718,11 @@ var NFMEngine = (function () {
       fl++; if (dd > 0) fwd++;
     });
     var ne = Math.max(1, L.edges.length);
-    if (quick) return { scores: null, raw: { crossings: cross, ms: ms, backward: fl - fwd, edges: L.edges.length } };
+    if (quick) return { scores: null, notMeasured: notMeasured, raw: { crossings: cross, ms: ms, backward: fl - fwd, edges: L.edges.length } };
     var dist = function (a3, b3) { return Math.hypot(C[a3][0] - C[b3][0], C[a3][1] - C[b3][1]); };
     var adj = {}, np = 0, npn = 0;
     L.edges.forEach(function (e) { if (e.from !== e.to) { (adj[e.from] = adj[e.from] || new Set()).add(e.to); (adj[e.to] = adj[e.to] || new Set()).add(e.from); } });
+    if (n > 600) notMeasured.push('neighbors');
     if (n > 1 && n <= 600) nodes.forEach(function (nd) {
       var k = adj[nd.id] ? adj[nd.id].size : 0;
       if (!k) return;
@@ -1602,6 +1740,7 @@ var NFMEngine = (function () {
       np += near.filter(function (z) { return adj[nd.id].has(z[1].id); }).length / k; npn++;
     });
     var gs = 0, gsn = 0;
+    if (cls && n > 600) notMeasured.push('groups');
     if (cls && n > 1 && n <= 600) nodes.forEach(function (nd) {
       if (!cls[nd.id]) return;
       var bestN = null, bd = Infinity;
@@ -1615,8 +1754,9 @@ var NFMEngine = (function () {
     var fill = Math.min(1, (area / (W * H)) * 4);
     var grid = L.kind === 'matrix', noDir = L.dir === 'none';
     return {
+      notMeasured: notMeasured,
       scores: {
-        crossings: grid ? null : 1 / (1 + cross / ne), neighbors: npn ? np / npn : 1, groups: gsn ? gs / gsn : null,
+        crossings: grid || cross === null ? null : 1 / (1 + cross / ne), neighbors: n > 600 ? null : npn ? np / npn : 1, groups: gsn ? gs / gsn : null,
         stability: mvn ? Math.max(0, 1 - mv / mvn / MAP_W) : null, flow: grid || noDir ? null : fl ? fwd / fl : 1,
         compact: (Math.min(r, target) / Math.max(r, target)) * 0.5 + fill * 0.5, speed: 1 / (1 + ms / 60)
       },
@@ -1743,7 +1883,7 @@ var NFMEngine = (function () {
         var oc0 = classes.story ? { good: ab.start[0], bad: ab.start[1], neutral: ab.start[2], stuck: 0 } : { good: 0, bad: 0, neutral: 0, stuck: 0 };
         var got = 0; for (q0 = 0; q0 < ab.K; q0++) got += ab.start[q0];
         oc0.stuck = Math.max(0, 1 - got);
-        flow = { exact: true, runs: 1, visits: ab.visits, moves: ab.moves, pGood: zg, pBad: zb, pNeutral: zn, outcome: oc0, mode: 'random', c: ab.c, K: ab.K, story: classes.story, start: ab.start, classes: classes.list.map(function (cl, k) { return { id: cl.id, label: cl.label, kind: cl.kind, p: ab.start[k] }; }) };
+        flow = { exact: ab.converged, converged: ab.converged, residual: ab.residual, note: ab.converged ? '' : NOT_SETTLED, runs: 1, visits: ab.visits, moves: ab.moves, pGood: zg, pBad: zb, pNeutral: zn, outcome: oc0, mode: 'random', c: ab.c, K: ab.K, story: classes.story, start: ab.start, classes: classes.list.map(function (cl, k) { return { id: cl.id, label: cl.label, kind: cl.kind, p: ab.start[k] }; }) };
       }
     }
     var G = mapGraph(P, imp, { fold: o.fold !== false && !flowing && view !== 'matrix' && view !== 'network' && view !== 'shape', open: o.open, merge: !!o.merge || flowing || view === 'matrix' || view === 'arc' || view === 'network' });
@@ -1823,11 +1963,12 @@ var NFMEngine = (function () {
     var keyOf = function (n) { return o.laneBy === 'found' && found ? 'group ' + (found[n.pages[0]] + 1) : groupKey(P.nodes[n.pages[0]], o.laneBy || 'group'); };
     G.nodes.forEach(function (n) { cls[n.id] = keyOf(n); });
     var keys = Array.from(new Set(Object.keys(cls).map(function (id) { return cls[id]; })));
-    var meanDepth = {};
-    G.nodes.forEach(function (n) { var k = cls[n.id]; meanDepth[k] = meanDepth[k] || [0, 0]; meanDepth[k][0] += Math.max(0, imp.depth[n.pages[0]]); meanDepth[k][1]++; });
-    keys.sort(function (a, b) { return meanDepth[a][0] / meanDepth[a][1] - meanDepth[b][0] / meanDepth[b][1] || (a < b ? -1 : 1); });
-    keys.forEach(function (k, i) { laneNames.push(k); });
-    G.nodes.forEach(function (n) { laneOfBox[n.id] = laneNames.indexOf(cls[n.id]); });
+    var meanDepth = new Map();   /* a Map, not {}: a group called __proto__ or constructor must not hit Object.prototype */
+    G.nodes.forEach(function (n) { var k = cls[n.id], md = meanDepth.get(k); if (!md) meanDepth.set(k, md = [0, 0]); md[0] += Math.max(0, imp.depth[n.pages[0]]); md[1]++; });
+    keys.sort(function (a, b) { var ma = meanDepth.get(a), mb = meanDepth.get(b); return ma[0] / ma[1] - mb[0] / mb[1] || (a < b ? -1 : 1); });
+    var laneIdx = new Map();
+    keys.forEach(function (k, i) { laneNames.push(k); laneIdx.set(k, i); });
+    G.nodes.forEach(function (n) { laneOfBox[n.id] = laneIdx.get(cls[n.id]); });
     var root = P.start >= 0 ? G.groupOf[P.start] : undefined, prev = o.prev || undefined, Lr;
     if (view === 'down') Lr = layered(G, { dir: 'TB', root: root, prev: prev });
     else if (view === 'spine') Lr = layered(G, { dir: 'LR', root: root, prev: prev, spine: true });
@@ -1849,7 +1990,7 @@ var NFMEngine = (function () {
       chokeCount: imp.spine.length
     };
     Lr.n = P.n; Lr.m = P.m; Lr.startId = P.start >= 0 ? P.nodes[P.start].id : null; Lr.autoStart = P.autoStart;
-    Lr.flow = flow ? { exact: flow.exact, mode: flow.mode, runs: flow.runs, outcome: flow.outcome, K: flow.K || 0, classes: flow.classes || null, story: !!flow.story } : (amounts ? { exact: true, mode: 'amounts', runs: 1, outcome: null, K: 0, classes: null, story: false } : null);
+    Lr.flow = flow ? { exact: flow.exact, note: flow.note || '', mode: flow.mode, runs: flow.runs, outcome: flow.outcome, K: flow.K || 0, classes: flow.classes || null, story: !!flow.story } : (amounts ? { exact: true, mode: 'amounts', runs: 1, outcome: null, K: 0, classes: null, story: false } : null);
     Lr.amounts = !!amountMass;
     Lr.ch = { size: sizeR ? Object.assign({ ch: o.sizeBy }, sizeR) : null, width: widthR ? Object.assign({ ch: o.widthBy }, widthR) : null, color: colR ? Object.assign({ ch: colCh, kind: 'num' }, colR) : (cmode.t === 'cat' ? { ch: colCh, kind: 'cat' } : null), ecolor: ecR ? Object.assign({ ch: o.edgeColorBy, kind: 'num' }, ecR) : (ecT && ecT.t === 'col' ? { ch: o.edgeColorBy, kind: 'cat' } : null), linkLabels: o.linkLabels || '' };
     Lr.groups = laneNames;
@@ -1879,7 +2020,7 @@ var NFMEngine = (function () {
         var m = metrics(L, L.ms, L.cls, null, false);
         var tasks = {};
         Object.keys(TASKS).forEach(function (t) { tasks[t] = taskScore(m.scores, t); });
-        rows.push({ view: v, scores: m.scores, raw: m.raw, tasks: tasks, ms: L.ms });
+        rows.push({ view: v, scores: m.scores, notMeasured: m.notMeasured, raw: m.raw, tasks: tasks, ms: L.ms });
       } catch (err) { rows.push({ view: v, skipped: String(err && err.message || err) }); }
     });
     return rows;
@@ -1887,7 +2028,7 @@ var NFMEngine = (function () {
 
   return {
     MAP_W: MAP_W, MAP_H: MAP_H, VIEWS: VIEWS, TASKS: TASKS, prepare: prepare, importance: importance, flowExact: flowExact, flowSim: flowSim, absorb: absorb, endClasses: endClasses, spread: spread, seedsOf: seedsOf,
-    mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressTuning: STRESS, force3dTuning: FORCE3,
+    separateGroups: separateGroups, mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressTuning: STRESS, force3dTuning: FORCE3,
     communities: communities, metrics: metrics, taskScore: taskScore, build: build, compare: compare, bfs: bfs, mapCrossPairs: mapCrossPairs, mapPlaceLine: mapPlaceLine, autoStart: autoStart
   };
 })();
