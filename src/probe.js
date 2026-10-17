@@ -127,7 +127,7 @@ var NFMProbe = (function () {
         var tries = 0, poll = function () { if (r.rigOK) { rigSc = sc0; ok(null); } else if (++tries > 40) ok('the card could not set up turning'); else setTimeout(poll, 25); }; poll();
       }) : Promise.resolve(null);
       var loop = function () {
-        var f = frames / 90, yaw = 0.6 + 6.2832 * f, pitch = 0.35 + 0.3 * Math.sin(6.2832 * f), z = 1 + 0.35 * Math.sin(6.2832 * f * 0.5);
+        var f = frames / 90, yaw = 0.6 + 6.2832 * f, pitch = 0.35 + 0.3 * Math.sin(6.2832 * f), z = opts.zoomSweep ? Math.pow(16, 0.5 * Math.sin(6.2832 * frames / 60)) : 1 + 0.35 * Math.sin(6.2832 * f * 0.5);
         var a = nowMs(), sc, b;
         if (rigSc) { sc = rigSc; sc.turnTo({ yaw: yaw, pitch: pitch, persp: 2.4 }, 4); b = nowMs(); } else { sc = opts.makeScene(yaw, pitch); b = nowMs(); r.setScene(sc); }
         var u = nowMs(); var v = fitView(sc, W, H); v.k *= z; v.tx = W / 2 - (W / 2 - v.tx) * z; v.ty = H / 2 - (H / 2 - v.ty) * z; r.draw(v);
