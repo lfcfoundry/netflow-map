@@ -9,7 +9,13 @@ var NFMProbe = (function () {
     return new Promise(function (res, rej) { var t = setTimeout(function () { rej(new Error(what + ' took too long')); }, ms); p.then(function (v) { clearTimeout(t); res(v); }, function (e) { clearTimeout(t); rej(e); }); });
   }
   function nextRefresh() {
-    return new Promise(function (res) { var done = false, t = setTimeout(function () { if (!done) { done = true; res(false); } }, 1000); requestAnimationFrame(function () { if (!done) { done = true; clearTimeout(t); res(true); } }); });
+    /* false only when the page is really hidden (or nothing came for 10 s): a slow picture on a visible page is waited for, not mistaken for a background tab */
+    return new Promise(function (res) {
+      var done = false, t0 = nowMs(), t = 0;
+      var tick = function () { if (done) return; var hid = typeof document !== 'undefined' && (document.hidden || document.visibilityState === 'hidden'); if (hid || nowMs() - t0 > 10000) { done = true; res(false); } else t = setTimeout(tick, 500); };
+      t = setTimeout(tick, 1000);
+      requestAnimationFrame(function () { if (!done) { done = true; clearTimeout(t); res(true); } });
+    });
   }
   function nowMs() { return typeof performance !== 'undefined' ? performance.now() : Date.now(); }
   /** What a one-picture-per-refresh loop waits on after draw(): WebGPU lets up to three pictures be in flight (pace); the others have only flush(). */
@@ -118,7 +124,7 @@ var NFMProbe = (function () {
     var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
     return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
       r.resize(W, H, 1);
-      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, upT = 0, hidden = false, budget = opts.ms || 1300, rigSc = null;
+      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, upT = 0, hidden = false, budget = opts.ms || 1300, rigSc = null, preMs = 0;
       /* opts.rigScene(yaw, pitch): the map is put on the card once and each picture is only a new angle (what the app does for a big 3D map) */
       var ready = opts.rigScene ? new Promise(function (ok) {
         if (!r.rigPrepare) { ok('this way of drawing cannot turn a map on the card'); return; }
@@ -142,6 +148,7 @@ var NFMProbe = (function () {
       return ready.then(function (why) {
         if (why) { r.destroy(); return gone({ backend: n, skipped: why }); }
         var warm = async function () {   /* the first pictures of a big map on the card pay for the one-time upload; they are timed apart so they do not read as slow turning */
+          var pre0 = nowMs(); if (r.rigWarm) { r.rigWarm(); try { await r.flush(); } catch (e) { /* none */ } } preMs = nowMs() - pre0;   /* the app does this a moment after a map appears: the pre-load */
           var w0 = nowMs();
           for (var wi = 0; wi < 24; wi++) { rigSc.turnTo({ yaw: 0.6 + 0.07 * wi, pitch: 0.35, persp: 2.4 }, 4); var wv = fitView(rigSc, W, H); r.draw(wv); await wait(r); if (!(await nextRefresh())) return -1; }
           return nowMs() - w0;
@@ -152,7 +159,7 @@ var NFMProbe = (function () {
         start = nowMs();   /* the time budget counts from here: building a big map for the card can take longer than the whole budget */
         return loop().then(function () {
           var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
-          return gone(hidden ? { backend: n, skipped: 'the page was in the background' } : counted < 4 ? { backend: n, skipped: 'too few pictures could be drawn to time them' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc, warmMs: warmMs });
+          return gone(hidden ? { backend: n, skipped: 'the page was in the background' } : counted < 4 ? { backend: n, skipped: 'too few pictures could be drawn to time them' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc, warmMs: warmMs, preloadMs: preMs });
         });
         });
       });
@@ -268,8 +275,11 @@ var NFMProbe = (function () {
     });
     if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' FPS.');
     lines.push('Time the card needs per picture: ' + ms1(all.ms) + ' ms for everything; links alone ' + ms1(links.ms) + ' ms; items alone ' + ms1(itemsW.ms) + ' ms; names alone ' + ms1(names.ms) + ' ms; everything at half size ' + ms1(half.ms) + ' ms.');
+    var noisyList = [], noisy = false;
+    ['full', 'keep', 'ring', 'map', 'tex'].forEach(function (id) { var w = by[id]; if (w && w.fpsAll && w.fpsAll.length > 1 && Math.max.apply(null, w.fpsAll) - Math.min.apply(null, w.fpsAll) > 12) { noisy = true; noisyList.push(id === 'full' ? 'current way ' : id + ' ') ; noisyList[noisyList.length - 1] += w.fpsAll.map(function (x) { return Math.round(x); }).join('/'); } });
     var say = 'Turning the ' + big + ' map with ' + nm + ' ran at ' + f0(full.fps) + ' FPS. ', cause, level;
     if (full.fps >= 58) { cause = 'smooth'; level = 'ok'; say += 'That is a steady 60: nothing to fix.'; }
+    else if (noisy) { cause = 'hiccups'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The speed changes a lot from run to run (' + noisyList + '), and the ways of sending the paint order do not rank the same way twice, so no single part of our drawing is the cause. These are pauses from the browser or the graphics driver (slowest picture ' + ms1(full.gapMax) + ' ms; our own angle math takes only ' + ms1(angle.angleMed) + ' ms). Drawing with WebGL 2 is usually steadier on such a computer.'; }
     else if (keep && keep.fps >= 57 && (keep.fps >= full.fps + 2 || keep.slow + 0.03 < full.slow || keep.gapP95 + 5 < full.gapP95)) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' FPS' + (full.slow > 0 ? ' with no pauses' : '') + '. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
     else if ((keep ? keep.fps : angle.fps) < 57) { cause = 'angle'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The limit is on the main thread: even with the paint order left out, only ' + f0(keep ? keep.fps : angle.fps) + ' FPS got through (' + ms1(angle.angleMed) + ' ms of angle work each).'; }
     else if (keep && keep.fps >= full.fps + 5) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' FPS. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }

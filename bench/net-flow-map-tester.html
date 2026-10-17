@@ -20,7 +20,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>Net Flow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.16.2319.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.16.2343.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="show" class="card" style="display:none"><h2>The 3D map, turning</h2></div>
@@ -6473,6 +6473,23 @@ var NFMRender = (function () {
       setScene: function (s) { S = s; T = s ? tessellate(s) : null; if (T) { up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
       restyle: function () { if (S && !(S.turn && S.turn.on)) { T = tessellate(S); up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
       rigPrepare: rigPrepare, rigOK: false,
+      /* Puts a big 3D map on the card ahead of the first drag: the item and link textures are uploaded and each rig program is used once, drawing nothing (a zero-size scissor), so the driver finishes compiling and moving data now instead of during the first turn. */
+      rigWarm: function () {
+        if (!RG || !S || !S.rig || lost) return false;
+        try {
+          rigSync();
+          var wp = function (p, l, vao, mode, cnt) {
+            gl.useProgram(p); gl.uniform4f(l.uV, 1, 0, 0, 0); gl.uniform2f(l.uRes, W, Hh); gl.uniform1i(l.tN, 0); gl.uniform1i(l.tNS, 1); gl.uniform1i(l.tE, 2); gl.uniform1i(l.tES, 3);
+            gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, RG.tN); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, RG.tNS); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, RG.tE); gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, RG.tES);
+            gl.bindVertexArray(vao); gl.drawArraysInstanced(mode, 0, cnt, 1);
+          };
+          gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, 0, 0);
+          wp(RG.pe, RG.le, RG.vaoNone, gl.TRIANGLE_STRIP, 4);
+          wp(RG.pd, RG.ld, RG.vaoSeqs[rigState.ring || 0], gl.TRIANGLES, 6);
+          gl.disable(gl.SCISSOR_TEST); gl.bindVertexArray(null); gl.activeTexture(gl.TEXTURE0);
+          return true;
+        } catch (e) { try { gl.disable(gl.SCISSOR_TEST); } catch (x) { /* none */ } return false; }
+      },
       resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
       draw: function (view) {
         if (!S || lost) return;
@@ -6661,6 +6678,7 @@ var NFMRender = (function () {
         setScene: function (s) { S = s; if (S) load(); },
         restyle: function () { if (S && !(S.turn && S.turn.on)) load(); },
         rigPrepare: rigPrepare, rigOK: false,
+        rigWarm: function () { if (!RW || !S || !S.rig) return false; try { rigSync(); return true; } catch (e) { return false; } },   /* the item and link buffers go to the card now, not during the first turn */
         resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
         draw: function (view) {
           if (!S || !T) return;
@@ -6707,7 +6725,7 @@ var NFMRender = (function () {
   /* ---------------------------------------------------------------- the manager: pick, rebuild after loss, step down after three losses in a minute */
   var MAKERS = { webgpu: createWebGPU, webgl2: createWebGL2, canvas2d: createCanvas2D };
   function Manager(host, opts) {
-    this.host = host; this.opts = opts || {}; this.order = ['webgpu', 'webgl2', 'canvas2d']; this.r = null; this.losses = []; this.banned = {};
+    this.host = host; this.opts = opts || {}; this.order = ['webgl2', 'webgpu', 'canvas2d'];   /* WebGL 2 first: on the laptops measured it draws big maps at a steadier 60 FPS, where WebGPU shows random pauses of 200-350 ms; WebGPU stays as the next choice and in Advanced */ this.r = null; this.losses = []; this.banned = {};
     this.choice = 'auto'; this.canary = null; this.log = [];
   }
   Manager.prototype.candidates = function () {
@@ -6751,7 +6769,13 @@ var NFMProbe = (function () {
     return new Promise(function (res, rej) { var t = setTimeout(function () { rej(new Error(what + ' took too long')); }, ms); p.then(function (v) { clearTimeout(t); res(v); }, function (e) { clearTimeout(t); rej(e); }); });
   }
   function nextRefresh() {
-    return new Promise(function (res) { var done = false, t = setTimeout(function () { if (!done) { done = true; res(false); } }, 1000); requestAnimationFrame(function () { if (!done) { done = true; clearTimeout(t); res(true); } }); });
+    /* false only when the page is really hidden (or nothing came for 10 s): a slow picture on a visible page is waited for, not mistaken for a background tab */
+    return new Promise(function (res) {
+      var done = false, t0 = nowMs(), t = 0;
+      var tick = function () { if (done) return; var hid = typeof document !== 'undefined' && (document.hidden || document.visibilityState === 'hidden'); if (hid || nowMs() - t0 > 10000) { done = true; res(false); } else t = setTimeout(tick, 500); };
+      t = setTimeout(tick, 1000);
+      requestAnimationFrame(function () { if (!done) { done = true; clearTimeout(t); res(true); } });
+    });
   }
   function nowMs() { return typeof performance !== 'undefined' ? performance.now() : Date.now(); }
   /** What a one-picture-per-refresh loop waits on after draw(): WebGPU lets up to three pictures be in flight (pace); the others have only flush(). */
@@ -6860,7 +6884,7 @@ var NFMProbe = (function () {
     var gone = function (res) { try { host.remove(); } catch (e) { /* none */ } return res; };
     return withTimeout(make(host, {}), 6000, 'starting ' + n).then(function (r) {
       r.resize(W, H, 1);
-      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, upT = 0, hidden = false, budget = opts.ms || 1300, rigSc = null;
+      var frames = 0, counted = 0, t1 = 0, start = nowMs(), sceneT = 0, drawT = 0, upT = 0, hidden = false, budget = opts.ms || 1300, rigSc = null, preMs = 0;
       /* opts.rigScene(yaw, pitch): the map is put on the card once and each picture is only a new angle (what the app does for a big 3D map) */
       var ready = opts.rigScene ? new Promise(function (ok) {
         if (!r.rigPrepare) { ok('this way of drawing cannot turn a map on the card'); return; }
@@ -6884,6 +6908,7 @@ var NFMProbe = (function () {
       return ready.then(function (why) {
         if (why) { r.destroy(); return gone({ backend: n, skipped: why }); }
         var warm = async function () {   /* the first pictures of a big map on the card pay for the one-time upload; they are timed apart so they do not read as slow turning */
+          var pre0 = nowMs(); if (r.rigWarm) { r.rigWarm(); try { await r.flush(); } catch (e) { /* none */ } } preMs = nowMs() - pre0;   /* the app does this a moment after a map appears: the pre-load */
           var w0 = nowMs();
           for (var wi = 0; wi < 24; wi++) { rigSc.turnTo({ yaw: 0.6 + 0.07 * wi, pitch: 0.35, persp: 2.4 }, 4); var wv = fitView(rigSc, W, H); r.draw(wv); await wait(r); if (!(await nextRefresh())) return -1; }
           return nowMs() - w0;
@@ -6894,7 +6919,7 @@ var NFMProbe = (function () {
         start = nowMs();   /* the time budget counts from here: building a big map for the card can take longer than the whole budget */
         return loop().then(function () {
           var secs = Math.max(0.05, (nowMs() - t1) / 1000); r.destroy();
-          return gone(hidden ? { backend: n, skipped: 'the page was in the background' } : counted < 4 ? { backend: n, skipped: 'too few pictures could be drawn to time them' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc, warmMs: warmMs });
+          return gone(hidden ? { backend: n, skipped: 'the page was in the background' } : counted < 4 ? { backend: n, skipped: 'too few pictures could be drawn to time them' } : { backend: n, fps: counted / secs, sceneMs: sceneT / counted, drawMs: drawT / counted, uploadMs: upT / counted, frames: counted, onCard: !!rigSc, warmMs: warmMs, preloadMs: preMs });
         });
         });
       });
@@ -7010,8 +7035,11 @@ var NFMProbe = (function () {
     });
     if (keep) lines.push('Angle math and drawing without re-sending the paint order: ' + f0(keep.fps) + ' FPS.');
     lines.push('Time the card needs per picture: ' + ms1(all.ms) + ' ms for everything; links alone ' + ms1(links.ms) + ' ms; items alone ' + ms1(itemsW.ms) + ' ms; names alone ' + ms1(names.ms) + ' ms; everything at half size ' + ms1(half.ms) + ' ms.');
+    var noisyList = [], noisy = false;
+    ['full', 'keep', 'ring', 'map', 'tex'].forEach(function (id) { var w = by[id]; if (w && w.fpsAll && w.fpsAll.length > 1 && Math.max.apply(null, w.fpsAll) - Math.min.apply(null, w.fpsAll) > 12) { noisy = true; noisyList.push(id === 'full' ? 'current way ' : id + ' ') ; noisyList[noisyList.length - 1] += w.fpsAll.map(function (x) { return Math.round(x); }).join('/'); } });
     var say = 'Turning the ' + big + ' map with ' + nm + ' ran at ' + f0(full.fps) + ' FPS. ', cause, level;
     if (full.fps >= 58) { cause = 'smooth'; level = 'ok'; say += 'That is a steady 60: nothing to fix.'; }
+    else if (noisy) { cause = 'hiccups'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The speed changes a lot from run to run (' + noisyList + '), and the ways of sending the paint order do not rank the same way twice, so no single part of our drawing is the cause. These are pauses from the browser or the graphics driver (slowest picture ' + ms1(full.gapMax) + ' ms; our own angle math takes only ' + ms1(angle.angleMed) + ' ms). Drawing with WebGL 2 is usually steadier on such a computer.'; }
     else if (keep && keep.fps >= 57 && (keep.fps >= full.fps + 2 || keep.slow + 0.03 < full.slow || keep.gapP95 + 5 < full.gapP95)) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' FPS' + (full.slow > 0 ? ' with no pauses' : '') + '. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
     else if ((keep ? keep.fps : angle.fps) < 57) { cause = 'angle'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The limit is on the main thread: even with the paint order left out, only ' + f0(keep ? keep.fps : angle.fps) + ' FPS got through (' + ms1(angle.angleMed) + ' ms of angle work each).'; }
     else if (keep && keep.fps >= full.fps + 5) { cause = 'order'; level = full.fps >= 45 ? 'ok' : 'warn'; say += 'The cost is sending each new paint order to the card: with that left out (the picture comes out in the wrong order, for timing only) it ran at ' + f0(keep.fps) + ' FPS. The angle math (' + ms1(angle.angleMed) + ' ms) and the card (' + ms1(all.ms) + ' ms) are not the limit.'; }
@@ -7245,7 +7273,7 @@ var NFMProbe = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.16.2319', EDGE = 130;
+  var VERSION = '2026.10.16.2343', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -7459,7 +7487,7 @@ var NFMProbe = (function () {
     for (var vi = 0; vi < variants.length; vi++) {
       var kind = variants[vi][0], name = variants[vi][1], o = variants[vi][2], nn = variants[vi][3] || n; setStatus('Program comparison: ' + kind + ' ' + name + '…'); await yieldUI();
       var P = cache[kind + nn] || (cache[kind + nn] = piece(graphFor(kind, nn))), res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, o);
-      if (res.error) { s.rows.push([kind, name, 'failed: ' + res.error.slice(0, 40), '']); continue; }
+      if (res.error) { s.rows.push([kind + ' ' + P.k.toLocaleString(), name, 'failed: ' + String(res.error).slice(0, 60), '-']); continue; }
       var tt = truth(P, res.X); s.scatter(res.X, P.k, kind + ' ' + P.k.toLocaleString() + ' items: ' + name + ' (truth ' + r3(tt) + ', ' + fmtMs(res.ms.total) + ')');
       s.rows.push([kind + ' ' + P.k.toLocaleString(), name, fmtMs(res.ms.total), r3(tt)]);
       out.push({ kind: kind, n: P.k, variant: name, totalMs: r1(res.ms.total), truth: r3(tt), split: res.split });
@@ -7560,12 +7588,12 @@ var NFMProbe = (function () {
   }
   /** A draggable, spinning picture of a 3D layout, drawn with the app's own scene and renderer. Spins when visible; click to pause; drag to turn; wheel to zoom. */
   /** The turning 3D picture at the end. It works the way the app does for a big map: the map goes onto the graphics card once, then turning and zooming only send the new angle and view, so a big map zooms in and out as smoothly as it turns. Buttons switch between the sizes that were built. */
-  async function addPreview(card, entries, backend) {
+  async function addPreview(card, entries, backend, avail) {
     var wrap = document.createElement('div'); wrap.style.cssText = 'margin:8px 0'; var cap = document.createElement('div'); cap.className = 'note'; wrap.appendChild(cap);
     var bar = document.createElement('div'); bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:6px 0'; wrap.appendChild(bar);
     var host = document.createElement('div'); host.style.cssText = 'position:relative;width:100%;height:320px;border:1px solid var(--line);border-radius:8px;overflow:hidden;touch-action:none;cursor:grab'; wrap.appendChild(host); card.appendChild(wrap);
-    var make = backend === 'webgpu' ? NFMRender.createWebGPU : backend === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D, r;
-    try { r = await make(host, {}); } catch (e) { cap.textContent = 'Could not draw the 3D picture (' + String(e && e.message || e).slice(0, 80) + ')'; return; }
+    var makeOf = function (b) { return b === 'webgpu' ? NFMRender.createWebGPU : b === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D; }, r;
+    try { r = await makeOf(backend)(host, {}); } catch (e) { cap.textContent = 'Could not draw the 3D picture (' + String(e && e.message || e).slice(0, 80) + ')'; return; }
     var W = host.clientWidth || 600, H = 320, dark = matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light';
     var meter = document.createElement('div'); meter.style.cssText = 'position:absolute;left:8px;top:8px;padding:3px 8px;border-radius:12px;font:12px/1.4 system-ui,sans-serif;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;z-index:5'; meter.textContent = 'Drag to turn, scroll to zoom'; host.appendChild(meter);
     var st = { yaw: 0.6, pitch: 0.35, zoom: 1, zt: 1, paused: false, drag: null, visible: true, dirty: true, turnedYaw: null, kmax: 0 }, cur = null, sc = null, rig = false, title = '';
@@ -7585,6 +7613,16 @@ var NFMProbe = (function () {
       cap.textContent = title + (rig ? ' (turning and zooming only send the new view to the graphics card)' : ' (this one cannot ride on the card, so it is slower)') + ' · drag to turn, wheel to zoom, click to pause. Try each for a few seconds, then press Download again: your own FPS numbers go into the results file.';
       Array.prototype.forEach.call(bar.children, function (b) { b.style.fontWeight = b.__e === e ? '700' : '400'; });
     };
+    var bbar = document.createElement('div'); bbar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;align-items:center'; var bl = document.createElement('span'); bl.className = 'note'; bl.textContent = 'Drawn with:'; bbar.appendChild(bl); wrap.insertBefore(bbar, host);
+    var switching = false, setBackend = async function (b) {   /* swaps the graphics way under the same picture so the two can be compared by hand */
+      if (switching || b === backend) return; switching = true; var keep = cur; sc = null;
+      try { r.destroy(); } catch (e) { /* gone */ }
+      host.textContent = ''; host.appendChild(meter); meter.textContent = 'Starting ' + b + '…';
+      try { r = await makeOf(b)(host, {}); backend = b; r.resize(W, H, 1); lastTs = 0; lastMode = ''; recent = []; await load(keep); }
+      catch (e) { cap.textContent = 'Could not switch to ' + b + ' (' + String(e && e.message || e).slice(0, 80) + ')'; }
+      Array.prototype.forEach.call(bbar.querySelectorAll('button'), function (x) { x.style.fontWeight = x.__b === backend ? '700' : '400'; }); switching = false;
+    };
+    (avail || [backend]).forEach(function (b) { var x = document.createElement('button'); x.textContent = b === 'webgpu' ? 'WebGPU' : b === 'webgl2' ? 'WebGL 2' : 'Basic'; x.__b = b; x.style.fontWeight = b === backend ? '700' : '400'; x.addEventListener('click', function () { setBackend(b); }); bbar.appendChild(x); });
     entries.forEach(function (e) { var b = document.createElement('button'); b.textContent = e.n.toLocaleString() + (e.lay ? ' (sphere)' : ''); b.__e = e; b.addEventListener('click', function () { load(e); }); bar.appendChild(b); });
     host.addEventListener('pointerdown', function (e) { st.drag = { x: e.clientX, y: e.clientY, moved: false }; host.setPointerCapture(e.pointerId); host.style.cursor = 'grabbing'; });
     host.addEventListener('pointermove', function (e) { if (!st.drag) return; var dx = e.clientX - st.drag.x, dy = e.clientY - st.drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) st.drag.moved = true; st.drag.x = e.clientX; st.drag.y = e.clientY; st.yaw += dx * 0.01; st.pitch = Math.max(-1.4, Math.min(1.4, st.pitch + dy * 0.01)); st.dirty = true; });
@@ -7600,7 +7638,7 @@ var NFMProbe = (function () {
         if (!st.paused && !st.drag) { st.yaw += 0.006; st.dirty = true; }
         var d0 = performance.now(); if (st.dirty) draw(); var dms = performance.now() - d0;
         if (mode && mode === lastMode && lastTs && ts - lastTs < 2000) {   /* the time between two screen refreshes while the same thing was going on */
-          var key = cur.n + '|' + (cur.lay ? 'sphere' : 'force'), rec = hands[key] || (hands[key] = { n: cur.n, backend: backend }), mm = rec[mode] || (rec[mode] = { gaps: [], draw: [] });
+          var key = cur.n + '|' + (cur.lay ? 'sphere' : 'force') + '|' + backend, rec = hands[key] || (hands[key] = { n: cur.n, backend: backend }), mm = rec[mode] || (rec[mode] = { gaps: [], draw: [] });
           mm.gaps.push(ts - lastTs); mm.draw.push(dms); if (mm.gaps.length > 4000) { mm.gaps.shift(); mm.draw.shift(); }
           recent.push(ts - lastTs); if (recent.length > 40) recent.shift();
         } else if (mode !== lastMode) recent = [];
@@ -7642,7 +7680,7 @@ var NFMProbe = (function () {
       /* the way the app turns a big 3D map: the map sits on the graphics card, each picture is only a new angle */
       setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + ', math on the card…'); await yieldUI();
       var tc = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, live: s.live(), rigScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
-      if (tc.fps) { if (tc.warmMs > 400) warmNotes.push('Starting to turn the ' + scenes[si].n.toLocaleString() + '-item map with ' + nm + ': the first 24 pictures took ' + Math.round(tc.warmMs).toLocaleString() + ' ms (one-time setup on the card), then steady turning is timed below.'); turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', Math.round(tc.fps), r1(tc.sceneMs), r1(tc.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'card', warmMs: Math.round(tc.warmMs || 0), fps: r1(tc.fps), sceneMs: r1(tc.sceneMs), drawMs: r1(tc.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || tc.fps > best.fps)) best = tc; }
+      if (tc.fps) { if (tc.preloadMs > 50 || tc.warmMs > 400) warmNotes.push('Starting to turn the ' + scenes[si].n.toLocaleString() + '-item map with ' + nm + ': the pre-load onto the card (the app does it a moment after a map appears) took ' + Math.round(tc.preloadMs || 0).toLocaleString() + ' ms, and the first 24 pictures after it took ' + Math.round(tc.warmMs).toLocaleString() + ' ms, then steady turning is timed below.'); if (tc.fps) ctx.preload = (ctx.preload || []).concat([{ n: scenes[si].n, backend: names[bi], preloadMs: Math.round(tc.preloadMs || 0), first24Ms: Math.round(tc.warmMs || 0) }]); turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', Math.round(tc.fps), r1(tc.sceneMs), r1(tc.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'card', warmMs: Math.round(tc.warmMs || 0), fps: r1(tc.fps), sceneMs: r1(tc.sceneMs), drawMs: r1(tc.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || tc.fps > best.fps)) best = tc; }
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', 'skipped', '-', String(tc.skipped).slice(0, 60)]);
       /* the same map on the card while the view zooms in and out (a quarter size to four times), because zooming out draws every item and link at once */
       setStatus('Zooming a ' + scenes[si].n.toLocaleString() + '-item 3D map in and out with ' + names[bi] + '…'); await yieldUI();
@@ -7651,7 +7689,7 @@ var NFMProbe = (function () {
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', zooming in and out on the card', 'skipped', '-', String(tz.skipped).slice(0, 60)]);
     }
     s.rows.push(['', '', '', '']); s.rows.push(['Turning speed', 'FPS', 'New angle (ms)', 'Draw (ms)']); turnRows.forEach(function (r) { s.rows.push(r); });
-    if (scenes.length) { $('show').style.display = ''; await addPreview($('show'), scenes, params.get('preview') || names[names.length - 1]); }
+    if (scenes.length) { $('show').style.display = ''; await addPreview($('show'), scenes, params.get('preview') || (names.indexOf('webgl2') >= 0 ? 'webgl2' : names[names.length - 1]), names.filter(function (x) { return x !== 'canvas2d'; })); }
     s.notes.push('Hop error in 3D uses the same measure as the distance error but with three dimensions; it is lower than a flat map would give and is not colored, because the bands are for flat maps. The sphere and stacked planes are shapes first, so their hop error is higher by design. "New angle" is the time to work out the picture from the new viewing angle (done on the main thread, once per picture); "Draw" is the time to hand it to the screen.');
     warmNotes.forEach(function (w) { s.notes.push(w); });
     s.notes.push('"Math on the card" is how the app turns a big 3D map: the items and links are put on the graphics card once, and each picture is only a new angle, so "New angle" is just the paint order and the few names that can be seen. "Every angle worked out here" is the older way, kept for comparison.');

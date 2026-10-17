@@ -208,6 +208,7 @@ function makeScene(fit) {
   if (mgr && mgr.r) mgr.r.setScene(S.scene);
   if (fit) fitView(true); else requestDraw();
   renderMapUI();
+  warmCardSoon();
   if (fit) { host.classList.remove('fade'); void host.offsetWidth; host.classList.add('fade'); }
 }
 var sceneQueued = false, sceneCamOnly = true;
@@ -315,7 +316,18 @@ function requestDraw() {
     drawInk();
   });
 }
-function attach(r) { r.resize(S.stageW, S.stageH, S.dpr); if (S.scene) { r.setScene(S.scene); if (S.L && S.L.is3d && r.rigPrepare) r.rigPrepare(); } requestDraw(); renderMapUI(); }
+function attach(r) { r.resize(S.stageW, S.stageH, S.dpr); if (S.scene) { r.setScene(S.scene); if (S.L && S.L.is3d && r.rigPrepare) r.rigPrepare(); } requestDraw(); renderMapUI(); warmCardSoon(); }
+/** A big 3D map is put on the graphics card a moment after it appears, while nobody is dragging yet, so the first turn does not pay for the upload and the driver's first-use work. */
+var warmTimer = 0;
+function warmCardSoon() {
+  clearTimeout(warmTimer); var sc0 = S.scene;
+  if (!sc0 || !S.L || !S.L.is3d || !sc0.rig) return;
+  warmTimer = setTimeout(function () {
+    var r = mgr && mgr.r; if (S.scene !== sc0 || !r || !r.rigWarm) return;
+    if (!r.rigOK) { warmTimer = setTimeout(function () { if (S.scene === sc0 && mgr && mgr.r === r && r.rigOK && sc0.rig) r.rigWarm(); }, 200); return; }   /* WebGPU confirms its turning setup a moment late */
+    r.rigWarm();
+  }, 150);
+}
 var mgrStarting = false;
 function startRenderer() {
   if (mgr || mgrStarting) return;

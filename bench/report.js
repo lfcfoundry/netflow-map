@@ -5,7 +5,7 @@
 const fs = require('fs'), path = require('path');
 const dir = path.join(__dirname, 'results');
 const load = (name) => { const f = path.join(dir, name + '.jsonl'); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []; };
-const BR = ['chromium', 'firefox'], BN = { chromium: 'Chromium 154', firefox: 'Firefox 158' };
+const BR = ['chromium', 'firefox'], BN = { chromium: 'Chromium 155', firefox: 'Firefox 158' };
 const f0 = (x) => x === undefined || x === null ? '–' : x >= 100 ? Math.round(x).toLocaleString('en-US') : x >= 10 ? x.toFixed(0) : x.toFixed(1);
 const sec = (ms) => ms === undefined || ms === null ? '–' : ms >= 10000 ? (ms / 1000).toFixed(0) + ' s' : ms >= 1000 ? (ms / 1000).toFixed(1) + ' s' : f0(ms) + ' ms';
 const table = (head, rows) => ['| ' + head.join(' | ') + ' |', '| ' + head.map((h, i) => i === 0 ? '---' : '---:').join(' | ') + ' |'].concat(rows.map((r) => '| ' + r.join(' | ') + ' |')).join('\n');
