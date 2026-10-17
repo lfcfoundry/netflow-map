@@ -20,7 +20,7 @@
   function setStatus(t) { $('status').textContent = t; }
   function setBar() { $('barfill').style.width = Math.min(100, Math.round(100 * doneSteps / total)) + '%'; }
   function addSection(title) {
-    var card = document.createElement('div'); card.className = 'card'; card.innerHTML = '<h2></h2><div class="verdict note">Working…</div><div class="tw"></div>'; card.firstChild.textContent = title; $('out').appendChild(card);
+    var card = document.createElement('div'); card.className = 'card'; card.innerHTML = '<h2></h2><div class="verdict note">Working…</div><div class="tw"></div>'; card.firstChild.textContent = title; $('out').insertBefore(card, $('out').firstChild);   /* the step being tested is always the top card */
     var s = { title: title, verdict: '', level: 'ok', head: null, rows: [], notes: [], card: card };
     s.finish = function (level, verdict) {
       s.level = level; s.verdict = verdict; var v = card.querySelector('.verdict'); v.className = 'verdict ' + level; v.innerHTML = tintSay(verdict);
@@ -331,7 +331,7 @@
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', 'skipped', '-', String(tc.skipped).slice(0, 60)]);
     }
     s.rows.push(['', '', '', '']); s.rows.push(['Turning speed', 'Pictures per second', 'New angle (ms)', 'Draw (ms)']); turnRows.forEach(function (r) { s.rows.push(r); });
-    if (previewL) await addPreview(s.card, previewL.L3, '3D force, ' + previewL.n.toLocaleString() + ' items', names[names.length - 1]);
+    if (previewL) { $('show').style.display = ''; await addPreview($('show'), previewL.L3, '3D force, ' + previewL.n.toLocaleString() + ' items', names[names.length - 1]); }
     s.notes.push('Hop error in 3D uses the same measure as the distance error but with three dimensions; it is lower than a flat map would give and is not colored, because the bands are for flat maps. The sphere and stacked planes are shapes first, so their hop error is higher by design. "New angle" is the time to work out the picture from the new viewing angle (done on the main thread, once per picture); "Draw" is the time to hand it to the screen.');
     warmNotes.forEach(function (w) { s.notes.push(w); });
     s.notes.push('"Math on the card" is how the app turns a big 3D map: the items and links are put on the graphics card once, and each picture is only a new angle, so "New angle" is just the paint order and the few names that can be seen. "Every angle worked out here" is the older way, kept for comparison.');
@@ -377,13 +377,15 @@
   }
   function offerResults(md, elapsed) {
     var worst = sections.some(function (s) { return s.level === 'bad'; }) ? 'bad' : sections.some(function (s) { return s.level === 'warn'; }) ? 'warn' : 'ok';
+    sections.forEach(function (s) { $('out').appendChild(s.card); });   /* back into test order */
+    document.querySelector('main').classList.add('fin'); window.scrollTo(0, 0);   /* finished: the 'All done' buttons first, then the turning 3D map, then every step */
     $('done').style.display = ''; $('finalsay').textContent = worst === 'ok' ? 'Every check passed. Total time ' + fmtMs(elapsed) + '.' : worst === 'warn' ? 'Finished with some notes above (total time ' + fmtMs(elapsed) + ').' : 'Finished, and at least one check failed (total time ' + fmtMs(elapsed) + '). The results file explains what.';
     $('dl').onclick = function () { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'net-flow-map-tester-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
     $('cp').onclick = function () { if (navigator.clipboard) navigator.clipboard.writeText(md).then(function () { $('cp').textContent = 'Copied'; }, function () { $('cp').textContent = 'Copy blocked'; }); };
     window.__NFM_TESTER_RESULT = { md: md, sections: sections.map(function (s) { return { title: s.title, level: s.level, verdict: s.verdict }; }), ctx: ctx };
   }
   async function runAll() {
-    if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; doneSteps = 0; if (params.get('only')) { var keep = STEPS.filter(function (x) { return x.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }); if (keep.length) { STEPS.length = 0; keep.forEach(function (x) { STEPS.push(x); }); } } total = STEPS.length; setBar(); t0Run = now();
+    if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; $('show').style.display = 'none'; $('show').innerHTML = '<h2>The 3D map, turning</h2>'; previews.length = 0; document.querySelector('main').classList.remove('fin'); doneSteps = 0; if (params.get('only')) { var keep = STEPS.filter(function (x) { return x.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }); if (keep.length) { STEPS.length = 0; keep.forEach(function (x) { STEPS.push(x); }); } } total = STEPS.length; setBar(); t0Run = now();
     for (var i = 0; i < STEPS.length; i++) {
       setStatus('Step ' + (i + 1) + ' of ' + STEPS.length + ': ' + STEPS[i].name + '…'); await yieldUI();
       try { await STEPS[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(STEPS[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
