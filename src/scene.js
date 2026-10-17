@@ -313,6 +313,7 @@ var NFMScene = (function () {
       if (colorBy !== 'choke' && (L.nodes || []).some(function (n) { return n.choke; })) S.legend.push({ k: 'mark', c: T.gold, t: 'choke point', key: 'chokemark', dot: true });
     }
 
+    if (view === 'river' && o.vertical) transposeScene(S);   /* a River drawn top to bottom: the same picture turned a quarter turn (text stays upright) */
     /* bounds, then a grid for picking */
     var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     S.nodes.forEach(function (n) { if (n.x < x0) x0 = n.x; if (n.y < y0) y0 = n.y; if (n.x + n.w > x1) x1 = n.x + n.w; if (n.y + n.h > y1) y1 = n.y + n.h; });
@@ -320,7 +321,7 @@ var NFMScene = (function () {
     S.dots.forEach(function (d) { if (d.cx - d.r < x0) x0 = d.cx - d.r; if (d.cy - d.r < y0) y0 = d.cy - d.r; if (d.cx + d.r > x1) x1 = d.cx + d.r; if (d.cy + d.r > y1) y1 = d.cy + d.r; });
     S.polys.forEach(function (p) { for (var i = 0; i < p.pts.length; i += 2) { if (p.pts[i] < x0) x0 = p.pts[i]; if (p.pts[i] > x1) x1 = p.pts[i]; if (p.pts[i + 1] < y0) y0 = p.pts[i + 1]; if (p.pts[i + 1] > y1) y1 = p.pts[i + 1]; } });
     if ((view === 'river' && L.sk) || S.ruler) S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
-    if (view === 'river' && L.sk && L.height && L.height > y1) y1 = L.height;
+    if (view === 'river' && L.sk && L.height && L.height > (o.vertical ? x1 : y1)) { if (o.vertical) x1 = L.height; else y1 = L.height; }
     if (S.tagChips) S.labels.forEach(function (l) { if (!l.boundXY) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; if (b[1] < y0) y0 = b[1]; if (b[3] > y1) y1 = b[3]; } });   /* tag names beyond the last box still count for the picture's edges */
     if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 100; y1 = 100; }
     if (L.is3d && L.c3) { var R3 = (L.radius3 || 300) * 1.18; x0 = L.c3[0] - R3; x1 = L.c3[0] + R3; y0 = L.c3[1] - R3; y1 = L.c3[1] + R3; }
@@ -329,6 +330,24 @@ var NFMScene = (function () {
     return S;
   }
 
+  /** Turns a finished left-to-right picture a quarter turn (x and y swapped): bars, dots, curves, ribbons, shapes and label positions. Text stays upright; names move from beside a bar to below or above it. */
+  function transposeScene(S) {
+    S.rects.forEach(function (r) { var t = r.x; r.x = r.y; r.y = t; t = r.w; r.w = r.h; r.h = t; });
+    S.dots.forEach(function (d) { var t = d.cx; d.cx = d.cy; d.cy = t; });
+    S.nodes.forEach(function (n) { var t = n.x; n.x = n.y; n.y = t; t = n.w; n.w = n.h; n.h = t; });
+    S.icons.forEach(function (c) { var t = c.cx; c.cx = c.cy; c.cy = t; });
+    S.curves.forEach(function (c) { for (var i = 0; i + 1 < c.P.length; i += 2) { var t = c.P[i]; c.P[i] = c.P[i + 1]; c.P[i + 1] = t; } if (c.tip) c.tip = [c.tip[1], c.tip[0]]; });
+    S.polys.forEach(function (p) { for (var i = 0; i + 1 < p.pts.length; i += 2) { var t = p.pts[i]; p.pts[i] = p.pts[i + 1]; p.pts[i + 1] = t; } if (p.c) p.c = [p.c[1], p.c[0]]; });
+    S.ribbons.forEach(function (r) { r.v = true; });
+    var prev = null;
+    S.labels.forEach(function (l) {
+      if (l.rot) return;
+      var ox = l.x, oy = l.y, a = l.align;
+      if (l.sub && prev && prev.node === l.node) { l.x = prev.x; l.y = prev.y + 12.5; l.align = 'c'; prev = l; return; }
+      l.x = oy; l.y = ox + (a === 'l' ? 14 : a === 'r' ? -8 : 0); l.align = 'c'; prev = l;
+    });
+    S.vertical = true;
+  }
   function buildGrid(S) {
     var cell = Math.max(40, Math.max(S.w, S.h) / 80), cols = Math.ceil(S.w / cell) + 1, rows = Math.ceil(S.h / cell) + 1, g = new Map();
     S.nodes.forEach(function (n) {
@@ -422,7 +441,7 @@ var NFMScene = (function () {
     }
     if (best) { var cv = S.curves[best.i]; return { edge: cv.edge, from: cv.from, to: cv.to, curve: best.i }; }
     for (var q = 0; q < S.ribbons.length; q++) { /* river ribbons */
-      var rb = S.ribbons[q]; if (wx < rb.x0 || wx > rb.x1) continue;
+      var rb = S.ribbons[q]; if (rb.v) { var rr = ribbonHitV(rb, wx, wy, tol); if (rr) return { edge: rb.edge, from: rb.from, to: rb.to, ribbon: q }; continue; } if (wx < rb.x0 || wx > rb.x1) continue;
       var lo = 0, hi = 1, u;   // the band's x runs along a cubic; find where it is at wx, then read the height there
       for (var it = 0; it < 14; it++) { u = (lo + hi) / 2; var m = 1 - u, xx = m * m * m * rb.x0 + 3 * m * m * u * rb.xm + 3 * m * u * u * rb.xm + u * u * u * rb.x1; if (xx < wx) lo = u; else hi = u; }
       u = (lo + hi) / 2; var m2 = 1 - u, w0 = m2 * m2 * (m2 + 3 * u), w1 = u * u * (3 * m2 + u);
@@ -430,6 +449,14 @@ var NFMScene = (function () {
       if (wy >= Math.min(ya, yb) - tol && wy <= Math.max(ya, yb) + tol) return { edge: rb.edge, from: rb.from, to: rb.to, ribbon: q };
     }
     return matrixCellAt(S, wx, wy);
+  }
+  /** Is the point on a turned ribbon (its length runs along y, its width along x)? */
+  function ribbonHitV(rb, wx, wy, tol) {
+    if (wy < rb.x0 || wy > rb.x1) return false;
+    var lo = 0, hi = 1, u;
+    for (var it = 0; it < 14; it++) { u = (lo + hi) / 2; var m = 1 - u, yy = m * m * m * rb.x0 + 3 * m * m * u * rb.xm + 3 * m * u * u * rb.xm + u * u * u * rb.x1; if (yy < wy) lo = u; else hi = u; }
+    u = (lo + hi) / 2; var m2 = 1 - u, w0 = m2 * m2 * (m2 + 3 * u), w1 = u * u * (3 * m2 + u), xa = rb.y0a * w0 + rb.y1a * w1, xb = rb.y0b * w0 + rb.y1b * w1;
+    return wx >= Math.min(xa, xb) - tol && wx <= Math.max(xa, xb) + tol;
   }
   /** Rough box of a label in world units (for clicking labels). */
   function labelBox(l) {
@@ -561,7 +588,9 @@ var NFMScene = (function () {
         var back = e.kind === 'back' || e.kind === 'self' || e.kind === 'flat';
         var lk = X.look(e, ei, { w: Math.min(1.5 + Math.log2(e.count) * 0.9, 4.5), color: back ? alpha(T.gold, 0.8) : alpha(T.line, 0.78), arrow: !many });
         if (lk.hide) return;
-        S.curves.push({ P: P, w: lk.w, color: lk.color, arrow: lk.arrow, tip: e.p1, edge: ei, from: e.from, to: e.to, back: back, dash: lk.dash });
+        var tc = { P: P, w: lk.w, color: lk.color, arrow: lk.arrow, tip: e.p1, edge: ei, from: e.from, to: e.to, back: back, dash: lk.dash };
+        if (X.o.taper && !many && !lk.dash) { tc.w = Math.max(3, lk.w * 2.2); tc.w1 = Math.max(0.9, lk.w * 0.5); tc.arrow = false; }   /* tapered: the direction shows in the shape, so no arrowhead */
+        S.curves.push(tc);
         var txt = X.linkText(e, lk);
         if (txt && X.LC.links.show && !many && L.edges.length < 400) { var mid = bez(P, 0.5); lab(mid[0], mid[1] - 4, clip(txt, 28), 10 * X.LC.links.scale, T.muted, { minK: 0.9, edge: ei, bg: true }); }
         else if (!txt && X.o.edgeValueLabels && e.widthV === e.widthV && L.edges.length < 400) { var mid2 = bez(P, 0.5); lab(mid2[0], mid2[1] - 4, fmtNum(e.widthV), 10 * X.LC.links.scale, T.muted, { minK: 0.7, edge: ei, bg: true }); }
@@ -582,7 +611,8 @@ var NFMScene = (function () {
         return;
       }
       var rec = addNode(n, nx, ny, nw, nh);
-      if (n.run) S.rects.push({ x: nx + 5, y: ny + 5, w: nw, h: nh, r: 10, fill: alpha(T.box, 0.7), stroke: alpha(T.boxLine, 0.8), sw: 1, layer: 1, node: rec.i });
+      if (n.part) S.rects.push({ x: nx + 10, y: ny + 10, w: nw, h: nh, r: 10, fill: alpha(T.box, 0.5), stroke: alpha(T.boxLine, 0.6), sw: 1, layer: 1, node: rec.i });
+      if (n.run || n.chapter) S.rects.push({ x: nx + 5, y: ny + 5, w: nw, h: nh, r: 10, fill: alpha(T.box, 0.7), stroke: alpha(T.boxLine, 0.8), sw: 1, layer: 1, node: rec.i });
       var stroke = st && st.stroke ? hex(st.stroke) : n.start ? T.accent : vc ? vc : T.boxLine, sw = st && st.sw !== undefined ? st.sw : n.start ? 3 : vc ? 3 : 1.2;
       S.rects.push({ x: nx, y: ny, w: nw, h: nh, r: rr, fill: f, stroke: n.ghost ? alpha(T.muted, 0.8) : stroke, sw: n.ghost ? 1.2 : sw, layer: 1, node: rec.i });
       if (n.choke) S.dots.push({ cx: nx + 11, cy: ny + 11, r: 5, fill: T.gold, stroke: alpha(T.box, 0.9), sw: 1.5, layer: 1, node: rec.i });
@@ -1074,11 +1104,16 @@ var NFMScene = (function () {
     S.rects.filter(function (r) { return r.layer === 0; }).forEach(function (r) { out.push(rectSvg(r, css, f, op)); });
     S.polys.forEach(function (p) { var d = 'M'; for (var i = 0; i < p.pts.length; i += 2) d += (i ? 'L' : '') + f(p.pts[i]) + ' ' + f(p.pts[i + 1]); out.push('<path d="' + d + 'Z" fill="' + css(p.fill) + '" stroke="' + css(p.stroke) + '" stroke-width="1.5"' + op(p) + '/>'); });
     var defs = [];
-    S.ribbons.forEach(function (r, ri) { var fill = css(r.color); if (r.color2) { defs.push('<linearGradient id="rg' + ri + '" gradientUnits="userSpaceOnUse" x1="' + f(r.x0) + '" y1="0" x2="' + f(r.x1) + '" y2="0"><stop offset="0" stop-color="' + css([r.color[0], r.color[1], r.color[2], 1]) + '"/><stop offset="1" stop-color="' + css([r.color2[0], r.color2[1], r.color2[2], 1]) + '"/></linearGradient>'); fill = 'url(#rg' + ri + ')'; } out.push('<path d="M' + f(r.x0) + ' ' + f(r.y0a) + 'C' + f(r.xm) + ' ' + f(r.y0a) + ' ' + f(r.xm) + ' ' + f(r.y1a) + ' ' + f(r.x1) + ' ' + f(r.y1a) + 'L' + f(r.x1) + ' ' + f(r.y1b) + 'C' + f(r.xm) + ' ' + f(r.y1b) + ' ' + f(r.xm) + ' ' + f(r.y0b) + ' ' + f(r.x0) + ' ' + f(r.y0b) + 'Z" fill="' + fill + '"' + (r.color2 ? ' fill-opacity="' + f(r.color[3]) + '"' : '') + op(r) + '/>'); });
+    S.ribbons.forEach(function (r, ri) {
+      var fill = css(r.color), pt = r.v ? function (x, y) { return f(y) + ' ' + f(x); } : function (x, y) { return f(x) + ' ' + f(y); };   /* a turned ribbon swaps every x and y */
+      if (r.color2) { defs.push('<linearGradient id="rg' + ri + '" gradientUnits="userSpaceOnUse" x1="' + (r.v ? '0' : f(r.x0)) + '" y1="' + (r.v ? f(r.x0) : '0') + '" x2="' + (r.v ? '0' : f(r.x1)) + '" y2="' + (r.v ? f(r.x1) : '0') + '"><stop offset="0" stop-color="' + css([r.color[0], r.color[1], r.color[2], 1]) + '"/><stop offset="1" stop-color="' + css([r.color2[0], r.color2[1], r.color2[2], 1]) + '"/></linearGradient>'); fill = 'url(#rg' + ri + ')'; }
+      out.push('<path d="M' + pt(r.x0, r.y0a) + 'C' + pt(r.xm, r.y0a) + ' ' + pt(r.xm, r.y1a) + ' ' + pt(r.x1, r.y1a) + 'L' + pt(r.x1, r.y1b) + 'C' + pt(r.xm, r.y1b) + ' ' + pt(r.xm, r.y0b) + ' ' + pt(r.x0, r.y0b) + 'Z" fill="' + fill + '"' + (r.color2 ? ' fill-opacity="' + f(r.color[3]) + '"' : '') + op(r) + '/>');
+    });
     if (defs.length) out.splice(out.length - S.ribbons.length, 0, '<defs>' + defs.join('') + '</defs>');
     S.curves.forEach(function (c) {
       var d = 'M' + f(c.P[0]) + ' ' + f(c.P[1]);
       for (var i = 2; i < c.P.length; i += 6) d += 'C' + f(c.P[i]) + ' ' + f(c.P[i + 1]) + ' ' + f(c.P[i + 2]) + ' ' + f(c.P[i + 3]) + ' ' + f(c.P[i + 4]) + ' ' + f(c.P[i + 5]);
+      if (c.w1 !== undefined) { out.push('<path d="' + taperSvg(c, f) + 'Z" fill="' + css(c.color) + '"' + op(c) + '/>'); return; }
       out.push('<path d="' + d + '" fill="none" stroke="' + css(c.color) + '" stroke-width="' + f(c.w) + '"' + (c.dash ? ' stroke-dasharray="' + (c.dash === 1 ? '1 ' + f(c.w * 2.2) + '" stroke-linecap="round' : c.dash === 3 ? f(c.w * 6) + ' ' + f(c.w * 3) : f(c.w * 3) + ' ' + f(c.w * 2)) + '"' : '') + op(c) + '/>');
       if (c.arrow) { var tri = arrowTri(c); out.push('<path d="M' + tri.map(f).join(' ').replace(/(\S+ \S+) /g, '$1L') + 'Z" fill="' + css(c.color) + '"' + op(c) + '/>'); }
     });
@@ -1108,6 +1143,21 @@ var NFMScene = (function () {
     return out.join('\n');
   }
   function rectSvg(r, css, f, op) { return '<rect x="' + f(r.x) + '" y="' + f(r.y) + '" width="' + f(r.w) + '" height="' + f(r.h) + '" rx="' + f(Math.min(r.r, r.w / 2, r.h / 2)) + '" fill="' + css(r.fill) + '" stroke="' + (r.sw ? css(r.stroke) : 'none') + '" stroke-width="' + f(r.sw) + '"' + (op ? op(r) : '') + '/>'; }
+  /** The outline of a tapered link as an SVG path (without the closing Z): a polyline along the curve, offset to both sides, narrowing from c.w to c.w1. */
+  function taperSvg(c, f) {
+    var P = c.P, pts = [P[0], P[1]], segs = (P.length - 2) / 6, s, i;
+    for (s = 0; s < segs; s++) {
+      var o = s * 6, x0 = P[o], y0 = P[o + 1], x1 = P[o + 2], y1 = P[o + 3], x2 = P[o + 4], y2 = P[o + 5], x3 = P[o + 6], y3 = P[o + 7], n = 14;
+      for (i = 1; i <= n; i++) { var u = i / n, m = 1 - u; pts.push(m * m * m * x0 + 3 * m * m * u * x1 + 3 * m * u * u * x2 + u * u * u * x3, m * m * m * y0 + 3 * m * m * u * y1 + 3 * m * u * u * y2 + u * u * u * y3); }
+    }
+    var n2 = pts.length / 2, cum = [0], tot = 0, L = [], R = [];
+    for (i = 1; i < n2; i++) { tot += Math.hypot(pts[i * 2] - pts[i * 2 - 2], pts[i * 2 + 1] - pts[i * 2 - 1]); cum.push(tot); }
+    for (i = 0; i < n2; i++) {
+      var a = Math.max(0, i - 1), b = Math.min(n2 - 1, i + 1), tx = pts[b * 2] - pts[a * 2], ty = pts[b * 2 + 1] - pts[a * 2 + 1], d = Math.hypot(tx, ty) || 1, h = (c.w + (c.w1 - c.w) * (tot > 0 ? cum[i] / tot : 0)) / 2;
+      L.push([pts[i * 2] - ty / d * h, pts[i * 2 + 1] + tx / d * h]); R.push([pts[i * 2] + ty / d * h, pts[i * 2 + 1] - tx / d * h]);
+    }
+    return 'M' + L.concat(R.reverse()).map(function (q) { return f(q[0]) + ' ' + f(q[1]); }).join('L');
+  }
   /** Arrow triangle for a curve: tip at c.tip (or the curve end), base at the curve end. Returns [x1,y1,x2,y2,x3,y3]. */
   function arrowTri(c) {
     var P = c.P, ex = P[P.length - 2], ey = P[P.length - 1], tip = c.tip || [ex, ey], dx = tip[0] - ex, dy = tip[1] - ey, d = Math.hypot(dx, dy), half = Math.max(4.2, (c.w || 1) * 1.3);
