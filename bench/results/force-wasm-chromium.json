@@ -1,0 +1,76 @@
+{
+ "version": "chromium 155.0.8059.39",
+ "reps": 3,
+ "rows": [
+  {
+   "k": 100,
+   "dim": 2,
+   "iters": 150,
+   "js": 37.4,
+   "wasm": 10.4,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 150,
+   "dim": 2,
+   "iters": 150,
+   "js": 29.2,
+   "wasm": 15.3,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 300,
+   "dim": 2,
+   "iters": 150,
+   "js": 65.6,
+   "wasm": 36.2,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 2000,
+   "dim": 2,
+   "iters": 240,
+   "js": 1231.3,
+   "wasm": 634,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 10000,
+   "dim": 2,
+   "iters": 120,
+   "js": 4733.7,
+   "wasm": 2222.6,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 30000,
+   "dim": 2,
+   "iters": 60,
+   "js": 7969.1,
+   "wasm": 4811.7,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 10000,
+   "dim": 3,
+   "iters": 90,
+   "js": 5991.2,
+   "wasm": 3257.9,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  }
+ ]
+}

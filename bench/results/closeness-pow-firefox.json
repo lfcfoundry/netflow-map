@@ -1,0 +1,1 @@
+{"version":"firefox/158.0","rows":[{"n":3000,"kind":"moderate","old":1775,"new":1827,"old2":1727,"new2":1868,"same":true},{"n":10000,"kind":"moderate","old":2363,"new":2165,"old2":2281,"new2":2144,"same":true},{"n":10000,"kind":"complex","old":2754,"new":2606,"old2":2812,"new2":2355,"same":true}]}

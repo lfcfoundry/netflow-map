@@ -1,0 +1,76 @@
+{
+ "version": "Node v22.22.0",
+ "reps": 3,
+ "rows": [
+  {
+   "k": 100,
+   "dim": 2,
+   "iters": 150,
+   "js": 31.5,
+   "wasm": 9.8,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 150,
+   "dim": 2,
+   "iters": 150,
+   "js": 26.3,
+   "wasm": 15.1,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 300,
+   "dim": 2,
+   "iters": 150,
+   "js": 64.2,
+   "wasm": 37.7,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 2000,
+   "dim": 2,
+   "iters": 240,
+   "js": 1251.9,
+   "wasm": 676.9,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 10000,
+   "dim": 2,
+   "iters": 120,
+   "js": 4462.5,
+   "wasm": 2540.2,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 30000,
+   "dim": 2,
+   "iters": 60,
+   "js": 7813.4,
+   "wasm": 4658.6,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 10000,
+   "dim": 3,
+   "iters": 90,
+   "js": 6873.1,
+   "wasm": 3460.2,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  }
+ ]
+}

@@ -1,0 +1,76 @@
+{
+ "version": "Epiphany 46.5",
+ "reps": 3,
+ "rows": [
+  {
+   "k": 100,
+   "dim": 2,
+   "iters": 150,
+   "js": 49,
+   "wasm": 14,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 150,
+   "dim": 2,
+   "iters": 150,
+   "js": 35,
+   "wasm": 17,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 300,
+   "dim": 2,
+   "iters": 150,
+   "js": 61,
+   "wasm": 40,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 2000,
+   "dim": 2,
+   "iters": 240,
+   "js": 975,
+   "wasm": 632,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 10000,
+   "dim": 2,
+   "iters": 120,
+   "js": 3224,
+   "wasm": 2287,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 30000,
+   "dim": 2,
+   "iters": 60,
+   "js": 6980,
+   "wasm": 4286,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  },
+  {
+   "k": 10000,
+   "dim": 3,
+   "iters": 90,
+   "js": 3628,
+   "wasm": 3181,
+   "maxd": 0,
+   "used": true,
+   "error": ""
+  }
+ ]
+}
