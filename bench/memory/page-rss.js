@@ -25,6 +25,7 @@ const rss = (pid0) => { const all = {}; for (const d of fs.readdirSync('/proc'))
   await page.waitForFunction((n) => NFM.state.L && NFM.state.sceneOk && NFM.state.L.nodes.length > n * 0.98, { timeout: 240000 }, N);
   const tDone = Date.now() - t0; await new Promise((r) => setTimeout(r, 1500)); mark('3D network shown', tDone);
   const info = await page.evaluate(() => ({ is3d: !!NFM.state.L.is3d, rig: !!(NFM.state.scene && NFM.state.scene.rig), items: NFM.state.L.nodes.length, links: NFM.state.L.edges.length }));
+  await page.evaluate(() => { NFM.setV({ colorBy: 'group' }); }); await page.waitForFunction(() => NFM.state.sceneOk && !NFM.state.mapBusy, null, { timeout: 240000 }); await new Promise((r) => setTimeout(r, 2500)); mark('set-up: switched to plain groups (a full rebuild)');   /* the network starts on found groups, which the engine uses; the measured change below is then a look-only one */
   await page.evaluate(() => { window.__calls = { make: 0 }; const mk = NFMScene.make; NFMScene.make = function () { __calls.make++; return mk.apply(this, arguments); }; });   /* counts how many pictures the color change makes */
   let peakT = 0, peakC = 0; const poll = setInterval(() => { const [t, c] = rss(pid); if (t > peakT) peakT = t; if (c > peakC) peakC = c; }, 60);   /* highest memory seen while the second picture is made (sampled every 60 ms) */
   await page.evaluate(() => { NFM.setV({ colorBy: 'size' }); }).catch(() => {}); await new Promise((r) => setTimeout(r, 2500)); clearInterval(poll); mark('after a second picture (color change)');
