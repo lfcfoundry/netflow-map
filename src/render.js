@@ -382,6 +382,23 @@ var NFMRender = (function () {
       setScene: function (s) { S = s; T = s ? tessellate(s) : null; if (T) { up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
       restyle: function () { if (S && !(S.turn && S.turn.on)) { T = tessellate(S); up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
       rigPrepare: rigPrepare, rigOK: false,
+      /* Puts a big 3D map on the card ahead of the first drag: the item and link textures are uploaded and each rig program is used once, drawing nothing (a zero-size scissor), so the driver finishes compiling and moving data now instead of during the first turn. */
+      rigWarm: function () {
+        if (!RG || !S || !S.rig || lost) return false;
+        try {
+          rigSync();
+          var wp = function (p, l, vao, mode, cnt) {
+            gl.useProgram(p); gl.uniform4f(l.uV, 1, 0, 0, 0); gl.uniform2f(l.uRes, W, Hh); gl.uniform1i(l.tN, 0); gl.uniform1i(l.tNS, 1); gl.uniform1i(l.tE, 2); gl.uniform1i(l.tES, 3);
+            gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, RG.tN); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, RG.tNS); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, RG.tE); gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, RG.tES);
+            gl.bindVertexArray(vao); gl.drawArraysInstanced(mode, 0, cnt, 1);
+          };
+          gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, 0, 0);
+          wp(RG.pe, RG.le, RG.vaoNone, gl.TRIANGLE_STRIP, 4);
+          wp(RG.pd, RG.ld, RG.vaoSeqs[rigState.ring || 0], gl.TRIANGLES, 6);
+          gl.disable(gl.SCISSOR_TEST); gl.bindVertexArray(null); gl.activeTexture(gl.TEXTURE0);
+          return true;
+        } catch (e) { try { gl.disable(gl.SCISSOR_TEST); } catch (x) { /* none */ } return false; }
+      },
       resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
       draw: function (view) {
         if (!S || lost) return;
@@ -570,6 +587,7 @@ var NFMRender = (function () {
         setScene: function (s) { S = s; if (S) load(); },
         restyle: function () { if (S && !(S.turn && S.turn.on)) load(); },
         rigPrepare: rigPrepare, rigOK: false,
+        rigWarm: function () { if (!RW || !S || !S.rig) return false; try { rigSync(); return true; } catch (e) { return false; } },   /* the item and link buffers go to the card now, not during the first turn */
         resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
         draw: function (view) {
           if (!S || !T) return;
@@ -616,7 +634,7 @@ var NFMRender = (function () {
   /* ---------------------------------------------------------------- the manager: pick, rebuild after loss, step down after three losses in a minute */
   var MAKERS = { webgpu: createWebGPU, webgl2: createWebGL2, canvas2d: createCanvas2D };
   function Manager(host, opts) {
-    this.host = host; this.opts = opts || {}; this.order = ['webgpu', 'webgl2', 'canvas2d']; this.r = null; this.losses = []; this.banned = {};
+    this.host = host; this.opts = opts || {}; this.order = ['webgl2', 'webgpu', 'canvas2d'];   /* WebGL 2 first: on the laptops measured it draws big maps at a steadier 60 FPS, where WebGPU shows random pauses of 200-350 ms; WebGPU stays as the next choice and in Advanced */ this.r = null; this.losses = []; this.banned = {};
     this.choice = 'auto'; this.canary = null; this.log = [];
   }
   Manager.prototype.candidates = function () {

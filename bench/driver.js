@@ -1,8 +1,8 @@
-/* Copyright (c) 2026 LFC Foundry. MIT License. Opens a page in Firefox 158 (Puppeteer over WebDriver BiDi) or ungoogled-chromium 154 (Playwright).
+/* Copyright (c) 2026 LFC Foundry. MIT License. Opens a page in Firefox 158 (Puppeteer over WebDriver BiDi) or ungoogled-chromium 155 (Playwright).
  * NFM_FIREFOX, NFM_CHROME, NFM_PUPPETEER, NFM_PLAYWRIGHT name the programs and packages (defaults are this machine's). */
 'use strict';
-const CHROME = process.env.NFM_CHROME || '/tmp/ugc/ungoogled-chromium-154.0.8037.97-1-x86_64_linux/chrome';
-const FIREFOX = process.env.NFM_FIREFOX || '/tmp/ffdl/firefox/firefox';
+const CHROME = process.env.NFM_CHROME || '' + (process.env.HOME || '/root') + '/browsers/ungoogled-chromium-155.0.8059.39-1-x86_64_linux/chrome';
+const FIREFOX = process.env.NFM_FIREFOX || '' + (process.env.HOME || '/root') + '/browsers/firefox/firefox';
 async function open(which, opts) {
   opts = opts || {};
   if (which === 'firefox') {

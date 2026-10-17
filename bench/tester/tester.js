@@ -221,7 +221,7 @@
     for (var vi = 0; vi < variants.length; vi++) {
       var kind = variants[vi][0], name = variants[vi][1], o = variants[vi][2], nn = variants[vi][3] || n; setStatus('Program comparison: ' + kind + ' ' + name + '…'); await yieldUI();
       var P = cache[kind + nn] || (cache[kind + nn] = piece(graphFor(kind, nn))), res = await G.layout(ctx.dev, P.off, P.nbr, P.k, EDGE, o);
-      if (res.error) { s.rows.push([kind, name, 'failed: ' + res.error.slice(0, 40), '']); continue; }
+      if (res.error) { s.rows.push([kind + ' ' + P.k.toLocaleString(), name, 'failed: ' + String(res.error).slice(0, 60), '-']); continue; }
       var tt = truth(P, res.X); s.scatter(res.X, P.k, kind + ' ' + P.k.toLocaleString() + ' items: ' + name + ' (truth ' + r3(tt) + ', ' + fmtMs(res.ms.total) + ')');
       s.rows.push([kind + ' ' + P.k.toLocaleString(), name, fmtMs(res.ms.total), r3(tt)]);
       out.push({ kind: kind, n: P.k, variant: name, totalMs: r1(res.ms.total), truth: r3(tt), split: res.split });
@@ -322,12 +322,12 @@
   }
   /** A draggable, spinning picture of a 3D layout, drawn with the app's own scene and renderer. Spins when visible; click to pause; drag to turn; wheel to zoom. */
   /** The turning 3D picture at the end. It works the way the app does for a big map: the map goes onto the graphics card once, then turning and zooming only send the new angle and view, so a big map zooms in and out as smoothly as it turns. Buttons switch between the sizes that were built. */
-  async function addPreview(card, entries, backend) {
+  async function addPreview(card, entries, backend, avail) {
     var wrap = document.createElement('div'); wrap.style.cssText = 'margin:8px 0'; var cap = document.createElement('div'); cap.className = 'note'; wrap.appendChild(cap);
     var bar = document.createElement('div'); bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:6px 0'; wrap.appendChild(bar);
     var host = document.createElement('div'); host.style.cssText = 'position:relative;width:100%;height:320px;border:1px solid var(--line);border-radius:8px;overflow:hidden;touch-action:none;cursor:grab'; wrap.appendChild(host); card.appendChild(wrap);
-    var make = backend === 'webgpu' ? NFMRender.createWebGPU : backend === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D, r;
-    try { r = await make(host, {}); } catch (e) { cap.textContent = 'Could not draw the 3D picture (' + String(e && e.message || e).slice(0, 80) + ')'; return; }
+    var makeOf = function (b) { return b === 'webgpu' ? NFMRender.createWebGPU : b === 'webgl2' ? NFMRender.createWebGL2 : NFMRender.createCanvas2D; }, r;
+    try { r = await makeOf(backend)(host, {}); } catch (e) { cap.textContent = 'Could not draw the 3D picture (' + String(e && e.message || e).slice(0, 80) + ')'; return; }
     var W = host.clientWidth || 600, H = 320, dark = matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light';
     var meter = document.createElement('div'); meter.style.cssText = 'position:absolute;left:8px;top:8px;padding:3px 8px;border-radius:12px;font:12px/1.4 system-ui,sans-serif;background:rgba(0,0,0,.55);color:#fff;pointer-events:none;z-index:5'; meter.textContent = 'Drag to turn, scroll to zoom'; host.appendChild(meter);
     var st = { yaw: 0.6, pitch: 0.35, zoom: 1, zt: 1, paused: false, drag: null, visible: true, dirty: true, turnedYaw: null, kmax: 0 }, cur = null, sc = null, rig = false, title = '';
@@ -347,6 +347,16 @@
       cap.textContent = title + (rig ? ' (turning and zooming only send the new view to the graphics card)' : ' (this one cannot ride on the card, so it is slower)') + ' · drag to turn, wheel to zoom, click to pause. Try each for a few seconds, then press Download again: your own FPS numbers go into the results file.';
       Array.prototype.forEach.call(bar.children, function (b) { b.style.fontWeight = b.__e === e ? '700' : '400'; });
     };
+    var bbar = document.createElement('div'); bbar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;align-items:center'; var bl = document.createElement('span'); bl.className = 'note'; bl.textContent = 'Drawn with:'; bbar.appendChild(bl); wrap.insertBefore(bbar, host);
+    var switching = false, setBackend = async function (b) {   /* swaps the graphics way under the same picture so the two can be compared by hand */
+      if (switching || b === backend) return; switching = true; var keep = cur; sc = null;
+      try { r.destroy(); } catch (e) { /* gone */ }
+      host.textContent = ''; host.appendChild(meter); meter.textContent = 'Starting ' + b + '…';
+      try { r = await makeOf(b)(host, {}); backend = b; r.resize(W, H, 1); lastTs = 0; lastMode = ''; recent = []; await load(keep); }
+      catch (e) { cap.textContent = 'Could not switch to ' + b + ' (' + String(e && e.message || e).slice(0, 80) + ')'; }
+      Array.prototype.forEach.call(bbar.querySelectorAll('button'), function (x) { x.style.fontWeight = x.__b === backend ? '700' : '400'; }); switching = false;
+    };
+    (avail || [backend]).forEach(function (b) { var x = document.createElement('button'); x.textContent = b === 'webgpu' ? 'WebGPU' : b === 'webgl2' ? 'WebGL 2' : 'Basic'; x.__b = b; x.style.fontWeight = b === backend ? '700' : '400'; x.addEventListener('click', function () { setBackend(b); }); bbar.appendChild(x); });
     entries.forEach(function (e) { var b = document.createElement('button'); b.textContent = e.n.toLocaleString() + (e.lay ? ' (sphere)' : ''); b.__e = e; b.addEventListener('click', function () { load(e); }); bar.appendChild(b); });
     host.addEventListener('pointerdown', function (e) { st.drag = { x: e.clientX, y: e.clientY, moved: false }; host.setPointerCapture(e.pointerId); host.style.cursor = 'grabbing'; });
     host.addEventListener('pointermove', function (e) { if (!st.drag) return; var dx = e.clientX - st.drag.x, dy = e.clientY - st.drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) st.drag.moved = true; st.drag.x = e.clientX; st.drag.y = e.clientY; st.yaw += dx * 0.01; st.pitch = Math.max(-1.4, Math.min(1.4, st.pitch + dy * 0.01)); st.dirty = true; });
@@ -362,7 +372,7 @@
         if (!st.paused && !st.drag) { st.yaw += 0.006; st.dirty = true; }
         var d0 = performance.now(); if (st.dirty) draw(); var dms = performance.now() - d0;
         if (mode && mode === lastMode && lastTs && ts - lastTs < 2000) {   /* the time between two screen refreshes while the same thing was going on */
-          var key = cur.n + '|' + (cur.lay ? 'sphere' : 'force'), rec = hands[key] || (hands[key] = { n: cur.n, backend: backend }), mm = rec[mode] || (rec[mode] = { gaps: [], draw: [] });
+          var key = cur.n + '|' + (cur.lay ? 'sphere' : 'force') + '|' + backend, rec = hands[key] || (hands[key] = { n: cur.n, backend: backend }), mm = rec[mode] || (rec[mode] = { gaps: [], draw: [] });
           mm.gaps.push(ts - lastTs); mm.draw.push(dms); if (mm.gaps.length > 4000) { mm.gaps.shift(); mm.draw.shift(); }
           recent.push(ts - lastTs); if (recent.length > 40) recent.shift();
         } else if (mode !== lastMode) recent = [];
@@ -404,7 +414,7 @@
       /* the way the app turns a big 3D map: the map sits on the graphics card, each picture is only a new angle */
       setStatus('Turning a ' + scenes[si].n.toLocaleString() + '-item 3D map with ' + names[bi] + ', math on the card…'); await yieldUI();
       var tc = await NFMProbe.turning({ backend: names[bi], W: 900, H: 600, live: s.live(), rigScene: function (yaw, pitch) { return NFMScene.make(Lx, { plan: {}, rig: true, colorBy: 'group', theme: 'light', cam: { yaw: yaw, pitch: pitch, persp: 2.4 } }); } });
-      if (tc.fps) { if (tc.warmMs > 400) warmNotes.push('Starting to turn the ' + scenes[si].n.toLocaleString() + '-item map with ' + nm + ': the first 24 pictures took ' + Math.round(tc.warmMs).toLocaleString() + ' ms (one-time setup on the card), then steady turning is timed below.'); turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', Math.round(tc.fps), r1(tc.sceneMs), r1(tc.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'card', warmMs: Math.round(tc.warmMs || 0), fps: r1(tc.fps), sceneMs: r1(tc.sceneMs), drawMs: r1(tc.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || tc.fps > best.fps)) best = tc; }
+      if (tc.fps) { if (tc.preloadMs > 50 || tc.warmMs > 400) warmNotes.push('Starting to turn the ' + scenes[si].n.toLocaleString() + '-item map with ' + nm + ': the pre-load onto the card (the app does it a moment after a map appears) took ' + Math.round(tc.preloadMs || 0).toLocaleString() + ' ms, and the first 24 pictures after it took ' + Math.round(tc.warmMs).toLocaleString() + ' ms, then steady turning is timed below.'); if (tc.fps) ctx.preload = (ctx.preload || []).concat([{ n: scenes[si].n, backend: names[bi], preloadMs: Math.round(tc.preloadMs || 0), first24Ms: Math.round(tc.warmMs || 0) }]); turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', Math.round(tc.fps), r1(tc.sceneMs), r1(tc.drawMs)]); ctx.turn.push({ n: scenes[si].n, backend: names[bi], way: 'card', warmMs: Math.round(tc.warmMs || 0), fps: r1(tc.fps), sceneMs: r1(tc.sceneMs), drawMs: r1(tc.drawMs) }); if (scenes[si].n === sizes[sizes.length - 1] && (!best || tc.fps > best.fps)) best = tc; }
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', math on the card', 'skipped', '-', String(tc.skipped).slice(0, 60)]);
       /* the same map on the card while the view zooms in and out (a quarter size to four times), because zooming out draws every item and link at once */
       setStatus('Zooming a ' + scenes[si].n.toLocaleString() + '-item 3D map in and out with ' + names[bi] + '…'); await yieldUI();
@@ -413,7 +423,7 @@
       else turnRows.push([scenes[si].n.toLocaleString() + ' items' + scenes[si].lay + ', ' + nm + ', zooming in and out on the card', 'skipped', '-', String(tz.skipped).slice(0, 60)]);
     }
     s.rows.push(['', '', '', '']); s.rows.push(['Turning speed', 'FPS', 'New angle (ms)', 'Draw (ms)']); turnRows.forEach(function (r) { s.rows.push(r); });
-    if (scenes.length) { $('show').style.display = ''; await addPreview($('show'), scenes, params.get('preview') || names[names.length - 1]); }
+    if (scenes.length) { $('show').style.display = ''; await addPreview($('show'), scenes, params.get('preview') || (names.indexOf('webgl2') >= 0 ? 'webgl2' : names[names.length - 1]), names.filter(function (x) { return x !== 'canvas2d'; })); }
     s.notes.push('Hop error in 3D uses the same measure as the distance error but with three dimensions; it is lower than a flat map would give and is not colored, because the bands are for flat maps. The sphere and stacked planes are shapes first, so their hop error is higher by design. "New angle" is the time to work out the picture from the new viewing angle (done on the main thread, once per picture); "Draw" is the time to hand it to the screen.');
     warmNotes.forEach(function (w) { s.notes.push(w); });
     s.notes.push('"Math on the card" is how the app turns a big 3D map: the items and links are put on the graphics card once, and each picture is only a new angle, so "New angle" is just the paint order and the few names that can be seen. "Every angle worked out here" is the older way, kept for comparison.');
