@@ -1,5 +1,5 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. One browser session that exercises the built index.html.
- *   node test/browser.test.js chromium|firefox [outdir]
+ *   node test/browser.test.js chromium|firefox|webkit|epiphany [outdir]   (webkit = WebKitGTK 2.52.6 through bench/webkit-driver.js; epiphany = GNOME Web)
  * chromium: Playwright (NFM_PLAYWRIGHT = path to playwright-core, NFM_CHROME = browser program; ungoogled-chromium 155 from the browsers branch)
  * NFM_PAGE = the page to test (default index.html; index.packed.html tests the self-extracting copy)
  * firefox:  Puppeteer over WebDriver BiDi (NFM_PUPPETEER = path to puppeteer-core, NFM_FIREFOX = browser program) */
@@ -12,6 +12,11 @@ let fails = 0; const say = (ok, t) => { if (ok === false) fails++; console.log((
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function open() {
+  if (which === 'webkit' || which === 'epiphany') {   /* WebKitGTK / GNOME Web through bench/webkit-driver.js (Playwright and Puppeteer cannot drive them); software drawing, a virtual screen */
+    const WD = require('../bench/webkit-driver.js'), b = await WD.launch({ browser: which === 'epiphany' ? 'epiphany' : 'webkitgtk', width: 1100, height: 720 }), page = b.page;
+    return { b, page, close: () => b.close(), size: (w, h) => page.setViewport({ width: w, height: h }), wait: (fn, arg, ms) => page.waitForFunction(fn, arg, { timeout: ms || 20000 }), shot: (p) => page.screenshot({ path: p }), click: (x, y) => page.mouse.click(x, y), press: (k) => page.keyboard.press(k),
+      drag: async (x0, y0, x1, y1) => { await page.mouse.move(x0, y0); await page.mouse.down(); await page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 }); await page.mouse.move(x1, y1, { steps: 4 }); await page.mouse.up(); }, version: b.version };
+  }
   if (which === 'firefox') {
     const pp = require(process.env.NFM_PUPPETEER || '/tmp/pptr/node_modules/puppeteer-core');
     // WebGL 2 needs a display (run under xvfb-run with NFM_HEADFUL=1); WebGPU needs a Vulkan driver (NFM_VK_ICD = a vk_*_icd.json file, e.g. SwiftShader's)
@@ -85,7 +90,8 @@ async function open() {
     await ev((vv) => NFM.setV({ view: vv }), v);
     await D.wait((vv) => NFM.state.L && NFM.state.L.view === vv && NFM.state.scene && NFM.state.scene.view === vv, v, 20000);
     await sleep(150);
-    const r = await ev(() => { const m = NFM.manager().r, s = m.snapshot(), d = s.data; let diff = 0; for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 30) diff++; return { backend: m.name, share: diff / (d.length / 4) }; });
+    const r = await ev(() => { const m = NFM.manager().r; m.draw(NFM.state.view); const s = m.snapshot(), d = s.data;   /* drawn and read in the same task: WebKit empties a WebGL canvas once it has been shown */
+    let diff = 0; for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 30) diff++; return { backend: m.name, share: diff / (d.length / 4) }; });
     say(r.share > 0.004, `${v}: drew something (${(r.share * 100).toFixed(1)}% of pixels) with ${r.backend}`);
     if (v === 'flow' || v === 'river' || v === 'network') await D.shot(path.join(outDir, `nfm-${which}-${v}.png`));
   }
@@ -172,6 +178,10 @@ async function open() {
     for (let i = 0; i < base.data.length; i += 4) { const d = (Math.abs(base.data[i] - res.data[i]) + Math.abs(base.data[i + 1] - res.data[i + 1]) + Math.abs(base.data[i + 2] - res.data[i + 2])) / 3; sum += d; if (d > 40) bad++; }
     say(res.w === base.w && sum / n <= 1.5 && bad / n < 0.01, `${be} matches basic drawing: mean ${(sum / n).toFixed(2)}/255, ${(bad / n * 100).toFixed(2)}% pixels far off`);
   }
+  /* switching the drawing way over and over: the old renderer losing its context on purpose must not make the manager think the graphics were lost */
+  const sw = await ev(async () => { const m = NFM.manager(); m.canary.webgl2 = { ok: true }; m.log.length = 0; m.banned = {}; m.losses = []; for (let i = 0; i < 4; i++) await m.use('webgl2'); await new Promise((r) => setTimeout(r, 700)); return { name: m.r.name, log: m.log.slice(), banned: Object.keys(m.banned), losses: m.losses.length }; });
+  if (sw.name !== 'webgl2') say(strict ? false : null, `switching WebGL 2 on and off: not available here (fell back to ${sw.name})`);
+  else say(sw.log.length === 0 && sw.banned.length === 0 && sw.losses === 0, `switching to WebGL 2 four times raises no false "lost" alarms (log: ${sw.log.length}, banned: ${sw.banned.length})`);
   await ev(() => NFM.manager().use('auto'));
 
   /* WebGPU keeps its graphics-memory buffers between pictures: a smaller scene drawn over a bigger one, and the old make-new-buffers way, must give exactly the pictures a fresh drawing gives */

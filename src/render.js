@@ -309,8 +309,9 @@ var NFMRender = (function () {
   function createWebGL2(host, hooks) {
     var H = makeHost(host), gl = H.main.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
     if (!gl) throw new Error('no WebGL2');
-    var lost = false;
-    H.main.addEventListener('webglcontextlost', function (e) { e.preventDefault(); lost = true; if (hooks && hooks.onLost) hooks.onLost('webgl2'); });
+    var lost = false, destroyed = false;
+    /* destroy() loses the context on purpose; that late event must not tell the manager the graphics were lost (it would tear down the renderer that replaced this one, and three of them in a minute switch WebGL 2 off) */
+    H.main.addEventListener('webglcontextlost', function (e) { e.preventDefault(); lost = true; if (!destroyed && hooks && hooks.onLost) hooks.onLost('webgl2'); });
     var pS = glProgram(gl, GL_SHAPE_VS, GL_SHAPE_FS), pM = glProgram(gl, GL_MESH_VS, GL_MESH_FS);
     var uS = { v: gl.getUniformLocation(pS, 'uV'), r: gl.getUniformLocation(pS, 'uRes') }, uM = { v: gl.getUniformLocation(pM, 'uV'), r: gl.getUniformLocation(pM, 'uRes') };
     var mkVao = function (layout, buf, divisor) {
@@ -415,7 +416,7 @@ var NFMRender = (function () {
       },
       flush: function () { var px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return Promise.resolve(); },
       snapshot: function () { return copyViaCanvas(H.main); },
-      destroy: function () { try { var x = gl.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); } catch (e) { /* gone */ } host.textContent = ''; }
+      destroy: function () { destroyed = true; try { var x = gl.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); } catch (e) { /* gone */ } host.textContent = ''; }
     };
     return Promise.resolve(out);
   }
