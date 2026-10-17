@@ -262,4 +262,14 @@ t('12 two link filters keep only the links that pass both (edgeFacets)', () => {
   ok(edgesOf({ edgeFacets: [{ col: 'k', values: ['x'] }, { col: 'm', values: ['y'] }] }) === 2, 'two filters must both apply');
   ok(edgesOf({ edgeFacet: { col: 'k', values: ['x'] } }) === 3, 'the old single option still works');
 });
+t('13 hiding a group does not recolor the others (groupOrder keeps each group in its place)', () => {
+  const g = mkG(['a', 'b', 'c'], [['a', 'b'], ['b', 'c']], ['alpha', 'beta', 'gamma']);
+  const colorOf = (S, grp) => JSON.stringify(S.legend.filter((l) => l.t === grp)[0].c);
+  const full = SC.make(E.build(g, { view: 'network', arrange: 'force', colorBy: 'group' }), { theme: 'light', groupOrder: ['alpha', 'beta', 'gamma'] });
+  const g2 = mkG(['b', 'c'], [['b', 'c']], ['beta', 'gamma']);
+  const part = SC.make(E.build(g2, { view: 'network', arrange: 'force', colorBy: 'group' }), { theme: 'light', groupOrder: ['alpha', 'beta', 'gamma'] });
+  ok(colorOf(full, 'beta') === colorOf(part, 'beta') && colorOf(full, 'gamma') === colorOf(part, 'gamma'), 'colors moved when alpha was hidden');
+  const old = SC.make(E.build(g2, { view: 'network', arrange: 'force', colorBy: 'group' }), { theme: 'light' });
+  ok(colorOf(old, 'beta') !== colorOf(full, 'beta'), 'control: without groupOrder the colors do move');
+});
 if (bad) process.exit(1);

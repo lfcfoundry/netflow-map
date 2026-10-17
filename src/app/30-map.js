@@ -171,10 +171,12 @@ function computeStyles() {
   S.styleMap = out;
   return out;
 }
+/** Every group of the data, sorted: the scene hands out colors by place in this list, so hiding a group does not recolor the others. Kept per data version (a 100,000-item map must not scan every item for each picture). */
+function allGroupOrder(dg) { if (!S.groupOrderKey || S.groupOrderKey.dg !== dg || S.groupOrderKey.n !== dg.nodes.length || S.groupOrderKey.v !== S.gver) S.groupOrderKey = { dg: dg, n: dg.nodes.length, v: S.gver, list: Array.from(new Set(dg.nodes.map(function (n) { return n.group || ''; }))).sort() }; return S.groupOrderKey.list; }
 function sceneOpts() {
   var V = S.V, sm = computeStyles(), dg = S.dg, byDg = new Map(); dg.nodes.forEach(function (n) { byDg.set(n.id, n); });
   var o = {
-    theme: themeName(), colorBy: engineColor(), palette: V.palette, ramp: V.ramp, groupColors: V.groupColors, story: S.story, lab: V.lab, widthScale: V.widthScale, widthMul: V.widthMul, hulls: V.hulls,
+    theme: themeName(), colorBy: engineColor(), palette: V.palette, ramp: V.ramp, groupColors: V.groupColors, groupOrder: allGroupOrder(dg), story: S.story, lab: V.lab, widthScale: V.widthScale, widthMul: V.widthMul, hulls: V.hulls,
     cam: V.cam, curve: V.curve, edgeValueLabels: V.valueLabels, lens: V.lens.on ? { x: S.lens ? S.lens.x : 0, y: S.lens ? S.lens.y : 0, r: S.lens ? S.lens.r : 0, d: V.lens.d } : null,
     chName: function (c) { return chLabel(c, /^sys:(count|flow)$/.test(c) || c === 'weight' ? 'edges' : 'nodes'); }
   };

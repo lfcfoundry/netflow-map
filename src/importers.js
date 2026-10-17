@@ -21,8 +21,8 @@ var NFMImport = (function () {
     this.maxNodes = this.opts.maxNodes || MAX_NODES; this.maxEdges = this.opts.maxEdges || MAX_EDGES;
     this.map = new Map();
     this.ci = !!this.opts.caseInsensitive;
-    this.r = { dupNodes: 0, selfLoops: 0, dupEdges: 0, droppedEdges: 0, ghosts: 0, emptyIds: 0, trimmed: 0, badNum: 0, attrsCut: false, skippedLinks: 0, capped: false, notes: [] };
-    this.edgeKeys = new Set(); this.nodeIx = new Map();
+    this.r = { dupNodes: 0, selfLoops: 0, dupEdges: 0, summed: 0, zeroWeight: 0, droppedEdges: 0, ghosts: 0, emptyIds: 0, trimmed: 0, badNum: 0, attrsCut: false, skippedLinks: 0, capped: false, notes: [] };
+    this.edgeKeys = new Map();   /* link key -> its place in the list of links, so a repeated link can add its weight to the first one */ this.nodeIx = new Map();
     this.longs = new Map();   // very long names (over MAX_LABEL): the whole name -> its item, so two long names that start alike stay two items
   }
   function clip(s, n) { s = String(s === undefined || s === null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
@@ -140,9 +140,19 @@ var NFMImport = (function () {
     // a plain link (no kind, no label) is remembered by the two items' positions as one number; the rest by text
     var ia = this.nodeIx.get(a), ib = this.nodeIx.get(b);
     var dk = kind === '' && label === '' && ia !== undefined && ib !== undefined ? ia * 33554432 + ib : a.id + '\u0001' + b.id + '\u0001' + kind + '\u0001' + label;
-    if (this.edgeKeys.has(dk)) { this.r.dupEdges++; if (!this.opts.keepDuplicates) return null; }
+    var first = this.edgeKeys.get(dk);
+    if (first !== undefined) {
+      this.r.dupEdges++;
+      if (!this.opts.keepDuplicates) {   /* a repeated link adds its weight to the first one (like a pivot table); with no weights anywhere it is just dropped */
+        var pw0 = props.weight, w0;
+        if (pw0 === undefined || pw0 === '' || pw0 === null) w0 = undefined; else if (typeof pw0 === 'string') w0 = readNumber(pw0, '.'); else w0 = Number(pw0);
+        var fe = this.g.edges[first];
+        if (isFinite(w0) || isFinite(fe.weight)) { fe.weight = (isFinite(fe.weight) ? fe.weight : 1) + (isFinite(w0) ? w0 : 1); this.r.summed++; }
+        return null;
+      }
+    }
     if (this.g.edges.length >= this.maxEdges) { this.r.capped = true; return null; }
-    this.edgeKeys.add(dk);
+    this.edgeKeys.set(dk, this.g.edges.length);
     var pw = props.weight, wt;
     if (pw === undefined || pw === '' || pw === null) wt = undefined;
     else if (typeof pw === 'string') { wt = readNumber(pw, '.'); if (wt !== wt) this.r.badNum++; }   // text is read like a table cell; what cannot be read is counted
@@ -154,8 +164,13 @@ var NFMImport = (function () {
   };
   Builder.prototype.done = function (format) {
     var r = this.r, notes = r.notes.slice();
+    /* a link with weight 0 or less carries no flow: it is left out (unless every weighted link is like that, then the weights are ignored so the map is not empty) */
+    var anyPos = false, nonPos = 0, ei;
+    for (ei = 0; ei < this.g.edges.length; ei++) { var ew = this.g.edges[ei].weight; if (ew !== undefined && ew > 0) { anyPos = true; break; } }
+    if (anyPos) { var keepE = []; for (ei = 0; ei < this.g.edges.length; ei++) { var ew2 = this.g.edges[ei].weight; if (ew2 !== undefined && !(ew2 > 0)) nonPos++; else keepE.push(this.g.edges[ei]); } if (nonPos) { this.g.edges = keepE; r.zeroWeight = nonPos; } }
     if (r.dupNodes) notes.push(r.dupNodes + ' repeated item' + (r.dupNodes === 1 ? ' was' : 's were') + ' merged into one.');
-    if (r.dupEdges) notes.push(r.dupEdges + ' repeated link' + (r.dupEdges === 1 ? ' was' : 's were') + (this.opts.keepDuplicates ? ' kept.' : ' dropped.'));
+    if (r.dupEdges) notes.push(r.dupEdges + ' repeated link' + (r.dupEdges === 1 ? ' was' : 's were') + (this.opts.keepDuplicates ? ' kept.' : r.summed ? ' added to the first one (their weights were added up).' : ' dropped.'));
+    if (r.zeroWeight) notes.push(r.zeroWeight + ' link' + (r.zeroWeight === 1 ? ' has' : 's have') + ' a weight of zero or less (no flow) and ' + (r.zeroWeight === 1 ? 'was' : 'were') + ' left out.');
     if (r.selfLoops) notes.push(r.selfLoops + ' link' + (r.selfLoops === 1 ? ' points' : 's point') + ' from an item to itself (kept).');
     if (r.droppedEdges) notes.push(r.droppedEdges + ' link' + (r.droppedEdges === 1 ? ' was' : 's were') + ' dropped because an end was empty.');
     if (r.emptyIds) notes.push(r.emptyIds + ' row' + (r.emptyIds === 1 ? ' had' : 's had') + ' no name and ' + (r.emptyIds === 1 ? 'was' : 'were') + ' skipped.');
