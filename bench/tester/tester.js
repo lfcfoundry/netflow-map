@@ -270,7 +270,9 @@
   STEPS.push({ name: 'Where the drawing time goes (WebGPU)', run: async function () {
     var s = addSection('Where the drawing time goes: WebGPU against WebGL 2'), sizes = params.get('plan3d') ? params.get('plan3d').split(',').map(Number) : QUICK ? [600] : [5000, 25000, 50000, 100000], n = sizes[sizes.length - 1];
     s.head = ['Way of drawing', 'FPS', 'New angle (ms)', 'Copy to card (ms)', 'Draw commands (ms)', 'Wait for card (ms)', 'Wait for refresh (ms)'];
-    var c = await NFMProbe.canary(), gpu = null, ctl = null, ex = null, byN = [], row = function (nm, w) { return [n.toLocaleString() + ' items, ' + nm + ': ' + w.label, r1(w.fps), r1(w.scene), r1(w.upload), r1(w.draw), r1(w.fence), r1(w.raf)]; };
+    /* the graphics-card computing tests are over: close their device so the memory they used (up to gigabytes of tables) is free again for the drawing tests. It stayed open for the whole run before, and a few 1.5 to 1.9 second freezes showed up in drawing after it. */
+    if (!params.get('extras') && ctx.dev && ctx.dev.device) { try { ctx.dev.device.destroy(); s.notes.push('The graphics card\'s computing device from the earlier steps was closed before these drawing tests, so its memory is free for them.'); } catch (e) { /* already gone */ } ctx.dev = null; ctx.devClosed = true; await new Promise(function (r) { setTimeout(r, 400); }); }
+    var c = await NFMProbe.canary(), gpu = null, ctl = null, ex = null, byN = [], good = [], lost = [], row = function (nm, w) { return [n.toLocaleString() + ' items, ' + nm + ': ' + w.label, r1(w.fps), r1(w.scene), r1(w.upload), r1(w.draw), r1(w.fence), r1(w.raf)]; };
     if (!c.webgpu.ok) { var why = 'WebGPU is not usable here' + (c.webgpu.why ? ' (' + c.webgpu.why + ')' : '') + ', so there is nothing to time. Nothing is wrong with the app: it draws with WebGL 2 or basic drawing instead.'; ctx.timing = { skipped: why }; s.finish('warn', why); return { level: 'warn', say: why }; }
     for (var zi = 0; zi < sizes.length; zi++) {
       n = sizes[zi]; var arr = n > 30000 ? 'sphere' : 'force3d';   /* the 3D force layout is built up to 30,000 items here; bigger maps use the sphere shape */
@@ -283,15 +285,21 @@
       if (gpu.ways) gpu.ways.forEach(function (w) { s.rows.push(row('WebGPU', w)); });
       if (ctl && ctl.ways) ctl.ways.forEach(function (w) { s.rows.push(row('WebGL 2', w)); });
       ex = NFMProbe.explainTiming(gpu, ctl && ctl.ways ? ctl : null); byN.push({ items: n, webgpu: gpu.ways || gpu.skipped, webgl2: ctl && (ctl.ways || ctl.skipped) || null, fastest: ex.fastest, dominant: ex.dominant });
-      if (zi < sizes.length - 1) s.notes.push(n.toLocaleString() + ' items: ' + ex.say);
+      /* every size reports for itself; a size that could not be timed no longer wipes out the verdict of the sizes that could */
+      if (gpu.ways) { good.push({ n: n, ex: ex }); s.notes.push(n.toLocaleString() + ' items: ' + ex.say + (gpu.partial ? ' (This size is so slow that each way got only a few pictures, so its numbers are rough.)' : '')); ex.lines.forEach(function (t) { s.notes.push(n.toLocaleString() + ' items: ' + t); }); }
+      else { lost.push(n.toLocaleString() + ' items: WebGPU could not be timed (' + gpu.skipped + ')'); s.notes.push(lost[lost.length - 1] + '.'); }
+      if (ctl && ctl.skipped) s.notes.push(n.toLocaleString() + ' items: the WebGL 2 control could not be timed (' + ctl.skipped + ').');
       await yieldUI();
     }
-    ex.lines.forEach(function (t) { s.notes.push(t); });
-    if (ctl && ctl.skipped) s.notes.push('The WebGL 2 control was skipped: ' + ctl.skipped + '.');
     if (ctl && c.webgl2.software) s.notes.push('WebGL 2 here runs on the processor, so it is not a fair control.');
     s.notes.push('Each row draws a 3D map of the size in its first column (the 3D force layout up to 30,000 items, the sphere shape above that), one picture per screen refresh from a new angle, for up to 60 pictures or 0.7 seconds; the times are averages per picture. "New angle" is working the picture out on the main thread, "Copy to card" is putting it into graphics memory, "Draw commands" is encoding and handing them over, "Wait for card" is how long the loop waited for the graphics card to report it was done (or, for "up to 3 pictures in flight", for the oldest picture), and "Wait for refresh" is the wait for the next screen refresh. "Blank picture" draws nothing at all: it is the least a browser can do per picture. Run the step twice and trust only what repeats.');
-    ctx.timingBySize = byN; ctx.timing = { items: n, device: gpu.device || '', software: !!gpu.software, webgpu: gpu.ways || gpu.skipped, webgl2: ctl && (ctl.ways || ctl.skipped) || null, fastest: ex.fastest, dominant: ex.dominant };
-    s.finish(ex.level, ex.say); return { level: ex.level, say: ex.say };
+    var top = good.length ? good[good.length - 1] : null, rank = { ok: 0, warn: 1, bad: 2 }, lv = 'ok', vsay;
+    good.forEach(function (g) { if (rank[g.ex.level] > rank[lv]) lv = g.ex.level; });
+    if (!top) { lv = 'warn'; vsay = 'WebGPU timing could not be done at any size (' + (lost.join('; ') || 'no result') + ').'; }
+    else vsay = top.n.toLocaleString() + ' items: ' + top.ex.say + (lost.length ? ' Not timed: ' + lost.join('; ') + '.' : '');
+    if (lost.length && lv === 'ok') lv = 'warn';
+    ctx.timingBySize = byN; ctx.timing = { items: top ? top.n : n, device: gpu.device || '', software: !!gpu.software, webgpu: top ? byN.filter(function (b) { return b.items === top.n; })[0].webgpu : gpu.skipped, webgl2: ctl && (ctl.ways || ctl.skipped) || null, fastest: top ? top.ex.fastest : null, dominant: top ? top.ex.dominant : null };
+    s.finish(lv, vsay); return { level: lv, say: vsay };
   } });
 
   (params.get('extras') ? STEPS : []).push({ name: 'Hop table groups', run: async function () {
@@ -371,7 +379,7 @@
     };
     var load = async function (e) {
       cur = e; sc = null; title = '3D ' + (e.lay ? 'sphere' : 'force') + ', ' + e.n.toLocaleString() + ' items'; cap.textContent = title + ': building it…'; await yieldUI();
-      var s2 = NFMScene.make(e.L3, { plan: {}, rig: true, colorBy: 'group', theme: dark, cam: cam() }); r.setScene(s2); rig = !!(s2.turnTo && r.rigPrepare); if (rig) r.rigPrepare();
+      var s2 = NFMScene.make(e.L3, { plan: {}, rig: true, colorBy: 'group', theme: dark, cam: cam() }); r.setScene(s2); rig = !!(s2.turnTo && r.rigPrepare); if (rig) { r.rigPrepare(); for (var wi = 0; wi < 40 && !r.rigOK; wi++) await new Promise(function (ok) { setTimeout(ok, 25); }); if (r.rigOK && r.rigWarm) { r.rigWarm(); try { await r.flush(); } catch (e) { /* none */ } } }   /* the app does this a moment after a map appears: the map goes onto the card now, not during the first turn */
       sc = s2; st.turnedYaw = null; st.kmax = 0; st.zoom = st.zt = 1; st.dirty = true;
       cap.textContent = title + (rig ? ' (turning and zooming only send the new view to the graphics card)' : ' (this one cannot ride on the card, so it is slower)') + ' · drag to turn, wheel to zoom, click to pause. Try each for a few seconds, then press Download again: your own FPS numbers go into the results file.';
       Array.prototype.forEach.call(bar.children, function (b) { b.style.fontWeight = b.__e === e ? '700' : '400'; });
@@ -491,13 +499,28 @@
   } });
 
   /* ------------------------------------------------------------- results file */
+  /** Freezes the person felt, in plain words: gaps over a quarter second, counted per way of drawing across everything they tried. */
+  function handsSummary() {
+    var by = {}, nm = { webgl2: 'WebGL 2', webgpu: 'WebGPU', canvas2d: 'Basic drawing' }, out = { lines: [], data: {} };
+    Object.keys(hands).forEach(function (k) { ['drag', 'zoom', 'rotate'].forEach(function (m) {
+      var h = hands[k][m]; if (!h || !h.gaps.length) return; var b = by[hands[k].backend] || (by[hands[k].backend] = { frames: 0, f250: 0, f1000: 0, worst: 0, where: [] });
+      h.gaps.forEach(function (g) { b.frames++; if (g > 250) b.f250++; if (g > 1000) b.f1000++; if (g > b.worst) b.worst = g; });
+      var w = Math.max.apply(null, h.gaps); if (w > 250) b.where.push(hands[k].n.toLocaleString() + ' items, ' + ({ drag: 'dragging', zoom: 'scrolling to zoom', rotate: 'turning by itself' })[m] + ' (' + Math.round(w) + ' ms)');
+    }); });
+    Object.keys(by).forEach(function (be) { var b = by[be]; out.data[be] = { frames: b.frames, over250: b.f250, over1000: b.f1000, worstMs: Math.round(b.worst) };
+      out.lines.push((nm[be] || be) + ': ' + b.frames.toLocaleString() + ' pictures watched, ' + (b.f250 ? b.f250 + ' freezes over a quarter second (' + b.f1000 + ' over a second, worst ' + (b.worst / 1000).toFixed(1) + ' s) at ' + b.where.slice(0, 4).join('; ') : 'no freeze over a quarter second') + '.'); });
+    var a = by.webgl2, g = by.webgpu;
+    if (a && g && g.f250 > a.f250 + 1) out.lines.push('WebGPU froze noticeably more than WebGL 2 on this computer, so the app keeps WebGL 2 as its first choice here.');
+    return out;
+  }
   function buildMd(elapsed) {
     var L = ['# Net Flow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
     var hr = handsRows(); L.push('## Your hands-on test (the turning 3D picture)', '');
     if (hr.length) { L.push(mdTable(['Picture', 'What you did', 'Frames', 'FPS', 'Typical gap (ms)', 'Slowest 1 in 20 (ms)', 'Slowest (ms)', 'Frames over 34 ms', 'Our work per frame, typical (ms)', 'Our work per frame, worst (ms)'], hr)); L.push('_A gap is the time between two screen refreshes while you did that; 17 ms is a steady 60 FPS. "Our work per frame" is the page\'s own time (new angle plus drawing commands); if it is small while the gap is large, the wait is the graphics card or the browser._', ''); }
     else L.push('_Not tried yet. Drag and scroll the turning picture for a few seconds, then press Download again._', '');
-    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, turn: ctx.turn || null, split: ctx.split || null, timing: ctx.timing || null, small: ctx.small || null }, null, 1), '```', '');
+    var hs = handsSummary(); hs.lines.forEach(function (t) { L.push('_' + t + '_', ''); });
+    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, turn: ctx.turn || null, split: ctx.split || null, timing: ctx.timing || null, small: ctx.small || null, hands: handsSummary().data, deviceClosedBeforeDrawing: !!ctx.devClosed }, null, 1), '```', '');
     return L.join('\n');
   }
   function offerResults(md, elapsed) {
@@ -505,8 +528,8 @@
     sections.forEach(function (s) { $('out').appendChild(s.card); });   /* back into test order */
     document.querySelector('main').classList.add('fin'); window.scrollTo(0, 0);   /* finished: the 'All done' buttons first, then the turning 3D map, then every step */
     $('done').style.display = ''; $('finalsay').textContent = worst === 'ok' ? 'Every check passed. Total time ' + fmtMs(elapsed) + '.' : worst === 'warn' ? 'Finished with some notes above (total time ' + fmtMs(elapsed) + ').' : 'Finished, and at least one check failed (total time ' + fmtMs(elapsed) + '). The results file explains what.';
-    $('dl').onclick = function () { md = buildMd(elapsed); var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'net-flow-map-tester-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
-    $('cp').onclick = function () { md = buildMd(elapsed); if (navigator.clipboard) navigator.clipboard.writeText(md).then(function () { $('cp').textContent = 'Copied'; }, function () { $('cp').textContent = 'Copy blocked'; }); };
+    $('dl').onclick = function () { md = buildMd(elapsed); if (window.__NFM_TESTER_RESULT) window.__NFM_TESTER_RESULT.md = md; var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'net-flow-map-tester-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
+    $('cp').onclick = function () { md = buildMd(elapsed); if (window.__NFM_TESTER_RESULT) window.__NFM_TESTER_RESULT.md = md; if (navigator.clipboard) navigator.clipboard.writeText(md).then(function () { $('cp').textContent = 'Copied'; }, function () { $('cp').textContent = 'Copy blocked'; }); };
     window.__NFM_TESTER_RESULT = { md: md, sections: sections.map(function (s) { return { title: s.title, level: s.level, verdict: s.verdict }; }), ctx: ctx };
   }
   async function runAll() {
