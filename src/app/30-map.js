@@ -58,8 +58,11 @@ function engineOpts() {
   };
   var cut = strongestCut(); if (cut.min !== null) o.minEdge = { ch: cut.ch, min: cut.min };
   var keep = keepList(); if (keep) o.keep = keep;
-  var ek = Object.keys(V.facets).filter(function (k) { return k.indexOf('e:') === 0 && V.facets[k] && V.facets[k].length; })[0];
-  if (ek) o.edgeFacet = { col: ek.slice(2), values: V.facets[ek] };
+  var eks = Object.keys(V.facets).filter(function (k) { return k.indexOf('e:') === 0 && V.facets[k] && V.facets[k].length; });
+  if (eks.length) {   /* the panel offers two link filters: both go to the engine (edgeFacets); edgeFacet stays the first for an engine that only knows one */
+    o.edgeFacets = eks.map(function (k) { return { col: k.slice(2), values: V.facets[k].slice() }; });
+    o.edgeFacet = o.edgeFacets[0];
+  }
   if (S.simSnap) o.sim = S.simSnap;
   if (hasStates()) { o.state = curState(); if (V.widthBy === 'weight') o.widthMax = stateWidthMax(); }
   S.simUsed = S.simVer;
@@ -77,40 +80,62 @@ function showMsg(content, buttons) {
 }
 function hideMsg() { $('msg').hidden = true; }
 var buildQueued = 0;
-function refreshMap(reason) {
-  if (S.tab !== 'map') return;
+/** Builds the map again from the data and settings. Off the Map tab it only notes that the picture is out of date (the Map builds it when shown), unless force is true (export asks for that). Returns a promise that settles when the build is over. */
+function refreshMap(reason, force) {
+  if (S.tab !== 'map' && !force) { S.sceneOk = false; S.mapStale = -1; return Promise.resolve(); }
   stateAbort();
   clearTimeout(busyT);
   $('stage').classList.toggle('empty', !S.graph.nodes.length);
   if (!S.graph.nodes.length) {
-    S.L = null; S.scene = null; if (mgr && mgr.r) mgr.r.setScene(null);
+    S.L = null; S.scene = null; S.sceneOk = true; S.mapBusy = 0; if (mgr && mgr.r) mgr.r.setScene(null);
     showMsg(h('div', { style: { display: 'grid', gap: '6px' } }, [h('b', null, 'Nothing to draw yet.'), h('span', { class: 'muted small' }, 'Bring in a table, a JSON file, an outline or a folder of notes on the Data tab.')]), [['Go to Data', function () { showTab('data'); }, true]]);
-    renderMapUI(); return;
+    renderMapUI(); return Promise.resolve();
   }
-  if (!client || client.mode === 'starting') { showMsg('Getting ready…'); setTimeout(function () { refreshMap(reason); }, 150); return; }
-  var seq = ++S.mapSeq;
+  if (!client || client.mode === 'starting') { showMsg('Getting ready…'); return new Promise(function (res) { setTimeout(function () { res(refreshMap(reason, force)); }, 150); }); }
+  var seq = ++S.mapSeq; S.sceneOk = false; S.mapBusy = seq;
   busyT = setTimeout(function () { if (seq === S.mapSeq) showMsg(h('div', { style: { display: 'grid', gap: '6px' } }, [h('b', null, 'Working out the map…'), h('span', { class: 'muted small' }, nfmt(S.graph.nodes.length) + ' items, ' + nfmt(S.graph.edges.length) + ' links')])); }, 350);
   var t0 = performance.now(), V = S.V;
-  client.build(engineOpts()).then(function (res) {
+  var p = client.build(engineOpts()).then(function (res) {
     if (seq !== S.mapSeq) return;
     clearTimeout(busyT); hideMsg();
+    /* the chosen links are remembered by the original links they stand for, so they stay the same links when the view or arrangement draws them as other arrows */
+    var origSel = null; if (S.selEdges.size && S.L) { origSel = new Set(); S.selEdges.forEach(function (i) { var oe = S.L.edges[i]; if (oe && oe.orig) for (var q = 0; q < oe.orig.length; q++) origSel.add(oe.orig[q]); }); }
     S.L = res.L; S.ms = res.ms; S.totalMs = performance.now() - t0;
+    if (S.selEdges.size) S.selEdges = origSel && origSel.size ? edgesFromOrig(origSel) : new Set();
     var hadCard = !!S.cardUsed; S.cardUsed = res.card || null; if (hadCard !== !!S.cardUsed || (client && client.cardWhy)) renderMapUI();
     if (S.L.is3d === false) S.L.is3d = false;
     var fk = [V.view, V.arrange, S.gver, V.dir, V.laneBy, V.block.length, V.hideKinds.length, V.strongest, JSON.stringify(V.facets), JSON.stringify(V.around)].join('|');
-    makeScene(fk !== lastFitKey && reason !== 'look'); lastFitKey = fk;
+    var fit = fk !== lastFitKey && reason !== 'look';
+    if (S.tab !== 'map') { if (fit) S.needFit = true; fit = false; }   /* built for export while another tab is open: the stage has no size now, so it fits when the Map is shown */
+    else if (S.needFit) { S.needFit = false; fit = true; }
+    makeScene(fit); lastFitKey = fk;
+    S.sceneOk = true; if (S.mapBusy === seq) S.mapBusy = 0;
   }).catch(function (err) {
     if (err && err.message === 'superseded') return;
     if (seq !== S.mapSeq) return;
+    if (S.mapBusy === seq) S.mapBusy = 0;
     clearTimeout(busyT);
     var big = /too big/.test(err.message);
     showMsg(h('div', { style: { display: 'grid', gap: '6px' } }, [h('b', null, big ? 'This map is too big for that view.' : 'The map could not be drawn.'), h('span', { class: 'muted small' }, err.message)]), big ? [['Use the Network view', function () { setV({ view: 'network' }); }, true]] : []);
   });
+  S.mapDone = p; return p;
+}
+/** Resolves with the scene once it matches the data and settings (building it first when needed, also off the Map tab); null when there is nothing to draw. Exports use this so they never save an older picture. */
+function ensureMap() {
+  if (S.sceneOk && S.scene) return Promise.resolve(S.scene);
+  if (!S.graph.nodes.length) return Promise.resolve(null);
+  var done = function (left) { return S.sceneOk && S.scene ? S.scene : (left > 0 && S.mapDone ? S.mapDone.then(function () { return done(left - 1); }) : null); };
+  return (S.mapBusy && S.mapDone ? S.mapDone : refreshMap('export', true)).then(function () { return done(3); });
 }
 
 /* ---------------------------------------------------------------- looks: rules, labels, colors */
+/* A blank or non-number never matches a number comparison ("less than 5" must not catch items with no value). */
+var numCmp = function (a, b, f) {
+  if (a === '' || a === null || a === undefined || b === '' || b === null || b === undefined || (typeof a === 'string' && !a.trim()) || (typeof b === 'string' && !b.trim())) return false;
+  var x = Number(a), y = Number(b); return x === x && y === y && f(x, y);
+};
 var FILL_OPS = { '=': function (a, b) { return String(a) === String(b); }, '!=': function (a, b) { return String(a) !== String(b); }, 'contains': function (a, b) { return String(a).toLowerCase().indexOf(String(b).toLowerCase()) >= 0; },
-  '>': function (a, b) { return Number(a) > Number(b); }, '<': function (a, b) { return Number(a) < Number(b); }, '>=': function (a, b) { return Number(a) >= Number(b); }, '<=': function (a, b) { return Number(a) <= Number(b); } };
+  '>': function (a, b) { return numCmp(a, b, function (x, y) { return x > y; }); }, '<': function (a, b) { return numCmp(a, b, function (x, y) { return x < y; }); }, '>=': function (a, b) { return numCmp(a, b, function (x, y) { return x >= y; }); }, '<=': function (a, b) { return numCmp(a, b, function (x, y) { return x <= y; }); } };
 function ruleValue(obj, col) { var v = col === 'group' ? obj.group : col === 'label' ? obj.label : col === 'valence' ? obj.valence : col === 'kind' ? obj.kind : col === 'weight' ? obj.weight : obj.attrs && obj.attrs[col]; return v === undefined || v === null ? '' : v; }
 /** Works out, for every item and link, what the style rules say. Returns { nodes: Map id->style, edges: Map index->style }. */
 function computeStyles() {
@@ -183,7 +208,7 @@ function sceneOpts() {
 function pinKey() { return S.V.view + '|' + S.V.arrange; }
 function applyPins(L) {
   var pins = S.V.pins[pinKey()]; if (!pins || L.view !== 'network' || L.is3d) return;
-  L.nodes.forEach(function (n) { var p = pins[n.nodeId || n.id]; if (p) { n.cx = p[0]; n.cy = p[1]; } });
+  L.nodes.forEach(function (n) { var id = n.nodeId || n.id, p = own(pins, id) ? pins[id] : null; if (p && typeof p[0] === 'number' && typeof p[1] === 'number') { n.cx = p[0]; n.cy = p[1]; } });
 }
 /** Applies key edits (renamed or hidden entries, recolored groups) to a fresh key list. */
 function editKey(sc) {
@@ -208,7 +233,7 @@ function makeScene(fit) {
   if (mgr && mgr.r) mgr.r.setScene(S.scene);
   if (fit) fitView(true); else requestDraw();
   renderMapUI();
-  warmCardSoon();
+  warmCardSoon(); spinLoop();
   if (fit) { host.classList.remove('fade'); void host.offsetWidth; host.classList.add('fade'); }
 }
 var sceneQueued = false, sceneCamOnly = true;
@@ -346,8 +371,8 @@ TAB_HOOKS.map = function () {
   if (!S.mapBuilt) { buildMapUI(); S.mapBuilt = true; }
   startRenderer(); applySize();
   if (S.sel.size) { var a = Array.from(S.sel); S.sel = new Set(a); }
-  if (!S.scene || S.mapStale !== S.gver || (S.simUsed !== S.simVer && simUsesMap())) { S.mapStale = S.gver; refreshMap('shown'); } else { requestDraw(); renderMapUI(); }
-  attachSimOverlay(); renderTimeline();
+  if (!S.scene || !S.sceneOk || S.mapStale !== S.gver || (S.simUsed !== S.simVer && simUsesMap())) { S.mapStale = S.gver; refreshMap('shown'); } else { if (S.needFit) { S.needFit = false; fitView(true); } requestDraw(); renderMapUI(); }
+  attachSimOverlay(); renderTimeline(); spinLoop();
 };
 new ResizeObserver(function () { if (S.tab === 'map') { var was = S.stageW; applySize(); if (S.scene && (was <= 2 || Math.abs(S.stageW - was) / was > 0.2)) fitView(true); } }).observe(stage);
 
@@ -418,4 +443,4 @@ function centerOn(ids) {
   if (ids.length === 1 && n) { var k = S.view.k, cx = (n.x + n.w / 2) * k + S.view.tx, cy = (n.y + n.h / 2) * k + S.view.ty; if (cx > b.x + 40 && cx < b.x + b.w - 40 && cy > b.y + 40 && cy < b.y + b.h - 40) return; v = { k: k, tx: b.x + b.w / 2 - (n.x + n.w / 2) * k, ty: b.y + b.h / 2 - (n.y + n.h / 2) * k }; }
   viewTo(v, 420);
 }
-document.addEventListener('visibilitychange', function () { if (!document.hidden) requestDraw(); });
+document.addEventListener('visibilitychange', function () { if (!document.hidden) { requestDraw(); spinLoop(); } });

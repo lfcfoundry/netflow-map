@@ -7,7 +7,7 @@ var $ = function (id) { return document.getElementById(id); };
 var esc = function (s) { return String(s === undefined || s === null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
 /* DEBOUNCING counts the short (200 ms or less) screen-update delays still waiting, so a test can wait for the real finish instead of a guessed pause. The slow saves (300 ms and up) are not counted. */
 var DEBOUNCING = 0;
-var debounce = function (fn, ms) { var t, p = false, c = ms <= 200; var done = function () { if (p) { p = false; if (c) DEBOUNCING--; } }; var f = function () { var a = arguments, self = this; clearTimeout(t); if (!p) { p = true; if (c) DEBOUNCING++; } t = setTimeout(function () { done(); fn.apply(self, a); }, ms); }; f.now = function () { clearTimeout(t); done(); fn(); }; return f; };
+var debounce = function (fn, ms) { var t, p = false, c = ms <= 200; var done = function () { if (p) { p = false; if (c) DEBOUNCING--; } }; var f = function () { var a = arguments, self = this; clearTimeout(t); if (!p) { p = true; if (c) DEBOUNCING++; } t = setTimeout(function () { done(); fn.apply(self, a); }, ms); }; f.now = function () { clearTimeout(t); done(); fn(); }; f.flush = function () { if (p) { clearTimeout(t); done(); fn(); } }; return f; };
 var LS = {
   get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set: function (k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
@@ -94,7 +94,7 @@ var S = {
   theme: 'auto', method: 'auto', tab: 'data', imp: null,
   V: null, // view settings for this data (see defaultView)
   A: null, // advanced settings (simulation, layout) for this data
-  L: null, scene: null, view: { k: 1, tx: 0, ty: 0 }, fitK: 1, sel: new Set(), selEdges: new Set(), stageW: 1, stageH: 1, dpr: 1, mapSeq: 0, canary: null, ms: 0
+  L: null, scene: null, sceneOk: false, view: { k: 1, tx: 0, ty: 0 }, fitK: 1, sel: new Set(), selEdges: new Set(), stageW: 1, stageH: 1, dpr: 1, mapSeq: 0, canary: null, ms: 0
 };
 
 function defaultView() {
@@ -109,29 +109,56 @@ function defaultView() {
   };
 }
 var VKEY = function () { return 'nfm-v:' + (S.graph.name || 'Untitled'); };
+/** True when the object really has this key of its own ("constructor" or "toString" as an item name must not find the built-in ones). */
+function own(o, k) { return o !== null && o !== undefined && Object.prototype.hasOwnProperty.call(o, k); }
+var isPlain = function (x) { return x !== null && typeof x === 'object' && !Array.isArray(x); };
+/** Lays saved or shared settings over the defaults. "__proto__" is never taken (it would change every object); a list or an object is only replaced by the same kind of thing (never by null). */
 function mergeDeep(base, add) {
-  if (!add || typeof add !== 'object') return base;
+  if (!isPlain(add)) return base;
   Object.keys(add).forEach(function (k) {
-    if (add[k] && typeof add[k] === 'object' && !Array.isArray(add[k]) && base[k] && typeof base[k] === 'object' && !Array.isArray(base[k])) mergeDeep(base[k], add[k]);
-    else if (add[k] !== undefined) base[k] = add[k];
+    if (k === '__proto__') return;
+    var v = add[k], b = own(base, k) ? base[k] : undefined;
+    if (v === undefined) return;
+    if (isPlain(v) && isPlain(b)) mergeDeep(b, v);
+    else if (Array.isArray(b) ? !Array.isArray(v) : isPlain(b) ? !isPlain(v) : false) return;
+    else base[k] = v;
   });
   return base;
 }
+/** Settings that are looked up by name in a fixed list must name something on the list (saved or shared text can say anything). */
+function fixLook(v) {
+  var D = defaultView();
+  if (!own(NFMScene.PALETTES, v.palette)) v.palette = D.palette;
+  if (!own(NFMScene.RAMPS, v.ramp)) v.ramp = D.ramp;
+  if (!own(ARR, v.arrange)) v.arrange = D.arrange;
+  if (!VIEWS.some(function (x) { return x[0] === v.view; })) v.view = D.view;
+  return v;
+}
 function loadView() {
   var v = defaultView(), raw = LS.get(VKEY());
-  if (raw) { try { mergeDeep(v, JSON.parse(raw)); } catch (e) { /* ignore */ } }
+  if (raw) { try { mergeDeep(v, JSON.parse(raw)); } catch (e) { /* ignore */ } fixLook(v); }
   else if (S.graph.roles) { var r = S.graph.roles; ['colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'view'].forEach(function (k) { if (r[k] !== undefined) v[k] = r[k]; }); }
   else if (S.prof) { var g = NFMColumns.guessRoles(S.prof, S.graph); ['colorBy', 'sizeBy', 'widthBy', 'edgeColorBy'].forEach(function (k) { if (g[k]) v[k] = g[k]; }); if (!S.story && S.graph.nodes.length && !S.graph.start) v.view = 'network'; }
   if (!S.story && v.colorBy === 'odds') v.colorBy = 'group';
   S.V = v;
 }
-var saveView = debounce(function () { if (S.V && S.graph.nodes.length) LS.set(VKEY(), JSON.stringify(S.V)); }, 400);
+/* A save that fails (storage full or blocked) or is skipped (too big) is told once, in plain words; before this the old copy stayed and came back on reload as if it were current. */
+var saveWarned = {};
+function saveWarn(kind) {
+  kind = kind === 'big' ? 'big' : 'fail'; if (saveWarned[kind]) return; saveWarned[kind] = true;   /* once for each of the two kinds of trouble */
+  toast(kind === 'big' ? 'This data is too big to keep on this computer between visits. Use Export to keep your work.' : 'Your latest changes could not be saved on this computer (storage is full or blocked). Use Export to keep them.', 9000);
+}
+var saveView = debounce(function () { if (S.V && S.graph.nodes.length && !LS.set(VKEY(), JSON.stringify(S.V))) saveWarn('view'); }, 400);
 var savePrefs = debounce(function () { LS.set('nfm-prefs', JSON.stringify({ theme: S.theme, method: S.method })); }, 300);
 var saveGraph = debounce(function () {
   if (!S.graph.nodes.length) { LS.del('nfm-graph'); return; }
   var txt = JSON.stringify(S.graph);
-  if (txt.length < 1800000) LS.set('nfm-graph', txt); else LS.del('nfm-graph');
+  if (txt.length < 1800000) { if (!LS.set('nfm-graph', txt)) saveWarn('graph'); } else { LS.del('nfm-graph'); saveWarn('big'); }
 }, 600);
+/** Saves that are still waiting for their delay are done now when the page is going away or hidden (a reload 600 ms after an edit used to lose it). */
+function flushSaves() { [saveGraph, saveView, savePrefs, typeof saveAdv === 'function' ? saveAdv : null].forEach(function (f) { if (f && f.flush) f.flush(); }); }
+window.addEventListener('pagehide', flushSaves);
+document.addEventListener('visibilitychange', function () { if (document.hidden || document.visibilityState === 'hidden') flushSaves(); });
 
 /* ---------------------------------------------------------------- words: neutral by default, story wording only for stories */
 var VOCAB = {
@@ -170,9 +197,11 @@ function indexGraph() {
 var HOOKS = { graph: [], view: [] };
 /** Replace the whole graph. push=false means: do not remember the old one for Undo. */
 function setGraph(g, push, keepView) {
-  if (push !== false) { S.hist.push(S.graph); if (S.hist.length > 25) S.hist.shift(); }
   var rename = (S.graph.name !== g.name);
+  if (rename) saveView.flush();   /* the old data's settings are saved under the old name before the name changes */
+  if (push !== false) { S.hist.push(S.graph); if (S.hist.length > 25) S.hist.shift(); }
   S.graph = g; S.gver++;
+  if (!keepView || rename) skHist = [];   /* River undo steps belong to one dataset */
   graphChanged(rename && !keepView);
 }
 /** Change the graph through fn(g), where g holds copies of the two lists; fn must replace objects, not change them in place. */
@@ -187,6 +216,7 @@ function graphChanged(reloadView) {
   var ids = S.byId;
   S.V.block = S.V.block.filter(function (id) { return ids.has(id); });
   S.sel = new Set(Array.from(S.sel).filter(function (id) { return ids.has(id); }));
+  S.selEdges = new Set(); S.sceneOk = false;   /* link numbers mean other links in new data; the picture is out of date until it is built again */
   if (S.V.around && !ids.has(S.V.around.id)) S.V.around = null;
   if (client && client.mode !== 'starting') client.setGraph(S.graph);
   HOOKS.graph.forEach(function (f) { f(); });
@@ -197,7 +227,9 @@ function graphChanged(reloadView) {
 }
 function undo() {
   if (!S.hist.length) return;
-  S.graph = S.hist.pop(); S.gver++; graphChanged(false); toast('Undone.');
+  var g = S.hist.pop(), rename = S.graph.name !== g.name;
+  if (rename) { saveView.flush(); skHist = []; }   /* going back to other data: keep this data's settings under its own name, bring back the other's */
+  S.graph = g; S.gver++; graphChanged(rename); toast('Undone.');
 }
 document.addEventListener('keydown', function (e) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !/input|textarea|select/i.test((e.target.tagName || ''))) {
@@ -210,7 +242,7 @@ function setV(patch, how) {
   mergeDeep(S.V, patch);
   Object.keys(patch).forEach(function (k) { if (Array.isArray(patch[k]) || (patch[k] === null)) S.V[k] = patch[k]; });
   saveView();
-  if (how === 'none') return;
+  if (how === 'none') { S.sceneOk = false; return; }
   if (how === 'look') { makeScene(false); return; }
   refreshMap('options');
 }

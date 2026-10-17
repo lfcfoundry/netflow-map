@@ -9,7 +9,7 @@
  */
 var NFMSankey = (function () {
   'use strict';
-  var EPS = 1e-9;
+  var EPS = 1e-9, DUMMY_CAP = 20000;   // DUMMY_CAP: most stand-in points for long links the layout routes (the rest are drawn straight through)
   function rng(seed) { var s = seed | 0; return function () { s = (s + 0x6d2b79f5) | 0; var t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
   /** Weighted crossings between two neighboring layers: links as [posTop, posBottom, weight]. Sum of w1*w2 over crossing pairs, in n log n. */
@@ -95,11 +95,22 @@ var NFMSankey = (function () {
       byId[n.id] = v; V.push(v); layers[v.layer].push(v);
     });
     var fwd = [], loops = [];
+    /* A long link gets one stand-in per layer it crosses so the layers can be ordered around it. Past DUMMY_CAP stand-ins in all, the lightest long links are drawn as one band from end to end instead (note in the result). */
+    var noDummy = new Set(), dummyWant = 0, longLinks = [];
+    usable.forEach(function (ei, q) { var e = L.edges[ei], a = byId[e.from], b = byId[e.to]; if (!lay.feedback.has(q) && b.layer > a.layer + 1) { dummyWant += b.layer - a.layer - 1; longLinks.push(q); } });
+    var simplified = 0;
+    if (dummyWant > DUMMY_CAP) {
+      var left = DUMMY_CAP;
+      longLinks.sort(function (p, q) { return L.edges[usable[q]].flow - L.edges[usable[p]].flow || p - q; }).forEach(function (q) {
+        var e = L.edges[usable[q]], need = byId[e.to].layer - byId[e.from].layer - 1;
+        if (need <= left) left -= need; else { noDummy.add(q); simplified++; }
+      });
+    }
     usable.forEach(function (ei, q) {
       var e = L.edges[ei], a = byId[e.from], b = byId[e.to];
       if (!lay.feedback.has(q) && b.layer > a.layer) {
         var prev = a;
-        for (k = a.layer + 1; k < b.layer; k++) {
+        for (k = a.layer + 1; k < b.layer && !noDummy.has(q); k++) {
           var d = { id: null, edge: ei, pair: nk(a.node) + '>' + nk(b.node), layer: k, size: e.flow, up: [], down: [], key: (a.key + b.key) / 2, h: 0, y: 0, pos: 0, dummy: true };
           V.push(d); layers[k].push(d); prev.down.push({ o: d, w: e.flow, ei: ei }); d.up.push({ o: prev, w: e.flow, ei: ei }); prev = d;
         }
@@ -211,12 +222,13 @@ var NFMSankey = (function () {
     /* ---- link ends: stack in the order of where they go ---- */
     var thick = function (f) { return Math.max(f * ky, 0.8); };
     var outY = {}, inY = {};    // key edge index + ':' + vertex id -> top of the band end
+    var loopOutSum = new Map(), loopInSum = new Map();   // thickness of the loop bands leaving / entering each item (one pass, not one per item)
+    loops.forEach(function (ei) { var e = L.edges[ei], tk = thick(e.flow); loopOutSum.set(e.from, (loopOutSum.get(e.from) || 0) + tk); loopInSum.set(e.to, (loopInSum.get(e.to) || 0) + tk); });
     V.forEach(function (v) {
       var outs = v.down.slice().sort(function (p, q) { return p.o.y - q.o.y || p.ei - q.ei; }), ins = v.up.slice().sort(function (p, q) { return p.o.y - q.o.y || p.ei - q.ei; });
       var so = 0, si = 0; outs.forEach(function (d) { so += thick(d.w); }); ins.forEach(function (d) { si += thick(d.w); });
       v.loopOutTop = 0; v.loopInTop = 0;
-      var lo = 0, li = 0;
-      loops.forEach(function (ei) { var e = L.edges[ei]; if (!v.dummy && e.from === v.id) lo += thick(e.flow); if (!v.dummy && e.to === v.id) li += thick(e.flow); });
+      var lo = v.dummy ? 0 : loopOutSum.get(v.id) || 0, li = v.dummy ? 0 : loopInSum.get(v.id) || 0;
       var yo = v.y - v.h / 2 + Math.max(0, (v.h - so - lo) / 2), yi = v.y - v.h / 2 + Math.max(0, (v.h - si - li) / 2);
       outs.forEach(function (d) { outY[d.ei + ':' + (v.dummy ? 'd' + v.layer : v.id)] = yo; yo += thick(d.w); });
       ins.forEach(function (d) { inY[d.ei + ':' + (v.dummy ? 'd' + v.layer : v.id)] = yi; yi += thick(d.w); });
@@ -242,10 +254,10 @@ var NFMSankey = (function () {
       var P = [[xs, ys], [xs + g, ys], [xs + g, yl], [xe - g, yl], [xe - g, ye], [xe, ye]];
       loopOut.push({ edge: ei, from: e.from, to: e.to, w: t, d: roundPath(P, Math.min(12, 3 + t)), pts: P, P: toBezier(P, Math.min(12, 3 + t)) });
     });
-    var height = Math.max(bottom, yLane) + 30, width = colX[nL - 1] + nodeW + 30;
+    var height = V.length ? Math.max(bottom, yLane) + 30 : 0, width = colX[nL - 1] + nodeW + 30;
     var nodes = V.filter(function (v) { return !v.dummy; }).map(function (v) { return { id: v.id, label: v.node.label || v.id, x: v.x, y: v.y - v.h / 2, w: v.w, h: v.h, layer: v.layer, flow: v.size, inFlow: v.inAll, outFlow: v.outAll, pinned: !!v.pinned }; });
     var orderOut = { layers: layers.map(function (list) { return list.map(idOf); }), loops: loops.map(function (ei) { var e1 = L.edges[ei]; return nk(L.pos[e1.from]) + '>' + nk(L.pos[e1.to]); }) };
-    return { nodes: nodes, bands: bands, loops: loopOut, width: width, height: height, ky: ky, crossingWeight: crossingWeight, order: orderOut, cols: nL, ms: Date.now() - t0 };
+    return { nodes: nodes, bands: bands, loops: loopOut, width: width, height: height, simplified: simplified, note: simplified ? simplified + ' very long links are drawn as one straight-through band each, because routing all of them would make the picture too slow. The rest are laid out as usual.' : '', ky: ky, crossingWeight: crossingWeight, order: orderOut, cols: nL, ms: Date.now() - t0 };
   }
 
   /** A polyline with rounded corners, as an SVG path. */

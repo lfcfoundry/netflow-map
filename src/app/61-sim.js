@@ -2,7 +2,7 @@
  * Net Flow Map app, part 8b: the Monte Carlo simulation in the Advanced tab (set-up, distributions, run, charts, what-if table, map link).
  * Copyright (c) 2026 LFC Foundry. MIT License.
  */
-var SIM = { st: 'idle', snap: null, exact: null, exactAvg: false, sweep: null, sweepBusy: false, sweepWhat: 'items', err: '', stop: false, runId: 0, info: null, spec: null, t0: 0, ms: 0, allEnds: false, startKey: '', startInfo: null };
+var SIM = { st: 'idle', snap: null, exact: null, exactAvg: false, sweep: null, sweepBusy: false, sweepId: 0, sweepWhat: 'items', err: '', stop: false, runId: 0, info: null, spec: null, t0: 0, ms: 0, allEnds: false, startKey: '', startInfo: null };
 S.simVer = 0; S.simSnap = null; S.simUsed = 0;
 var WALKER_RULES = [
   ['weights', 'Follow the link weights (evenly if there are none)'],
@@ -83,7 +83,7 @@ function simLoop(id) {
     if (id !== SIM.runId) return;
     var snap = r.L.snap; SIM.snap = snap; S.simSnap = { visits: snap.visits, moves: snap.moves }; S.simVer++;
     renderSimResults();
-    if (S.tab === 'map' && simUsesMap()) refreshMapSoon();
+    if (S.tab === 'map' && simUsesMap()) refreshMapThrottled();
     if (r.L.done || SIM.stop) {
       SIM.st = r.L.done ? 'done' : 'stopped'; SIM.ms = performance.now() - SIM.t0; renderSimAll();
       if (S.tab === 'map' && simUsesMap()) refreshMap('simulation');
@@ -93,7 +93,8 @@ function simLoop(id) {
   });
 }
 var refreshMapT = 0;
-function refreshMapSoon() { var now = performance.now(); if (now - refreshMapT < 700) return; refreshMapT = now; refreshMap('simulation'); }
+/** While the simulation runs, the Map is redrawn at most every 0.7 s. */
+function refreshMapThrottled() { var now = performance.now(); if (now - refreshMapT < 700) return; refreshMapT = now; refreshMap('simulation'); }
 function stopSim() { SIM.stop = true; }
 
 /* ---------------------------------------------------------------- distribution pickers */
@@ -232,9 +233,9 @@ function barChartHist(hist, label, fmtX) {
   return svg;
 }
 function endpointRows(snap) {
-  var ex = SIM.exact, exMap = {};
-  if (ex) ex.ends.forEach(function (id, i) { exMap[id] = ex.p[i]; });
-  var rows = snap.endpoints.map(function (e) { return { id: e.id, share: e.share, lo: e.lo, hi: e.hi, exact: exMap[e.id], count: e.count, perTrial: e.perTrial, cost: e.cost }; });
+  var ex = SIM.exact, exMap = new Map();   /* a Map: an item called "constructor" or "toString" must not find the built-in object members */
+  if (ex) ex.ends.forEach(function (id, i) { exMap.set(id, ex.p[i]); });
+  var rows = snap.endpoints.map(function (e) { return { id: e.id, share: e.share, lo: e.lo, hi: e.hi, exact: exMap.get(e.id), count: e.count, perTrial: e.perTrial, cost: e.cost }; });
   rows.sort(function (a, b) { return Math.max(b.share, b.exact || 0) - Math.max(a.share, a.exact || 0); });
   return rows;
 }
@@ -304,7 +305,7 @@ function simMapCard(snap) {
 function sweepCard() {
   var what = SIM.sweepWhat, kids = [h('h3', null, 'What if one ' + (what === 'links' ? 'link' : word('item')) + ' were gone?'),
     h('p', { class: 'muted small', style: { margin: 0 } }, 'Takes away the busiest ' + (what === 'links' ? 'links' : word('items')) + ' one at a time and measures how much the end odds move. Uses exact odds, not dice.'),
-    h('div', { class: 'row' }, [seg([['items', cap(word('items'))], ['links', cap(word('links'))]], what, function (v) { SIM.sweepWhat = v; SIM.sweep = null; renderSimResults(); }), h('button', { id: 'sim-sweep', disabled: SIM.sweepBusy, onclick: runSweep }, SIM.sweepBusy ? 'Working…' : 'Rank them')])];
+    h('div', { class: 'row' }, [seg([['items', cap(word('items'))], ['links', cap(word('links'))]], what, function (v) { SIM.sweepWhat = v; SIM.sweep = null; SIM.sweepId++; SIM.sweepBusy = false; renderSimResults(); }), h('button', { id: 'sim-sweep', disabled: SIM.sweepBusy, onclick: runSweep }, SIM.sweepBusy ? 'Working…' : 'Rank them')])];
   var sw = SIM.sweep;
   if (sw && !sw.ok) kids.push(h('p', { class: 'muted' }, sw.reason));
   else if (sw && sw.rows.length) {
@@ -321,8 +322,10 @@ function sweepCard() {
 }
 function runSweep() {
   if (SIM.sweepBusy) return;
+  /* a result is only used when nothing it depends on changed meanwhile (Items/Links switched, new data, a new run): each ranking has its own number, like the simulation loop */
+  var sid = ++SIM.sweepId, rid = SIM.runId, ok = function () { return sid === SIM.sweepId && rid === SIM.runId; };
   SIM.sweepBusy = true; SIM.sweep = null; renderSimResults();
-  client.sweep(buildSpec(true), prepOpts(), { what: SIM.sweepWhat, top: 30, budgetMs: 8000 }).then(function (r) { SIM.sweep = r.L; }).catch(function (err) { if (err.message !== 'superseded') SIM.sweep = { ok: false, reason: err.message, rows: [] }; }).then(function () { SIM.sweepBusy = false; renderSimResults(); });
+  client.sweep(buildSpec(true), prepOpts(), { what: SIM.sweepWhat, top: 30, budgetMs: 8000 }).then(function (r) { if (ok()) SIM.sweep = r.L; }).catch(function (err) { if (err.message !== 'superseded' && ok()) SIM.sweep = { ok: false, reason: err.message, rows: [] }; }).then(function () { if (ok()) { SIM.sweepBusy = false; renderSimResults(); } });
 }
 function costBlock(snap) {
   var c = snap.cost; if (!c) return null;

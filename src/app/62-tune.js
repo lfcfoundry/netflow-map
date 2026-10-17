@@ -16,8 +16,8 @@ function tuneMakeGraph(n) { return NFMExamples.bigNetwork(n, Math.max(6, Math.ro
 function tuneSizes() { var m = /[?&]tunesizes=([\d,]+)/.exec(location.search); return m ? m[1].split(',').map(Number).filter(function (x) { return x > 0; }) : null; }   // for the automatic tests: small sizes
 
 /** Runs the test with a progress display inside `box`; resolves the result (or { cancelled }). */
-function runTuning(box, onDone) {
-  var bar = h('progress', { max: 100, value: 0, style: { width: '100%' } }), say = h('p', { class: 'muted small', id: 'tune-step' }, 'Starting…'), tok = { stop: false };
+function runTuning(box, onDone, token) {
+  var bar = h('progress', { max: 100, value: 0, style: { width: '100%' } }), say = h('p', { class: 'muted small', id: 'tune-step' }, 'Starting…'), tok = token || { stop: false };   /* a token from the dialog lets closing the dialog (Escape) stop the run */
   var cancel = h('button', { onclick: function () { tok.stop = true; cancel.disabled = true; say.textContent = 'Stopping…'; } }, 'Stop');
   mount(box, [bar, say, h('div', { class: 'row', style: { justifyContent: 'flex-end' } }, [cancel])]);
   var sizes = tuneSizes();
@@ -54,12 +54,13 @@ function tuneResultTable(r) {
 function tuneDialog(mode) {
   var dlg = $('dlg'), body = $('dlg-body'); if (dlg.open) return;
   var close = function () { try { dlg.close(); } catch (e) { /* closed */ } };
+  var tok = { stop: false };   /* shared with the run: closing the dialog any way at all (Escape too) stops it, and a stopped run saves nothing */
   var finish = function (r, text) {
     mount(body, [h('h3', { id: 'dlg-h' }, r && r.profile ? 'Done: settings saved' : 'The test did not change anything'), h('p', null, text), tuneResultTable(r), h('div', { class: 'row', style: { justifyContent: 'flex-end' } }, [h('button', { class: 'primary', onclick: function () { close(); if (S.tab === 'adv') renderAdv(); if (S.tab === 'map') refreshMap('tune'); } }, 'Done')])]);
   };
   var start = function () {
     mount(body, [h('h3', { id: 'dlg-h' }, 'Testing this computer…'), h('div', { id: 'tune-run' })]);
-    runTuning($('tune-run'), finish);
+    runTuning($('tune-run'), finish, tok);
   };
   mount(body, [h('h3', { id: 'dlg-h' }, mode === 'ask' ? 'Make Net Flow Map faster on this computer?' : 'Test this computer'),
     h('p', null, 'Net Flow Map can run a short test (about 20 seconds) to find the quickest way to arrange big networks on this computer: it tries your processor and, if you have one that works, your graphics card, then saves the best settings in this browser.'),
@@ -68,7 +69,7 @@ function tuneDialog(mode) {
       mode === 'ask' ? h('button', { onclick: function () { LS.set(TUNE_ASK, 'never'); close(); } }, 'Don\'t ask again') : null,
       h('button', { onclick: function () { if (mode === 'ask') LS.set(TUNE_ASK, String(Date.now())); close(); } }, mode === 'ask' ? 'Not now' : 'Cancel'),
       h('button', { class: 'primary', onclick: start }, 'Run the test')])]);
-  dlg.onclose = function () { dlg.onclose = null; };
+  dlg.onclose = function () { dlg.onclose = null; tok.stop = true; };
   dlg.showModal();
 }
 /** The card on the Advanced tab. */

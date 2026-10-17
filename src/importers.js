@@ -9,7 +9,10 @@ var NFMImport = (function () {
   'use strict';
   var MAX_NODES = 200000, MAX_EDGES = 800000, MAX_LABEL = 400, MAX_ATTRS = 40;
   var LINEBREAK = /\r\n|[\n\r\u2028\u2029]/;   // every kind of line end: Windows, Unix, old Mac, Unicode
-  var BAD_KEYS = { '__proto__': 1, 'constructor': 1, 'prototype': 1 };
+  /** A lookup table with no inherited names: dict({a:1})['toString'] is undefined, and 'constructor' or '__proto__' are ordinary keys. */
+  function dict(o) { var d = Object.create(null); for (var k in o) d[k] = o[k]; return d; }
+  function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  var BAD_KEYS = dict({}); BAD_KEYS['__proto__'] = 1; BAD_KEYS['constructor'] = 1; BAD_KEYS['prototype'] = 1;
 
   /* ------------------------------------------------------------ builder: one place that makes nodes and edges safely */
   function Builder(name, opts) {
@@ -18,8 +21,9 @@ var NFMImport = (function () {
     this.maxNodes = this.opts.maxNodes || MAX_NODES; this.maxEdges = this.opts.maxEdges || MAX_EDGES;
     this.map = new Map();
     this.ci = !!this.opts.caseInsensitive;
-    this.r = { dupNodes: 0, selfLoops: 0, dupEdges: 0, droppedEdges: 0, ghosts: 0, emptyIds: 0, trimmed: 0, capped: false, notes: [] };
+    this.r = { dupNodes: 0, selfLoops: 0, dupEdges: 0, droppedEdges: 0, ghosts: 0, emptyIds: 0, trimmed: 0, badNum: 0, attrsCut: false, skippedLinks: 0, capped: false, notes: [] };
     this.edgeKeys = new Set(); this.nodeIx = new Map();
+    this.longs = new Map();   // very long names (over MAX_LABEL): the whole name -> its item, so two long names that start alike stay two items
   }
   function clip(s, n) { s = String(s === undefined || s === null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
   var PLAIN = /^[\x20-\x7e]*$/;   // printable ASCII: nothing to normalize or strip, only trim
@@ -29,12 +33,79 @@ var NFMImport = (function () {
     try { s = s.normalize('NFC'); } catch (e) { /* old engines */ }
     return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u200B\u2028\u2029\uFEFF]/g, '').trim();
   }
+  function badNumNote(n) { return n + ' weight' + (n === 1 ? ' was' : 's were') + ' not numbers and ' + (n === 1 ? 'was' : 'were') + ' left empty.'; }
+
+  /* ------------------------------------------------------------ reading numbers the way people write them
+   * Same rules as NFMColumns.num (test/import-fixes.test.js checks they agree): 1234.5  1,234.5  1.234,5  1 234,5  12,5  $12  (300)  12%.
+   * Hex, binary and octal words (0x10, 0b11) are not numbers. A comma or dot alone is a decimal mark unless it is exactly a thousands group
+   * (1,234); then `dec` (the file's usual mark) decides. numCore also says which mark the value itself proves: ',' or '.' or '' (could be either). */
+  var NUM_STRICT = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i, SPACE_GROUPED = /^[+-]?\d{1,3}([ \u00a0\u202f]\d{3})+([.,]\d+)?$/;
+  function numCore(v, dec) {
+    var out = { v: NaN, mark: '' };
+    if (typeof v === 'number') { out.v = isFinite(v) ? v : NaN; return out; }
+    if (v === undefined || v === null || typeof v === 'boolean') return out;
+    var s = String(v).trim(), neg = false;
+    if (!s || s.length > 40) return out;
+    if (s.charAt(0) === '(' && s.charAt(s.length - 1) === ')') { neg = true; s = s.slice(1, -1).trim(); }
+    s = s.replace(/[$€£¥]/g, '').replace(/\s*%$/, '').trim();
+    if (SPACE_GROUPED.test(s)) s = s.replace(/[ \u00a0\u202f]/g, '');
+    if (s.indexOf(',') >= 0 || s.indexOf('.') >= 0) {
+      var sign = '';
+      if (s.charAt(0) === '+' || s.charAt(0) === '-') { sign = s.charAt(0); s = s.slice(1); }
+      var mm = /^([\d.,]+)([eE][+-]?\d+)?$/.exec(s);
+      if (!mm) return out;
+      var body = mm[1], lc = body.lastIndexOf(','), ld = body.lastIndexOf('.'), dm, proves = true;
+      if (lc >= 0 && ld >= 0) dm = lc > ld ? ',' : '.';
+      else {
+        var ch = lc >= 0 ? ',' : '.', at = body.indexOf(ch), many = body.indexOf(ch, at + 1) >= 0;
+        if (many) { dm = ''; ch = ch === ',' ? '.' : ','; out.mark = ch; }   // 1,234,567 or 1.234.567: the mark can only be the other one
+        else if (body.length - at - 1 === 3 && at >= 1 && at <= 3 && body.charAt(0) !== '0') { dm = dec === ch ? ch : ''; proves = false; }   // 1,234: a thousands group or a decimal mark
+        else dm = ch;
+      }
+      var thou = dm === ',' ? '.' : dm === '.' ? ',' : (lc >= 0 ? ',' : '.');
+      var ip = body, fp = '';
+      if (dm) { var cut = body.lastIndexOf(dm); ip = body.slice(0, cut); fp = body.slice(cut + 1); if (fp.indexOf(thou) >= 0 || fp.indexOf(dm) >= 0) return out; }
+      if (ip !== '' && ip.indexOf(thou) >= 0) { if (!(thou === ',' ? /^\d{1,3}(,\d{3})+$/ : /^\d{1,3}(\.\d{3})+$/).test(ip)) return out; ip = ip.split(thou).join(''); }
+      else if (ip.indexOf(dm === '' ? thou : dm) >= 0) return out;
+      s = sign + ip + (dm ? '.' + fp : '') + (mm[2] || '');
+      if (dm && proves && !out.mark) out.mark = dm;
+    }
+    if (!NUM_STRICT.test(s)) return out;
+    var x = parseFloat(s);
+    if (isFinite(x)) out.v = neg ? -x : x;
+    return out;
+  }
+  function readNumber(v, dec) { return numCore(v, dec || '.').v; }
+  /** The decimal mark a column of text uses: what its values prove, else `fallback`. */
+  function inferDecimal(values, fallback) {
+    var c = 0, d = 0;
+    for (var i = 0; i < values.length && i < 20000; i++) { var r = numCore(values[i], fallback), m = r.v === r.v ? r.mark : ''; if (m === ',') c++; else if (m === '.') d++; if (c && d) break; }
+    return c && !d ? ',' : d && !c ? '.' : fallback;
+  }
+  function weightOf(v) { var x = typeof v === 'string' ? readNumber(v, '.') : typeof v === 'number' ? v : NaN; return isFinite(x) ? x : undefined; }
+
   Builder.prototype.key = function (id) { return this.ci ? id.toLowerCase() : id; };
+  /** The item for a name as written in the data (before any shortening), or undefined. */
+  Builder.prototype.get = function (rawId) {
+    var id = cleanText(rawId);
+    if (!id) return undefined;
+    return id.length > MAX_LABEL ? this.longs.get(this.key(id)) : this.map.get(this.key(id));
+  };
+  Builder.prototype.has = function (rawId) { return this.get(rawId) !== undefined; };
   Builder.prototype.node = function (rawId, props) {
     var id = cleanText(rawId);
     if (!id) { this.r.emptyIds++; return null; }
-    if (id.length > MAX_LABEL) { id = clip(id, MAX_LABEL); this.r.trimmed++; }
-    var k = this.key(id), nd = this.map.get(k);
+    var k, nd, longKey = null;
+    if (id.length > MAX_LABEL) {
+      // a very long name is cut to fit, but two different long names must not melt into one item: the second gets a number
+      longKey = this.key(id); nd = this.longs.get(longKey);
+      if (!nd) {
+        var cut = clip(id, MAX_LABEL), num2 = 1;
+        while (this.map.has(this.key(cut))) cut = clip(id, MAX_LABEL - 6) + ' (' + (++num2) + ')';
+        id = cut; this.r.trimmed++;
+      } else id = nd.id;
+    }
+    k = this.key(id); nd = nd || this.map.get(k);
     if (nd) {
       if (props) {
         this.r.dupNodes++;
@@ -42,7 +113,7 @@ var NFMImport = (function () {
         if (props.group && !nd.group) nd.group = clip(cleanText(props.group), 80);
         if (props.valence && !nd.valence) nd.valence = props.valence;
         if (props.ghost === false) nd.ghost = false;
-        if (props.attrs) { var have = Object.keys(nd.attrs).length; for (var a in props.attrs) if (!BAD_KEYS[a] && !(a in nd.attrs) && have < MAX_ATTRS) { nd.attrs[a] = props.attrs[a]; have++; } }
+        if (props.attrs) { var have = Object.keys(nd.attrs).length; for (var a in props.attrs) if (!BAD_KEYS[a] && !own(nd.attrs, a)) { if (have < MAX_ATTRS) { nd.attrs[a] = props.attrs[a]; have++; } else this.r.attrsCut = true; } }
       }
       return nd;
     }
@@ -53,9 +124,10 @@ var NFMImport = (function () {
       if (props.group) nd.group = clip(cleanText(props.group), 80);
       if (props.valence) nd.valence = props.valence;
       if (props.ghost) nd.ghost = true;
-      if (props.attrs) { var cnt = 0; for (var b in props.attrs) if (!BAD_KEYS[b] && cnt < MAX_ATTRS) { nd.attrs[b] = props.attrs[b]; cnt++; } }
+      if (props.attrs) { var cnt = 0; for (var b in props.attrs) if (!BAD_KEYS[b]) { if (cnt < MAX_ATTRS) { nd.attrs[b] = props.attrs[b]; cnt++; } else this.r.attrsCut = true; } }
     }
     this.map.set(k, nd);
+    if (longKey !== null) this.longs.set(longKey, nd);
     this.nodeIx.set(nd, this.g.nodes.length);
     this.g.nodes.push(nd);
     return nd;
@@ -71,9 +143,12 @@ var NFMImport = (function () {
     if (this.edgeKeys.has(dk)) { this.r.dupEdges++; if (!this.opts.keepDuplicates) return null; }
     if (this.g.edges.length >= this.maxEdges) { this.r.capped = true; return null; }
     this.edgeKeys.add(dk);
-    var wt = props.weight === undefined || props.weight === '' || props.weight === null ? undefined : Number(props.weight);
+    var pw = props.weight, wt;
+    if (pw === undefined || pw === '' || pw === null) wt = undefined;
+    else if (typeof pw === 'string') { wt = readNumber(pw, '.'); if (wt !== wt) this.r.badNum++; }   // text is read like a table cell; what cannot be read is counted
+    else wt = Number(pw);
     var e = { from: a.id, to: b.id, label: label, weight: isFinite(wt) ? wt : undefined, kind: kind, attrs: {} };
-    if (props.attrs) { var ec = 0; for (var x in props.attrs) if (!BAD_KEYS[x] && ec < MAX_ATTRS) { e.attrs[x] = props.attrs[x]; ec++; } }
+    if (props.attrs) { var ec = 0; for (var x in props.attrs) if (!BAD_KEYS[x]) { if (ec < MAX_ATTRS) { e.attrs[x] = props.attrs[x]; ec++; } else this.r.attrsCut = true; } }
     this.g.edges.push(e);
     return e;
   };
@@ -84,7 +159,10 @@ var NFMImport = (function () {
     if (r.selfLoops) notes.push(r.selfLoops + ' link' + (r.selfLoops === 1 ? ' points' : 's point') + ' from an item to itself (kept).');
     if (r.droppedEdges) notes.push(r.droppedEdges + ' link' + (r.droppedEdges === 1 ? ' was' : 's were') + ' dropped because an end was empty.');
     if (r.emptyIds) notes.push(r.emptyIds + ' row' + (r.emptyIds === 1 ? ' had' : 's had') + ' no name and ' + (r.emptyIds === 1 ? 'was' : 'were') + ' skipped.');
-    if (r.trimmed) notes.push(r.trimmed + ' very long name' + (r.trimmed === 1 ? ' was' : 's were') + ' shortened.');
+    if (r.trimmed) notes.push(r.trimmed + ' very long name' + (r.trimmed === 1 ? ' was' : 's were') + ' shortened (names that would have become the same keep a number at the end).');
+    if (r.badNum) notes.push(badNumNote(r.badNum));
+    if (r.skippedLinks) notes.push(r.skippedLinks + ' entr' + (r.skippedLinks === 1 ? 'y' : 'ies') + ' in the list of links ' + (r.skippedLinks === 1 ? 'was' : 'were') + ' not ' + (r.skippedLinks === 1 ? 'a link' : 'links') + ' (an empty or odd value) and ' + (r.skippedLinks === 1 ? 'was' : 'were') + ' skipped.');
+    if (r.attrsCut) notes.push('Some rows have more than ' + MAX_ATTRS + ' extra columns; the columns past the ' + MAX_ATTRS + 'th were not kept.');
     if (r.ghosts) notes.push(r.ghosts + ' item' + (r.ghosts === 1 ? ' is' : 's are') + ' mentioned in links but never described (shown as placeholders).');
     if (r.capped) notes.push('The file is very large; reading stopped at ' + MAX_NODES + ' items or ' + MAX_EDGES + ' links.');
     var report = { format: format, nodes: this.g.nodes.length, edges: this.g.edges.length, ghosts: r.ghosts, notes: notes, counts: { dupNodes: r.dupNodes, dupEdges: r.dupEdges, selfLoops: r.selfLoops, dropped: r.droppedEdges } };
@@ -125,22 +203,24 @@ var NFMImport = (function () {
    */
   function parseDelimited(text, d) {
     text = stripBom(text);
-    var rows = [], n = text.length, pos = 0, dc = d.charCodeAt(0), nextQuote = text.indexOf('"');
+    var rows = [], n = text.length, pos = 0, dc = d.charCodeAt(0), nextQuote = text.indexOf('"'), nextNL = text.indexOf('\n'), nextCR = text.indexOf('\r'), unclosed = false;
     while (pos < n) {
-      var nl = text.indexOf('\n', pos), end = nl < 0 ? n : nl;
+      // a line ends at \r\n, \n or a lone \r (old Mac files); the next positions are remembered so nothing is searched twice
+      if (nextNL >= 0 && nextNL < pos) nextNL = text.indexOf('\n', pos);
+      if (nextCR >= 0 && nextCR < pos) nextCR = text.indexOf('\r', pos);
+      var end = nextNL < 0 ? n : nextNL, step = 1;
+      if (nextCR >= 0 && nextCR < end) { end = nextCR; step = text.charCodeAt(end + 1) === 10 ? 2 : 1; }
       if (nextQuote >= 0 && nextQuote < pos) nextQuote = text.indexOf('"', pos);
       if (nextQuote < 0 || nextQuote >= end) {   // no quote on this line: cut it with split
-        var line = text.slice(pos, end);
-        if (line.indexOf('\r') >= 0) line = line.replace(/\r/g, '');
-        var parts = line.split(d);
+        var parts = text.slice(pos, end).split(d);
         if (parts.length > 1 || parts[0] !== '') rows.push(parts);
-        pos = end + 1; continue;
+        pos = end + step; continue;
       }
       var row = [], cur = '', q = false, i = pos, ended = false;
       while (i < n) {
         if (q) {
           var k = text.indexOf('"', i);
-          if (k < 0) { cur += text.slice(i); i = n; break; }
+          if (k < 0) { cur += text.slice(i); i = n; unclosed = true; break; }
           cur += text.slice(i, k);
           if (text.charCodeAt(k + 1) === 34) { cur += '"'; i = k + 2; continue; }
           q = false; i = k + 1; continue;
@@ -148,15 +228,15 @@ var NFMImport = (function () {
         var ch = text.charCodeAt(i);
         if (ch === 34 && cur === '') { q = true; i++; continue; }
         if (ch === dc) { row.push(cur); cur = ''; i++; continue; }
-        if (ch === 13) { i++; continue; }
-        if (ch === 10) { row.push(cur); cur = ''; if (row.length > 1 || row[0] !== '') rows.push(row); i++; ended = true; break; }
-        var st = i++, c2;   // an ordinary run of characters: take it whole up to the next delimiter, line end or carriage return
+        if (ch === 10 || ch === 13) { row.push(cur); cur = ''; if (row.length > 1 || row[0] !== '') rows.push(row); i += ch === 13 && text.charCodeAt(i + 1) === 10 ? 2 : 1; ended = true; break; }
+        var st = i++, c2;   // an ordinary run of characters: take it whole up to the next delimiter or line end
         while (i < n) { c2 = text.charCodeAt(i); if (c2 === dc || c2 === 10 || c2 === 13) break; i++; }
         cur += text.slice(st, i);
       }
       if (!ended && (cur !== '' || row.length)) { row.push(cur); rows.push(row); }
       pos = i;
     }
+    if (unclosed) Object.defineProperty(rows, 'unclosed', { value: true });   // not listed like an array item; importTable says so in its notes
     return rows;
   }
   var ROLE = {
@@ -179,7 +259,20 @@ var NFMImport = (function () {
   function guessMapping(rows) {
     if (!rows.length) return { mode: 'edges', cols: {}, header: true, headers: [] };
     var first = rows[0], hasHeader = first.some(function (c) { return c.trim() && !looksNumeric(c); }) && (rows.length < 2 || first.every(function (c, i) { return !rows[1][i] || looksNumeric(rows[1][i]) === looksNumeric(c) || !looksNumeric(c); }));
+    var knownNames = hasHeader && first.some(function (c) { var h = c.trim(); for (var r in ROLE) if (ROLE[r].test(h)) return true; return false; });
+    if (hasHeader && !knownNames && rows.length > 1) {
+      // column names do not come back as values further down; a first row whose cells do (alice,bob / bob,carol / carol,dave) is data, not a header
+      var later = new Set();
+      for (var ri = 1; ri < rows.length && ri < 5000; ri++) for (var ci = 0; ci < rows[ri].length; ci++) later.add(String(rows[ri][ci]).trim().toLowerCase());
+      if (first.some(function (c) { return c.trim() && later.has(c.trim().toLowerCase()); })) hasHeader = false;
+    }
     var headers = hasHeader ? first.map(function (c, i) { return c.trim() || 'column ' + (i + 1); }) : first.map(function (_, i) { return 'column ' + (i + 1); });
+    var renamed = [], seenNames = new Set();   // two columns with one name would overwrite each other: the later one gets a number
+    headers = headers.map(function (h) {
+      if (!seenNames.has(h)) { seenNames.add(h); return h; }
+      var nn = 2, nh; do { nh = h + ' ' + nn; nn++; } while (seenNames.has(nh));
+      seenNames.add(nh); renamed.push(nh); return nh;
+    });
     var cols = {}, used = {};
     var find = function (role, skipUsed) {
       for (var i = 0; i < headers.length; i++) if (ROLE[role].test(headers[i].trim()) && !(skipUsed && used[i])) return i;
@@ -187,14 +280,17 @@ var NFMImport = (function () {
     };
     var mode = 'edges';
     var f = find('from'), t = find('to');
-    if (rows.length > 2 && rows[0].length === rows.length && rows[0].length > 2 && looksNumericMatrix(rows) && rows[0].slice(1).every(function (c) { return c.trim() && !looksNumeric(c); })) mode = 'matrix';
-    else if (hasHeader && f >= 0 && t >= 0 && f !== t) { cols.from = f; cols.to = t; used[f] = used[t] = 1; }
+    // a square table of numbers is a matrix only when its row names are its column names (or the corner is empty); a header that names a "from" and a "to" column wins otherwise
+    var square = rows.length > 2 && rows[0].length === rows.length && rows[0].length > 2 && looksNumericMatrix(rows), edgeHeader = hasHeader && f >= 0 && t >= 0 && f !== t;
+    var sameNames = square && sameLabels(rows);
+    if (square && rows[0].slice(1).every(function (c) { return c.trim() && !looksNumeric(c); }) && !(edgeHeader && !sameNames)) mode = 'matrix';
+    else if (edgeHeader) { cols.from = f; cols.to = t; used[f] = used[t] = 1; }
     else {
       var idc = find('id'), pc = find('parent'), lc = find('links');
       if (hasHeader && pc >= 0 && idc >= 0 && idc !== pc) { mode = 'tree'; cols.id = idc; cols.parent = pc; used[idc] = used[pc] = 1; }
       else if (hasHeader && lc >= 0) { mode = 'nodes'; cols.id = idc >= 0 && idc !== lc ? idc : (lc === 0 ? 1 : 0); cols.links = lc; used[cols.id] = used[lc] = 1; }
       else if (hasHeader && idc >= 0 && headers.some(function (h, i) { return i !== idc && /^(label|name|title|text|group|cluster|community|class|category|type|valence|outcome|start)$/i.test(h.trim()); })) { mode = 'nodes'; cols.id = idc; used[idc] = 1; }   // a table that only describes items (no links column)
-      else if (rows.length > 2 && rows[0].length === rows.length && rows[0].length > 2 && looksNumericMatrix(rows)) mode = 'matrix';
+      else if (square && (sameNames || rows[0][0].trim() === '')) mode = 'matrix';
       else { cols.from = 0; cols.to = headers.length > 1 ? 1 : 0; used[0] = used[cols.to] = 1; }
     }
     ['weight', 'label', 'kind'].forEach(function (r) { var i = find(r, true); if (i >= 0 && mode === 'edges') { cols[r] = i; used[i] = 1; } });
@@ -211,21 +307,25 @@ var NFMImport = (function () {
       if (v >= 0) { cols.valence = v; used[v] = 1; }
       if (s >= 0) { cols.start = s; used[s] = 1; }
     }
-    return { mode: mode, cols: cols, header: hasHeader, headers: headers };
+    return { mode: mode, cols: cols, header: hasHeader, headers: headers, renamed: renamed, guessedHeader: hasHeader && !knownNames };
+  }
+  function sameLabels(rows) {
+    var cn = new Set(rows[0].slice(1).map(function (c) { return c.trim().toLowerCase(); })), n = 0;
+    for (var i = 1; i < rows.length; i++) { var r = String(rows[i][0]).trim().toLowerCase(); if (!cn.has(r)) return false; n++; }
+    return n === cn.size;
   }
   function looksNumericMatrix(rows) {
     var r = rows.slice(1, Math.min(rows.length, 6));
     return r.every(function (row) { return row.slice(1).every(function (c) { return c.trim() === '' || looksNumeric(c); }); });
   }
-  var VAL = { good: 'good', win: 'good', success: 'good', won: 'good', bad: 'bad', lose: 'bad', fail: 'bad', failure: 'bad', lost: 'bad', neutral: 'neutral', end: 'neutral', ending: 'neutral' };
+  var VAL = dict({ good: 'good', win: 'good', success: 'good', won: 'good', bad: 'bad', lose: 'bad', fail: 'bad', failure: 'bad', lost: 'bad', neutral: 'neutral', end: 'neutral', ending: 'neutral' });
   function valenceOf(s) { return VAL[String(s || '').trim().toLowerCase()] || ''; }
-  function num(s, dec) { s = String(s).trim(); if (dec === ',') s = s.replace(/\./g, '').replace(',', '.'); else s = s.replace(/,/g, ''); var v = Number(s); return isFinite(v) ? v : undefined; }
+  function num(s, dec) { var v = readNumber(s, dec); return v === v ? v : undefined; }
 
   /** Read table rows into a graph using a mapping (from guessMapping, possibly changed by the user). */
   function importTable(rows, map, name, opts) {
     opts = opts || {};
     var B = new Builder(name, opts), cols = map.cols, mode = map.mode, body = map.header ? rows.slice(1) : rows, headers = map.headers || [];
-    var dec = opts.decimal || (opts.delimiter === ';' ? ',' : '.');
     var extraCache = new Map();   // the extra columns for one set of skipped columns, worked out once
     var extra = function (row, skip) {
       var ix = extraCache.get(skip);
@@ -235,6 +335,14 @@ var NFMImport = (function () {
       return a;
     };
     var cell = function (row, c) { return c === undefined || c < 0 ? '' : row[c] === undefined ? '' : String(row[c]).trim(); };
+    // the decimal mark: the caller's choice, else what the weight column itself shows, else the usual one for the file (';' files usually use a comma)
+    var dec = opts.decimal;
+    if (!dec) {
+      var sample = [], wc = mode === 'edges' ? cols.weight : undefined, ri2, cj;
+      if (wc !== undefined) { for (ri2 = 0; ri2 < body.length && sample.length < 20000; ri2++) { var wcell = cell(body[ri2], wc); if (wcell) sample.push(wcell); } }
+      else if (mode === 'matrix') { for (ri2 = 1; ri2 < rows.length && sample.length < 20000; ri2++) for (cj = 1; cj < rows[ri2].length; cj++) { var mcell = cell(rows[ri2], cj); if (mcell) sample.push(mcell); } }
+      dec = inferDecimal(sample, opts.delimiter === ';' ? ',' : '.');
+    }
     var rowCount = 0, badNum = 0;
     if (mode === 'edges') {
       var skip = ['from', 'to', 'weight', 'label', 'kind', 'fromGroup', 'toGroup'].map(function (r) { return cols[r]; }).filter(function (x) { return x !== undefined; });
@@ -266,7 +374,7 @@ var NFMImport = (function () {
         cell(row, cols.links).split(/\s*[;|,\n]\s*/).forEach(function (t) { if (t) pending.push([nd, t]); });
       });
       pending.forEach(function (p) {
-        var existed = B.map.has(B.key(cleanText(p[1])));
+        var existed = B.has(p[1]);
         var tn = B.node(p[1], existed ? null : { ghost: true });
         if (!existed && tn) B.r.ghosts++;
         B.edge(p[0], tn, {});
@@ -277,14 +385,17 @@ var NFMImport = (function () {
         var a = B.node(String(row[0]).trim());
         colNames.forEach(function (cn, j) {
           var v = String(row[j + 1] === undefined ? '' : row[j + 1]).trim();
-          if (v === '' || v === '0') return;
+          if (v === '') return;
           var w = num(v, dec);
+          if (w === 0) return;   // a zero cell (0, 0.0, 0.00) means no link
           B.edge(a, B.node(cn), { weight: w !== undefined && w !== 1 ? w : undefined });
         });
       });
       rowCount = rows.length - 1;
     }
-    if (badNum) B.r.notes.push(badNum + ' weight' + (badNum === 1 ? ' was' : 's were') + ' not numbers and ' + (badNum === 1 ? 'was' : 'were') + ' left empty.');
+    if (badNum) B.r.notes.push(badNumNote(badNum));
+    if (rows.unclosed) B.r.notes.push('A quote was never closed; the rest of the file was read as one cell.');
+    if (map.renamed && map.renamed.length) B.r.notes.push(map.renamed.length + ' column' + (map.renamed.length === 1 ? ' had' : 's had') + ' the same name as an earlier one and ' + (map.renamed.length === 1 ? 'was' : 'were') + ' renamed so nothing is overwritten: ' + map.renamed.slice(0, 5).map(function (x) { return '"' + x + '"'; }).join(', ') + '.');
     if (!B.g.edges.length && rowCount) B.r.notes.push('No links were found. Check which columns are "from" and "to" in the table settings.');
     var out = B.done('table');
     out.report.rows = rowCount;
@@ -298,13 +409,29 @@ var NFMImport = (function () {
     var out = importTable(rows, map, name, Object.assign({}, opts, { delimiter: d }));
     out.rows = rows; out.delimiter = d; out.mapping = map;
     var lbl = d === '\t' ? 'tab' : d === ',' ? 'comma' : d === ';' ? 'semicolon' : 'bar';
-    out.report.notes.unshift('Read as a table separated by ' + lbl + 's, ' + out.report.rows + ' row' + (out.report.rows === 1 ? '' : 's') + (map.header ? ' under a header row.' : ' with no header row.'));
+    out.report.notes.unshift('Read as a table separated by ' + lbl + 's, ' + out.report.rows + ' row' + (out.report.rows === 1 ? '' : 's') + (map.header ? ' under a header row' + (map.guessedHeader ? ' (the first row was used for the column names: ' + map.headers.slice(0, 6).map(function (x) { return clip(x.replace(/\s+/g, ' '), 30); }).join(', ') + (map.headers.length > 6 ? ', …' : '') + ')' : '') + '.' : ' with no header row.'));
     return out;
   }
 
   /* ------------------------------------------------------------ JSON in many shapes */
   function pick(o, names) { if (o === null || typeof o !== 'object') return undefined; for (var i = 0; i < names.length; i++) if (o[names[i]] !== undefined && o[names[i]] !== null && o[names[i]] !== '') return o[names[i]]; return undefined; }
   function scalar(v) { return v !== null && typeof v === 'object' ? undefined : v; }
+  /** The file the "JSON (everything)" button writes: a marker, or any of its own fields (states, calc, roles), or items that carry ghost and attrs with links that use from and to. */
+  function isOwnFormat(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) return false;
+    if (data.format === 'net-flow-map' || data.states || data.calc || data.roles) return true;
+    return data.nodes.length > 0 && data.nodes.every(function (n) { return n && typeof n.ghost === 'boolean' && n.attrs && typeof n.attrs === 'object' && !Array.isArray(n.attrs); }) &&
+      data.edges.every(function (e) { return e && e.from !== undefined && e.to !== undefined; });
+  }
+  // fields of an item that become its label, group or outline; everything else with a plain value stays as an extra column (size and color too, so "size by" can use them)
+  var NODE_SKIP = dict({ id: 1, key: 1, name: 1, label: 1, title: 1, group: 1, type: 1, class: 1, category: 1, cluster: 1, community: 1, valence: 1, outcome: 1, x: 1, y: 1, text: 1, data: 1 });
+  var EDGE_SKIP = dict({ source: 1, target: 1, from: 1, to: 1, src: 1, dst: 1, fromNode: 1, toNode: 1, fromSide: 1, toSide: 1, fromEnd: 1, toEnd: 1, start: 1, end: 1, u: 1, v: 1, a: 1, b: 1, parent: 1, child: 1, weight: 1, value: 1, strength: 1, count: 1, w: 1, label: 1, name: 1, relation: 1, title: 1, text: 1, kind: 1, type: 1, edge_type: 1, id: 1, _id: 1, key: 1, data: 1 });
+  /** A link target written as a plain value or an object with an id: its name, or undefined when there is none. */
+  function targetName(t) {
+    var v = scalar(t);
+    if (v === null || v === undefined) v = t !== null && typeof t === 'object' ? scalar(pick(t, ['id', 'to', 'target', 'name'])) : undefined;
+    return v === undefined || v === null ? undefined : String(v);
+  }
   function importJSON(text, name, opts) {
     var data;
     try { data = JSON.parse(stripBom(text)); }
@@ -312,13 +439,14 @@ var NFMImport = (function () {
       var lines = stripBom(text).split(LINEBREAK).filter(function (l) { return l.trim(); });
       try { data = lines.map(function (l) { return JSON.parse(l); }); } catch (e2) { throw new Error('This is not valid JSON: ' + err.message); }
     }
-    if (data && !Array.isArray(data) && Array.isArray(data.nodes) && Array.isArray(data.edges) && (data.states || data.calc || data.roles)) {
+    if (isOwnFormat(data)) {
       var sg = sanitizeGraph(Object.assign({}, data, { name: data.name || name }));
-      return { graph: sg, report: { format: 'Net Flow Map JSON', nodes: sg.nodes.length, edges: sg.edges.length, ghosts: 0, notes: ['Read back with its calculated columns, column roles' + (sg.states ? ' and ' + sg.states.names.length + ' states' : '') + ' where the file had them.'] } };
+      var gh = sg.nodes.filter(function (x) { return x.ghost; }).length;
+      return { graph: sg, report: { format: 'Net Flow Map JSON', nodes: sg.nodes.length, edges: sg.edges.length, ghosts: gh, notes: ['Read back as a Net Flow Map file, with its start, story or data setting, placeholders and extra columns' + (sg.calc || sg.roles || sg.states ? ', and its calculated columns, column roles' + (sg.states ? ' and ' + sg.states.names.length + ' states' : '') + ' where the file had them' : '') + '.'] } };
     }
     var B = new Builder(name, opts), shape = 'unknown';
     var nodeProps = function (o) {
-      var attrs = {}, skip = { id: 1, key: 1, name: 1, label: 1, title: 1, group: 1, type: 1, class: 1, category: 1, cluster: 1, community: 1, valence: 1, outcome: 1, x: 1, y: 1, size: 1, color: 1, text: 1, data: 1 };
+      var attrs = {}, skip = NODE_SKIP;
       Object.keys(o).forEach(function (k) { if (!skip[k] && !BAD_KEYS[k] && scalar(o[k]) !== undefined) attrs[k] = o[k]; });
       var g = scalar(pick(o, ['group', 'cluster', 'community', 'class', 'category', 'type']));
       return { label: scalar(pick(o, ['label', 'name', 'title', 'text'])), group: g === undefined ? '' : String(g), valence: valenceOf(scalar(pick(o, ['valence', 'outcome']))), attrs: attrs };
@@ -333,20 +461,26 @@ var NFMImport = (function () {
     };
     var addEdges = function (arr, nodeList) {
       arr.forEach(function (e) {
-        var a, b;
+        var a, b, xattrs = null;
         if (Array.isArray(e)) { a = e[0]; b = e[1]; e = { weight: e[2] }; }
-        else { a = edgeFrom(e); b = edgeTo(e); }
+        else if (e === null || typeof e !== 'object') { B.r.skippedLinks++; return; }
+        else {
+          a = edgeFrom(e); b = edgeTo(e);
+          Object.keys(e).forEach(function (k) { var v = e[k]; if (!EDGE_SKIP[k] && !BAD_KEYS[k] && v !== null && v !== '' && scalar(v) !== undefined) { if (!xattrs) xattrs = {}; xattrs[k] = v; } });
+        }
+        if (a === null || b === null) { B.r.skippedLinks++; return; }
         var ra = refId(a, nodeList), rb = refId(b, nodeList);
         var w = scalar(pick(e, ['weight', 'value', 'strength', 'count', 'w']));
         B.edge(typeof ra === 'object' && ra ? B.node(idOf(ra) || '') : B.node(ra === undefined ? '' : ra), typeof rb === 'object' && rb ? B.node(idOf(rb) || '') : B.node(rb === undefined ? '' : rb), {
-          label: scalar(pick(e, ['label', 'name', 'relation', 'title', 'text'])), weight: w, kind: scalar(pick(e, ['kind', 'type', 'edge_type'])) !== undefined ? String(scalar(pick(e, ['kind', 'type', 'edge_type']))) : ''
+          label: scalar(pick(e, ['label', 'name', 'relation', 'title', 'text'])), weight: w, kind: scalar(pick(e, ['kind', 'type', 'edge_type'])) !== undefined ? String(scalar(pick(e, ['kind', 'type', 'edge_type']))) : '', attrs: xattrs
         });
       });
     };
     var addNodes = function (arr) {
       var ids = new Set(), byIndex = [];
       arr.forEach(function (o, i) {
-        if (o === null || typeof o !== 'object') { var s = B.node(String(o)); byIndex[i] = s; if (s) ids.add(s.id); return; }
+        if (o === null || typeof o === 'boolean') { B.r.emptyIds++; return; }
+        if (typeof o !== 'object') { var s = B.node(String(o)); byIndex[i] = s; if (s) ids.add(s.id); return; }
         var inner = o.data && typeof o.data === 'object' ? Object.assign({}, o, o.data) : o;
         var id = idOf(inner);
         if (id === undefined) { B.r.emptyIds++; return; }
@@ -362,26 +496,32 @@ var NFMImport = (function () {
       if (edgeLike) { shape = 'list of links'; addEdges(data, null); }
       else if (sample.length && sample.every(function (o) { return o && typeof o === 'object'; })) {
         shape = 'list of items'; var nl0 = addNodes(data);
-        data.forEach(function (o) { var id = idOf(o); var tos = o && (o.links || o.children || o.next || o.to || o.targets); if (id !== undefined && Array.isArray(tos)) tos.forEach(function (t) { B.edge(B.node(id), B.node(String(scalar(t) !== undefined ? t : pick(t, ['id', 'to', 'target', 'name']))), { label: t && t.label }); }); });
+        data.forEach(function (o) { var id = idOf(o); var tos = o && (o.links || o.children || o.next || o.to || o.targets); if (id !== undefined && Array.isArray(tos)) tos.forEach(function (t) { var tn = targetName(t); if (tn === undefined) { B.r.skippedLinks++; return; } B.edge(B.node(id), B.node(tn), { label: t && typeof t === 'object' ? t.label : undefined }); }); });
         void nl0;
       } else throw new Error('This JSON is a list, but not a list of links or of items.');
     } else if (root && typeof root === 'object') {
       if (Array.isArray(root.passages)) {
-        shape = 'story'; B.g.flavor = 'story'; var byId = {};
-        root.passages.forEach(function (p) { byId[p.id] = p; var nd = B.node(String(p.id), { label: p.name || p.title || p.id, valence: p.ending ? valenceOf(p.valence) || 'neutral' : '', group: p.group || '' }); void nd; });
-        root.passages.forEach(function (p) {
-          (p.choices || p.links || []).forEach(function (c) {
-            var to = c.to || c.target || c.link;
-            if (to === undefined || to === '') return;
-            var tn = byId[to] ? B.node(String(to)) : B.node(String(to), { ghost: true });
-            if (!byId[to] && tn) B.r.ghosts++;
+        shape = 'story'; B.g.flavor = 'story'; var byId = new Set();
+        var psgs = root.passages.filter(function (p) { if (p === null || typeof p !== 'object' || p.id === undefined || p.id === null) { B.r.emptyIds++; return false; } return true; });
+        psgs.forEach(function (p) { byId.add(String(p.id)); B.node(String(p.id), { label: p.name || p.title || p.id, valence: p.ending ? valenceOf(p.valence) || 'neutral' : '', group: p.group || '' }); });
+        psgs.forEach(function (p) {
+          var cs = p.choices || p.links || [];
+          if (!Array.isArray(cs)) return;
+          cs.forEach(function (c) {
+            if (c === null || typeof c !== 'object') { B.r.skippedLinks++; return; }
+            var to = [c.to, c.target, c.link].filter(function (x) { return x !== undefined && x !== null && x !== ''; })[0];
+            if (to === undefined) return;
+            if (typeof to === 'object') { B.r.skippedLinks++; return; }
+            var tk = String(to), real = byId.has(tk), fresh = !real && !B.has(tk);
+            var tn = real ? B.node(tk) : B.node(tk, { ghost: true });
+            if (fresh && tn) B.r.ghosts++;
             B.edge(B.node(String(p.id)), tn, { label: c.label || c.text });
           });
         });
-        if (root.start !== undefined) B.g.start = String(root.start);
+        if (root.start !== undefined && root.start !== null) B.g.start = String(root.start);
       } else if (root.elements) {
-        shape = 'Cytoscape.js'; var els = root.elements, ns = Array.isArray(els) ? els.filter(function (x) { return !(x.data && x.data.source !== undefined); }) : els.nodes || [], es = Array.isArray(els) ? els.filter(function (x) { return x.data && x.data.source !== undefined; }) : els.edges || [];
-        var nl = addNodes(ns); addEdges(es.map(function (e) { return e.data || e; }), nl);
+        shape = 'Cytoscape.js'; var els = root.elements, ns = Array.isArray(els) ? els.filter(function (x) { return !(x && x.data && x.data.source !== undefined); }) : els.nodes || [], es = Array.isArray(els) ? els.filter(function (x) { return x && x.data && x.data.source !== undefined; }) : els.edges || [];
+        var nl = addNodes(ns); addEdges(es.map(function (e) { return e && e.data ? e.data : e; }), nl);
       } else if (Array.isArray(root.nodes) && (Array.isArray(root.edges) || Array.isArray(root.links))) {
         var isCanvas = root.nodes.some(function (n) { return n && (n.type === 'text' || n.type === 'file' || n.type === 'group') && n.x !== undefined; }) && Array.isArray(root.edges) && root.edges.some(function (e) { return e.fromNode !== undefined; });
         shape = isCanvas ? 'JSON Canvas' : 'nodes and links';
@@ -406,7 +546,7 @@ var NFMImport = (function () {
         shape = 'adjacency lists';
         keys.forEach(function (k) {
           var a = B.node(k), v = root[k];
-          if (Array.isArray(v)) v.forEach(function (t) { B.edge(a, B.node(String(scalar(t) !== undefined ? t : pick(t, ['id', 'to', 'target', 'name']))), {}); });
+          if (Array.isArray(v)) v.forEach(function (t) { var tn = targetName(t); if (tn === undefined) { B.r.skippedLinks++; return; } B.edge(a, B.node(tn), {}); });
           else Object.keys(v).forEach(function (t) { B.edge(a, B.node(t), { weight: v[t] }); });
         });
       }
@@ -476,7 +616,7 @@ var NFMImport = (function () {
       while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
       if (stack.length) B.edge(stack[stack.length - 1].nd, nd, { kind: 'contains' });
       stack.push({ level: level, nd: nd });
-      wiki.forEach(function (w) { var ex = B.map.has(B.key(w)); var t = B.node(w, ex ? null : { ghost: true }); if (!ex && t) B.r.ghosts++; if (t && t !== nd) { B.edge(nd, t, { kind: 'link' }); linksMade++; } });
+      wiki.forEach(function (w) { var ex = B.has(w); var t = B.node(w, ex ? null : { ghost: true }); if (!ex && t) B.r.ghosts++; if (t && t !== nd) { B.edge(nd, t, { kind: 'link' }); linksMade++; } });
     });
     var multiRoot = B.g.nodes.filter(function (n) { return !B.g.edges.some(function (e) { return e.to === n.id; }); }).length;
     B.r.notes.unshift('Read as an outline (' + (headingSeen ? 'headings and ' : '') + (tabs ? 'tab' : 'space') + ' indents). Each item links to the items under it.');
@@ -518,13 +658,14 @@ var NFMImport = (function () {
       var path = (f.path || f.name || '').replace(/\\/g, '/'), fm = parseFront(String(f.text || ''));
       return { path: path, stem: stemOf(path), fm: fm, folder: path.indexOf('/') > 0 ? path.split('/').slice(-2, -1)[0] : '' };
     });
-    var stemCount = {};
-    docs.forEach(function (d) { var k = d.stem.toLowerCase(); stemCount[k] = (stemCount[k] || 0) + 1; });
-    docs.forEach(function (d) { d.id = stemCount[d.stem.toLowerCase()] > 1 ? d.path.replace(/\.(md|markdown|txt)$/i, '') : d.stem; });
-    var lookup = new Map();
+    var stemCount = new Map();
+    docs.forEach(function (d) { var k = d.stem.toLowerCase(); stemCount.set(k, (stemCount.get(k) || 0) + 1); });
+    docs.forEach(function (d) { d.id = stemCount.get(d.stem.toLowerCase()) > 1 ? d.path.replace(/\.(md|markdown|txt)$/i, '') : d.stem; });
+    var lookup = new Map(), shared = new Set();   // shared: names that fit more than one note
     docs.forEach(function (d) {
-      [d.id, d.stem, d.path.replace(/\.(md|markdown|txt)$/i, '')].concat(d.fm.aliases).forEach(function (k) { if (k) { var lk = k.toLowerCase(); if (!lookup.has(lk)) lookup.set(lk, d); } });
+      [d.id, d.stem, d.path.replace(/\.(md|markdown|txt)$/i, '')].concat(d.fm.aliases).forEach(function (k) { if (k) { var lk = k.toLowerCase(), have = lookup.get(lk); if (!have) lookup.set(lk, d); else if (have !== d) shared.add(lk); } });
     });
+    var ambiguousNames = [];
     docs.forEach(function (d) {
       var body = d.fm.body, h1 = body.match(/^#\s+(.+)$/m);
       var label = d.fm.title || (h1 ? h1[1].replace(/\*\*|__|`/g, '').trim() : d.stem);
@@ -542,17 +683,18 @@ var NFMImport = (function () {
         var t = raw.replace(/[#^|].*$/, '').replace(/\.(md|markdown)$/i, '').trim();
         if (!t) return;
         try { t = decodeURIComponent(t); } catch (e) { /* keep as is */ }
-        var hit = lookup.get(t.toLowerCase()) || lookup.get(stemOf(t).toLowerCase());
+        var hk = lookup.has(t.toLowerCase()) ? t.toLowerCase() : stemOf(t).toLowerCase(), hit = lookup.get(hk);
+        if (hit && shared.has(hk)) { ambiguous++; if (ambiguousNames.length < 3 && ambiguousNames.indexOf(t) < 0) ambiguousNames.push(t); }
         var to;
         if (hit) to = B.node(hit.id);
-        else { var ex = B.map.has(B.key(t)); to = B.node(t, ex ? null : { ghost: true }); if (!ex && to) B.r.ghosts++; }
+        else { var ex = B.has(t); to = B.node(t, ex ? null : { ghost: true }); if (!ex && to) B.r.ghosts++; }
         if (to && to !== from) { B.edge(from, to, { kind: kind }); if (kind === 'embed') embeds++; else links++; }
       };
       body.replace(/(!?)\[\[([^\]\n]+)\]\]/g, function (_, bang, t) { target(t, bang ? 'embed' : 'link'); return ''; });
       body.replace(/(?<!!)\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, function (_, t) { if (/^[a-z][a-z0-9+.-]*:|^#|^mailto:/i.test(t)) return ''; target(t, 'link'); return ''; });
     });
     B.r.notes.unshift('Read ' + docs.length + ' note' + (docs.length === 1 ? '' : 's') + ' and found ' + links + ' link' + (links === 1 ? '' : 's') + (embeds ? ' and ' + embeds + ' embed' + (embeds === 1 ? '' : 's') : '') + '. Names are matched without regard to capital letters, paths or file endings; the first tag (or the folder) becomes the group.');
-    void ambiguous;
+    if (ambiguous) B.r.notes.push(ambiguous + ' link' + (ambiguous === 1 ? '' : 's') + ' (for example [[' + ambiguousNames.join(']], [[') + ']]) matched more than one note with the same name; the first note found was used. Write the folder too, like [[folder/name]], to pick one.');
     return B.done('notes');
   }
 
@@ -617,15 +759,15 @@ var NFMImport = (function () {
   }
 
   /* ------------------------------------------------------------ graph files: GraphML, GEXF, GML, Graphviz DOT */
-  var GROUP_NAMES = { group: 1, community: 1, cluster: 1, modularity_class: 1, class: 1, module: 1, category: 1, type: 1 };
-  var LABEL_NAMES = { label: 1, name: 1, title: 1, labels: 1 };
-  var WEIGHT_NAMES = { weight: 1, value: 1, w: 1, strength: 1, count: 1 };
+  var GROUP_NAMES = dict({ group: 1, community: 1, cluster: 1, modularity_class: 1, class: 1, module: 1, category: 1, type: 1 });
+  var LABEL_NAMES = dict({ label: 1, name: 1, title: 1, labels: 1 });
+  var WEIGHT_NAMES = dict({ weight: 1, value: 1, w: 1, strength: 1, count: 1 });
   /** Shared finish for the three readers: nodes first (so placeholders are only for ends never described), then links. */
   function finishGraphFile(B, nodes, edges, directedDefault, format, intro) {
     nodes.forEach(function (x) { B.node(x.id, { label: x.label, group: x.group, attrs: x.attrs }); });
     edges.forEach(function (x) {
       var a = x.from, b = x.to;
-      var na = B.map.get(B.key(cleanText(a))), nb = B.map.get(B.key(cleanText(b)));
+      var na = B.get(a), nb = B.get(b);
       if (!na && cleanText(a)) { na = B.node(a, { ghost: true }); if (na) B.r.ghosts++; }
       if (!nb && cleanText(b)) { nb = B.node(b, { ghost: true }); if (nb) B.r.ghosts++; }
       B.edge(na, nb, { label: x.label, weight: x.weight, kind: x.directed === false || (x.directed === undefined && !directedDefault) ? 'undirected' : '', attrs: x.attrs });
@@ -633,18 +775,18 @@ var NFMImport = (function () {
     B.r.notes.unshift(intro);
     return B.done(format);
   }
-  function typed(v, type) { if (/^(int|long|float|double|integer|number|real)/i.test(type || '')) { var x = Number(v); if (v !== '' && isFinite(x)) return x; } else if (/^bool/i.test(type || '')) return /^(true|1)$/i.test(v) ? 1 : 0; return v; }
+  function typed(v, type) { if (/^(int|long|float|double|integer|number|real)/i.test(type || '')) { var x = readNumber(v, '.'); if (v !== '' && isFinite(x)) return x; } else if (/^bool/i.test(type || '')) return /^(true|1)$/i.test(v) ? 1 : 0; return v; }
   function applyProp(target, name, val, type, isNode) {
     if (val === '' || val === undefined) return;
     var ln = String(name).toLowerCase();
     if (LABEL_NAMES[ln] && !target.label) target.label = String(val);
     else if (isNode && GROUP_NAMES[ln] && !target.group) target.group = String(val);
-    else if (!isNode && WEIGHT_NAMES[ln] && target.weight === undefined && isFinite(Number(val))) target.weight = Number(val);
+    else if (!isNode && WEIGHT_NAMES[ln] && target.weight === undefined && weightOf(val) !== undefined) target.weight = weightOf(val);
     else if (!BAD_KEYS[name] && Object.keys(target.attrs).length < MAX_ATTRS) target.attrs[name] = typeof val === 'string' ? typed(val, type) : val;
   }
 
   function importGraphML(text, name, opts) {
-    var B = new Builder(name, opts), keys = {}, nodes = [], edges = [], stack = [], cur = null, dkey = null, buf = null, ybuf = null, defDir = true, graphs = 0, hyper = 0;
+    var B = new Builder(name, opts), keys = Object.create(null), nodes = [], edges = [], stack = [], cur = null, dkey = null, buf = null, ybuf = null, defDir = true, graphs = 0, hyper = 0;
     xmlScan(stripBom(text), {
       open: function (tag, a, self) {
         if (tag === 'key') keys[a.id] = { name: a['attr.name'] || a.id, type: a['attr.type'] || '', dom: a['for'] || 'all' };
@@ -675,7 +817,7 @@ var NFMImport = (function () {
   }
 
   function importGEXF(text, name, opts) {
-    var B = new Builder(name, opts), nattr = {}, eattr = {}, cls = 'node', nodes = [], edges = [], cur = null, defDir = true, inNodes = false;
+    var B = new Builder(name, opts), nattr = Object.create(null), eattr = Object.create(null), cls = 'node', nodes = [], edges = [], cur = null, defDir = true, inNodes = false;
     xmlScan(stripBom(text), {
       open: function (tag, a, self) {
         if (tag === 'graph') defDir = a.defaultedgetype !== 'undirected';
@@ -683,7 +825,7 @@ var NFMImport = (function () {
         else if (tag === 'attribute') (cls === 'edge' ? eattr : nattr)[a.id] = { name: a.title || a.id, type: a.type || '' };
         else if (tag === 'node') { cur = { kind: 'n', id: a.id || '', label: a.label || '', group: '', attrs: {} }; if (self) { nodes.push(cur); cur = null; } }
         else if (tag === 'edge') {
-          cur = { kind: 'e', from: a.source || '', to: a.target || '', label: a.label || '', weight: a.weight !== undefined && isFinite(Number(a.weight)) ? Number(a.weight) : undefined, attrs: {}, directed: a.type === undefined ? undefined : a.type !== 'undirected' };
+          cur = { kind: 'e', from: a.source || '', to: a.target || '', label: a.label || '', weight: a.weight !== undefined ? weightOf(a.weight) : undefined, attrs: {}, directed: a.type === undefined ? undefined : a.type !== 'undirected' };
           if (self) { edges.push(cur); cur = null; }
         }
         else if (tag === 'attvalue' && cur) { var def = (cur.kind === 'e' ? eattr : nattr)[a['for']] || { name: a['for'] || 'value', type: '' }; applyProp(cur, def.name, a.value, def.type, cur.kind === 'n'); }
@@ -829,7 +971,7 @@ var NFMImport = (function () {
           for (var c = 0; c + 1 < chain.length; c++) {
             for (var x = 0; x < chain[c].length; x++) for (var y = 0; y < chain[c + 1].length; y++) {
               if (edges.length >= B.maxEdges + 1) break;
-              edges.push({ from: chain[c][x], to: chain[c + 1][y], label: attrs.label || '', weight: attrs.weight !== undefined && isFinite(Number(attrs.weight)) ? Number(attrs.weight) : undefined, attrs: {}, directed: ops[c] === '->' });
+              edges.push({ from: chain[c][x], to: chain[c + 1][y], label: attrs.label || '', weight: attrs.weight !== undefined ? weightOf(attrs.weight) : undefined, attrs: {}, directed: ops[c] === '->'});
             }
           }
         }
@@ -856,13 +998,13 @@ var NFMImport = (function () {
   /** parts: { 'xl/workbook.xml': text, ... } (only the ones that exist). Returns [{ sheet, csv, rows }]. */
   function xlsxSheets(parts, opts) {
     opts = opts || {};
-    var maxRows = opts.maxRows || 2000000, sst = [], dateXf = {}, d1904 = false, sheets = [], rels = {};
+    var maxRows = opts.maxRows || 2000000, sst = [], dateXf = {}, d1904 = false, sheets = [], rels = Object.create(null);
     if (parts['xl/sharedStrings.xml']) {
-      var cur = null, inT = false;
+      var cur = null, inT = false, inPh = false;   // inPh: inside <rPh>, the phonetic reading (furigana) of a Japanese text, which is not part of the text
       xmlScan(parts['xl/sharedStrings.xml'], {
-        open: function (t, a) { if (t === 'si') cur = ''; else if (t === 't' && cur !== null) inT = true; else if ((t === 'rPh' || t === 'phoneticPr') && cur !== null) inT = false; },
+        open: function (t, a) { if (t === 'si') cur = ''; else if (t === 'rPh') { inPh = true; inT = false; } else if (t === 't' && cur !== null && !inPh) inT = true; else if (t === 'phoneticPr' && cur !== null) inT = false; },
         text: function (s) { if (inT && cur !== null && cur.length < 40000) cur += s; },
-        close: function (t) { if (t === 't') inT = false; else if (t === 'si') { sst.push(cur || ''); cur = null; if (sst.length > 5000000) throw new Error('This workbook has too many distinct text values.'); } }
+        close: function (t) { if (t === 'rPh') { inPh = false; inT = false; } else if (t === 't') inT = false; else if (t === 'si') { inPh = false; sst.push(cur || ''); cur = null; if (sst.length > 5000000) throw new Error('This workbook has too many distinct text values.'); } }
       });
     }
     if (parts['xl/styles.xml']) {
@@ -884,7 +1026,7 @@ var NFMImport = (function () {
       target = target.replace(/^\/?(xl\/)?/, '').replace(/^\.\//, '');
       var xml = parts['xl/' + target];
       if (!xml) return;
-      var lines = [], row = null, rowHas = false, c = null, cell = null, inV = false, inIs = false, rowCount = 0, lastCol = -1, truncated = false;
+      var lines = [], row = null, rowHas = false, c = null, cell = null, inV = false, inIs = false, inPhS = false, rowCount = 0, lastCol = -1, truncated = false;
       var flushRow = function () {
         if (!row) return;
         if (rowHas) {
@@ -909,12 +1051,14 @@ var NFMImport = (function () {
           }
           else if (t === 'v' && cell) inV = true;
           else if (t === 'is' && cell) inIs = true;
-          else if (t === 't' && cell && inIs) inV = true;
+          else if (t === 'rPh' && inIs) { inPhS = true; inV = false; }
+          else if (t === 't' && cell && inIs && !inPhS) inV = true;
         },
         text: function (s) { if (cell && inV && cell.v.length < 40000) cell.v += s; },
         close: function (t) {
-          if (t === 'v' || (t === 't' && inIs)) inV = false;
-          else if (t === 'is') inIs = false;
+          if (t === 'rPh') { inPhS = false; inV = false; }
+          else if (t === 'v' || (t === 't' && inIs)) inV = false;
+          else if (t === 'is') { inIs = false; inPhS = false; }
           else if (t === 'c' && cell) {
             var v = cell.v;
             if (cell.type === 's') v = sst[Number(v)] !== undefined ? sst[Number(v)] : '';
@@ -948,7 +1092,14 @@ var NFMImport = (function () {
     if (ext === 'xml' || /^<\?xml/i.test(t)) return 'xml';
     var lines = t.split(LINEBREAK).filter(function (l) { return l.trim(); });
     var arrows = lines.filter(function (l) { return /(->|=>|→|<->|-->)/.test(l); }).length;
-    if (arrows >= Math.max(2, lines.length * 0.5)) return 'arrows';
+    if (arrows >= Math.max(2, lines.length * 0.5)) {
+      // a .csv or .tsv file that really is a table (one delimiter all down, a header row without arrows) stays a table even if its cells hold arrows
+      if ((ext === 'csv' || ext === 'tsv') && lines.length >= 2) {
+        var dl = sniffDelimiter(t);
+        if (dl) { var top = parseDelimited(t.slice(0, 20000), dl).slice(0, 3); if (top.length >= 2 && !top[0].some(function (c) { return /(->|=>|→|<->|-->)/.test(c); }) && guessMapping(top).header) return 'table'; }
+      }
+      return 'arrows';
+    }
     if (ext === 'csv' || ext === 'tsv') return 'table';
     if (ext === 'md' || ext === 'markdown') return /\[\[|\]\(/.test(t) ? 'notes' : 'outline';
     var d = sniffDelimiter(t);
@@ -1010,7 +1161,7 @@ var NFMImport = (function () {
           if (!ex.group && n.group) ex.group = n.group;
           if (!ex.valence && n.valence) ex.valence = n.valence;
           if (ex.ghost && !n.ghost) { ex.ghost = false; ex.label = n.label; }
-          Object.keys(n.attrs || {}).forEach(function (k) { if (!(k in ex.attrs) && !BAD_KEYS[k]) ex.attrs[k] = n.attrs[k]; });
+          Object.keys(n.attrs || {}).forEach(function (k) { if (!own(ex.attrs, k) && !BAD_KEYS[k]) ex.attrs[k] = n.attrs[k]; });
         }
       });
       b.edges.forEach(function (e) {
@@ -1035,32 +1186,34 @@ var NFMImport = (function () {
     twoWay: function (g) { var c = copyGraph(g), have = new Set(c.edges.map(function (e) { return e.from + '\u0001' + e.to; })), add = []; c.edges.forEach(function (e) { if (!have.has(e.to + '\u0001' + e.from)) { have.add(e.to + '\u0001' + e.from); add.push({ from: e.to, to: e.from, label: e.label, weight: e.weight, kind: e.kind, attrs: {} }); } }); c.edges = c.edges.concat(add); return { graph: c, changed: add.length, text: 'added ' + add.length + ' return link' + (add.length === 1 ? '' : 's') }; },
     reverse: function (g) { var c = copyGraph(g); c.edges.forEach(function (e) { var t = e.from; e.from = e.to; e.to = t; }); return { graph: c, changed: c.edges.length, text: 'reversed the direction of ' + c.edges.length + ' link' + (c.edges.length === 1 ? '' : 's') }; },
     sameLabel: function (g) {
-      var c = copyGraph(g), byLabel = new Map(), map = {}, gone = 0;
-      c.nodes.forEach(function (n) { var k = n.label.toLowerCase().trim(); if (!byLabel.has(k)) byLabel.set(k, n); else { map[n.id] = byLabel.get(k).id; gone++; } });
-      c.nodes = c.nodes.filter(function (n) { return !map[n.id]; });
-      c.edges.forEach(function (e) { if (map[e.from]) e.from = map[e.from]; if (map[e.to]) e.to = map[e.to]; });
-      if (c.start && map[c.start]) c.start = map[c.start];
+      var c = copyGraph(g), byLabel = new Map(), map = new Map(), gone = 0;   // Maps: an item called "constructor" or "toString" is an ordinary name
+      c.nodes.forEach(function (n) { var k = n.label.toLowerCase().trim(); if (!byLabel.has(k)) byLabel.set(k, n); else { map.set(n.id, byLabel.get(k).id); gone++; } });
+      c.nodes = c.nodes.filter(function (n) { return !map.has(n.id); });
+      c.edges.forEach(function (e) { if (map.has(e.from)) e.from = map.get(e.from); if (map.has(e.to)) e.to = map.get(e.to); });
+      if (c.start && map.has(c.start)) c.start = map.get(c.start);
       return { graph: c, changed: gone, text: 'merged ' + gone + ' item' + (gone === 1 ? '' : 's') + ' that had the same name' };
     }
   };
 
+  /** An extra column's value: numbers and true/false stay as they are (so a saved or exported graph reads back the same); anything else becomes text. */
+  function keepAttr(v) { return typeof v === 'number' && isFinite(v) || typeof v === 'boolean' ? v : clip(v, 300); }
   function edgeAttrs(e) {
     var attrs = {};
-    if (e.attrs && typeof e.attrs === 'object') Object.keys(e.attrs).slice(0, MAX_ATTRS).forEach(function (k) { if (!BAD_KEYS[k]) attrs[k] = clip(e.attrs[k], 300); });
+    if (e.attrs && typeof e.attrs === 'object') Object.keys(e.attrs).slice(0, MAX_ATTRS).forEach(function (k) { if (!BAD_KEYS[k]) attrs[k] = keepAttr(e.attrs[k]); });
     return attrs;
   }
   /** Make sure a graph read from storage or a file of ours is safe to use. */
   function sanitizeGraph(raw) {
     if (!raw || typeof raw !== 'object' || !Array.isArray(raw.nodes) || !Array.isArray(raw.edges)) throw new Error('This is not a saved graph.');
-    var ids = new Set(), g = { name: clip(cleanText(raw.name || 'Untitled'), 120), start: raw.start ? String(raw.start) : null, nodes: [], edges: [] };
+    var ids = new Map(), g = { name: clip(cleanText(raw.name || 'Untitled'), 120), start: raw.start ? String(raw.start) : null, nodes: [], edges: [] };   // ids: id -> its item
     raw.nodes.forEach(function (n) {
       if (!n || n.id === undefined) return;
       var id = String(n.id);
       if (ids.has(id) || g.nodes.length >= MAX_NODES) return;
-      ids.add(id);
       var attrs = {};
-      if (n.attrs && typeof n.attrs === 'object') Object.keys(n.attrs).slice(0, MAX_ATTRS).forEach(function (k) { if (!BAD_KEYS[k]) attrs[k] = clip(n.attrs[k], 300); });
-      g.nodes.push({ id: id, label: clip(n.label === undefined ? id : n.label, MAX_LABEL), group: clip(n.group || '', 80), valence: valenceOf(n.valence), ghost: !!n.ghost, attrs: attrs });
+      if (n.attrs && typeof n.attrs === 'object') Object.keys(n.attrs).slice(0, MAX_ATTRS).forEach(function (k) { if (!BAD_KEYS[k]) attrs[k] = keepAttr(n.attrs[k]); });
+      var nn = { id: id, label: clip(n.label === undefined ? id : n.label, MAX_LABEL), group: clip(n.group || '', 80), valence: valenceOf(n.valence), ghost: !!n.ghost, attrs: attrs };
+      ids.set(id, nn); g.nodes.push(nn);
     });
     raw.edges.forEach(function (e) {
       if (!e || !ids.has(String(e.from)) || !ids.has(String(e.to)) || g.edges.length >= MAX_EDGES) return;
@@ -1074,7 +1227,7 @@ var NFMImport = (function () {
     if (raw.states && Array.isArray(raw.states.names) && raw.states.names.length > 1) {
       g.states = { names: raw.states.names.slice(0, 60).map(function (x) { return clip(cleanText(String(x)), 60); }) };
       var ns = g.states.names.length, vals = function (a) { return Array.isArray(a) ? a.slice(0, ns).map(function (x) { var v = Number(x); return x === null || x === '' || !isFinite(v) ? null : v; }) : null; };
-      raw.nodes.forEach(function (n) { if (n && n.vals) { var nn = g.nodes.filter(function (q) { return q.id === String(n.id); })[0]; if (nn) nn.vals = vals(n.vals); } });
+      raw.nodes.forEach(function (n) { if (n && n.vals) { var nn = ids.get(String(n.id)); if (nn) nn.vals = vals(n.vals); } });
       var k2 = 0; raw.edges.forEach(function (e) { if (!e || !ids.has(String(e.from)) || !ids.has(String(e.to))) return; var ge = g.edges[k2++]; if (ge && e.vals) ge.vals = vals(e.vals); });
     }
     return g;

@@ -131,13 +131,19 @@ function gifResultKids() {
 }
 function runGif() {
   if (GX.running) return;
-  GX.running = true; GX.cancel = false; GX.msg = ''; var box = $('gif-card'), prog = $('gif-prog');
+  GX.running = true; GX.cancel = false; GX.msg = ''; var box = $('gif-card'), prog = $('gif-prog'), gv = S.gver;
   if (GX.result && GX.result.url) { try { URL.revokeObjectURL(GX.result.url); } catch (e) { /* gone */ } } GX.result = null;
   $('gif-go').disabled = true; $('gif-cancel').hidden = false; mount($('gif-out'), []);
   var bar = h('progress', { max: 1, value: 0, 'aria-label': 'Progress' }), txt = h('p', { class: 'muted small', style: { margin: '2px 0 0' } }, 'Starting…'); mount(prog, [bar, txt]);
-  makeGif(Object.assign({}, GX.opts), function (d, t, text) { bar.max = Math.max(1, t); bar.value = d; txt.textContent = text; }, function () { return GX.cancel; }).then(function (res) {
+  /* the map is built first when the data changed since it was open; and a GIF is only kept when the data is still the data it was made from */
+  var changed = function () { return gv !== S.gver; };
+  ensureMap().then(function () {
+    if (changed()) throw new Error('changed');
+    return makeGif(Object.assign({}, GX.opts), function (d, t, text) { bar.max = Math.max(1, t); bar.value = d; txt.textContent = text; }, function () { return GX.cancel; });
+  }).then(function (res) {
+    if (changed()) throw new Error('changed');
     res.url = URL.createObjectURL(new Blob([res.bytes], { type: 'image/gif' })); GX.result = res;
-  }).catch(function (err) { GX.msg = err.message === 'cancelled' ? 'Cancelled.' : err.message === 'superseded' ? 'The settings changed while working. Try again.' : 'The GIF could not be made: ' + err.message; }).then(function () {
+  }).catch(function (err) { GX.msg = err.message === 'cancelled' ? 'Canceled.' : err.message === 'changed' ? 'The data changed while the GIF was being made, so it was dropped. Make it again.' : err.message === 'superseded' ? 'The settings changed while working. Try again.' : 'The GIF could not be made: ' + err.message; }).then(function () {
     GX.running = false; if (S.tab === 'export') renderExport();
   });
 }
