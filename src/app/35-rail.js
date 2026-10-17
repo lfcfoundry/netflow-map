@@ -50,9 +50,10 @@ function buildMapUI() {
     h('button', { class: 'sm', id: 'keybtn', title: 'Show or hide the key', onclick: function () { S.V.key.hide = !S.V.key.hide; saveView(); renderKey(); } }, 'Key')]);
   var zoom = h('div', { id: 'zoom' }, [h('button', { class: 'glass', 'aria-label': 'Zoom in', onclick: function () { zoomAt(S.stageW / 2, S.stageH / 2, 1.5); } }, '+'), h('button', { class: 'glass', 'aria-label': 'Zoom out', onclick: function () { zoomAt(S.stageW / 2, S.stageH / 2, 1 / 1.5); } }, '−')]);
   var key = h('div', { id: 'key', class: 'glass', hidden: true });
+  var minimap = buildMinimap();
   var details = h('aside', { id: 'details', class: 'glass', hidden: true, 'aria-label': 'Details' });
   var selbar = h('div', { id: 'selbar', class: 'glass', hidden: true });
-  [rail, toggle, bar, zoom, key, details, selbar].forEach(function (e) { ui.appendChild(e); });
+  [rail, toggle, bar, zoom, minimap, key, details, selbar].forEach(function (e) { ui.appendChild(e); });
   if (window.matchMedia && matchMedia('(max-width:820px)').matches) RAIL.open = false;
   setRail(RAIL.open);
   bindKeyDrag();
@@ -265,12 +266,18 @@ function panelLook() {
     }
     if (canDrag()) k1.push(h('div', { class: 'row tight' }, [h('button', { class: 'sm', onclick: function () { clearPins(); } }, 'Let everything float again'), h('span', { class: 'muted small' }, 'Drag an item to move it.')]));
   }
+  if (['flow', 'down', 'spine', 'lanes'].indexOf(V.view) >= 0) k1.push(check('Taper links (thick at the start, thin at the end)', V.taper, function (on) { setV({ taper: on }, 'look'); }));
+  if (!(L && L.is3d)) k1.push(field('Mini-map', seg([['auto', 'Auto'], ['on', 'Always'], ['off', 'Off']], V.minimap, function (v) { setV({ minimap: v }, 'none'); renderMinimap(); }), 'A small picture of the whole map in the corner with a frame for what is on screen; click or drag it to move around. Auto shows it when you are zoomed in or the map is bigger than the screen.'));
+  if (V.view === 'river') k1.push(field('Direction', seg([['LR', 'Left to right'], ['TB', 'Top to bottom']], V.riverDir, function (v) { setV({ riverDir: v }, 'look'); fitView(true); }), 'Top to bottom turns the whole picture a quarter turn, which suits tall screens and long stories. Editing bars and names by hand is only available left to right.'));
   if (V.view === 'flow') k1.push(field('Direction', seg([['LR', 'Left to right'], ['TB', 'Top to bottom']], V.dir, function (v) { setV({ dir: v }); })));
   if (['flow', 'down', 'spine', 'lanes', 'river'].indexOf(V.view) >= 0) { k1.push(check('Fold straight runs into one box', V.fold, function (on) { setV({ fold: on }); })); k1.push(check('Merge parallel arrows', V.merge, function (on) { setV({ merge: on }); })); }
   if (V.view === 'flow' || V.view === 'down') {
     k1.push(field('Rows', seg([['route', 'Shortest route'], ['story', 'Story order']], V.rows, function (v) { setV({ rows: v }); }), 'Story order puts every page below all the pages that lead to it, so gold links are real loops only.'));
+    k1.push(field('Chapters', seg([['auto', 'Auto'], ['on', 'Always'], ['off', 'Off']], V.chapters, function (v) { setV({ chapters: v }); }), 'Folds the pages between must-pass pages into one box each, and runs of those into parts, so a big story fits on a screen. Auto starts above 1,500 pages. Click a box to open it; right-click a page inside to fold it back.'));
+    if (S.L && S.L.chapters) k1.push(h('div', { class: 'row tight' }, [h('span', { class: 'muted small' }, plural(S.L.chapters.parts, 'part') + ' and ' + plural(S.L.chapters.chapters, 'chapter') + ' folded, hiding ' + nfmt(S.L.chapters.hidden) + ' pages. '), Object.keys(V.openCh).length ? h('button', { class: 'sm', onclick: function () { S.V.openCh = {}; setV({}); } }, 'Fold all back') : null]));
     k1.push(check('Draw very long links as tags', V.tagLen > 0, function (on) { setV({ tagLen: on ? 8 : 0 }); }));
     k1.push(check('Keep must-pass pages in one column', V.spineCol, function (on) { setV({ spineCol: on }); }));
+    k1.push(check('Bundle links that share a start or an end', V.bundle, function (on) { setV({ bundle: on }); }));
     k1.push(check('Untangle harder (a little slower)', V.better, function (on) { setV({ better: on }); }));
     if (V.view === 'down' || V.dir === 'TB') {
       k1.push(check('Show step numbers down the side', V.ruler, function (on) { setV({ ruler: on }); }));
@@ -494,7 +501,7 @@ function panelStyle() {
 }
 
 /* ---- Views */
-var SNAP_KEYS = ['view', 'arrange', 'colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'labelCol', 'dir', 'fold', 'merge', 'rows', 'tagLen', 'spineCol', 'better', 'wrap', 'ruler', 'downLanes', 'laneBy', 'agg', 'strongest', 'facets', 'around', 'block', 'hideKinds', 'only', 'sets', 'marks', 'rules', 'palette', 'ramp', 'groupColors', 'widthScale', 'widthMul', 'hulls', 'curve', 'valueLabels', 'lab', 'lens', 'cam', 'vocab', 'pins', 'sk'];
+var SNAP_KEYS = ['view', 'arrange', 'colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'labelCol', 'dir', 'fold', 'merge', 'rows', 'chapters', 'openCh', 'minimap', 'bundle', 'taper', 'riverDir', 'tagLen', 'spineCol', 'better', 'wrap', 'ruler', 'downLanes', 'laneBy', 'agg', 'strongest', 'facets', 'around', 'block', 'hideKinds', 'only', 'sets', 'marks', 'rules', 'palette', 'ramp', 'groupColors', 'widthScale', 'widthMul', 'hulls', 'curve', 'valueLabels', 'lab', 'lens', 'cam', 'vocab', 'pins', 'sk'];
 function snapshot() { var o = {}; SNAP_KEYS.forEach(function (k) { o[k] = JSON.parse(JSON.stringify(S.V[k] === undefined ? null : S.V[k])); }); return o; }
 /** Only known settings of the right kind are accepted from shared text. */
 function cleanSnapshot(o) {

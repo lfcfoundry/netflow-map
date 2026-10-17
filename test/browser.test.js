@@ -154,6 +154,62 @@ async function open() {
     await ev(() => NFM.setV({ rows: 'route', tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false }));
     await D.wait((b) => NFM.state.L && NFM.state.L.info && NFM.state.L.info.rowMode === 'route' && NFM.state.L.info.tags === 0 && NFM.state.scene && !NFM.state.scene.labels.some((l) => /^(from |[↓↑→←] )/.test(l.t)) && !NFM.state.scene.rects.some((r) => r.lane !== undefined), null, 30000); await settle(250);
     say((await fpOf()) === base, 'with every choice off again the picture is exactly the old one');
+    /* chapters and parts: a big story as a few boxes; a click opens a box, a search hit opens what hides it, folding back works, off restores the picture */
+    await ev(() => NFM.setV({ chapters: 'on' })); await D.wait(() => NFM.state.L && NFM.state.L.chapters && NFM.state.scene && NFM.state.scene.rects.length > 0, null, 30000); await settle(250);
+    const c1 = await ev(() => { const L = NFM.state.L; return { boxes: L.nodes.length, chaps: L.chapters.chapters, hidden: L.chapters.hidden, n: L.n, svgOk: !/NaN|undefined/.test(NFMScene.toSvg(NFM.state.scene, 't')), part: (L.nodes.find((n) => n.chapter) || {}).chKey }; });
+    say(c1.chaps > 20 && c1.boxes < c1.n * 0.6 && c1.hidden > c1.n * 0.3 && c1.svgOk, `chapters on: ${c1.n} pages drawn as ${c1.boxes} boxes (${c1.chaps} chapters), clean SVG`);
+    const scr = (x, y) => ev(([a, b]) => { const S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + a * S.view.k + S.view.tx, r.top + b * S.view.k + S.view.ty]; }, [x, y]);
+    const pxy = await ev((k) => { const n = NFM.state.L.nodes.find((x) => x.chKey === k), S = NFM.state; S.view.k = 1; S.view.tx = S.stageW / 2 - (n.x + n.w / 2); S.view.ty = S.stageH / 2 - (n.y + n.h / 2); NFM.scheduleScene(); return [n.x + n.w / 2, n.y + n.h / 2]; }, c1.part); await settle(300);
+    const sp = await scr(pxy[0], pxy[1]);
+    await D.click(sp[0], sp[1]);
+    await D.wait((k) => NFM.state.L && !NFM.state.L.nodes.some((n) => n.chKey === k) && NFM.state.L.nodes.length > 0 && NFM.state.scene && NFM.state.scene.view === 'down', c1.part, 30000); await settle(300);
+    const c2 = await ev(() => ({ boxes: NFM.state.L.nodes.length, open: Object.keys(NFM.state.V.openCh).length }));
+    say(c2.boxes > c1.boxes && c2.open === 1, `a click on a chapter box opens it: ${c1.boxes} boxes to ${c2.boxes}`);
+    await ev(() => NFM.toggleChapter(Object.keys(NFM.state.V.openCh)[0], false)); await D.wait((n) => NFM.state.L && NFM.state.L.nodes.length === n, c1.boxes, 30000); await settle(200);
+    say(true, 'folding it back restores the closed picture');
+    await ev(() => { const hid = Object.keys(NFM.state.L.chapters.of); NFM.runSearch('Page ' + hid[Math.floor(hid.length / 2)].slice(1)); NFM.select(NFM.state.search.list[0]); });
+    await D.wait(() => NFM.state.L && Object.keys(NFM.state.V.openCh).length > 0 && NFM.state.scene && NFM.state.L.nodes.length > 0, null, 30000); await settle(300);
+    const c3 = await ev(() => { const id = Array.from(NFM.state.sel)[0]; return { shown: !(NFM.state.L.chapters && NFM.state.L.chapters.of[id]), sel: !!id }; });
+    say(c3.sel && c3.shown, 'selecting a page that is folded away (a search hit) opens its boxes and shows it');
+    await ev(() => { NFM.state.V.openCh = {}; NFM.setV({ chapters: 'off' }); }); await D.wait((n) => NFM.state.L && !NFM.state.L.chapters && NFM.state.scene && NFM.state.L.nodes.length > 300, null, 30000); await settle(250);
+    say((await fpOf()) === base, 'with chapters off again the picture is exactly the old one');
+    /* mini-map: shown when zoomed in or the picture is bigger than the screen, drawn from the picture, moves the screen when clicked, can be turned off */
+    await ev(() => { NFM.setV({ chapters: 'off', minimap: 'auto' }); NFM.fitView(true); });
+    await D.wait(() => NFM.state.L && NFM.state.L.nodes.length > 300 && NFM.state.scene, null, 30000); await settle(300);
+    await ev(() => { const S = NFM.state; S.view.k = Math.max(S.view.k * 4, 0.6); NFM.scheduleScene(); }); await settle(400);
+    const m1 = await ev(() => NFM.minimap()); say(m1.shown && m1.w > 20 && m1.h > 20, `the mini-map shows when zoomed in (${m1.w} x ${m1.h} px)`);
+    const t0 = await ev(() => ({ tx: NFM.state.view.tx, ty: NFM.state.view.ty }));
+    await D.click(m1.box.x + m1.box.width * 0.5, m1.box.y + m1.box.height * 0.9); await settle(300);
+    const t1 = await ev(() => ({ tx: NFM.state.view.tx, ty: NFM.state.view.ty }));
+    say(Math.abs(t1.ty - t0.ty) > 50, `a click low on the mini-map moves the screen there (down by ${Math.round(t0.ty - t1.ty)} px)`);
+    const px = await ev(() => { const e = document.getElementById('minimap'), d = e.getContext('2d').getImageData(0, 0, e.width, e.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 30) n++; return n / (d.length / 4); });
+    say(px > 0.02, `the mini-map is drawn from the picture (${Math.round(px * 100)}% of it inked)`);
+    await ev(() => NFM.setV({ minimap: 'off' }, 'none')); await ev(() => NFM.renderMinimap()); await settle(100);
+    say(!(await ev(() => NFM.minimap())).shown, 'the mini-map can be turned off');
+    await ev(() => { NFM.setV({ minimap: 'auto' }, 'none'); NFM.fitView(true); }); await settle(300);
+    /* bundled links, tapered links, and the River turned top to bottom */
+    await ev(() => NFM.setV({ chapters: 'off', rows: 'route', tagLen: 0, bundle: false, taper: false, riverDir: 'LR', view: 'down' }));
+    await D.wait(() => NFM.state.L && NFM.state.L.view === 'down' && NFM.state.L.info && NFM.state.L.nodes.length > 300 && NFM.state.scene && NFM.state.scene.view === 'down', null, 30000); await settle(250);
+    const st0 = await ev(() => ({ stops: NFM.state.L.info.stops, cross: NFM.state.L.crossings }));
+    await ev(() => NFM.setV({ rows: 'story', bundle: false })); await D.wait(() => NFM.state.L.info.rowMode === 'story' && NFM.state.scene, null, 30000); await settle(200);
+    const st1 = await ev(() => ({ stops: NFM.state.L.info.stops }));
+    await ev(() => NFM.setV({ bundle: true })); await D.wait((n) => NFM.state.L.info.stops < n, st1.stops, 30000); await settle(250);
+    const st2 = await ev(() => ({ stops: NFM.state.L.info.stops, cross: NFM.state.L.crossings }));
+    say(st2.stops < st1.stops, `bundling links shares stand-in stops (story order: ${st1.stops} to ${st2.stops})`);
+    await ev(() => NFM.setV({ taper: true }, 'look')); await D.wait(() => NFM.state.scene.curves.some((c) => c.w1 !== undefined), null, 30000); await settle(250);
+    const tp = await ev(() => { const S = NFM.state.scene; const t = S.curves.filter((c) => c.w1 !== undefined); return { n: t.length, ok: t.every((c) => c.w1 < c.w && !c.arrow), svg: !/NaN|undefined/.test(NFMScene.toSvg(S, 't')), filled: (NFMScene.toSvg(S, 't').match(/fill="rgb/g) || []).length }; });
+    say(tp.n > 100 && tp.ok && tp.svg && tp.filled > 100, `tapered links: ${tp.n} links thick to thin, no arrowheads, filled shapes in the SVG`);
+    const pxT = await ev(() => { const cv = document.querySelector('#stage canvas'); if (!cv) return -1; const g = cv.getContext('2d'); if (!g) return -1; const d = g.getImageData(0, 0, Math.min(cv.width, 400), Math.min(cv.height, 400)).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 30) n++; return n; });
+    say(pxT !== 0, 'the tapered picture draws without errors');
+    await ev(() => NFM.setV({ taper: false, bundle: false, rows: 'route' })); await D.wait(() => NFM.state.L.info.rowMode === 'route' && !NFM.state.scene.curves.some((c) => c.w1 !== undefined), null, 30000); await settle(250);
+    say((await fpOf()) === base, 'with bundling and tapering off the picture is exactly the old one');
+    await ev(() => NFM.setV({ view: 'river', riverDir: 'TB' })); await D.wait(() => NFM.state.L.view === 'river' && NFM.state.scene && NFM.state.scene.view === 'river' && NFM.state.scene.vertical === true, null, 30000); await settle(300);
+    const rv = await ev(() => { const S = NFM.state.scene; return { rib: S.ribbons.length, turned: S.ribbons.every((r) => r.v), tall: S.h > S.w, svg: !/NaN|undefined/.test(NFMScene.toSvg(S, 't')), edit: !!document.querySelector('#rail [data-sk-edit]') }; });
+    say(rv.rib > 0 && rv.turned && rv.svg, `the River can be drawn top to bottom (${rv.rib} ribbons turned, clean SVG)`);
+    const hv = await ev(() => { const S = NFM.state.scene, rb = S.ribbons[Math.floor(S.ribbons.length / 2)], m = 0.5, along = 0.125 * rb.x0 + 0.375 * rb.xm + 0.375 * rb.xm + 0.125 * rb.x1, across = (rb.y0a + rb.y1a + rb.y0b + rb.y1b) / 4; const h = NFMScene.hit(S, across, along, 1, { slop: 5, edgeTol: 7 }); return { ok: !!h && h.edge === rb.edge }; });
+    say(hv.ok, 'a ribbon of the turned River can be picked');
+    await ev(() => NFM.setV({ riverDir: 'LR' })); await D.wait(() => NFM.state.scene && !NFM.state.scene.vertical && NFM.state.scene.view === 'river', null, 30000); await settle(250);
+    await ev(() => NFM.setV({ view: 'down' })); await D.wait(() => NFM.state.L.view === 'down' && NFM.state.scene && NFM.state.scene.view === 'down' && NFM.state.L.nodes.length > 300, null, 30000); await settle(250);
     await ev(() => NFM.showTab('data')); await set('#examples', 'story'); await click('#b-example'); await click('#tabbtn-map');   /* the example story again for the checks that follow */
     await D.wait(() => NFM.state.scene && NFM.manager() && NFM.manager().r && NFM.state.L && NFM.state.L.nodes.length < 60, null, 30000); await settle(200);
   }

@@ -99,7 +99,7 @@ var S = {
 
 function defaultView() {
   return {
-    view: 'flow', arrange: 'stress', colorBy: 'group', sizeBy: '', widthBy: '', edgeColorBy: '', linkLabels: '', labelCol: '', dir: 'LR', fold: true, merge: false, rows: 'route', tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false, laneBy: 'group', agg: 'sum',
+    view: 'flow', arrange: 'stress', colorBy: 'group', sizeBy: '', widthBy: '', edgeColorBy: '', linkLabels: '', labelCol: '', dir: 'LR', fold: true, merge: false, rows: 'route', chapters: 'auto', openCh: {}, minimap: 'auto', bundle: false, taper: false, riverDir: 'LR', tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false, laneBy: 'group', agg: 'sum',
     state: 0, anim: { sec: 2.4, loop: true, ghost: 'faint' }, strongest: 100, facets: {}, around: null, block: [], hideKinds: [], only: null, sets: {}, marks: {},
     rules: [], palette: 'standard', ramp: 'warm', groupColors: {}, widthScale: 'sqrt', widthMul: 1, hulls: false, curve: 0, valueLabels: false,
     lab: { items: { show: true, scale: 1, color: 'auto', fixed: '#222222', topN: 0 }, links: { show: true, scale: 1 }, groups: { show: false, scale: 1 } },

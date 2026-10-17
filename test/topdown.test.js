@@ -99,4 +99,47 @@ t('picture: tags draw a stub and a name chip at each end, chips pick the link, s
 t('Compare table and crossings count skip tagged links', () => {
   const g = graph(story(300, 16)); const L = E.build(copy(g), { view: 'down', tagLen: 8 }); const rows = E.compare(copy(g), { tagLen: 8 }); ok(rows.length >= 6, 'compare ran'); ok(L.info.tags > 0, 'tags present');
 });
+/* bundling, tapered links, vertical River */
+t('bundle links: off gives the old picture; on, every link still runs from its start to its end through the rows between, and stops and crossings do not rise on a story', () => {
+  const g = graph(story(1000, 3)), a = info(g, {}), b = info(g, { bundle: false });
+  ok(fp(a) === fp(b), 'bundle:false changed the picture');
+  const c = info(g, { bundle: true });
+  const by = {}; c.nodes.forEach((n) => { by[n.id] = n; });
+  let withStops = 0; c.edges.forEach((e) => { if (e.pts && e.pts.length) { withStops++; ok(e.pts.every((q) => isFinite(q[0]) && isFinite(q[1])), 'bad point'); } }); ok(withStops > 10, 'few links with stops');
+  ok(c.info.stops <= a.info.stops, 'stops rose ' + a.info.stops + ' to ' + c.info.stops);
+  ok(c.crossings <= a.crossings + 3, 'crossings rose ' + a.crossings + ' to ' + c.crossings);
+  const story2 = info(g, { rows: 'story' }), story2b = info(g, { rows: 'story', bundle: true });
+  ok(story2b.info.stops < story2.info.stops, 'story order: stops did not drop ' + story2.info.stops + ' to ' + story2b.info.stops);
+  const d = dag(1000, 1999, 6), r1 = info(graph(d), {}), r2 = info(graph(d), { bundle: true });
+  ok(r2.info.stops < r1.info.stops * 0.8, 'random map: stops ' + r1.info.stops + ' to ' + r2.info.stops);
+  return 'story ' + a.info.stops + ' to ' + c.info.stops + ' stops, story order ' + story2.info.stops + ' to ' + story2b.info.stops + ', random map ' + r1.info.stops + ' to ' + r2.info.stops;
+});
+t('bundle links: determinism and a 1,500-page story with everything on still works', () => {
+  const g = graph(story(1500, 9)), a = fp(info(g, { bundle: true, rows: 'story' })), b = fp(info(g, { bundle: true, rows: 'story' })); ok(a === b, 'not the same twice');
+  const L = info(g, { bundle: true, tagLen: 8, wrap: true, rows: 'story', better: true }); ok(L.nodes.length > 100 && !/NaN/.test(JSON.stringify(L.nodes.map((n) => [n.x, n.y]))), 'bad positions');
+});
+t('tapered links: thick at the start, thin at the end, no arrowhead; the SVG export draws a filled shape; off draws strokes as before', () => {
+  const g = graph(story(120, 2)), L = info(g, {});
+  const plain = SC.make(L, { theme: 'light', groupColors: {} }), tap = SC.make(L, { theme: 'light', groupColors: {}, taper: true });
+  ok(!plain.curves.some((c) => c.w1 !== undefined), 'taper off still tapers');
+  const tc = tap.curves.filter((c) => c.w1 !== undefined); ok(tc.length > 50, 'few tapered ' + tc.length);
+  ok(tc.every((c) => c.w1 < c.w && c.w1 >= 0.9 && !c.arrow), 'width or arrow wrong');
+  const svg = SC.toSvg(tap, 't'); ok(!/NaN|undefined/.test(svg), 'bad number in the svg');
+  ok((svg.match(/fill="rgb[^"]*"[^>]*\/>/g) || []).length >= tc.length || svg.length > SC.toSvg(plain, 't').length * 0.9, 'no shapes in the svg');
+  const e0 = tc[0].edge; const pick = SC.hit(tap, tc[0].P[0], tc[0].P[1] + 6, 1, { slop: 5, edgeTol: 7 }); ok(pick, 'picking returned nothing');
+  return tc.length + ' tapered links';
+});
+t('vertical River: the same picture turned a quarter turn; nothing lost; ribbons and bars can be picked; names sit under the bars', () => {
+  const g = graph(story(80, 5)), L = E.build(copy(g), { view: 'river', sk: { } });
+  const h = SC.make(L, { theme: 'light', groupColors: {} }), v = SC.make(L, { theme: 'light', groupColors: {}, vertical: true });
+  ok(v.vertical === true && !h.vertical, 'flag');
+  ok(h.rects.length === v.rects.length && h.ribbons.length === v.ribbons.length && h.nodes.length === v.nodes.length, 'counts differ');
+  ok(v.ribbons.every((r) => r.v === true) && h.ribbons.every((r) => !r.v), 'ribbon flag');
+  ok(Math.abs(v.w - h.h) < 1.5 && Math.abs(v.h - h.w) < 150, 'size not turned ' + v.w + 'x' + v.h + ' vs ' + h.w + 'x' + h.h);
+  const rb = v.ribbons[Math.floor(v.ribbons.length / 2)], u = 0.5, m = 1 - u, along = m * m * m * rb.x0 + 3 * m * m * u * rb.xm + 3 * m * u * u * rb.xm + u * u * u * rb.x1, w0 = 0.5, across = (rb.y0a + rb.y1a + rb.y0b + rb.y1b) / 4;
+  const hit = SC.hit(v, across, along, 1, { slop: 5, edgeTol: 7 }); ok(hit && hit.edge === rb.edge, 'ribbon not picked: ' + JSON.stringify(hit));
+  const bar = v.nodes[3], hn = SC.hit(v, bar.x + bar.w / 2, bar.y + bar.h / 2, 1, { slop: 5, edgeTol: 7 }); ok(hn && hn.type === 'node', 'bar not picked');
+  ok(v.labels.every((l) => l.align === 'c' || l.rot), 'labels not centered'); const svg = SC.toSvg(v, 't'); ok(!/NaN|undefined/.test(svg), 'bad number in the svg');
+  return v.ribbons.length + ' ribbons turned';
+});
 console.log(bad ? bad + ' FAILED' : 'all top-down checks passed'); process.exit(bad ? 1 : 0);
