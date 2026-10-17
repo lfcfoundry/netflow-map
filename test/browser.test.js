@@ -320,7 +320,10 @@ async function open() {
         /* a selection made while turning */
         await turn(2.4, -0.2); const id = S.scene.nodes[3].nodeId; NFM.select(id); await raf(); await raf();
         const sel = S.scene.turn && S.scene.turn.on, dim = S.scene.nodes.some((q) => q.a < 0.5);
-        return { on0, ok0, on, labels: labels2, labelsFull, full, mean: sum / n, far: far / n, sel, dim, w: A.w, tex };
+        let dc = 0; const od = window.GPUDevice && GPUDevice.prototype.destroy;   /* leaving a backend must destroy its device (an early version skipped it and leaked everything) */
+        if (od) GPUDevice.prototype.destroy = function () { dc++; return od.apply(this, arguments); };
+        try { await m.use('auto'); } finally { if (od) GPUDevice.prototype.destroy = od; }
+        return { dc, on0, ok0, on, labels: labels2, labelsFull, full, mean: sum / n, far: far / n, sel, dim, w: A.w, tex };
       } finally { window.setTimeout = setTO; NFM.select(null); }
       function sleep0(ms) { return new Promise((r) => setTO(r, ms)); }
     }, be);
@@ -329,6 +332,7 @@ async function open() {
     say(res.on0 && res.on, `${be}: turning a big 3D map only sends the new angle to the card`);
     say(res.labels > 5 && res.labels === res.labelsFull, `${be}: the same names are drawn while turning as in the ordinary picture (${res.labels} and ${res.labelsFull})`);
     say(res.full && res.mean <= 1.5 && res.far < 0.01, `${be}: the picture from the card matches the ordinary picture: mean ${res.mean.toFixed(2)}/255, ${(res.far * 100).toFixed(2)}% pixels far off`);
+    if (be === 'webgpu') say(res.dc >= 1, `${be}: leaving it destroys the graphics device and its buffers (${res.dc})`);
     for (const [via, d] of Object.entries(res.tex || {})) say(d <= 0.5, `${be}: sending the paint order the '${via}' way gives the same picture (mean difference ${d.toFixed(3)}/255)`);
     say(res.sel && res.dim, `${be}: selecting while turning dims the rest at once`);
   }
