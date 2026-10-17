@@ -612,6 +612,14 @@ async function open() {
     await ev(() => { NFM.state.V.rules = []; NFM.state.styleMap = null; }); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   try {
+  { const g = mkG('GroupColors', ['A', 'B', 'C'], [['A', 'B'], ['B', 'C']]); g.nodes[0].group = 'alpha'; g.nodes[1].group = 'beta'; g.nodes[2].group = 'gamma';
+    await load(g, 'map'); await mapShows('B');
+    const col = () => ev(() => { const S = NFM.state, l = (S.scene.legend || []).filter((x) => x.t === 'gamma')[0]; return l ? JSON.stringify(l.c) : null; });
+    const before = await col();
+    await ev(async () => { const S = NFM.state; window.__L2 = S.L; S.V.block = ['A']; NFM.refreshMap('options'); for (let i = 0; i < 400 && S.L === window.__L2; i++) await new Promise((q) => setTimeout(q, 25)); });
+    await settle(300); const after = await col();
+    say(before !== null && before === after, 'hiding the first group does not recolor the others (' + before + ' then ' + after + ')');
+    await ev(() => { NFM.state.V.block = []; NFM.refreshMap('options'); }); await settle(300); }
   { const g = mkG('FacetTwo', ['A', 'B', 'C']); g.edges = [{ from: 'A', to: 'B', attrs: { c1: 'x', c2: 'p' } }, { from: 'A', to: 'C', attrs: { c1: 'x', c2: 'q' } }, { from: 'B', to: 'C', attrs: { c1: 'y', c2: 'p' } }];
     await load(g, 'map'); await mapShows('A');
     const r = await ev(async () => {
