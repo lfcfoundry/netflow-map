@@ -242,5 +242,22 @@ t('11b. a [[link]] that fits two notes with the same name is reported', function
   assert.ok(!noteMatch(ok, /more than one note/));
 });
 
+/* ---------------------------------------------------------------- owner's decisions (2026-10-17): repeated links add up, zero weights are left out */
+t('D1. a repeated link adds its weight to the first one (5 + 3 = 8), and the note says so', function () {
+  var r = csv('from,to,weight\nA,B,5\nB,C,2\nA,B,3\n');
+  assert.strictEqual(r.graph.edges.length, 2); assert.strictEqual(r.graph.edges[0].weight, 8); assert.strictEqual(r.graph.edges[1].weight, 2);
+  assert.ok(noteMatch(r, /added to the first one/), r.report.notes.join(' | '));
+});
+t('D2. repeated links with no weights anywhere are still just dropped, and "keep repeated" keeps them separate', function () {
+  var r = csv('from,to\nA,B\nA,B\nB,C\n'); assert.strictEqual(r.graph.edges.length, 2); assert.strictEqual(r.graph.edges[0].weight, undefined); assert.ok(noteMatch(r, /dropped/));
+  var k = csv('from,to,weight\nA,B,5\nA,B,3\n', 'x.csv', { keepDuplicates: true }); assert.strictEqual(k.graph.edges.length, 2);
+});
+t('D3. links with weight 0 or less are left out with a note; if every weight is like that they are kept so the map is not empty', function () {
+  var r = csv('from,to,weight\nA,B,4\nB,C,0\nC,D,-2\nD,E,1\n');
+  assert.deepStrictEqual(r.graph.edges.map(function (e) { return e.from + e.to; }), ['AB', 'DE']); assert.ok(noteMatch(r, /2 links have a weight of zero or less/), r.report.notes.join(' | '));
+  var z = csv('from,to,weight\nA,B,0\nB,C,0\n'); assert.strictEqual(z.graph.edges.length, 2);
+  var u = csv('from,to,weight\nA,B,\nB,C,3\n'); assert.strictEqual(u.graph.edges.length, 2, 'a link with no weight is not "zero"');
+});
+
 console.log(fails ? '\nimport-fixes: ' + fails + ' FAILED, ' + passes + ' passed' : '\nimport-fixes: all ' + passes + ' checks passed');
 process.exit(fails ? 1 : 0);

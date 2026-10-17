@@ -6,7 +6,7 @@
  * scene = { x0, y0, w, h, rects, dots, curves, ribbons, polys, icons, labels, nodes, legend, grid }
  *
  * Options (all optional) the page can pass to make(L, o):
- *   theme, colorBy, palette, ramp, groupColors {group: '#hex'}, story (bool),
+ *   theme, colorBy, palette, ramp, groupColors {group: '#hex'}, groupOrder (all the data's groups, sorted, so hiding some does not recolor the rest), story (bool),
  *   nodeStyle(n) -> { fill, stroke, sw, shape, scale, opacity, icon, image, iconMode, hide, labelShow, labelColor, labelSize, labelBold, labelText }
  *   linkStyle(e) -> { color, w, wmul, opacity, dash, hide, arrow, label, bend }
  *   labelFn(n) -> text,  linkLabelFn(e) -> text,  chName(channel) -> words
@@ -153,6 +153,9 @@ var NFMScene = (function () {
     var groupIdx = new Map(), gOver = o.groupColors || {};
     if (L.nodes) {
       var gs = Array.from(new Set(L.nodes.map(function (n) { return n.group || ''; }))).sort();
+      if (o.groupOrder && o.groupOrder.length) {   /* colors follow the group's place among ALL the groups of the data, so hiding some groups does not recolor the others */
+        var all = o.groupOrder.slice(), seenG = new Set(all); gs.forEach(function (g) { if (!seenG.has(g)) all.push(g); }); gs = all;
+      }
       gs.forEach(function (g, i) { groupIdx.set(g, i); });
     }
     var gcol = function (g) {
