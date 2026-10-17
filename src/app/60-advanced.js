@@ -41,7 +41,7 @@ function syntheticScene(n, m, seed) {
 }
 function deviceCard() {
   var out = h('div', { id: 'chk-out' }), btn = h('button', { class: 'primary', id: 'chk-run' }, 'Check this device');
-  var method = select([['auto', 'Automatic (recommended)'], ['webgpu', 'WebGPU'], ['webgl2', 'WebGL 2'], ['canvas2d', 'Plain canvas (slowest, always works)']], (mgr && mgr.choice) || S.method || 'auto', function (v) {
+  var method = select([['auto', 'Automatic (recommended)'], ['webgl2', 'WebGL 2'], ['canvas2d', 'Plain canvas (slowest, always works)']], (mgr && mgr.choice) || S.method || 'auto', function (v) {
     S.method = v; savePrefs(); if (mgr) { if (v !== 'auto' && S.canary && S.canary[v]) mgr.canary[v] = { ok: true }; mgr.use(v).then(function (r) { toast('Now drawing with ' + r.label + '.'); }); }
   });
   btn.addEventListener('click', function () {
