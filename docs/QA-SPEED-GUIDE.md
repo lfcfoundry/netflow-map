@@ -171,7 +171,7 @@ A shortcut is only safe if it cannot hide a real bug.
 
 ## 10. Browser testing strategy
 
-**Which browsers (this project's rule):** ungoogled-chromium and current Firefox. WebKitGTK is also run as a Safari stand-in. Firefox is the stress test because it shows performance regressions most obviously. Chromium-based testing is not useless. Test only the browsers on the `browsers` branch of `JNFoo/knowledgebase-single-file`.
+**Which browsers (this project's rule):** ungoogled-chromium and current Firefox. WebKitGTK is also run as a Safari stand-in. Firefox is the stress test because it shows performance regressions most obviously. Chromium-based testing is not useless. Test only the browsers on the `browsers` branch of `lfcfoundry/knowledge-base`.
 
 **Run one browser at a time on a small machine.** Two browsers running together compete for cores and memory. Timings and frame rates become meaningless. The Node tests are the exception because they do not measure frame rates.
 
