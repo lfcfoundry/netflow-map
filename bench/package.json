@@ -4,7 +4,7 @@
   "description": "Benchmark-only dependencies (never shipped in index.html). npm install here, then: node build-libs.mjs",
   "license": "MIT",
   "devDependencies": {
-    "@dagrejs/dagre": "3.1.1", "cytoscape": "3.34.3", "d3-dsv": "3.0.1", "d3-force": "3.0.0", "d3-random": "3.0.1", "elkjs": "0.12.0",
+    "@dagrejs/dagre": "3.1.1", "cytoscape": "3.34.3", "d3-dsv": "3.0.1", "d3-force": "3.0.0", "d3-random": "3.0.1", "d3-sankey": "0.12.3", "d3-selection": "3.0.0", "elkjs": "0.12.0",
     "esbuild": "0.28.2", "expr-eval": "2.0.2", "gifenc": "1.0.3", "graphology": "0.26.0", "graphology-communities-louvain": "2.0.2",
     "graphology-layout-forceatlas2": "0.10.1", "jstat": "1.9.6", "omggif": "1.0.10", "papaparse": "5.7.0"
   }
