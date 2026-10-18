@@ -186,6 +186,13 @@ t('5i Sankey layout: a small map is not changed by the cap (no note, every long 
   const ids = Array.from({ length: 30 }, (_, i) => 'n' + i), e = []; for (let i = 1; i < 30; i++) e.push([ids[i - 1], ids[i]]); for (let i = 2; i < 30; i += 3) e.push([ids[0], ids[i]]);
   const L = E.build(mkG(ids, e), { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group' }), R = SK.layout(L); ok(R.simplified === 0 && R.note === '', 'simplified ' + R.simplified);
 });
+t('5i2 Sankey layout: a big random network with links drawn straight through still gets a real crossing count (was NaN)', () => {
+  let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const n = 1100, ids = Array.from({ length: n }, (_, i) => 'n' + i), e = []; for (let i = 1; i < n; i++) e.push([ids[Math.floor(rnd() * i)], ids[i]]); for (let k = 0; k < n * 2; k++) { const a = Math.floor(rnd() * n), b = Math.floor(rnd() * n); if (a !== b) e.push([ids[a], ids[b]]); }
+  const L = E.build(mkG(ids, e), { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group' }), R = SK.layout(L);
+  ok(R.simplified > 0, 'set-up: links drawn straight through ' + R.simplified); ok(Number.isFinite(R.crossingWeight), 'crossingWeight ' + R.crossingWeight);
+  return R.simplified + ' links straight through, crossingWeight ' + R.crossingWeight;
+});
 t('5j folding a long chain still makes one run (visited marks replaced run.indexOf)', () => {
   const ids = Array.from({ length: 50 }, (_, i) => 'n' + i).concat(['x']), ed = [['n0', 'x']]; for (let i = 1; i < 50; i++) ed.push([ids[i - 1], ids[i]]);
   const P = E.prepare(mkG(ids, ed)), imp = E.importance(P), G = E.mapGraph(P, imp, { fold: true });

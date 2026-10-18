@@ -123,7 +123,7 @@ var NFMSankey = (function () {
     var setPos = function () { layers.forEach(function (list) { list.forEach(function (v, j) { v.pos = j; }); }); };
     var total = function () {
       var c = 0;
-      for (var q = 0; q + 1 < nL; q++) { var ls = []; layers[q].forEach(function (v) { v.down.forEach(function (d) { ls.push([v.pos, d.o.pos, ow(d.w)]); }); }); c += crossWeight(ls, nbOf(layers[q + 1])); }
+      for (var q = 0; q + 1 < nL; q++) { var ls = []; layers[q].forEach(function (v) { v.down.forEach(function (d) { if (d.o.layer === q + 1) ls.push([v.pos, d.o.pos, ow(d.w)]); }); }); c += crossWeight(ls, nbOf(layers[q + 1])); }   /* a link drawn straight through (past DUMMY_CAP) has no stand-in in the next layer: it takes no part in the count (its far end sits in another layer and would run off the end of the table: NaN) */
       return c;
     };
     layers.forEach(function (list) { list.sort(function (a, b) { return a.key - b.key; }); }); setPos();
@@ -138,7 +138,7 @@ var NFMSankey = (function () {
     var restore = function (s) { s.forEach(function (l, q) { layers[q] = l.slice(); }); setPos(); };
     var sweep = function (q, nb) {
       var len = layers[q].length || 1;
-      layers[q].forEach(function (v) { var s = 0, w = 0; nb[v.dummy ? 'dummy' : 'node'](v).forEach(function (d) { s += ow(d.w) * (d.o.pos + 0.5) / (layers[d.o.layer].length || 1); w += ow(d.w); }); v.bary = w ? s / w : (v.pos + 0.5) / len; });
+      layers[q].forEach(function (v) { var s = 0, w = 0; nb[v.dummy ? 'dummy' : 'node'](v).forEach(function (d) { if (Math.abs(d.o.layer - q) !== 1) return; s += ow(d.w) * (d.o.pos + 0.5) / (layers[d.o.layer].length || 1); w += ow(d.w); }); v.bary = w ? s / w : (v.pos + 0.5) / len; });
       layers[q].sort(function (a, b) { return a.bary - b.bary || a.pos - b.pos; }); layers[q].forEach(function (v, j) { v.pos = j; });
     };
     var upNb = { dummy: function (v) { return v.up; }, node: function (v) { return v.up; } }, downNb = { dummy: function (v) { return v.down; }, node: function (v) { return v.down; } };
@@ -148,7 +148,7 @@ var NFMSankey = (function () {
         improved = false;
         for (var j = 0; j + 1 < layers[q].length; j++) {
           var a = layers[q][j], b = layers[q][j + 1], before = 0, after = 0;
-          var tally = function (ea, eb) { ea.forEach(function (x) { eb.forEach(function (y) { if (x.o.pos > y.o.pos) before += ow(x.w) * ow(y.w); else if (x.o.pos < y.o.pos) after += ow(x.w) * ow(y.w); }); }); };
+          var tally = function (ea, eb) { ea.forEach(function (x) { eb.forEach(function (y) { if (Math.abs(x.o.layer - q) !== 1 || Math.abs(y.o.layer - q) !== 1) return; if (x.o.pos > y.o.pos) before += ow(x.w) * ow(y.w); else if (x.o.pos < y.o.pos) after += ow(x.w) * ow(y.w); }); }); };
           tally(a.up, b.up); tally(a.down, b.down);
           if (after < before - 1e-12) { layers[q][j] = b; layers[q][j + 1] = a; a.pos = j + 1; b.pos = j; improved = true; }
         }
