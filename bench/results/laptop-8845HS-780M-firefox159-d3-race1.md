@@ -32,9 +32,9 @@ Netflow Map was faster than d3-sankey in 1 of 3 sizes (middle 0.6×, higher is b
 
 ## Drawing: pan and zoom, frame by frame
 
-Netflow Map (WebGL 2) came within 5% of the faster D3 drawing or beat it in 3 of 3 sizes (pictures per second, higher is better). Its basic canvas did so in 0 of 3.
+Netflow Map (WebGL 2) came within 5% of the faster D3 drawing or beat it in 3 of 3 sizes (FPS, higher is better). Its basic canvas did so in 0 of 3.
 
-**Pictures per second while panning and zooming (higher is better; your screen's refresh rate is the ceiling)**
+**FPS while panning and zooming (higher is better; your screen's refresh rate is the ceiling)**
 
 | Items | D3 SVG | D3 canvas | Netflow Map (WebGL 2) | Netflow Map (basic canvas) |
 |---|---:|---:|---:|---:|
