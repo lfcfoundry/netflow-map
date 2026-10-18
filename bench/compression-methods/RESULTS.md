@@ -43,6 +43,11 @@ Sizes of the main pieces in fast mode (packed against raw, lower is better): gra
 
 Number picker 36.7 KB, column writer 37.1 KB, FSST 31.7 KB, reader 33.0 KB, WebAssembly LZ4 helper 34.8 KB (32 KB of it is the wasm text), keeper 14.4 KB, deflate encoder 15.8 KB and decoder 10.6 KB, the rest under 12 KB each. Deflate (26.4 KB, used only by the "small" mode that the app never calls) and FSST (31.7 KB, opt-in) are the largest parts the app does not use. Removing them would cut the file size and download, not the memory.
 
+## Follow-up: the recommended changes, measured (2026-10-18)
+
+- **Start the LZ4 wasm on first use:** pages that never pack save 5.8 MB on load (14.96 to 9.12 MB in Chromium 155, lower is better, medians of 5 fresh browsers); pages that pack end the same (22.63 against 22.98 MB after 250,000 links); the first pack of 25,000 links takes about 3 ms longer (24 to 28 ms Chromium, 18 to 21 ms Firefox 158.0); output unchanged. Written up as memory-compression 2.0.3 for JS-modules: /mnt/project-files/js-modules-research/memory-compression/2.0.3/BRIEF-apply.md.
+- **Smaller starting wasm memory (4 MB to 1 MB):** built (the rebuild is byte-identical to the published file with the original flag) and measured: no change in resident memory (22.63 MB both), so it is not recommended after all. The 4.00 MB figure above is reserved size, not resident size.
+
 ## Limits
 
 - The data sets are made-up maps. "Item 123" style labels pack far better than real names (the community items came to 4 KB). Real data will use the text ways more. Judge unused number ways from the balanced-mode list with care: this test covers six number shapes and four map shapes only.
