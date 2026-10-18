@@ -281,7 +281,7 @@ function report(turns) {
   var ft = '<thead><tr><th>Map</th><th>First version<br>FPS</th><th>Now<br>FPS</th><th>Change<br>(higher is better)</th></tr></thead><tbody>', fmd = ['| Map | First version FPS | Now FPS | Change |', '|---|---|---|---|'];
   results.forEach(function (r) {
     if (r.oldFps === undefined || r.nowFps === undefined) return;
-    var low = function (v) { return v < 1 ? 'under 1' : ffmt(v); }, fo = low(r.oldFps), fn = low(r.nowFps), ch = r.oldFps >= 1 && r.nowFps >= 1 ? (r.nowFps / r.oldFps >= 1.1 ? fx(r.nowFps / r.oldFps) + ' higher' : r.nowFps / r.oldFps <= 0.9 ? fx(r.oldFps / r.nowFps) + ' lower' : 'about the same') : r.oldFps < 1 && r.nowFps < 1 ? 'both under 1' : r.nowFps >= 1 ? 'now higher (first under 1)' : 'now lower (now under 1)';
+    var low = function (v) { return !isFinite(v) ? 'not measured' : v < 1 ? 'under 1' : ffmt(v); }, fo = low(r.oldFps), fn = low(r.nowFps), ch = !isFinite(r.oldFps) || !isFinite(r.nowFps) ? 'not compared (no frames counted)' : r.oldFps >= 1 && r.nowFps >= 1 ? (r.nowFps / r.oldFps >= 1.1 ? fx(r.nowFps / r.oldFps) + ' higher' : r.nowFps / r.oldFps <= 0.9 ? fx(r.oldFps / r.nowFps) + ' lower' : 'about the same') : r.oldFps < 1 && r.nowFps < 1 ? 'both under 1' : r.nowFps >= 1 ? 'now higher (first under 1)' : 'now lower (now under 1)';
     ft += '<tr><td>' + r.test.name + '</td><td>' + fo + '</td><td>' + fn + '</td><td>' + ch + '</td></tr>'; fmd.push('| ' + r.test.name + ' | ' + fo + ' | ' + fn + ' | ' + ch + ' |');
   });
   ft += '</tbody>'; $('ftbl').innerHTML = ft;

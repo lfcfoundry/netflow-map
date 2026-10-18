@@ -1,7 +1,7 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. The improved sankey layout: every link is drawn, band thickness is the flow everywhere, loops are bands, weighted order beats plain order. */
 'use strict';
 global.NFMColumns = require('../src/columns.js'); global.NFMImport = require('../src/importers.js');
-const E = require('../src/engine.js'), SK = require('../src/sankey.js'), X = require('../src/examples.js');
+const E = require('../src/engine.js'), SK = require('../vendor/netflow-sankey.js'), SM = require('./sankey-measure.js'), X = require('../src/examples.js');
 let bad = 0;
 const ok = (c, m) => { if (!c) throw new Error(m); };
 const t = (name, fn) => { try { fn(); console.log('ok   ' + name); } catch (e) { bad++; console.log('FAIL ' + name + ': ' + e.message); } };
@@ -45,22 +45,22 @@ t('no item bars overlap each other', () => {
 });
 t('weighted order has fewer weighted crossings than plain order on the same layout', () => {
   const L = net(), flow = (ei) => L.edges[ei].flow, pw = SK.layout(L), pp = SK.layout(L, { unweighted: true });
-  const cw = SK.measure({ bands: pw.bands, loops: pw.loops, nodes: pw.nodes, height: pw.height, width: pw.width }, flow).crossingWeight;
-  const cp = SK.measure({ bands: pp.bands, loops: pp.loops, nodes: pp.nodes, height: pp.height, width: pp.width }, flow).crossingWeight;
+  const cw = SM.measure({ bands: pw.bands, loops: pw.loops, nodes: pw.nodes, height: pw.height, width: pw.width }, flow).crossingWeight;
+  const cp = SM.measure({ bands: pp.bands, loops: pp.loops, nodes: pp.nodes, height: pp.height, width: pp.width }, flow).crossingWeight;
   ok(cw < cp, 'weighted ' + cw.toFixed(3) + ' against plain ' + cp.toFixed(3));
 });
 t('same input, same picture', () => { const L = net(); ok(JSON.stringify(SK.layout(L).bands) === JSON.stringify(SK.layout(L).bands), 'differs'); });
 t('the examples lay out without trouble and draw all their flow', () => {
   ['itself', 'pipeline', 'story', 'states'].forEach((id) => {
     const ex = X.LIST.find((x) => x.id === id).load(), L = E.build(ex.graph, id === 'story' ? { view: 'sankey', colorBy: 'odds', wantFlow: true } : { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group' });
-    const R = SK.layout(L), m = SK.measure({ bands: R.bands, loops: R.loops, nodes: R.nodes, height: R.height, width: R.width }, (ei) => L.edges[ei].flow);
+    const R = SK.layout(L), m = SM.measure({ bands: R.bands, loops: R.loops, nodes: R.nodes, height: R.height, width: R.width }, (ei) => L.edges[ei].flow);
     ok(m.drawnShare > 0.999 && m.widthSpread < 1.01, id + ': drawn ' + m.drawnShare + ' spread ' + m.widthSpread);
   });
 });
 t('a big network stays quick', () => { const L = sankey(NFMImport.importDelimited(synth(10, 25, 5, 5), ',').graph), t0 = Date.now(); SK.layout(L); ok(Date.now() - t0 < 1500, 'took ' + (Date.now() - t0) + ' ms'); });
 
 /* ---- the Sankey view inside the app: hand placement, remembered order, the drawing and clicking ---- */
-global.NFMSankey = SK; const SC = require('../src/scene.js');
+global.NetflowSankey = SK; const SC = require('../src/scene.js');
 const live = (extra) => { const ex = X.LIST.find((x) => x.id === 'states').load(); return E.build(ex.graph, Object.assign({ view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group', sk: {} }, extra || {})); };
 t('the engine lays the Sankey picture out with the Sankey layout when asked, and bars come back with positions', () => {
   const L = live(); ok(L.sk && L.sk.bands.length > 5, 'no layout'); ok(L.nodes.every((n) => n.h > 0 && n.w > 0 && isFinite(n.y)), 'bars without a place');

@@ -15,7 +15,7 @@
 var NFMEngine = (function () {
   'use strict';
   var C = typeof NFMColumns !== 'undefined' ? NFMColumns : require('./columns.js');
-  var SK = typeof NFMSankey !== 'undefined' ? NFMSankey : (typeof require === 'function' ? require('./sankey.js') : null);
+  var SK = typeof NetflowSankey !== 'undefined' ? NetflowSankey : (typeof require === 'function' ? require('../vendor/netflow-sankey.js') : null);
   var MAP_W = 176, MAP_H = 56;
   var LN10 = Math.LN10;
 
