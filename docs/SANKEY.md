@@ -1,6 +1,6 @@
 # Sankey diagrams: research and what to improve
 
-Copyright (c) 2026 LFC Foundry. MIT License. Written 2026-10-15. The prototype is `src/sankey.js`; the before-and-after page is `bench/netflow-map-sankey.html` (build: `node tools/build-sankey-lab.mjs`); tests are in `test/sankey.test.js`.
+Copyright (c) 2026 LFC Foundry. MIT License. Written 2026-10-15. The prototype became the JS-modules module netflow-sankey (`vendor/netflow-sankey.js` here; the yardstick is `test/sankey-measure.js`); the before-and-after page is `bench/netflow-map-sankey.html` (build: `node tools/build-sankey-lab.mjs`); tests are in `test/sankey.test.js`.
 
 ## What the app does today (from reading `src/engine.js` and `src/scene.js`)
 
@@ -66,7 +66,7 @@ Arranging takes 1 to 70 ms on these. The weighted order trades more small crossi
 
 ## In the app (Stage 1)
 
-Sankey view now uses the improved layout (see `src/sankey.js`) and can be edited by hand:
+Sankey view now uses the improved layout (see `vendor/netflow-sankey.js`) and can be edited by hand:
 
 - **Click and right-click** a flow, a bar, a label or empty space. Each has its own menu first (color, fade to another color, like source / like target / start-to-end gradient, see-through, label text, size, side, hide, move up / down / top / bottom), then the usual menus (details, select both ends, style rule, etc.). Double-click a label to edit its text, a flow to choose its color.
 - **Drag a bar up or down** to place it; the others stay put and are nudged only when they would overlap. Order and places are remembered per data id and saved with the view.
