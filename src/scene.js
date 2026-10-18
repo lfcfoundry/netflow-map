@@ -699,7 +699,7 @@ var NFMScene = (function () {
     });
   }
 
-  /* ---------------------------------------------------------------- Sankey pictures from NFMSankey.layout */
+  /* ---------------------------------------------------------------- Sankey pictures from NetflowSankey.layout */
   /** Color of one bar: the person's choice, else by group (each item its own color when there are no groups), else what the color mode says. */
   function sankeyColor(X, n) {
     var T = X.T, st = n._st, cb = X.o.colorBy || 'group', L = X.L;

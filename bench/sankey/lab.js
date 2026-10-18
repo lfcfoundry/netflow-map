@@ -2,7 +2,7 @@
  * side by side, measures both with the same yardstick, and says in plain words which is better. Runs by itself when the page opens. */
 (function () {
   'use strict';
-  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NFMSankey, VERSION = '__VERSION__';
+  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NetflowSankey, SM = NFMSankeyMeasure, VERSION = '__VERSION__';
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
   var $ = function (id) { return document.getElementById(id); }, esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var r1 = function (v) { return Math.round(v * 10) / 10; }, r2 = function (v) { return Math.round(v * 100) / 100; };
@@ -98,8 +98,8 @@
     var common = new Set(gNow.bands.map(function (x) { return x.edge; }));
     var t1 = performance.now(), R = SK.layout(L), newMs = performance.now() - t1, R0 = SK.layout(L, { unweighted: true });
     var gNew = { bands: R.bands, loops: R.loops, nodes: R.nodes, height: R.height, width: R.width }, gPlain = { bands: R0.bands, loops: R0.loops, nodes: R0.nodes, height: R0.height, width: R0.width };
-    var mNow = SK.measure(gNow, flowOf), mPlain = SK.measure(gPlain, flowOf), mNew = SK.measure(gNew, flowOf);
-    var cNow = SK.measure(gNow, flowOf, common), cNew = SK.measure(gNew, flowOf, common), cPlain = SK.measure(gPlain, flowOf, common);
+    var mNow = SM.measure(gNow, flowOf), mPlain = SM.measure(gPlain, flowOf), mNew = SM.measure(gNew, flowOf);
+    var cNow = SM.measure(gNow, flowOf, common), cNew = SM.measure(gNew, flowOf, common), cPlain = SM.measure(gPlain, flowOf, common);
     var grp = {}; L.nodes.forEach(function (n, q) { grp[n.id] = n.group !== undefined && n.group !== '' ? String(n.group) : n.id; });
     var keys = Array.from(new Set(Object.values(grp))), colorOf = function (id) { return PAL[(keys.length > 10 ? Math.abs(hash(id)) : keys.indexOf(grp[id])) % PAL.length]; };
     var card = sec.card, big = L.nodes.length > 100, why = big ? 'Picture not shown: with ' + L.nodes.length + ' items it would be too small to read. Use "Open full size" to look at it, or the table below.' : '';

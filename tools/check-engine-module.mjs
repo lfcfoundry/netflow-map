@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url), root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const App = require(join(root, 'src/engine.js')), Mod = require(resolve(process.argv[2])), NL = require(join(root, 'vendor/netflow-layers.js')), SK = require(join(root, 'src/sankey.js'));
+const App = require(join(root, 'src/engine.js')), Mod = require(resolve(process.argv[2])), NL = require(join(root, 'vendor/netflow-layers.js')), SK = require(join(root, 'vendor/netflow-sankey.js'));
 Mod.use('layers', NL).use('sankey', SK);
 const rng = (seed) => { let s = seed | 0; return () => { s = (s + 0x6d2b79f5) | 0; let x = Math.imul(s ^ (s >>> 15), 1 | s); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; }; };
 function story(n, seed) { const r = rng(seed), nodes = [], edges = []; for (let i = 0; i < n; i++) nodes.push({ id: 'n' + i, label: 'Page ' + i, group: ['A', 'B', 'C'][i % 3], valence: i === n - 1 ? 'good' : i === n - 2 ? 'bad' : '', ghost: false, attrs: {} }); for (let i = 1; i < n; i++) { edges.push({ from: 'n' + Math.floor(r() * i), to: 'n' + i, label: '', kind: '', attrs: {} }); if (r() < 0.5) edges.push({ from: 'n' + Math.floor(r() * n), to: 'n' + Math.floor(r() * n), label: '', kind: '', attrs: {} }); } return { start: 'n0', nodes, edges: edges.filter((e) => e.from !== e.to) }; }

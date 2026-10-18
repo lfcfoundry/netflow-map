@@ -18,7 +18,7 @@ const bundle = (files, name) => min(files.map((p) => clean(rd(p))).join('\n'), n
 const ok = (name, s) => { if (/<\/script|<!--/i.test(s)) throw new Error(name + ' contains a sequence that would break the page'); return s; };
 const oldEngine = ok('old engine', bundle(['bench/then-and-now/first-release/engine.js'], 'old-engine'));
 const oldScene = ok('old scene', bundle(['bench/then-and-now/first-release/scene.js'], 'old-scene'));
-const newEngine = ok('new engine', bundle(['src/columns.js', 'src/pack.js', 'src/sankey.js', 'vendor/netflow-layers.js', 'src/engine.js'], 'new-engine'));
+const newEngine = ok('new engine', bundle(['src/columns.js', 'src/pack.js', 'vendor/netflow-sankey.js', 'vendor/netflow-layers.js', 'src/engine.js'], 'new-engine'));
 const mc = ok('memory-compression', min("self.MEMORY_COMPRESSION_NO_EVAL = true;\n" + clean(rd('vendor/memory-compression.js')), 'memory-compression'));
 const newScene = ok('new scene', bundle(['src/scene.js'], 'new-scene'));
 /* Each version's drawing code runs on the page inside its own function, so the two versions' NFMScene / NFMRender / NFMProbe never meet (the page allows no eval and no frames). */

@@ -21,8 +21,8 @@ function skSettings() { var k = skV(); return { nodeW: k.nodeW, gap: k.gap, pad:
 /** Lays the picture out again right here (the order is kept; only places and sizes change). Cheap enough to do while dragging. */
 function skRelayout() {
   if (!skOn()) return false;
-  var op = NFMSankey.options(skSettings()); op.fixedOrder = S.L.sk.order;
-  NFMSankey.apply(S.L, NFMSankey.layout(S.L, op));
+  var op = NetflowSankey.options(skSettings()); op.fixedOrder = S.L.sk.order;
+  NetflowSankey.apply(S.L, NetflowSankey.layout(S.L, op));
   return true;
 }
 function skKeepOrder() { var k = skV(), o = S.L && S.L.sk && S.L.sk.order; k.order = o && o.layers.reduce(function (a, l) { return a + l.length; }, 0) < 4000 ? JSON.parse(JSON.stringify(o)) : null; }

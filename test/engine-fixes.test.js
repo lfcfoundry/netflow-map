@@ -2,7 +2,7 @@
 'use strict';
 global.NFMColumns = require('../src/columns.js');
 const E = require('../src/engine.js'); global.NFMEngine = E;
-const SC = require('../src/scene.js'), SK = require('../src/sankey.js'), SIM = require('../src/sim.js');
+const SC = require('../src/scene.js'), SK = require('../vendor/netflow-sankey.js'), SIM = require('../src/sim.js');
 let bad = 0;
 const ok = (c, m) => { if (!c) throw new Error(m); };
 const t = (name, fn) => { const t0 = Date.now(); try { const r = fn(); console.log('ok   ' + name + ' (' + (Date.now() - t0) + ' ms)' + (r ? ' ' + r : '')); } catch (e) { bad++; console.log('FAIL ' + name + ': ' + e.message); } };

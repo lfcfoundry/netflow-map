@@ -84,7 +84,7 @@ Engine (`src/engine.js`): `prepare` (flat arrays; reads a LIST of link filters, 
 Big 3D maps: the picture is uploaded to the graphics card once and each frame sends only camera numbers (the "rig": `makeRig`, `attachTurn`, `S.turnTo`, `drawRig`, `rigWarm`). Zooming and panning ride the same path (`requestDraw` in `src/app/30-map.js`); rebuilding the full scene after movement was removed because it froze the next drag.
 Drawing backends: WebGL 2 first, WebGPU second, basic canvas last (`Manager.order` in `src/render.js`). WebGPU **drawing** showed random 200 to 350 ms pauses on the owner's laptop, so it is off by default (`NFMRender.setWebGPUDrawing`) and the tester no longer tests it. WebGPU **compute** (`src/gpustress.js`) is still used for layout math and falls back to the processor on any failure. `destroy()` must destroy every buffer one by one and call `device.destroy()` last.
 WebAssembly: `wasm/force.c` is a line-for-line port of `forceSim`'s rounds; `src/engine.js` carries its bytes between `WASM:BEGIN` and `WASM:END`; the JavaScript `forceSimJs` stays the fallback. If you change `forceSimJs` you change `force.c` the same way; `test/force-wasm.test.js` must show a largest position difference of 0.
-Sankey: `src/sankey.js` plus `src/app/33-sankey.js`; the engine calls it when the page passes `sk`.
+Sankey: `vendor/netflow-sankey.js` (JS-modules netflow-sankey 2.2.1) plus `src/app/33-sankey.js`; the engine calls it when the page passes `sk`.
 Memory at 100,000 items: see `docs/MEMORY-AT-100K.md` and the second handoff.
 
 ## 6. Decisions the owner made (do not reopen without asking)
