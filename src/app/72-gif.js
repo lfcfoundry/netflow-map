@@ -112,7 +112,7 @@ function gifCard() {
     field('Background', select([['light', 'Light (best for slides)'], ['dark', 'Dark'], ['app', 'Same as the app']], o.theme, function (v) { o.theme = v; })),
     field(mode === 'states' ? 'Seconds on each state' : 'Seconds per turn (about)', select([[0.6, '0.6'], [1, '1'], [1.4, '1.4'], [2, '2'], [3, '3']], o.hold, function (v) { o.hold = +v; })),
     mode === 'states' ? field('Seconds of change between states', select([[0, 'None (cut)'], [0.5, '0.5'], [0.9, '0.9'], [1.5, '1.5']], o.trans, function (v) { o.trans = +v; })) : null,
-    field('Smoothness', select([[6, 'Light (6 pictures a second)'], [10, 'Normal (10)'], [15, 'Smooth (15)']], o.fps, function (v) { o.fps = +v; }))]));
+    field('Smoothness', select([[6, 'Light (6 FPS)'], [10, 'Normal (10 FPS)'], [15, 'Smooth (15 FPS)']], o.fps, function (v) { o.fps = +v; }))]));
   card.appendChild(h('div', { class: 'row' }, [check('Include the key', o.key, function (on) { o.key = on; }), mode === 'states' ? check('Show the state name', o.caption, function (on) { o.caption = on; }) : null]));
   var prog = h('div', { id: 'gif-prog', 'aria-live': 'polite' });
   var go = h('button', { class: 'primary', id: 'gif-go', onclick: runGif, disabled: GX.running }, GX.result ? 'Make it again' : 'Make the GIF'), cancel = h('button', { id: 'gif-cancel', hidden: !GX.running, onclick: function () { GX.cancel = true; } }, 'Cancel');
@@ -125,7 +125,7 @@ function gifResultKids() {
   if (GX.msg && !GX.running) return [h('p', { class: 'muted' }, GX.msg)];
   var r = GX.result; if (!r) return [];
   var kb = Math.round(r.bytes.length / 1024), size = kb > 1500 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB';
-  return [h('p', { class: 'muted small', style: { margin: '6px 0 2px' } }, plural(r.frames, 'picture') + ', ' + r.w + ' × ' + r.h + ', ' + size + ', made in ' + (r.ms / 1000).toFixed(1) + ' seconds.' + (kb > 8000 ? ' That is large for a slide. Try a smaller width or fewer pictures a second.' : '')),
+  return [h('p', { class: 'muted small', style: { margin: '6px 0 2px' } }, plural(r.frames, 'picture') + ', ' + r.w + ' × ' + r.h + ', ' + size + ', made in ' + (r.ms / 1000).toFixed(1) + ' seconds.' + (kb > 8000 ? ' That is large for a slide. Try a smaller width or a lower FPS.' : '')),
     h('img', { src: r.url, alt: 'Preview of the animation', style: { maxWidth: '100%', borderRadius: '8px', border: '1px solid var(--line)' } }),
     h('div', { class: 'row' }, [h('button', { class: 'primary', onclick: function () { download(fname('.gif'), new Blob([r.bytes], { type: 'image/gif' }), 'image/gif'); } }, 'Save the GIF'), h('button', { onclick: function () { download(fname('-report.html'), reportHtml(r), 'text/html'); } }, 'Save as a web page (HTML report)')])];
 }
