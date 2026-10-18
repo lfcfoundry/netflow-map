@@ -2,7 +2,15 @@
 
 Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry.
 
-One file, `index.html`, that works offline. Bring in a table, a JSON graph, an outline, or a folder of notes, and see how everything connects. It has six tabs:
+Netflow Map turns a list of links into a map you can read and explore. It is one file, `index.html`, that works offline: it reads tables, JSON graphs, outlines, notes and graph files, lays the items out in nine views (a story's flow, choke points, lanes, a network of up to 100,000 items, and more) with no two items on top of each other, and draws them with WebGL 2 or, failing that, plain 2D drawing. The layout engine runs in a background helper, WebAssembly does its heaviest steps (plain JavaScript is always the fallback), and a big map rests in packed form while it sits idle. Nothing is uploaded; everything runs in the page.
+
+## Why it exists
+
+The Story Editor's map shows how the pages of a story lead on to each other and where players get stuck. The same questions come up for any set of links: notes, files, processes, flows of money or people. Netflow Map generalizes that map into a single-file app that stays quick and readable as the data grows (30,000 items lay out in under a second, 100,000 in a few seconds) and leaves the Story Editor's original story map untouched.
+
+## What it does
+
+It has six tabs:
 
 - **Data**: drop in files or a folder (or paste text), see in plain words what was found, and use the columns workbench: every column with its type and what it does on the map (color, size, line width, labels, filters), plus calculated columns. If the data holds the same network at several times, a States card turns one column per state (or a column naming the state on repeated links) into baseline / year 1 / year 2 / end state.
 - **Nodes**: the items and links as tables you can sort, filter, edit, add to, and delete from.
@@ -10,8 +18,6 @@ One file, `index.html`, that works offline. Bring in a table, a JSON graph, an o
 - **Check**: findings about the data, each with a plain-words reason, a way to see it on the map or in the table, and a fix where one is safe.
 - **Advanced**: the Monte Carlo simulation (up to 100,000 walkers; start items, walker types, 16 distributions for arrivals, uncertain link weights, link costs and dwell times; exact odds with error bars beside the dice; step, cost and settling charts; what-if ranking of items or links; results as map color and link width, with optional flow dots), layout settings, and the one-button device check.
 - **Export**: JSON, CSV, SVG, PNG, poster, the check report, saved views, an animated GIF for slides (plays through the states with a smooth change between them, or turns a 3D view around), and a one-page HTML report with the animation inside.
-
-Nothing is uploaded. Everything runs in the page.
 
 ## What it reads
 
@@ -82,6 +88,7 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - `src/engine-client.js`: runs the engine in a background helper, with a fallback
 - `src/columns.js`, `src/sim.js`, `src/check.js`: column types, calculated columns and states, the walker simulation, the data checks
 - `src/gif.js`: the animated GIF writer (palette, frame differencing, LZW)
+- `tools/build-engine-module.mjs`, `tools/check-engine-module.mjs`: cut the engine into the standalone JS-modules file `netflow-engine.js` and prove it lays out exactly the same
 - `src/pack.js`: sends a big layout from the helper to the page as typed-array columns instead of copying every object
 - `src/app/*.js` (joined in file-name order into one function), `src/app.css`, `src/index.template.html`: the page (00 core, 10 data, 20 nodes, 30 map, 32 interact, 35 rail, 40 states, 50 check, 60 advanced, 61 simulation, 70 export, 72 gif, 99 boot)
 - `vendor/`: `netflow-layers.js` (the layered drawing; exact copy of JS-modules netflow-layers 1.2.0), `memory-compression.js` (exact copy of JS-modules memory-compression 2.0.2; the build sets `MEMORY_COMPRESSION_NO_EVAL` so it never probes `new Function`, which the page does not allow), `env-probes.js` and `back-close.js` from [JS-modules](https://github.com/lfcfoundry/JS-modules); `story-map.global.js` is only the test oracle, it is not shipped in `index.html`
@@ -92,11 +99,11 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - Link weights act as odds only when "Use link weights" is on.
 - In loops, the map shows expected visits per player, not "share of players who saw it".
 - A layered view stops above 90,000 stops and says so; use Network or Matrix instead.
-- Not yet run on a phone (test phone) or on a real graphics chip. The tests ran on Firefox 158 and ungoogled-chromium 154 with WebGPU, WebGL 2 and basic drawing all matching to about 0.2 out of 255.
+- The automated tests run in a cloud container without a graphics card; real graphics hardware and phones are checked by hand (see Browsers used in testing).
 
 ## Browsers used in testing
 
-Every build up to 2026.10.16.2319 was tested in headless **Firefox 158.0** and **ungoogled-chromium 154.0.8037.97** in a cloud container, and the graphics-card work was also run by hand in **Firefox 159.0** on a laptop ((processor), (graphics)). Not yet tested: ungoogled Chromium 155, WebKitGTK/GNOME Web, Safari or iPhone, and Chrome on a phone. From now on tests use only Firefox 158, ungoogled-chromium 155 and WebKitGTK 2.52.6 from the `browsers` branch of the knowledgebase, one at a time, with the version labeled. `CHANGELOG.md` lists the browsers used for every build.
+The automated browser test (`node test/browser.test.js`) passes in all four test browsers, one at a time, on build 2026.10.18.1101: **Firefox 158.0**, **ungoogled-chromium 155.0.8059.39**, **WebKitGTK 2.52.6** and **GNOME Web (Epiphany) 46.5** (from the "browsers" branch of lfcfoundry/knowledge-base). By hand, the owner has also run the then-and-now tester on a test phone (Android, Chrome 155) and on a laptop ((processor), (graphics)) in Firefox 159. Safari and Windows Chromium builds have not been tested.
 
 ## Benchmarks
 
@@ -129,5 +136,14 @@ Headlines (both browsers; `docs/BENCHMARKS.md` has every table, the losses inclu
 - GIF export: 10 to 16× lower color error than gifenc; 1.24× (Chromium) to 1.5× (Firefox) faster at 31 frames; level with it at 4 frames in Firefox and 1.8× slower in Chromium; files 6 to 8% larger. Section 14.
 - Where Stress is weaker: on neighborhood preservation (are my linked items the ones nearest to me?) it scores below d3-force and ForceAtlas2, because it follows distances, not closeness. Pick Force or Stress for the question you are asking. Section 15. Four ways of adding a closeness term to Stress did not help (section 13); the separate Closeness arrangement does (section 17).
 - Random draws: faster in every Chromium row (normal 2.3 to 2.5×); in Firefox a tie or a small loss on normal draws. Section 14.
+- Layout worker warm-up (2026-10-18, build 2026.10.18.1101): the first 3,000-item layout after the page sat idle for 6 seconds or more is 1.2 to 1.45 times faster (lower time is better) in Chromium, Firefox and GNOME Web, because the idle helper now runs a 600-item layout once to warm its WebAssembly; no gain after only 2 seconds idle.
+- Which memory-compression methods run on a 100,000-item map (2026-10-18, `bench/compression-methods/RESULTS.md`): in the app's mode every piece is stored by the WebAssembly LZ4 coder alone; loading the module costs about 13.5 MB of page memory in Chromium 155 whatever its source size, of which starting the WebAssembly at load is about 5.3 MB (a lazy start is proposed to the module).
 - Methods read from the recent layout papers: `docs/RESEARCH-layout-papers.md`.
 - Methods read from the R packages `graphlayouts`, `igraph`, `packcircles` and `ggrepel`, and what was tried from them: `docs/RESEARCH-r-packages.md`.
+
+## Credits and attributions
+
+- The layered, arc, matrix and shape drawings, choke points, traffic and drawing scores start from the Story Editor's map (`story-editor/editor/maplayout.js`, MIT), copied and generalized here with no dependency on it.
+- Choke points use the dominator tree of Cooper, Harvey and Kennedy (2001). The Distances layout minimizes stress by stochastic gradient descent (Zheng, Pawar and Goodman, 2018) with pivot items for big maps. The Force arrangement uses Barnes-Hut repulsion. Further methods read from the literature and from the R packages graphlayouts, igraph, packcircles and ggrepel are listed in `docs/RESEARCH-layout-papers.md` and `docs/RESEARCH-r-packages.md`.
+- `vendor/` holds exact copies of pieces from [JS-modules](https://github.com/lfcfoundry/JS-modules) (netflow-layers, memory-compression, env-probes, back-close); the credits for the methods inside each are in that module's own README.
+- Papa Parse, d3-force, ForceAtlas2, dagre, ELK, Louvain, expr-eval, gifenc and the other tools named under Benchmarks are only measured against; none of them is in `index.html`.
