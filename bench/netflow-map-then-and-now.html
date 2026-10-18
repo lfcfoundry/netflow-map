@@ -17,27 +17,26 @@ table{border-collapse:collapse;width:100%;font-size:.88rem;font-variant-numeric:
 th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}
 thead th{color:var(--mut);font-weight:600;vertical-align:bottom}
 .scroll{overflow-x:auto}textarea{width:100%;height:9em;font:12px/1.4 ui-monospace,Consolas,monospace;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px}
-label{display:inline-flex;gap:.4em;align-items:center;margin-left:1em}
+[hidden]{display:none!important}label{display:inline-flex;gap:.4em;align-items:center;margin-left:1em}
 .live{padding:12px 14px}.livehead{display:flex;justify-content:space-between;gap:1em;flex-wrap:wrap;align-items:baseline}
-.pics{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}@media (max-width:640px){.pics{grid-template-columns:1fr}}
+.pics{margin-top:8px;max-width:640px;margin-left:auto;margin-right:auto}
 .pics figure{margin:0}.pics canvas{width:100%;aspect-ratio:8/5;display:block;background:var(--bg);border:1px solid var(--line);border-radius:8px}
 .pics figcaption{font-size:.88rem;margin-top:4px;font-variant-numeric:tabular-nums}.fpsbig{font-weight:700;color:var(--acc)}
 </style>
 </head>
 <body>
 <main>
-<!-- Netflow Map first version vs now, 2026.10.18.0955. Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry. https://github.com/lfcfoundry/netflow-map -->
+<!-- Netflow Map first version vs now, 2026.10.18.1013. Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry. https://github.com/lfcfoundry/netflow-map -->
 <h1>Netflow Map: first version vs now</h1>
-<p class="mut">Lays out the same maps with the very first Netflow Map (2026.10.14.2136, then called Net Flow Map) and with the version in this page (2026.10.18.0955, with every update since), taking turns, and tells you in plain words what changed. Nothing leaves this page.</p>
+<p class="mut">Lays out the same maps with the very first Netflow Map (2026.10.14.2136, then called Net Flow Map) and with the version in this page (2026.10.18.1013, with every update since), taking turns, and tells you in plain words what changed. Nothing leaves this page.</p>
 <div class="card live" id="live">
-  <div class="livehead"><b>Live view: each picture appears here as it is produced</b><span class="small mut" id="liveFps">Page: waiting to start</span></div>
+  <div class="livehead"><b>Live view: each picture appears here as it is produced, one at a time</b><span class="small mut" id="liveFps">Page: waiting to start</span></div>
   <div class="pics">
-    <figure><canvas id="cvOld"></canvas><figcaption id="capOld" class="mut">First version: nothing yet</figcaption></figure>
-    <figure><canvas id="cvNow"></canvas><figcaption id="capNow" class="mut">Now: nothing yet</figcaption></figure>
+    <figure><canvas id="cvLive"></canvas><figcaption id="capLive" class="mut">Nothing yet</figcaption></figure>
   </div>
-  <p class="small mut" style="margin-bottom:0">Each picture is the finished layout from the run above it, drifting slowly so the drawing speed shows as FPS (frames per second, higher is better). Big maps show every 2nd, 3rd... link so the picture stays drawable (the count is in the caption). Drawing is paused while a layout is being timed, so it does not disturb the layout numbers.</p>
+  <p class="small mut" style="margin-bottom:0">One picture at a time: the finished layout of the run that just ended, first version or now in turn, drifting slowly so the drawing speed shows as FPS (frames per second, higher is better). Big maps show every 2nd, 3rd... link so the picture stays drawable (the count is in the caption). Drawing is paused while a layout is being timed, so it does not disturb the layout numbers.</p>
 </div>
-<p><button id="go">Run the comparison</button><label class="small"><input type="checkbox" id="quick"> Quick (one run each, rougher numbers)</label><label class="small"><input type="checkbox" id="big" checked> Include the big maps (up to 30,000 items)</label><label class="small">This machine is <select id="dev"><option value="pc">a PC</option><option value="mobile">a phone or tablet</option></select></label><label class="small"><input type="checkbox" id="huge"> Include the huge map (100,000 items; slow, and needs about 2 GB free)</label><span id="devnote" class="small mut"></span></p>
+<p><button id="go">Run the comparison</button><label class="small"><input type="checkbox" id="quick"> Quick (one run each, rougher numbers)</label><label class="small"><input type="checkbox" id="big" checked> Include the big maps (up to 30,000 items)</label><label class="small">This machine is <select id="dev"><option value="pc">a PC</option><option value="mobile">a phone or tablet</option></select></label><label class="small" id="hugeLabel"><input type="checkbox" id="huge"> Include the huge map (100,000 items; slow, and needs about 2 GB free)</label><span id="devnote" class="small mut"></span></p>
 <div class="bar"><i id="fill"></i></div>
 <p id="state" class="mut small">Ready. This takes a few minutes and keeps one extra browser worker busy at a time. Close other heavy tabs for the steadiest numbers.</p>
 <p id="env" class="mut small"></p>
@@ -382,7 +381,7 @@ function looksMobile() { try { if (navigator.userAgentData && typeof navigator.u
 function applyDevice() {
   var mobile = $('dev').value === 'mobile', h = $('huge');
   if (mobile) h.checked = false;
-  h.disabled = mobile;
+  h.disabled = mobile; $('hugeLabel').hidden = mobile;
   $('devnote').textContent = mobile ? ' Phone or tablet: the largest map is 30,000 items.' : '';
 }
 $('dev').value = looksMobile() ? 'mobile' : 'pc';
@@ -390,7 +389,7 @@ $('dev').addEventListener('change', applyDevice);
 applyDevice();
 
 /* ---- live view: the finished picture of a run, drifting so its drawing speed shows as FPS ---- */
-var PICS = { old: null, now: null }, CV = { old: $('cvOld'), now: $('cvNow') }, CAP = { old: $('capOld'), now: $('capNow') }, active = null, idleOn = false, raf = 0;
+var PICS = { old: null, now: null }, CV = { old: $('cvLive'), now: $('cvLive') }, CAP = { old: $('capLive'), now: $('capLive') }, active = null, idleOn = false, raf = 0;
 var DPR = Math.min(2, window.devicePixelRatio || 1);
 function sizeCanvas(c) { var w = Math.max(200, Math.round(c.clientWidth * DPR)), h = Math.round(w * 5 / 8); if (c.width !== w || c.height !== h) { c.width = w; c.height = h; } }
 function rgb(a, o) { return 'rgb(' + Math.round(a[o] * 255) + ',' + Math.round(a[o + 1] * 255) + ',' + Math.round(a[o + 2] * 255) + ')'; }
@@ -443,7 +442,7 @@ function playOne(which, ms) {
   });
 }
 function ffmt(v) { return v >= 10 ? v.toFixed(0) : v.toFixed(1); }
-function clearPics() { PICS = { old: null, now: null }; ['old', 'now'].forEach(function (w) { drawPic(w, 0); CAP[w].classList.add('mut'); CAP[w].textContent = (w === 'old' ? 'First version' : 'Now') + ': next map being laid out…'; }); }
+function clearPics() { PICS = { old: null, now: null }; drawPic('now', 0); CAP.now.classList.add('mut'); CAP.now.textContent = 'Next map being laid out…'; }
 function showRun(which, name, r) { PICS[which] = r.pic; caption(which, name, r); drawPic(which, 0); }
 /* after everything is done: keep both pictures moving, taking turns */
 var idleWhich = 'now', idleTimer = 0;
@@ -498,7 +497,7 @@ function report(turns) {
   $('verdict').innerHTML = (best ? '<li>Biggest gain: ' + best.html + '</li>' : '') + verdict.slice(1).map(function (v) { return '<li>' + v.html + '</li>'; }).join('') +
     '<li class="mut">Layout is only part of what changed. Memory, the first hover on a flat map, drawing speed and the features added since are in the box at the bottom, measured in my test browsers.</li>';
   var env = 'Browser: ' + navigator.userAgent + '; cores: ' + (navigator.hardwareConcurrency || '?') + (navigator.deviceMemory ? '; memory hint: ' + navigator.deviceMemory + ' GB' : '') + '; this machine set to ' + ($('dev').value === 'mobile' ? 'phone or tablet (largest map 30,000 items)' : 'PC') + '; ' + turns + ' turn(s) each, taking turns.';
-  var txt = ['Netflow Map: first version (2026.10.14.2136) vs now (2026.10.18.0955)', env, '', 'Layout time, lower is better; times faster, higher is better.', ''].concat(md, ['', 'Drawing speed of the finished picture, FPS, higher is better:', ''], fmd, ['', 'Verdict:'], verdict.map(function (v) { return '- ' + v.text; })).join('\n');
+  var txt = ['Netflow Map: first version (2026.10.14.2136) vs now (2026.10.18.1013)', env, '', 'Layout time, lower is better; times faster, higher is better.', ''].concat(md, ['', 'Drawing speed of the finished picture, FPS, higher is better:', ''], fmd, ['', 'Verdict:'], verdict.map(function (v) { return '- ' + v.text; })).join('\n');
   $('txt').value = txt; $('env').textContent = env; $('out').hidden = false;
 }
 $('go').addEventListener('click', function () { try { if (!URLS) URLS = { old: blobUrl('src-old-engine', 'src-old-scene'), now: blobUrl('src-new-engine', 'src-new-scene') }; go(); } catch (e) { $('state').textContent = 'Could not start: ' + e.message; $('go').disabled = false; } });
