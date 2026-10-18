@@ -203,7 +203,7 @@ function setGraph(g, push, keepView) {
   if (rename) saveView.flush();   /* the old data's settings are saved under the old name before the name changes */
   if (push !== false) { S.hist.push(S.graph); if (S.hist.length > 25) S.hist.shift(); }
   S.graph = g; S.gver++;
-  if (!keepView || rename) skHist = [];   /* River undo steps belong to one dataset */
+  if (!keepView || rename) skHist = [];   /* Sankey undo steps belong to one dataset */
   graphChanged(rename && !keepView);
 }
 /** Change the graph through fn(g), where g holds copies of the two lists; fn must replace objects, not change them in place. */
@@ -235,7 +235,7 @@ function undo() {
 }
 document.addEventListener('keydown', function (e) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !/input|textarea|select/i.test((e.target.tagName || ''))) {
-    if (S.tab === 'map' && S.V && S.V.view === 'river' && skHist.length) { e.preventDefault(); skUndo(); }
+    if (S.tab === 'map' && S.V && S.V.view === 'sankey' && skHist.length) { e.preventDefault(); skUndo(); }
     else if (S.hist.length) { e.preventDefault(); undo(); }
   }
 });

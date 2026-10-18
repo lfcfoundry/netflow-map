@@ -112,7 +112,7 @@ async function open() {
   /* Examples and every view */
   await ev(() => NFM.showTab('data')); await set('#examples', 'story'); await click('#b-example'); await click('#tabbtn-map');
   await D.wait(() => NFM.state.scene && NFM.manager() && NFM.manager().r, null, 30000);
-  const views = ['flow', 'down', 'spine', 'lanes', 'shape', 'river', 'arc', 'matrix', 'network'];
+  const views = ['flow', 'down', 'spine', 'lanes', 'shape', 'sankey', 'arc', 'matrix', 'network'];
   for (const v of views) {
     await ev((vv) => NFM.setV({ view: vv }), v);
     await D.wait((vv) => NFM.state.L && NFM.state.L.view === vv && NFM.state.scene && NFM.state.scene.view === vv, v, 20000);
@@ -120,7 +120,7 @@ async function open() {
     const r = await ev(() => { const m = NFM.manager().r; m.draw(NFM.state.view); const s = m.snapshot(), d = s.data;   /* drawn and read in the same task: WebKit empties a WebGL canvas once it has been shown */
     let diff = 0; for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 30) diff++; return { backend: m.name, share: diff / (d.length / 4) }; });
     say(r.share > 0.004, `${v}: drew something (${(r.share * 100).toFixed(1)}% of pixels) with ${r.backend}`);
-    if (v === 'flow' || v === 'river' || v === 'network') await D.shot(path.join(outDir, `nfm-${which}-${v}.png`));
+    if (v === 'flow' || v === 'sankey' || v === 'network') await D.shot(path.join(outDir, `nfm-${which}-${v}.png`));
   }
 
   /* Top-down choices: story order, tags, must-pass column, harder untangling, columns, step numbers, group columns (defaults must leave the picture as it was) */
@@ -208,9 +208,9 @@ async function open() {
     await D.wait(() => NFM.state.scene && NFM.manager() && NFM.manager().r && NFM.state.L && NFM.state.L.nodes.length < 60, null, 30000); await settle(200);
   }
 
-  /* River (Sankey) pictures: click and right-click on links, bars and labels, drag a bar, hand edits, undo */
+  /* Sankey pictures: click and right-click on links, bars and labels, drag a bar, hand edits, undo */
   {
-    await ev(() => NFM.setV({ view: 'river' })); await D.wait(() => NFM.state.L.view === 'river' && NFM.state.scene.view === 'river' && NFM.state.L.sk, null, 20000); await settle(300);
+    await ev(() => NFM.setV({ view: 'sankey' })); await D.wait(() => NFM.state.L.view === 'sankey' && NFM.state.scene.view === 'sankey' && NFM.state.L.sk, null, 20000); await settle(300);
     const scr = (x, y) => ev(([a, b]) => { const S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + a * S.view.k + S.view.tx, r.top + b * S.view.k + S.view.ty]; }, [x, y]);
     const menu = async (x, y) => { await ev(([cx, cy]) => { document.getElementById('stage').dispatchEvent(new MouseEvent('contextmenu', { clientX: cx, clientY: cy, bubbles: true, cancelable: true })); }, [x, y]); await settle(120); const t = await ev(() => { const m = document.getElementById('ctx'); return m.hidden ? '' : m.textContent; }); await ev(() => { document.getElementById('ctx').hidden = true; }); return t; };
     const rb = await ev(() => { const r = NFM.state.scene.ribbons.filter((q) => q.y0b - q.y0a > 5)[0]; return [(r.x0 + r.x1) / 2, (r.y0a + r.y0b + r.y1a + r.y1b) / 4]; });
@@ -230,7 +230,7 @@ async function open() {
     say(await ev(() => NFM.state.scene.labels.some((l) => l.t === 'Renamed') && NFM.state.scene.rects.some((r) => r.fill[0] === 1 && r.fill[1] === 0)), 'a hand-made bar color and label text show up');
     await ev(() => { NFM.state.V.sk.color = 'gradient'; NFM.refreshMap('look'); }); await settle(300);
     say(await ev(() => NFM.state.scene.ribbons.some((r) => r.color2)), 'gradient flows are drawn');
-    const snap = await ev(() => NFM.snapshot().sk); say(!!(snap && snap.color === 'gradient' && snap.nodes), 'River settings are saved with the view');
+    const snap = await ev(() => NFM.snapshot().sk); say(!!(snap && snap.color === 'gradient' && snap.nodes), 'Sankey settings are saved with the view');
     await ev(() => { NFM.state.V.sk = null; NFM.setV({ view: 'flow' }); }); await settle(200);
   }
 
@@ -656,17 +656,17 @@ async function open() {
     say(await ev(() => (document.getElementById('gif-out') || {}).textContent) === 'Canceled.', 'canceling the GIF says "Canceled." (American spelling)'); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
-  /* 5. undo: River steps belong to one dataset; going back across a rename brings back the other data's settings */
+  /* 5. undo: Sankey steps belong to one dataset; going back across a rename brings back the other data's settings */
   try {
-  { await loadStory(); await ev(() => NFM.setV({ view: 'river' })); await W(() => NFM.state.L && NFM.state.L.view === 'river' && NFM.state.L.sk && NFM.state.scene && NFM.state.scene.view === 'river');
+  { await loadStory(); await ev(() => NFM.setV({ view: 'sankey' })); await W(() => NFM.state.L && NFM.state.L.view === 'sankey' && NFM.state.L.sk && NFM.state.scene && NFM.state.scene.view === 'sankey');
     await ev(() => { document.getElementById('rt-look').click(); const f = [...document.querySelectorAll('#railbody label.field')].find((l) => /Flow color/.test(l.textContent)); const s = f.querySelector('select'); s.value = 'source'; s.dispatchEvent(new Event('change', { bubbles: true })); }); await settle(300);
     const r = await ev(() => {
-      const first = NFM.state.graph.name; localStorage.setItem('nfm-v:SkOther', '{"view":"river"}');
+      const first = NFM.state.graph.name; localStorage.setItem('nfm-v:SkOther', '{"view":"sankey"}');
       NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SkOther', start: 'A', nodes: [{ id: 'A' }, { id: 'B' }, { id: 'C' }], edges: [{ from: 'A', to: 'B' }, { from: 'B', to: 'C' }] }));
       const view = NFM.state.V.view; document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
       localStorage.removeItem('nfm-v:SkOther'); return { first, now: NFM.state.graph.name, view };
     });
-    say(r.view === 'river' && r.now === r.first, 'after new data is brought in, Ctrl+Z undoes the data change, not a River step of the old data: ' + JSON.stringify(r)); }
+    say(r.view === 'sankey' && r.now === r.first, 'after new data is brought in, Ctrl+Z undoes the data change, not a Sankey step of the old data: ' + JSON.stringify(r)); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   try {
   { await load(mkG('UndoOne', ['A', 'B', 'C']), 'map'); await mapShows('A');

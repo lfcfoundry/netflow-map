@@ -1,13 +1,13 @@
-# River (Sankey) diagrams: research and what to improve
+# Sankey diagrams: research and what to improve
 
-Copyright (c) 2026 LFC Foundry. MIT License. Written 2026-10-15. The prototype is `src/sankey.js`; the before-and-after page is `bench/netflow-map-river.html` (build: `node tools/build-sankey-lab.mjs`); tests are in `test/sankey.test.js`.
+Copyright (c) 2026 LFC Foundry. MIT License. Written 2026-10-15. The prototype is `src/sankey.js`; the before-and-after page is `bench/netflow-map-sankey.html` (build: `node tools/build-sankey-lab.mjs`); tests are in `test/sankey.test.js`.
 
 ## What the app does today (from reading `src/engine.js` and `src/scene.js`)
 
-| Today | Why it hurts a river diagram |
+| Today | Why it hurts a sankey diagram |
 |---|---|
 | Layers come from a breadth-first search from one start item; every other source is started *after* the deepest layer. | In a network with several sources (most real flow data), those sources end up at the far right, so their links count as "backward". On the made-up networks only 41 to 51 percent of the flow was drawn as bands; the rest became thin gold lines. |
-| Each item's bands are scaled to *that item's* box (`riverRibbons`: `sc = min(K, box height / total)`), and a band takes the thinner of its two ends. | Band thickness is not proportional to flow across the picture. The thickest band per unit of flow was 2.5 to 68 times the thinnest, depending on the network. Readers compare widths across the picture, so this is the most important flaw. |
+| Each item's bands are scaled to *that item's* box (`sankeyRibbons`: `sc = min(K, box height / total)`), and a band takes the thinner of its two ends. | Band thickness is not proportional to flow across the picture. The thickest band per unit of flow was 2.5 to 68 times the thinnest, depending on the network. Readers compare widths across the picture, so this is the most important flaw. |
 | Long links are drawn as one curve from source to target, ignoring the stand-in points the layout computed for them. | A long link can run straight over items in the layers between. |
 | Crossings are counted equally (a hairline crossing a hairline costs the same as two thick flows crossing). | The order is tuned for the wrong thing; thick crossings are what the eye notices. |
 | Backward and same-layer links are thin lines, not bands. | The flow they carry is invisible, so the picture does not add up. |
@@ -24,7 +24,7 @@ I could not open the d3-sankey and d3-sankey-circular repositories in this sessi
 
 ## What the prototype changes, and what it measured
 
-The prototype keeps the app's River data (items, links, flow) and replaces layering, order, sizes and drawing:
+The prototype keeps the app's Sankey data (items, links, flow) and replaces layering, order, sizes and drawing:
 
 1. Layers by longest path from the sources, with cycles broken by turning the lightest links around; sources sit next to their first consumer; items nothing leaves go to the last layer.
 2. One scale for the whole picture: an item bar is as tall as the flow through it, and a band is exactly its flow times that scale, equal at both ends.
@@ -66,11 +66,11 @@ Arranging takes 1 to 70 ms on these. The weighted order trades more small crossi
 
 ## In the app (Stage 1)
 
-River view now uses the improved layout (see `src/sankey.js`) and can be edited by hand:
+Sankey view now uses the improved layout (see `src/sankey.js`) and can be edited by hand:
 
 - **Click and right-click** a flow, a bar, a label or empty space. Each has its own menu first (color, fade to another color, like source / like target / start-to-end gradient, see-through, label text, size, side, hide, move up / down / top / bottom), then the usual menus (details, select both ends, style rule, etc.). Double-click a label to edit its text, a flow to choose its color.
 - **Drag a bar up or down** to place it; the others stay put and are nudged only when they would overlap. Order and places are remembered per data id and saved with the view.
-- **Look tab, "River picture"**: flow color mode (end, start, gradient, one color), see-through, bar width, column spacing, bar spacing, picture height, label side, totals under names, amounts on flows, undo, back to automatic, clear hand edits. Undo (Ctrl+Z on the map) covers these edits.
+- **Look tab, "Sankey picture"**: flow color mode (end, start, gradient, one color), see-through, bar width, column spacing, bar spacing, picture height, label side, totals under names, amounts on flows, undo, back to automatic, clear hand edits. Undo (Ctrl+Z on the map) covers these edits.
 - Loops (flows that run backwards) are drawn as wide bands under the picture and can be clicked like any flow.
 
 Next stages (per the owner's choices): Stage 2 infographics (stage headings and big numbers, picture upload and icon library, free annotations, badges on bars, richer labels with live computed values, baseline-versus-new highlighting for GIFs); Stage 3 alluvial from a plain table (pick columns as stages, rows counted) and presets for the target looks (energy flows, alluvial columns with icons, recirculation loops, ranked streams).

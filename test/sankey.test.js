@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 LFC Foundry. MIT License. The improved river layout: every link is drawn, band thickness is the flow everywhere, loops are bands, weighted order beats plain order. */
+/* Copyright (c) 2026 LFC Foundry. MIT License. The improved sankey layout: every link is drawn, band thickness is the flow everywhere, loops are bands, weighted order beats plain order. */
 'use strict';
 global.NFMColumns = require('../src/columns.js'); global.NFMImport = require('../src/importers.js');
 const E = require('../src/engine.js'), SK = require('../src/sankey.js'), X = require('../src/examples.js');
@@ -12,8 +12,8 @@ function synth(nl, per, seed, loops) {
   for (let q = 0; q < loops; q++) { const a = 2 + Math.floor(r() * (nl - 2)); rows.push(`S${a} i${Math.floor(r() * per)},S${Math.floor(r() * a)} i${Math.floor(r() * per)},3`); }
   return rows.join('\n');
 }
-const river = (g) => E.build(g, { view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group' });
-const net = () => river(NFMImport.importDelimited(synth(7, 10, 5, 3), ',').graph);
+const sankey = (g) => E.build(g, { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group' });
+const net = () => sankey(NFMImport.importDelimited(synth(7, 10, 5, 3), ',').graph);
 
 t('layering: a simple chain gets one layer per step, a cycle gets exactly one backward link', () => {
   const r = SK.layering(4, [{ from: 0, to: 1, flow: 5 }, { from: 1, to: 2, flow: 5 }, { from: 2, to: 3, flow: 5 }, { from: 2, to: 0, flow: 1 }], true);
@@ -52,17 +52,17 @@ t('weighted order has fewer weighted crossings than plain order on the same layo
 t('same input, same picture', () => { const L = net(); ok(JSON.stringify(SK.layout(L).bands) === JSON.stringify(SK.layout(L).bands), 'differs'); });
 t('the examples lay out without trouble and draw all their flow', () => {
   ['itself', 'pipeline', 'story', 'states'].forEach((id) => {
-    const ex = X.LIST.find((x) => x.id === id).load(), L = E.build(ex.graph, id === 'story' ? { view: 'river', colorBy: 'odds', wantFlow: true } : { view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group' });
+    const ex = X.LIST.find((x) => x.id === id).load(), L = E.build(ex.graph, id === 'story' ? { view: 'sankey', colorBy: 'odds', wantFlow: true } : { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group' });
     const R = SK.layout(L), m = SK.measure({ bands: R.bands, loops: R.loops, nodes: R.nodes, height: R.height, width: R.width }, (ei) => L.edges[ei].flow);
     ok(m.drawnShare > 0.999 && m.widthSpread < 1.01, id + ': drawn ' + m.drawnShare + ' spread ' + m.widthSpread);
   });
 });
-t('a big network stays quick', () => { const L = river(NFMImport.importDelimited(synth(10, 25, 5, 5), ',').graph), t0 = Date.now(); SK.layout(L); ok(Date.now() - t0 < 1500, 'took ' + (Date.now() - t0) + ' ms'); });
+t('a big network stays quick', () => { const L = sankey(NFMImport.importDelimited(synth(10, 25, 5, 5), ',').graph), t0 = Date.now(); SK.layout(L); ok(Date.now() - t0 < 1500, 'took ' + (Date.now() - t0) + ' ms'); });
 
-/* ---- the River view inside the app: hand placement, remembered order, the drawing and clicking ---- */
+/* ---- the Sankey view inside the app: hand placement, remembered order, the drawing and clicking ---- */
 global.NFMSankey = SK; const SC = require('../src/scene.js');
-const live = (extra) => { const ex = X.LIST.find((x) => x.id === 'states').load(); return E.build(ex.graph, Object.assign({ view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group', sk: {} }, extra || {})); };
-t('the engine lays the River picture out with the Sankey layout when asked, and bars come back with positions', () => {
+const live = (extra) => { const ex = X.LIST.find((x) => x.id === 'states').load(); return E.build(ex.graph, Object.assign({ view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group', sk: {} }, extra || {})); };
+t('the engine lays the Sankey picture out with the Sankey layout when asked, and bars come back with positions', () => {
   const L = live(); ok(L.sk && L.sk.bands.length > 5, 'no layout'); ok(L.nodes.every((n) => n.h > 0 && n.w > 0 && isFinite(n.y)), 'bars without a place');
   ok(L.sk.order.layers.length === L.sk.cols, 'order'); ok(L.width > 300 && L.height > 100, 'size');
 });
@@ -76,7 +76,7 @@ t('with a remembered order the same picture comes back exactly, and a bar put by
 });
 t('an order from other data is ignored instead of breaking the picture', () => { const L = live({ sk: { order: { layers: [['nope']], loops: [] } } }); ok(L.sk.bands.length > 5, 'no picture'); });
 t('the picture is drawn from the layout: bands, gradient ends, loops as wide curves, labels, and every flow can be clicked', () => {
-  const ex = X.LIST.find((x) => x.id === 'pipeline').load(), L = E.build(ex.graph, { view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group', sk: {} });
+  const ex = X.LIST.find((x) => x.id === 'pipeline').load(), L = E.build(ex.graph, { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group', sk: {} });
   const S1 = SC.make(L, { theme: 'light', colorBy: 'group', sk: { color: 'gradient', opacity: 0.5 }, edgeValueLabels: true });
   ok(S1.ribbons.length === L.sk.bands.length && S1.ribbons.every((r) => r.color2), 'gradient ribbons'); ok(S1.curves.filter((c) => c.loop).length === L.sk.loops.length && L.sk.loops.length > 0, 'loops');
   ok(S1.labels.some((l) => l.node >= 0) && S1.labels.some((l) => l.edge >= 0), 'labels');

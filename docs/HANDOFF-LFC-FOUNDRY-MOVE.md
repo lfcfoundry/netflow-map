@@ -16,21 +16,21 @@ Owner: JNFoo ("JNFoo", GitHub user `JNFoo`). He is not a programmer. He wants wo
 
 ## 1. What Net Flow Map is
 
-One file, `index.html`, that works offline. You bring a table, a JSON graph, an outline, a zip, a folder of notes or a graph file, and it shows how everything connects. Six tabs: Data, Nodes, Map (nine views including 3D networks you can turn, and River/Sankey), Check, Advanced (Monte Carlo simulation up to 100,000 walkers), Export (JSON, CSV, SVG, PNG, poster, GIF, one-page HTML report). Nothing is uploaded. `README.md` has the full feature list.
+One file, `index.html`, that works offline. You bring a table, a JSON graph, an outline, a zip, a folder of notes or a graph file, and it shows how everything connects. Six tabs: Data, Nodes, Map (nine views including 3D networks you can turn, and Sankey/Sankey), Check, Advanced (Monte Carlo simulation up to 100,000 walkers), Export (JSON, CSV, SVG, PNG, poster, GIF, one-page HTML report). Nothing is uploaded. `README.md` has the full feature list.
 
 It is **its own product** (owner, 2026-10-17). It grew from the Story Editor's story map but heads in a different direction. Never push Net Flow Map code, files or generated output into the Story Editor repository, and never set up anything that copies, syncs or builds Net Flow Map changes there. The move to LFC Foundry must not create such a link.
 
 ## 2. Repository inventory (2026-10-17)
 
 - Remote today: `https://github.com/JNFoo/net-flow-map`, branch `main`, 95+ commits, all authored and committed by `JNFoo <45110762+JNFoo@users.noreply.github.com>`, 178+ tracked files. Check with `git rev-list --count HEAD` and `git ls-files | wc -l`.
-- Large tracked files: `index.html` (about 724 KB, version stamp in the file, currently `2026.10.17.1256`), `bench/net-flow-map-tester.html` (about 632 KB), `bench/net-flow-map-river.html` (about 424 KB). These are BUILD OUTPUTS that are committed on purpose (the owner opens them directly). `.git` is small (tens of MB); no Git LFS is used, and none is needed at these sizes.
+- Large tracked files: `index.html` (about 724 KB, version stamp in the file, currently `2026.10.17.1256`), `bench/net-flow-map-tester.html` (about 632 KB), `bench/net-flow-map-sankey.html` (about 424 KB). These are BUILD OUTPUTS that are committed on purpose (the owner opens them directly). `.git` is small (tens of MB); no Git LFS is used, and none is needed at these sizes.
 - `.gitignore`: `index.packed.html`, `bench/dist/`, `bench/node_modules`, `bench/results/*.tmp`.
 - Folders:
 
 | Folder | What is in it |
 |---|---|
 | `src/` | The program. `engine.js` (layout and analysis, also runs in a Web Worker), `engine-client.js`, `scene.js`, `render.js` (three drawing backends: WebGL 2, WebGPU, basic canvas), `importers.js`, `columns.js`, `sim.js`, `sankey.js`, `gpustress.js` (WebGPU layout compute), `probe.js` (self-test and timing), `tune.js`, `gif.js`, `pack.js`/`unpack.js`, `check.js`, `examples.js`, `app.css`, `index.template.html`, and `src/app/*.js` (the page, numbered files joined in order: `00-core` to `99-boot`). |
-| `tools/` | `build.mjs` (makes `index.html`), `build-tester.mjs` (makes the tester), `build-sankey-lab.mjs` (makes the River lab page), `hooks/` (house-rule git hooks). |
+| `tools/` | `build.mjs` (makes `index.html`), `build-tester.mjs` (makes the tester), `build-sankey-lab.mjs` (makes the Sankey lab page), `hooks/` (house-rule git hooks). |
 | `test/` | About 20 Node test files, `browser.test.js` (runs in Firefox, Chromium, WebKit), `fuzz.browser.js`, `all.js` (runner), `baseline.js` and `baseline.json` (per-browser minimum pass counts). |
 | `bench/` | Benchmarks, `gen.js` (data generator), `tester/` (source of the tester page), `webkit-driver.js`, `results/` (JSON from runs), `memory/` (the 100,000-item memory-compression benchmarks), `wasm/` (experiments), `sankey/`. |
 | `docs/` | `BENCHMARKS.md`, `FLAKES.md`, `MEMORY-AT-100K.md`, `QA-SPEED-GUIDE.md`, `SANKEY.md`, three `RESEARCH-*.md` files, and the two handoffs. |
@@ -63,7 +63,7 @@ Needs Node 22. Browser runs need the three browsers from the `browsers` branch (
 |---|---|
 | Build the page | `node tools/build.mjs` (writes `index.html`; add `--pack` for the packed copy `index.packed.html`, which is gitignored) |
 | Build the tester | `node tools/build-tester.mjs` (writes `bench/net-flow-map-tester.html`) |
-| Build the River lab page | `node tools/build-sankey-lab.mjs` |
+| Build the Sankey lab page | `node tools/build-sankey-lab.mjs` |
 | Rebuild the WebAssembly helper | `sh wasm/build.sh && python3 wasm/embed.py && node tools/build.mjs` (needs clang with wasm32 and wasm-ld; two builds give the same bytes) |
 | While working | `node test/all.js --changed` (or `--only=REGEX`) |
 | One browser, when a change is done | `NFM_TIMES=1 node test/browser.test.js firefox` (also `chromium`, `webkit`, `epiphany`); `NFM_BLESS=1` rewrites the baseline when a check was added on purpose |
@@ -84,7 +84,7 @@ Engine (`src/engine.js`): `prepare` (flat arrays; reads a LIST of link filters, 
 Big 3D maps: the picture is uploaded to the graphics card once and each frame sends only camera numbers (the "rig": `makeRig`, `attachTurn`, `S.turnTo`, `drawRig`, `rigWarm`). Zooming and panning ride the same path (`requestDraw` in `src/app/30-map.js`); rebuilding the full scene after movement was removed because it froze the next drag.
 Drawing backends: WebGL 2 first, WebGPU second, basic canvas last (`Manager.order` in `src/render.js`). WebGPU **drawing** showed random 200 to 350 ms pauses on the owner's laptop, so it is off by default (`NFMRender.setWebGPUDrawing`) and the tester no longer tests it. WebGPU **compute** (`src/gpustress.js`) is still used for layout math and falls back to the processor on any failure. `destroy()` must destroy every buffer one by one and call `device.destroy()` last.
 WebAssembly: `wasm/force.c` is a line-for-line port of `forceSim`'s rounds; `src/engine.js` carries its bytes between `WASM:BEGIN` and `WASM:END`; the JavaScript `forceSimJs` stays the fallback. If you change `forceSimJs` you change `force.c` the same way; `test/force-wasm.test.js` must show a largest position difference of 0.
-River (Sankey): `src/sankey.js` plus `src/app/33-sankey.js`; the engine calls it when the page passes `sk`.
+Sankey: `src/sankey.js` plus `src/app/33-sankey.js`; the engine calls it when the page passes `sk`.
 Memory at 100,000 items: see `docs/MEMORY-AT-100K.md` and the second handoff.
 
 ## 6. Decisions the owner made (do not reopen without asking)
@@ -113,7 +113,7 @@ I could not do any of this from the container (section 0). The owner or a contex
 **After the move (do all of these)**
 1. New remote: `git remote set-url origin https://github.com/lfcfoundry/<name>.git`; `git fetch`; `git status` shows `main` tracking `origin/main`.
 2. Re-run `sh tools/hooks/install.sh` in every clone and confirm `git config user.name` / `user.email` give the JNFoo identity (the hook checks author AND committer).
-3. Update the four places that name the old address: `src/index.template.html` line 8 (the comment) and line 70 (the visible credit link), then rebuild with `node tools/build.mjs`; `docs/QA-SPEED-GUIDE.md` line 3; `docs/HANDOFF-MEMORY-COMPRESSION.md` (its repository name in the first paragraph and the table). Rebuild the tester and the River lab page too (`node tools/build-tester.mjs`, `node tools/build-sankey-lab.mjs`) so their embedded copies carry the new link. Add a CHANGELOG row (US Eastern stamp, browsers used and not used). Also `vendor/back-close.js` line 4 names the old `JNFoo/JS-modules` address; JS-modules now lives at `lfcfoundry/JS-modules`; update the comment only if you are touching that file anyway.
+3. Update the four places that name the old address: `src/index.template.html` line 8 (the comment) and line 70 (the visible credit link), then rebuild with `node tools/build.mjs`; `docs/QA-SPEED-GUIDE.md` line 3; `docs/HANDOFF-MEMORY-COMPRESSION.md` (its repository name in the first paragraph and the table). Rebuild the tester and the Sankey lab page too (`node tools/build-tester.mjs`, `node tools/build-sankey-lab.mjs`) so their embedded copies carry the new link. Add a CHANGELOG row (US Eastern stamp, browsers used and not used). Also `vendor/back-close.js` line 4 names the old `JNFoo/JS-modules` address; JS-modules now lives at `lfcfoundry/JS-modules`; update the comment only if you are touching that file anyway.
 4. `AGENTS.md` mentioned the knowledgebase (the `browsers` branch and the QA guide) twice. Done: the owner moved it on 2026-10-17 to `lfcfoundry/knowledge-base` (private) and both mentions now use that address. Also `bench/webkit-driver.js` must stay identical to `tools/webkit-driver` in `lfcfoundry/JS-modules`.
 5. Check in the organization: who has write access, default branch is `main`, branch protection (it must NOT block the owner's rebase-then-push flow, and force-push stays off), whether Pages or Actions are wanted (none exist today; the project has no CI, no package publishing, no secrets), the repository description and topics (none today).
 6. If a Claude Code web session is used afterward, the new repository has to be attached to that session; this container could only reach `JNFoo/net-flow-map`. The tool for it is `add_repo` with owner and repo; do not pre-check with curl.
@@ -125,7 +125,7 @@ I could not do any of this from the container (section 0). The owner or a contex
 
 ## 8. Open items (nothing here is started unless it says so)
 
-1. **River (Sankey) Stage 1** shipped on 2026-10-15 (`docs/SANKEY.md`, CHANGELOG row `2026.10.15.2016`). The owner's feedback on it has not arrived. Stage 2 (infographics: stage headings and big numbers, picture upload and icon library, free annotations, badges on bars, richer labels with live computed values, baseline-versus-new highlighting for GIFs) and Stage 3 (alluvial from a plain table, presets for target looks) are NOT started. Use AskUserQuestion before starting either.
+1. **Sankey Stage 1** shipped on 2026-10-15 (`docs/SANKEY.md`, CHANGELOG row `2026.10.15.2016`). The owner's feedback on it has not arrived. Stage 2 (infographics: stage headings and big numbers, picture upload and icon library, free annotations, badges on bars, richer labels with live computed values, baseline-versus-new highlighting for GIFs) and Stage 3 (alluvial from a plain table, presets for target looks) are NOT started. Use AskUserQuestion before starting either.
 2. **Memory-compression work** (`docs/HANDOFF-MEMORY-COMPRESSION.md`): waiting for the next module version and for a decision whether to prototype holding the old layout packed.
 3. **The new WebAssembly-powered app work** the owner mentioned is "in the pipeline" in another context. Do not duplicate it: read `git log` and the newest CHANGELOG rows first. What is already on `main`: Force rounds in WebAssembly (7,260 bytes; same positions to the last digit; 1.1 to 2.1 times faster; 150 items or more; JavaScript fallback), Closeness without fixed `Math.pow` calls, sparse simulator bookkeeping (8 to 10 s down to 0.1 to 0.3 s for 1,000 runs on a 100,000-item tree). 100,000 items in WebAssembly Force: not measured (about a minute in JavaScript).
 4. **Zoom-out draw cost** at 100,000 items is unmeasured (the tester has no zoomed-out rows).
