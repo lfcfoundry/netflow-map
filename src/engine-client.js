@@ -57,9 +57,22 @@ var NFMEngineClient = (function () {
       default: throw new Error('Unknown job: ' + d.type);
     }
   }
-  var WORKER_MAIN = '\nvar dispatch = ' + dispatch.toString() + '\nvar __st={G:null,ver:-1,P:null,sim:null};var __API={E:NFMEngine,SIM:NFMSim,CHK:NFMCheck,C:NFMColumns};self.onmessage=function(e){var d=e.data;try{' +
+  /* A small made-up network (600 items, six communities) laid out once in an idle worker so the browser has already sped up the layout code (the WebAssembly Force rounds take about 300 to 400 ms to speed up in Chromium) before the first real map arrives. It never touches the worker's real graph. */
+  function warmBuild(API) {
+    var s = 7, r = function () { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; }, n = 600, per = 100, nodes = [], edges = [], seen = {}, i, j, k, t;
+    var add = function (a, b) { if (a === b || seen[a + '>' + b]) return; seen[a + '>' + b] = 1; edges.push({ from: 'w' + a, to: 'w' + b, label: '', kind: '', attrs: {} }); };
+    for (i = 0; i < n; i++) nodes.push({ id: 'w' + i, label: 'w' + i, group: '', valence: '', ghost: false, attrs: {} });
+    for (j = 0; j < n; j++) {
+      k = 2 + Math.floor(r() * 3);
+      while (k--) { t = Math.floor(j / per) * per + Math.floor(r() * per); add(j, t); }
+      if (r() < 0.12) add(j, Math.floor(r() * n));
+    }
+    return API.E.build(API.C.derive({ name: 'warm', start: null, nodes: nodes, edges: edges }), { view: 'network', colorBy: 'group' });
+  }
+  var WORKER_MAIN = '\nvar warmBuild = ' + warmBuild.toString() + '\nfunction __warm(){warmBuild(__API);}\nvar dispatch = ' + dispatch.toString() + '\nvar __st={G:null,ver:-1,P:null,sim:null};var __API={E:NFMEngine,SIM:NFMSim,CHK:NFMCheck,C:NFMColumns};self.onmessage=function(e){var d=e.data;try{' +
     'if(d.type==="graph"){__st.G=NFMColumns.derive(d.graph);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
     'if(d.type==="ping"){self.postMessage({id:d.id,ok:true,result:"pong"});return;}' +
+    'if(d.type==="warm"){var w0=Date.now();__warm();self.postMessage({id:d.id,ok:true,result:"warm",ms:Date.now()-w0});return;}' +
     'if(d.ver!==__st.ver)throw new Error("The worker has an older copy of the data.");' +
     'var t0=Date.now();var r=dispatch(d,__st,__API);var tr=[];' +
     'try{var pk=NFMPack.packResult(r,tr);r=pk;}catch(pe){tr=[];}' +   // big layouts travel as typed arrays (src/pack.js); any trouble: send the objects as they are
@@ -71,6 +84,7 @@ var NFMEngineClient = (function () {
     this.ver = 0; this.graph = null; this.queue = null; this.busy = null; this.why = '';
     /* Parking (off unless the page sets parkAfter): when nothing has been asked for parkAfter ms, a big graph's worker is ended, which frees the graph copy and everything else it holds; the next job starts a fresh worker and sends the graph again. */
     this.parkAfter = 0; this.parkMin = 20000; this.parked = false; this.parks = 0; this.unparks = 0; this.unparkMs = 0; this.parkTimer = null; this.holdIf = null; this.keepWarm = false;
+    this.warmAfter = 1500; this.warmed = false; this.warmTimer = null;
   }
   Client.prototype.start = function () {
     var self = this;
@@ -82,9 +96,20 @@ var NFMEngineClient = (function () {
         URL.revokeObjectURL(url);
         self.attach(self.w, function (ev) { fallback('The worker could not start (' + (ev && ev.message || 'blocked') + ').'); });
         var t = setTimeout(function () { if (self.mode === 'starting') fallback('The worker did not answer in time.'); }, 3000);
-        self.call({ type: 'ping' }).then(function () { clearTimeout(t); if (self.mode === 'starting') { self.mode = 'worker'; resolve(self); } }, function () { clearTimeout(t); fallback('The worker test failed.'); });
+        self.call({ type: 'ping' }).then(function () { clearTimeout(t); if (self.mode === 'starting') { self.mode = 'worker'; self.armWarm(); resolve(self); } }, function () { clearTimeout(t); fallback('The worker test failed.'); });
       } catch (err) { fallback(String(err && err.message || err)); }
     });
+  };
+  /** Once, a little after the worker starts, if it is still idle: lay out a small made-up map in it so the first real map does not pay for the browser speeding the layout code up. A real job that arrives first simply does that speeding up itself. */
+  Client.prototype.armWarm = function (delay) {
+    var self = this;
+    if (this.warmed || this.warmTimer || !(this.warmAfter > 0 || delay > 0)) return;
+    this.warmTimer = setTimeout(function () {
+      self.warmTimer = null;
+      if (self.warmed || self.mode !== 'worker' || !self.w || self.parked || self.busy || self.pending.size) return;
+      self.warmed = true;
+      self.rawCall({ type: 'warm' }).then(function () { /* done */ }, function () { /* the warm-up is only a help */ });
+    }, delay || this.warmAfter);
   };
   /** Hooks a worker's events up to this client. startFail is called for an error while the client is still starting. */
   Client.prototype.attach = function (w, startFail) {
@@ -106,7 +131,7 @@ var NFMEngineClient = (function () {
     var p = this.pending.get(d.id);
     if (!p) return;
     this.pending.delete(d.id);
-    if (d.ok) p.resolve(d.result === true || d.result === 'pong' ? d.result : { L: typeof NFMPack !== 'undefined' ? NFMPack.unpackResult(d.result) : d.result, ms: d.ms }); else p.reject(new Error(d.error));
+    if (d.ok) p.resolve(d.result === true || d.result === 'pong' || d.result === 'warm' ? d.result : { L: typeof NFMPack !== 'undefined' ? NFMPack.unpackResult(d.result) : d.result, ms: d.ms }); else p.reject(new Error(d.error));
   };
   Client.prototype.call = function (msg) {
     var self = this;
@@ -247,6 +272,6 @@ var NFMEngineClient = (function () {
   Client.prototype.simRun = function (trials, budgetMs) { return this.run('simRun', null, { trials: trials, budgetMs: budgetMs }); };
   Client.prototype.simExact = function (spec, prep) { return this.run('simExact', null, { spec: spec, prep: prep }); };
   Client.prototype.sweep = function (spec, prep, sweep) { return this.run('sweep', null, { spec: spec, prep: prep, sweep: sweep }); };
-  return { Client: Client };
+  return { Client: Client, workerMain: WORKER_MAIN };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMEngineClient;
