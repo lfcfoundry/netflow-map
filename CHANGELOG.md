@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39,
 
 ## October 18
 
+- **2026.10.18.1823** New arrangement: Distances 3D. The Network view can now lay a map out in 3D with the Distances method (turn it by dragging). Compared with the flat Distances it is truer at every size (hop error 0.117 against 0.177 at 30,000 items; lower is truer) and builds in 0.9 s at 30,000 items, 3.2 times faster than 3D force.
 - **2026.10.18.1411** The Sankey view now uses the shared netflow-sankey module (2.2.1). Pictures are the same. The page file grows 0.8%.
 - **2026.10.18.1259** New Spacing switch for Flow, Top-down, Spine and Lanes: Tight (as before) or Wide (looser, more tree-like, easier to read on a wide screen).
 - **2026.10.18.1246** Sankey on a big network no longer shows "NaN" for its crossing count.
