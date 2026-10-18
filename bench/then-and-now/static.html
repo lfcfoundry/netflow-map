@@ -36,7 +36,7 @@
 </tbody></table></div>
 <p>Before the compressor, the page used about the same memory as the first version at these sizes, a little more right after building because the app now keeps more (chapters, mini-map, link look-up).</p>
 
-<h3>With the compressor (memory-compression 2.0.1), Chromium 155 exact page heap</h3>
+<h3>With the compressor (numbers measured with memory-compression 2.0.1; this page now ships 2.0.2, which only adds the eval-skip switch and fixes), Chromium 155 exact page heap</h3>
 <p class="small mut">Same map left alone for 9 seconds, build before the compressor against the build with it, in MB (lower is better). Flat Force map, the layout's link list packed while idle; the picture was compared byte for byte before and after and does not differ.</p>
 <div class="card scroll"><table>
 <thead><tr><th>Map</th><th>Without</th><th>With the compressor</th><th>Change</th><th>Cost to wake the links</th></tr></thead>

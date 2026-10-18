@@ -22,9 +22,9 @@ label{display:inline-flex;gap:.4em;align-items:center;margin-left:1em}
 </head>
 <body>
 <main>
-<!-- Netflow Map first version vs now, 2026.10.18.0830. Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry. https://github.com/lfcfoundry/netflow-map -->
+<!-- Netflow Map first version vs now, 2026.10.18.0950. Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry. https://github.com/lfcfoundry/netflow-map -->
 <h1>Netflow Map: first version vs now</h1>
-<p class="mut">Lays out the same maps with the very first Netflow Map (2026.10.14.2136, then called Net Flow Map) and with the version in this page (2026.10.18.0830, with every update since), taking turns, and tells you in plain words what changed. Nothing leaves this page.</p>
+<p class="mut">Lays out the same maps with the very first Netflow Map (2026.10.14.2136, then called Net Flow Map) and with the version in this page (2026.10.18.0950, with every update since), taking turns, and tells you in plain words what changed. Nothing leaves this page.</p>
 <p><button id="go">Run the comparison</button><label class="small"><input type="checkbox" id="quick"> Quick (one run each, rougher numbers)</label><label class="small"><input type="checkbox" id="big" checked> Include the big maps (up to 30,000 items)</label><label class="small"><input type="checkbox" id="huge"> Include the huge map (100,000 items; slow, and needs about 2 GB free)</label></p>
 <div class="bar"><i id="fill"></i></div>
 <p id="state" class="mut small">Ready. This takes a few minutes and keeps one extra browser worker busy at a time. Close other heavy tabs for the steadiest numbers.</p>
@@ -36,7 +36,7 @@ label{display:inline-flex;gap:.4em;align-items:center;margin-left:1em}
   <p class="mut small">"Typical" is the middle of the runs, "best" the fastest. Lower is better in every time column. "Times faster" is typical first version divided by typical now (higher is better). A run that passed the time limit was stopped and counts as the limit, so those rows say "at least".</p>
   <div class="card scroll"><table id="tbl"></table></div>
   <h2>Idle memory of the layout links (what the compressor does)</h2>
-  <p class="mut small">The first version keeps every link of a finished layout as a plain object. Now, once a big map has been left alone for 4 seconds, the links are packed by memory-compression 2.0.1 and the objects are let go. "As objects" is an estimate (a rule of thumb, usually within a third); "packed" is the real size of the packed bytes. Lower is better in every size and time column. "Exact" says every link came back with the same values. These maps are made up and very regular, so they pack far better than real data usually does; real data will be less dramatic.</p>
+  <p class="mut small">The first version keeps every link of a finished layout as a plain object. Now, once a big map has been left alone for 4 seconds, the links are packed by memory-compression 2.0.2 and the objects are let go. "As objects" is an estimate (a rule of thumb, usually within a third); "packed" is the real size of the packed bytes. Lower is better in every size and time column. "Exact" says every link came back with the same values. These maps are made up and very regular, so they pack far better than real data usually does; real data will be less dramatic.</p>
   <div class="card scroll"><table id="mtbl"></table></div>
   <h2>Copy the results</h2>
   <p><button id="copy" class="sec">Copy results</button> <span id="copied" class="small mut"></span></p>
@@ -81,7 +81,7 @@ label{display:inline-flex;gap:.4em;align-items:center;margin-left:1em}
 </tbody></table></div>
 <p>Before the compressor, the page used about the same memory as the first version at these sizes, a little more right after building because the app now keeps more (chapters, mini-map, link look-up).</p>
 
-<h3>With the compressor (memory-compression 2.0.1), Chromium 155 exact page heap</h3>
+<h3>With the compressor (numbers measured with memory-compression 2.0.1; this page now ships 2.0.2, which only adds the eval-skip switch and fixes), Chromium 155 exact page heap</h3>
 <p class="small mut">Same map left alone for 9 seconds, build before the compressor against the build with it, in MB (lower is better). Flat Force map, the layout's link list packed while idle; the picture was compared byte for byte before and after and does not differ.</p>
 <div class="card scroll"><table>
 <thead><tr><th>Map</th><th>Without</th><th>With the compressor</th><th>Change</th><th>Cost to wake the links</th></tr></thead>
@@ -399,7 +399,7 @@ function report(turns) {
   $('verdict').innerHTML = (best ? '<li>Biggest gain: ' + best.html + '</li>' : '') + verdict.slice(1).map(function (v) { return '<li>' + v.html + '</li>'; }).join('') +
     '<li class="mut">Layout is only part of what changed. Memory, the first hover on a flat map, drawing speed and the features added since are in the box at the bottom, measured in my test browsers.</li>';
   var env = 'Browser: ' + navigator.userAgent + '; cores: ' + (navigator.hardwareConcurrency || '?') + (navigator.deviceMemory ? '; memory hint: ' + navigator.deviceMemory + ' GB' : '') + '; ' + turns + ' turn(s) each, taking turns.';
-  var txt = ['Netflow Map: first version (2026.10.14.2136) vs now (2026.10.18.0830)', env, '', 'Layout time, lower is better; times faster, higher is better.', ''].concat(md, ['', 'Verdict:'], verdict.map(function (v) { return '- ' + v.text; })).join('\n');
+  var txt = ['Netflow Map: first version (2026.10.14.2136) vs now (2026.10.18.0950)', env, '', 'Layout time, lower is better; times faster, higher is better.', ''].concat(md, ['', 'Verdict:'], verdict.map(function (v) { return '- ' + v.text; })).join('\n');
   $('txt').value = txt; $('env').textContent = env; $('out').hidden = false;
 }
 $('go').addEventListener('click', function () { try { if (!URLS) URLS = { old: blobUrl('src-old-engine', 'src-old-scene'), now: blobUrl('src-new-engine', 'src-new-scene') }; go(); } catch (e) { $('state').textContent = 'Could not start: ' + e.message; $('go').disabled = false; } });
