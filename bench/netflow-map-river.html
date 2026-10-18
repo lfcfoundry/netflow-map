@@ -18,7 +18,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>River before and after</h1>
-<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (first picture) and with the improved layout (second picture), then measured the same way. Each picture fits inside its frame; scroll to zoom, drag to move, or open it full size. Nothing is sent anywhere. Version 2026.10.17.2238.</p>
+<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (first picture) and with the improved layout (second picture), then measured the same way. Each picture fits inside its frame; scroll to zoom, drag to move, or open it full size. Nothing is sent anywhere. Version 2026.10.17.2329.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>Summary</h2><p id="finalsay"></p>
@@ -2193,7 +2193,7 @@ var NFMImport = (function () {
  * Copyright (c) 2026 LFC Foundry. MIT License.
  *
  * Starts from the layered / arc / matrix / shape drawings, choke points, traffic and drawing scores of the Story Editor's
- * map (p-see-story-editor/editor/maplayout.js, MIT, copied and generalized; there is no dependency on it) and adds:
+ * map (story-editor/editor/maplayout.js, MIT, copied and generalized; there is no dependency on it) and adds:
  *   - typed-array graph storage (compressed rows), so a big network is a few flat arrays
  *   - choke points as a dominator tree (Cooper-Harvey-Kennedy), same answers as the editor's remove-and-search rule, much faster
  *   - traffic in log space (no overflow on thousands of stacked split-and-rejoin diamonds)
@@ -7119,7 +7119,7 @@ var NFMSankey = (function () {
  * side by side, measures both with the same yardstick, and says in plain words which is better. Runs by itself when the page opens. */
 (function () {
   'use strict';
-  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NFMSankey, VERSION = '2026.10.17.2238';
+  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NFMSankey, VERSION = '2026.10.17.2329';
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
   var $ = function (id) { return document.getElementById(id); }, esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var r1 = function (v) { return Math.round(v * 10) / 10; }, r2 = function (v) { return Math.round(v * 100) / 100; };
