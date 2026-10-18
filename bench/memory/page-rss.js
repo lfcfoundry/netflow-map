@@ -24,6 +24,36 @@ const rss = (pid0) => { const all = {}; for (const d of fs.readdirSync('/proc'))
   await page.evaluate((n) => { NFM.setGraph(NFMExamples.bigNetwork(n, 12, 7)); NFM.setV({ view: 'network', arrange: 'sphere' }); }, N);
   await page.waitForFunction((n) => NFM.state.L && NFM.state.sceneOk && NFM.state.L.nodes.length > n * 0.98, { timeout: 240000 }, N);
   const tDone = Date.now() - t0; await new Promise((r) => setTimeout(r, 1500)); mark('3D network shown', tDone);
+  if (process.env.NFM_PARKCHECK) {   /* the real idle worker park: memory while idle (NFM_NOPARK=1 turns it off in the page), then the cost of the next layout, which restarts the worker */
+    if (process.env.NFM_NOPARK) await page.evaluate(() => { const c = NFM.client(); c.parkAfter = 0; if (c.parkTimer) { clearTimeout(c.parkTimer); c.parkTimer = null; } });
+    await new Promise((r) => setTimeout(r, 2000)); mark('idle 2 s');
+    await new Promise((r) => setTimeout(r, 6000)); const ps = await page.evaluate(() => { const c = NFM.client(); return { parked: c.parked, parks: c.parks }; }); mark('idle 8 s (worker parked: ' + ps.parked + ')');
+    const seq0 = await page.evaluate(() => NFM.state.mapSeq), t1 = Date.now();
+    await page.evaluate(() => { NFM.setV({ arrange: 'circle' }); });
+    await page.waitForFunction((q) => NFM.state.mapSeq > q && NFM.state.sceneOk && !NFM.state.mapBusy && NFM.state.L, { timeout: 240000 }, seq0); const tNext = Date.now() - t1;
+    const un = await page.evaluate(() => { const c = NFM.client(); return { unparks: c.unparks, unparkMs: c.unparkMs }; }); await new Promise((r) => setTimeout(r, 1500)); mark('after the next layout (a different arrangement)', tNext);
+    console.log('worker restart:', JSON.stringify(un)); console.log('step'.padEnd(44) + ' whole browser  content process'); console.log(out.join('\n')); await b.close(); return;
+  }
+  if (process.env.NFM_PARKL) {   /* what would parking the layout (nodes and links packed by the compressor, the objects let go) give? needs NFM_COMPRESSOR = path to memory-compression-jso.js */
+    await page.evaluate((src) => { const el = document.createElement('script'); el.textContent = src; document.head.appendChild(el); }, fs.readFileSync(process.env.NFM_COMPRESSOR, 'utf8'));   /* an inline script, so the page's own policy (no eval) applies to it, as it will in the app */
+    await new Promise((r) => setTimeout(r, 4000)); mark('idle 4 s later (layout still held)');
+    const info2 = await page.evaluate(() => { const S = NFM.state, L = S.L, K = MemoryCompressionJSO.keeper({ mode: 'fast', refs: true }); const t0 = performance.now();
+      const a = K.hold('nodes', L.nodes), b = K.hold('links', L.edges); const ms = performance.now() - t0; const m = K.memory();
+      window.__K = K; window.__keep = { n: L.nodes.length, e: L.edges.length }; const shell = {}; for (const k in L) if (k !== 'nodes' && k !== 'edges') shell[k] = L[k]; shell.nodes = []; shell.edges = []; S.L = shell; return { packMs: Math.round(ms), packedMB: +(m.packed / 1e6).toFixed(1), items: window.__keep }; });
+    console.log('parked layout:', JSON.stringify(info2));
+    await new Promise((r) => setTimeout(r, 4000)); mark('4 s after letting go of the layout objects');
+    await new Promise((r) => setTimeout(r, 4000)); mark('8 s after');
+    const back = await page.evaluate(async () => { try { const t0 = performance.now(); const nodes = await window.__K.restore('nodes'), links = await window.__K.restore('links'); return { ms: Math.round(performance.now() - t0), nodes: nodes.length, links: links.length }; } catch (e) { return { error: String(e && e.message), stack: String(e && e.stack).split('\n').slice(0, 5).join(' | ') }; } });
+    console.log('restored:', JSON.stringify(back)); await new Promise((r) => setTimeout(r, 2000)); mark('after restoring both (kept alive in the page)');
+    console.log('step'.padEnd(44) + ' whole browser  content process'); console.log(out.join('\n')); await b.close(); return;
+  }
+  if (process.env.NFM_PARK) {   /* what would parking the engine worker (ending it; the next job starts a fresh one) give? memory before and after, same run */
+    await new Promise((r) => setTimeout(r, 4000)); mark('idle 4 s later (worker still alive)');
+    const wk = await page.evaluate(() => { const c = NFM.client(); const had = !!c.w; if (c.w) { c.w.terminate(); c.w = null; } return had; });
+    await new Promise((r) => setTimeout(r, 4000)); mark('4 s after ending the worker (had one: ' + wk + ')');
+    await new Promise((r) => setTimeout(r, 4000)); mark('8 s after ending the worker');
+    console.log('step'.padEnd(44) + ' whole browser  content process'); console.log(out.join('\n')); await b.close(); return;
+  }
   const info = await page.evaluate(() => ({ is3d: !!NFM.state.L.is3d, rig: !!(NFM.state.scene && NFM.state.scene.rig), items: NFM.state.L.nodes.length, links: NFM.state.L.edges.length }));
   await page.evaluate(() => { NFM.setV({ colorBy: 'group' }); }); await page.waitForFunction(() => NFM.state.sceneOk && !NFM.state.mapBusy, null, { timeout: 240000 }); await new Promise((r) => setTimeout(r, 2500)); mark('set-up: switched to plain groups (a full rebuild)');   /* the network starts on found groups, which the engine uses; the measured change below is then a look-only one */
   await page.evaluate(() => { window.__calls = { make: 0 }; const mk = NFMScene.make; NFMScene.make = function () { __calls.make++; return mk.apply(this, arguments); }; });   /* counts how many pictures the color change makes */
