@@ -26,7 +26,7 @@ const bad = (name, s) => { if (/<\/script|<!--/i.test(s)) throw new Error(name +
 const engine = jsMin(['src/columns.js', 'src/pack.js', 'src/sankey.js', 'vendor/netflow-layers.js', 'src/engine.js', 'src/sim.js', 'src/check.js'].map((p) => clean(rd(p))).join('\n'), 'engine'); bad('engine bundle', engine);
 const appParts = readdirSync(join(root, 'src/app')).filter((f) => f.endsWith('.js')).sort().map((f) => 'src/app/' + f);
 const appText = "/* ---- Netflow Map app (src/app/*.js, one function) ---- */\n(function () {\n'use strict';\n" + appParts.map((p) => { const s = rd(p); bad(p, s); return `/* ---- ${p} ---- */\n` + s; }).join('\n') + '\n})();';
-/* The page allows no eval (only 'wasm-unsafe-eval'). memory-compression 2.0.2 skips its `new Function` probe, and so logs no blocked-eval error, when this switch is set before the file loads. */
+/* The page allows no eval (only 'wasm-unsafe-eval'). memory-compression 2.0.2 and later skip their `new Function` probe, and so logs no blocked-eval error, when this switch is set before the file loads. */
 const noEval = (p, s) => p === 'vendor/memory-compression.js' ? "self.MEMORY_COMPRESSION_NO_EVAL = true;\n" + s : s;
 const scripts = jsMin(order.map((p) => { const s = clean(rd(p)); bad(p, s); return `/* ---- ${p} ---- */\n` + noEval(p, s); }).join('\n') + '\n' + appText, 'app'); bad('app bundle', scripts);
 const css = cssMin(rd('src/app.css')); bad('app.css', css);
