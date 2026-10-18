@@ -1,4 +1,4 @@
-// Builds the river before-and-after page: node tools/build-sankey-lab.mjs  ->  bench/netflow-map-river.html
+// Builds the sankey before-and-after page: node tools/build-sankey-lab.mjs  ->  bench/netflow-map-sankey.html
 // Copyright (c) 2026 LFC Foundry. MIT License.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -12,5 +12,5 @@ const clean = (s) => s.replace(/if \(typeof module !== 'undefined' && module\.ex
 const files = ['src/columns.js', 'src/importers.js', 'vendor/netflow-layers.js', 'src/engine.js', 'src/sim.js', 'src/check.js', 'src/examples.js', 'src/scene.js', 'src/sankey.js', 'bench/sankey/lab.js'];
 const code = files.map((f) => { const s = clean(rd(f)).replace(/__VERSION__/g, version); if (/<\/script|<!--/i.test(s)) throw new Error(f + ' contains a sequence that would break the page'); return `/* ---- ${f} ---- */\n${s}`; }).join('\n');
 const html = rd('bench/sankey/template.html').replace(/__VERSION__/g, version).replace('__SCRIPTS__', () => code);
-writeFileSync(join(root, 'bench/netflow-map-river.html'), html);
-console.log(`built bench/netflow-map-river.html ${(html.length / 1024) | 0} KB, version ${version}`);
+writeFileSync(join(root, 'bench/netflow-map-sankey.html'), html);
+console.log(`built bench/netflow-map-sankey.html ${(html.length / 1024) | 0} KB, version ${version}`);

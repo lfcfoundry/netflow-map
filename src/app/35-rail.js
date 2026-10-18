@@ -8,7 +8,7 @@ var VIEW_NOTES = {
   spine: ['Puts the places every route must pass on one line.', 'Side branches are squeezed; it needs a start and an end to mean much.'],
   lanes: ['One band per group, so you can see how routes cross between groups.', 'Needs two or more groups; items in several groups sit in the middle.'],
   shape: ['Names the stretches between choke points by their pattern.', 'Individual items are folded away.'],
-  river: ['Wider bands mean more of the flow takes that link.', 'Needs a start; small flows look like hairlines.'],
+  sankey: ['Wider bands mean more of the flow takes that link.', 'Needs a start; small flows look like hairlines.'],
   arc: ['Everything on one line, arcs show links; long arcs are long jumps.', 'Groups and direction are hard to see.'],
   matrix: ['A grid of who links to whom; patterns show clusters and loops without any crossing lines.', 'Paths are hard to follow by eye.'],
   network: ['Closeness on the page follows closeness in the data, so clusters show up.', 'Exact positions mean little; only closeness does. Dense data can look like a hairball, so try the strongest-links slider.']
@@ -17,7 +17,7 @@ function askList() {
   var st = S.story;
   return [['', 'Pick a question…', null, null],
     ['lead', 'How do things lead on from the start?', 'flow', 'group'], ['pass', 'What must everything pass through?', 'spine', 'choke'],
-    ['end', st ? 'Where do players end up, and how likely?' : 'Where does the flow end up, and how likely?', 'river', 'odds'],
+    ['end', st ? 'Where do players end up, and how likely?' : 'Where does the flow end up, and how likely?', 'sankey', 'odds'],
     ['outline', 'What is the big picture, in outline?', 'shape', 'group'], ['belong', 'Which ' + word('items') + ' belong together?', 'network', 'found'],
     ['lanes', 'Show each group in its own band', 'lanes', 'group'], ['grid', 'Show every link in a grid', 'matrix', 'group'], ['jump', 'Which links jump far?', 'arc', 'group'],
     ['heavy', 'Which links carry the most?', 'network', null, 'width'], ['big', 'Which ' + word('items') + ' matter most?', 'network', null, 'size']];
@@ -269,7 +269,7 @@ function panelLook() {
   if (['flow', 'down', 'spine', 'lanes'].indexOf(V.view) >= 0) k1.push(check('Taper links (thick at the start, thin at the end)', V.taper, function (on) { setV({ taper: on }, 'look'); }));
   if (!(L && L.is3d)) k1.push(field('Mini-map', seg([['auto', 'Auto'], ['on', 'Always'], ['off', 'Off']], V.minimap, function (v) { setV({ minimap: v }, 'none'); renderMinimap(); }), 'A small picture of the whole map in the corner with a frame for what is on screen; click or drag it to move around. Auto shows it when you are zoomed in or the map is bigger than the screen.'));
   if (V.view === 'flow') k1.push(field('Direction', seg([['LR', 'Left to right'], ['TB', 'Top to bottom']], V.dir, function (v) { setV({ dir: v }); })));
-  if (['flow', 'down', 'spine', 'lanes', 'river'].indexOf(V.view) >= 0) { k1.push(check('Fold straight runs into one box', V.fold, function (on) { setV({ fold: on }); })); k1.push(check('Merge parallel arrows', V.merge, function (on) { setV({ merge: on }); })); }
+  if (['flow', 'down', 'spine', 'lanes', 'sankey'].indexOf(V.view) >= 0) { k1.push(check('Fold straight runs into one box', V.fold, function (on) { setV({ fold: on }); })); k1.push(check('Merge parallel arrows', V.merge, function (on) { setV({ merge: on }); })); }
   if (V.view === 'flow' || V.view === 'down') {
     k1.push(field('Rows', seg([['route', 'Shortest route'], ['story', 'Story order']], V.rows, function (v) { setV({ rows: v }); }), 'Story order puts every page below all the pages that lead to it, so gold links are real loops only.'));
     k1.push(field('Chapters', seg([['auto', 'Auto'], ['on', 'Always'], ['off', 'Off']], V.chapters, function (v) { setV({ chapters: v }); }), 'Folds the pages between must-pass pages into one box each, and runs of those into parts, so a big story fits on a screen. Auto starts above 1,500 pages. Click a box to open it; right-click a page inside to fold it back.'));
@@ -286,7 +286,7 @@ function panelLook() {
   }
   if (V.view === 'lanes') k1.push(field('Group lanes by', select([['group', 'The group column'], ['found', 'Found groups']].concat(colsOf('nodes', ['category']).filter(function (c) { return c.key !== 'group'; }).map(function (c) { return ['col:' + c.key, c.name]; }).map(function (x) { return [x[0].slice(4), x[1]]; })), V.laneBy, function (v) { setV({ laneBy: v }); })));
   kids.push(section('View', k1));
-  if (V.view === 'river') kids.push(skPanel());
+  if (V.view === 'sankey') kids.push(skPanel());
   kids.push(section('Colors, sizes and widths', [
     field(cap(word('item')) + ' color', select(colorChoices(), V.colorBy, function (v) { setV({ colorBy: v }); })),
     field(cap(word('item')) + ' size', select(sizeChoices(), V.sizeBy, function (v) { setV({ sizeBy: v }); })),
@@ -542,7 +542,7 @@ function cleanRule(r) {
   return out;
 }
 var SK_NODE_KEYS = { fill: 's', stroke: 's', labelText: 's', labelSize: 'n', labelColor: 's', labelBold: 'b', labelShow: 'b', labelSide: 's', hide: 'b', opacity: 'n' }, SK_LINK_KEYS = { color: 's', color2: 's', mode: 's', opacity: 'n', hide: 'b', label: 's' };
-/** Only known River picture settings of the right kind are accepted from shared text. */
+/** Only known Sankey picture settings of the right kind are accepted from shared text. */
 function cleanSk(v) {
   if (!v || typeof v !== 'object') return null;
   var d = defaultView().sk, o = JSON.parse(JSON.stringify(d)), num = function (x, lo, hi, def) { return typeof x === 'number' && isFinite(x) ? Math.max(lo, Math.min(hi, x)) : def; };

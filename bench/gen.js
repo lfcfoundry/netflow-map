@@ -7,7 +7,7 @@
 var NFMGen = (function () {
   'use strict';
   function rng(seed) { var s = seed | 0; return function () { s = (s + 0x6d2b79f5) | 0; var t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-  var WORDS = ['alpha', 'beta', 'gamma', 'delta', 'omega', 'north', 'south', 'east', 'west', 'river', 'stone', 'cedar', 'amber', 'quartz', 'harbor', 'summit'];
+  var WORDS = ['alpha', 'beta', 'gamma', 'delta', 'omega', 'north', 'south', 'east', 'west', 'sankey', 'stone', 'cedar', 'amber', 'quartz', 'harbor', 'summit'];
   /** Calls emit(from, to, weight, srcGroup, tgtGroup, i, r) for every link, in order. */
   function links(kind, n, seed, emit) {
     var r = rng(seed), i, per = Math.max(10, Math.ceil(n / 12));
