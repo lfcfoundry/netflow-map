@@ -1,5 +1,5 @@
 /*!
- * Net Flow Map scene: turns an engine layout into plain drawing lists that every drawing backend (Canvas2D, WebGL2, WebGPU)
+ * Netflow Map scene: turns an engine layout into plain drawing lists that every drawing backend (Canvas2D, WebGL2, WebGPU)
  * and the SVG export read the same way. No DOM. Copyright (c) 2026 JNFoo. MIT License.
  *
  * World units are the engine's. Colors are [r, g, b, a] with 0..1 numbers.
