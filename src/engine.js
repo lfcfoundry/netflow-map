@@ -1858,7 +1858,7 @@ var NFMEngine = (function () {
     ['spine', 'Choke-point spine', 'Places every route to the goal must pass, held on one line.'],
     ['lanes', 'Lanes', 'One band per group; items in several groups sit in the middle.'],
     ['shape', 'Shape', 'The stretches between choke points, each named by its pattern.'],
-    ['river', 'River', 'Simulated walkers pour through; the wider the band, the more take that arrow.'],
+    ['sankey', 'Sankey', 'Simulated walkers pour through; the wider the band, the more take that arrow.'],
     ['arc', 'Arc', 'Everything on one line; arcs show the links, long arcs are long jumps.'],
     ['matrix', 'Matrix', 'A grid of who links to whom; patterns show clusters and loops.'],
     ['network', 'Network', 'Closeness on the page follows closeness in the data; for data that is not a story.']
@@ -1945,7 +1945,7 @@ var NFMEngine = (function () {
     var t0 = now(), view = o.view || 'flow';
     var P = prepare(graph, o);
     var imp = importance(P);
-    var flowing = view === 'river', amounts = flowing && !!o.amounts;
+    var flowing = view === 'sankey', amounts = flowing && !!o.amounts;
     var sysFlow = [o.sizeBy, o.widthBy, o.edgeColorBy, o.colorBy].some(function (c) { return c && /^sys:(flow|visits)$/.test(c); });
     var needFlow = (flowing && !amounts) || o.colorBy === 'odds' || o.colorBy === 'heat' || o.wantFlow || sysFlow;
     var flow = null, classes = null;
@@ -2065,7 +2065,7 @@ var NFMEngine = (function () {
     if (view === 'down') Lr = topDown('TB');
     else if (view === 'spine') Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, spine: true }));
     else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } }));
-    else if (view === 'river') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
+    else if (view === 'sankey') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
     else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow })); }
     else if (view === 'matrix') {
       Lr = matrixLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow }));
@@ -2112,7 +2112,7 @@ var NFMEngine = (function () {
   /** Scores every view for the Compare table. */
   function compare(graph, o) {
     var rows = [];
-    ['flow', 'down', 'spine', 'lanes', 'river', 'arc', 'matrix', 'network'].forEach(function (v) {
+    ['flow', 'down', 'spine', 'lanes', 'sankey', 'arc', 'matrix', 'network'].forEach(function (v) {
       var oo = Object.assign({}, o, { view: v });
       try {
         var L = build(graph, oo);

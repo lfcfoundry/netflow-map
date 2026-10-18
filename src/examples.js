@@ -102,7 +102,7 @@ var NFMExamples = (function () {
       { id: 'flowa', label: 'Follow the flow: exact odds', group: 'Prepare' },
       { id: 'flows', label: 'Follow the flow: dice', group: 'Prepare' },
       { id: 'view', label: 'Choose a view', group: 'Arrange' },
-      { id: 'lay', label: 'Lanes, rivers and rings', group: 'Arrange' },
+      { id: 'lay', label: 'Lanes, Sankey and rings', group: 'Arrange' },
       { id: 'net', label: 'Network arrangement', group: 'Arrange' },
       { id: 'quick', label: 'Quick sample of pairs', group: 'Arrange' },
       { id: 'exact', label: 'Every pair on the processor', group: 'Arrange' },
@@ -155,7 +155,7 @@ var NFMExamples = (function () {
       { from: 'screen', to: 'view', weight: 30 }] };
 
   var LIST = [
-    { id: 'story', title: 'A short adventure (story)', blurb: 'Eighteen pages with choices, endings and a few loops. Try River, Choke-point spine and Story shape.', load: function () { var r = NFMImport.importJSON(JSON.stringify(STORY), 'The Old Lighthouse', {}); return r; } },
+    { id: 'story', title: 'A short adventure (story)', blurb: 'Eighteen pages with choices, endings and a few loops. Try Sankey, Choke-point spine and Story shape.', load: function () { var r = NFMImport.importJSON(JSON.stringify(STORY), 'The Old Lighthouse', {}); return r; } },
     { id: 'pipeline', title: 'How work moves through a team (table)', blurb: 'A table of handoffs with weights and groups. Try Given lanes.', load: function () { return NFMImport.importDelimited(PIPELINE, 'Release pipeline', {}); } },
     { id: 'notes', title: 'A folder of linked notes (Markdown)', blurb: 'Eight notes that link to each other with [[double brackets]], with tags and one folder.', load: function () { return NFMImport.importNotes(NOTES, 'Garden notes', {}); } },
     { id: 'outline', title: 'A bulleted outline with cross links', blurb: 'An indented list; lines with [[brackets]] add links back across the outline.', load: function () { return NFMImport.importOutline(OUTLINE, 'Weekend trip', {}); } },
