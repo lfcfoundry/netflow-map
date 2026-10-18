@@ -18,7 +18,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>River before and after</h1>
-<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (first picture) and with the improved layout (second picture), then measured the same way. Each picture fits inside its frame; scroll to zoom, drag to move, or open it full size. Nothing is sent anywhere. Version 2026.10.17.2203.</p>
+<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (first picture) and with the improved layout (second picture), then measured the same way. Each picture fits inside its frame; scroll to zoom, drag to move, or open it full size. Nothing is sent anywhere. Version 2026.10.17.2238.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>Summary</h2><p id="finalsay"></p>
@@ -5968,29 +5968,61 @@ var NFMScene = (function () {
     return out;
   }
   /* ---- edge picking: sample each curve into a coarse grid once, then test the nearest segments */
+  /** The hover index of the links: every link cut into short straight pieces, and a grid that says which pieces touch each cell. All of it is typed arrays (pieces as 64-bit numbers so distances come out exactly as before, the grid as offsets into one list of piece numbers), built in three passes: collect the pieces, count the cells each touches, fill the lists. */
   function edgeIndex(S) {
     if (S.eidx) return S.eidx;
-    var cell = Math.max(30, Math.max(S.w, S.h) / 120), map = new Map(), segs = [];
-    var put = function (ref, ax, ay, bx, by, depth) {
-      var c0 = Math.floor((Math.min(ax, bx) - S.x0) / cell), c1 = Math.floor((Math.max(ax, bx) - S.x0) / cell), r0 = Math.floor((Math.min(ay, by) - S.y0) / cell), r1 = Math.floor((Math.max(ay, by) - S.y0) / cell);
-      if ((c1 - c0 + 1) * (r1 - r0 + 1) > 400 && (depth || 0) < 24) {   /* a long straight link: cut it in halves until each piece covers few cells (it used to be skipped, so it could not be hovered) */
+    var cell = Math.max(30, Math.max(S.w, S.h) / 120), cap = 1024, n = 0, sg = new Float64Array(cap * 4), sci = new Int32Array(cap), cr = [0, 0, 0, 0], i;
+    var span = function (ax, ay, bx, by) {   /* the cells a piece touches: cr = [first col, last col, first row, last row] */
+      cr[0] = Math.floor((Math.min(ax, bx) - S.x0) / cell); cr[1] = Math.floor((Math.max(ax, bx) - S.x0) / cell); cr[2] = Math.floor((Math.min(ay, by) - S.y0) / cell); cr[3] = Math.floor((Math.max(ay, by) - S.y0) / cell);
+    };
+    var put = function (ci, ax, ay, bx, by, depth) {
+      span(ax, ay, bx, by);
+      if ((cr[1] - cr[0] + 1) * (cr[3] - cr[2] + 1) > 400 && (depth || 0) < 24) {   /* a long straight link: cut it in halves until each piece covers few cells (it used to be skipped, so it could not be hovered) */
         var mx = (ax + bx) / 2, my = (ay + by) / 2;
-        put(ref, ax, ay, mx, my, (depth || 0) + 1); put(ref, mx, my, bx, by, (depth || 0) + 1);
+        put(ci, ax, ay, mx, my, (depth || 0) + 1); put(ci, mx, my, bx, by, (depth || 0) + 1);
         return;
       }
-      var id = segs.length; segs.push([ax, ay, bx, by, ref]);
-      for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) { var k = r * 100003 + c, a = map.get(k); if (a) a.push(id); else map.set(k, [id]); }
+      if (n === cap) { cap *= 2; var g = new Float64Array(cap * 4); g.set(sg); sg = g; var h = new Int32Array(cap); h.set(sci); sci = h; }
+      sg[n * 4] = ax; sg[n * 4 + 1] = ay; sg[n * 4 + 2] = bx; sg[n * 4 + 3] = by; sci[n++] = ci;
     };
     S.eachCurve(function (cv, ci) {
       if (cv.edge === undefined || cv.edge < 0 || cv.dead) return;
-      var P = cv.P, n = (P.length - 2) / 6, prev = [P[0], P[1]];
-      for (var s = 0; s < n; s++) {
+      var P = cv.P, m = (P.length - 2) / 6, px = P[0], py = P[1];
+      if (cv.line && P.length === 8) { put(ci, px, py, P[6], P[7]); return; }   /* a straight link: the curve at 1 is exactly its last point */
+      for (var q = 0; q < m; q++) {
         var steps = cv.line ? 1 : 10;
-        for (var i = 1; i <= steps; i++) { var pt = bez(P.slice(s * 6, s * 6 + 8), i / steps); put({ t: 'c', i: ci }, prev[0], prev[1], pt[0], pt[1]); prev = pt; }
+        for (var u = 1; u <= steps; u++) { var pt = bez(P.slice(q * 6, q * 6 + 8), u / steps); put(ci, px, py, pt[0], pt[1]); px = pt[0]; py = pt[1]; }
       }
     });
+    /* the grid is as big as the pieces need; if something odd would make it enormous, the cells are made bigger */
+    var c0 = Infinity, c1 = -Infinity, r0 = Infinity, r1 = -Infinity, cols, rows, again;
+    do {
+      again = false; c0 = Infinity; c1 = -Infinity; r0 = Infinity; r1 = -Infinity;
+      for (i = 0; i < n; i++) { span(sg[i * 4], sg[i * 4 + 1], sg[i * 4 + 2], sg[i * 4 + 3]); if (isFinite(cr[0] + cr[1] + cr[2] + cr[3])) { if (cr[0] < c0) c0 = cr[0]; if (cr[1] > c1) c1 = cr[1]; if (cr[2] < r0) r0 = cr[2]; if (cr[3] > r1) r1 = cr[3]; } }
+      if (c0 > c1) { c0 = 0; c1 = -1; r0 = 0; r1 = -1; }
+      cols = c1 - c0 + 1; rows = r1 - r0 + 1; if (cols * rows > 4e6) { cell *= 2; again = true; }
+    } while (again);
+    var off = new Int32Array(cols * rows + 1), ids = null, fill = null;
+    /* the cells one piece really passes through (row by row, the stretch of columns its path covers inside that row), not every cell of its bounding box: a long slanted link touches about twice its length in cells, its box up to its length squared */
+    var walk = function (i) {
+      var ax = sg[i * 4], ay = sg[i * 4 + 1], bx = sg[i * 4 + 2], by = sg[i * 4 + 3], dx = bx - ax, dy = by - ay, j, k, lo, hi, t0, t1, xa, xb, y0, ce;
+      span(ax, ay, bx, by); var cA = cr[0], cB = cr[1], rA = cr[2], rB = cr[3]; if (!isFinite(cA + cB + rA + rB)) return;
+      for (j = rA; j <= rB; j++) {
+        if (rA === rB || dy === 0 || cA === cB) { lo = cA; hi = cB; }
+        else {
+          y0 = S.y0 + j * cell; t0 = (y0 - ay) / dy; t1 = (y0 + cell - ay) / dy; if (t0 > t1) { xa = t0; t0 = t1; t1 = xa; } if (t0 < 0) t0 = 0; if (t1 > 1) t1 = 1;
+          xa = ax + dx * t0; xb = ax + dx * t1; if (xa > xb) { y0 = xa; xa = xb; xb = y0; }
+          lo = Math.max(cA, Math.floor((xa - S.x0) / cell - 1e-9)); hi = Math.min(cB, Math.floor((xb - S.x0) / cell + 1e-9)); if (lo > hi) { lo = cA; hi = cB; }
+        }
+        for (k = lo; k <= hi; k++) { ce = (j - r0) * cols + (k - c0); if (fill) ids[fill[ce]++] = i; else off[ce + 1]++; }
+      }
+    };
+    for (i = 0; i < n; i++) walk(i);
+    for (i = 0; i < off.length - 1; i++) off[i + 1] += off[i];
+    ids = new Int32Array(off[off.length - 1]); fill = off.slice(0, off.length - 1);
+    for (i = 0; i < n; i++) walk(i);   /* in piece order, so each cell lists its pieces in the order they were found */
     var maxHw = 0; S.eachCurve(function (cv) { if (cv.loop && cv.w / 2 > maxHw) maxHw = cv.w / 2; });
-    S.eidx = { cell: cell, map: map, segs: segs, maxHw: maxHw };
+    S.eidx = { cell: cell, n: n, segs: sg.subarray(0, n * 4), sci: sci.subarray(0, n), off: off, ids: ids, c0: c0, c1: c1, r0: r0, r1: r1, cols: cols, mark: new Int32Array(n), stamp: 0, maxHw: maxHw };
     return S.eidx;
   }
   /** The link cell of a matrix picture under a point (cells are drawn on top of the row bands, so they win over them), or null. */
@@ -6001,18 +6033,20 @@ var NFMScene = (function () {
     return null;
   }
   function pickEdge(S, wx, wy, tol) {
-    var I = edgeIndex(S), cs = I.cell, best = null, bd = tol * tol, reach = tol + I.maxHw;
-    var c0 = Math.floor((wx - reach - S.x0) / cs), c1 = Math.floor((wx + reach - S.x0) / cs), r0 = Math.floor((wy - reach - S.y0) / cs), r1 = Math.floor((wy + reach - S.y0) / cs), seen = new Set();
+    var I = edgeIndex(S), cs = I.cell, best = -1, bd = tol * tol, reach = tol + I.maxHw, sg = I.segs, mark = I.mark, off = I.off, ids = I.ids;
+    var c0 = Math.max(I.c0, Math.floor((wx - reach - S.x0) / cs)), c1 = Math.min(I.c1, Math.floor((wx + reach - S.x0) / cs)), r0 = Math.max(I.r0, Math.floor((wy - reach - S.y0) / cs)), r1 = Math.min(I.r1, Math.floor((wy + reach - S.y0) / cs));
+    if (++I.stamp > 2147483000) { mark.fill(0); I.stamp = 1; }
+    var stamp = I.stamp;
     for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) {
-      var a = I.map.get(r * 100003 + c); if (!a) continue;
-      for (var j = 0; j < a.length; j++) {
-        if (seen.has(a[j])) continue; seen.add(a[j]);
-        var sg = I.segs[a[j]], dx = sg[2] - sg[0], dy = sg[3] - sg[1], l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, ((wx - sg[0]) * dx + (wy - sg[1]) * dy) / l2)) : 0, px = sg[0] + t * dx - wx, py = sg[1] + t * dy - wy, d = px * px + py * py;
-        if (I.maxHw) { var lc = S.curveAt(sg[4].i), hw = lc.loop ? lc.w / 2 : 0; if (hw) { var dr = Math.max(0, Math.sqrt(d) - hw); d = dr * dr; } }
-        if (d <= bd) { bd = d; best = sg[4]; }
+      var ce = (r - I.r0) * I.cols + (c - I.c0);
+      for (var j = off[ce], je = off[ce + 1]; j < je; j++) {
+        var id = ids[j]; if (mark[id] === stamp) continue; mark[id] = stamp;
+        var ax = sg[id * 4], ay = sg[id * 4 + 1], dx = sg[id * 4 + 2] - ax, dy = sg[id * 4 + 3] - ay, l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, ((wx - ax) * dx + (wy - ay) * dy) / l2)) : 0, px = ax + t * dx - wx, py = ay + t * dy - wy, d = px * px + py * py;
+        if (I.maxHw) { var lc = S.curveAt(I.sci[id]), hw = lc.loop ? lc.w / 2 : 0; if (hw) { var dr = Math.max(0, Math.sqrt(d) - hw); d = dr * dr; } }
+        if (d <= bd) { bd = d; best = id; }
       }
     }
-    if (best) { var cv = S.curveAt(best.i); return { edge: cv.edge, from: cv.from, to: cv.to, curve: best.i }; }
+    if (best >= 0) { var ci = I.sci[best], cv = S.curveAt(ci); return { edge: cv.edge, from: cv.from, to: cv.to, curve: ci }; }
     for (var q = 0; q < S.ribbons.length; q++) { /* river ribbons */
       var rb = S.ribbons[q]; if (wx < rb.x0 || wx > rb.x1) continue;
       var lo = 0, hi = 1, u;   // the band's x runs along a cubic; find where it is at wx, then read the height there
@@ -7085,7 +7119,7 @@ var NFMSankey = (function () {
  * side by side, measures both with the same yardstick, and says in plain words which is better. Runs by itself when the page opens. */
 (function () {
   'use strict';
-  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NFMSankey, VERSION = '2026.10.17.2203';
+  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NFMSankey, VERSION = '2026.10.17.2238';
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
   var $ = function (id) { return document.getElementById(id); }, esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var r1 = function (v) { return Math.round(v * 10) / 10; }, r2 = function (v) { return Math.round(v * 100) / 100; };
