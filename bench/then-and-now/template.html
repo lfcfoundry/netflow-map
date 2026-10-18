@@ -18,6 +18,10 @@ th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;white
 thead th{color:var(--mut);font-weight:600;vertical-align:bottom}
 .scroll{overflow-x:auto}textarea{width:100%;height:9em;font:12px/1.4 ui-monospace,Consolas,monospace;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px}
 label{display:inline-flex;gap:.4em;align-items:center;margin-left:1em}
+.live{padding:12px 14px}.livehead{display:flex;justify-content:space-between;gap:1em;flex-wrap:wrap;align-items:baseline}
+.pics{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}@media (max-width:640px){.pics{grid-template-columns:1fr}}
+.pics figure{margin:0}.pics canvas{width:100%;aspect-ratio:8/5;display:block;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+.pics figcaption{font-size:.88rem;margin-top:4px;font-variant-numeric:tabular-nums}.fpsbig{font-weight:700;color:var(--acc)}
 </style>
 </head>
 <body>
@@ -25,7 +29,15 @@ label{display:inline-flex;gap:.4em;align-items:center;margin-left:1em}
 <!-- Netflow Map first version vs now, __VERSION__. Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry. https://github.com/lfcfoundry/netflow-map -->
 <h1>Netflow Map: first version vs now</h1>
 <p class="mut">Lays out the same maps with the very first Netflow Map (2026.10.14.2136, then called Net Flow Map) and with the version in this page (__VERSION__, with every update since), taking turns, and tells you in plain words what changed. Nothing leaves this page.</p>
-<p><button id="go">Run the comparison</button><label class="small"><input type="checkbox" id="quick"> Quick (one run each, rougher numbers)</label><label class="small"><input type="checkbox" id="big" checked> Include the big maps (up to 30,000 items)</label><label class="small"><input type="checkbox" id="huge"> Include the huge map (100,000 items; slow, and needs about 2 GB free)</label></p>
+<div class="card live" id="live">
+  <div class="livehead"><b>Live view: each picture appears here as it is produced</b><span class="small mut" id="liveFps">Page: waiting to start</span></div>
+  <div class="pics">
+    <figure><canvas id="cvOld"></canvas><figcaption id="capOld" class="mut">First version: nothing yet</figcaption></figure>
+    <figure><canvas id="cvNow"></canvas><figcaption id="capNow" class="mut">Now: nothing yet</figcaption></figure>
+  </div>
+  <p class="small mut" style="margin-bottom:0">Each picture is the finished layout from the run above it, drifting slowly so the drawing speed shows as FPS (frames per second, higher is better). Big maps show every 2nd, 3rd... link so the picture stays drawable (the count is in the caption). Drawing is paused while a layout is being timed, so it does not disturb the layout numbers.</p>
+</div>
+<p><button id="go">Run the comparison</button><label class="small"><input type="checkbox" id="quick"> Quick (one run each, rougher numbers)</label><label class="small"><input type="checkbox" id="big" checked> Include the big maps (up to 30,000 items)</label><label class="small">This machine is <select id="dev"><option value="pc">a PC</option><option value="mobile">a phone or tablet</option></select></label><label class="small"><input type="checkbox" id="huge"> Include the huge map (100,000 items; slow, and needs about 2 GB free)</label><span id="devnote" class="small mut"></span></p>
 <div class="bar"><i id="fill"></i></div>
 <p id="state" class="mut small">Ready. This takes a few minutes and keeps one extra browser worker busy at a time. Close other heavy tabs for the steadiest numbers.</p>
 <p id="env" class="mut small"></p>
@@ -35,6 +47,9 @@ label{display:inline-flex;gap:.4em;align-items:center;margin-left:1em}
   <h2>Layout time, same map, one after the other</h2>
   <p class="mut small">"Typical" is the middle of the runs, "best" the fastest. Lower is better in every time column. "Times faster" is typical first version divided by typical now (higher is better). A run that passed the time limit was stopped and counts as the limit, so those rows say "at least".</p>
   <div class="card scroll"><table id="tbl"></table></div>
+  <h2>Drawing speed of the finished picture</h2>
+  <p class="mut small">FPS while the finished layout is drawn and slowly panned in this browser (higher is better). Taken once per map, in the first turn, one picture at a time.</p>
+  <div class="card scroll"><table id="ftbl"></table></div>
   <h2>Idle memory of the layout links (what the compressor does)</h2>
   <p class="mut small">The first version keeps every link of a finished layout as a plain object. Now, once a big map has been left alone for 4 seconds, the links are packed by memory-compression 2.0.2 and the objects are let go. "As objects" is an estimate (a rule of thumb, usually within a third); "packed" is the real size of the packed bytes. Lower is better in every size and time column. "Exact" says every link came back with the same values. These maps are made up and very regular, so they pack far better than real data usually does; real data will be less dramatic.</p>
   <div class="card scroll"><table id="mtbl"></table></div>
@@ -83,7 +98,8 @@ var TESTS = [
   { id: 'net30k', mem: true, name: 'Network, 30,000 items', make: function () { return NFMExamples.bigNetwork(30000, 12, 7); }, opts: { view: 'network', colorBy: 'group' }, big: true },
   { id: 'net100k', mem: true, name: 'Network, 100,000 items', make: function () { return NFMExamples.bigNetwork(100000, 12, 7); }, opts: { view: 'network', colorBy: 'group' }, huge: true }
 ];
-var HARNESS = 'self.onmessage = function (e) { var m = e.data, out = {}; try { var t0 = performance.now(); var L = NFMEngine.build(m.graph, m.opts); var t1 = performance.now(); var S = NFMScene.make(L, { colorBy: "group", theme: "light" }); var t2 = performance.now(); out.layoutMs = t1 - t0; out.sceneMs = t2 - t1; out.nodes = L.nodes.length; } catch (err) { out.error = String(err && err.message || err); } postMessage(out); };';
+var PIC = 'function pic(S) { var cv = S.curves || [], dt = S.dots || [], rc = S.rects || [], sc = Math.max(1, Math.ceil(cv.length / 30000)), sr = Math.max(1, Math.ceil(rc.length / 20000)), sd = Math.max(1, Math.ceil(dt.length / 40000)), nc = Math.ceil(cv.length / sc), nr = Math.ceil(rc.length / sr), nd = Math.ceil(dt.length / sd), C = new Float32Array(nc * 12), R = new Float32Array(nr * 7), D = new Float32Array(nd * 6), i, j, k, c, P, q, f; for (i = 0, j = 0; i < cv.length; i += sc, j++) { c = cv[i]; P = c.P; q = P.length >= 8 ? P : [P[0], P[1], P[0], P[1], P[P.length - 2], P[P.length - 1], P[P.length - 2], P[P.length - 1]]; for (k = 0; k < 8; k++) C[j * 12 + k] = q[k]; f = c.color || [0.5, 0.5, 0.5, 0.4]; for (k = 0; k < 4; k++) C[j * 12 + 8 + k] = f[k]; } for (i = 0, j = 0; i < rc.length; i += sr, j++) { c = rc[i]; f = c.fill || [0.8, 0.8, 0.8, 1]; R[j * 7] = c.x; R[j * 7 + 1] = c.y; R[j * 7 + 2] = c.w; R[j * 7 + 3] = c.h; R[j * 7 + 4] = f[0]; R[j * 7 + 5] = f[1]; R[j * 7 + 6] = f[2]; } for (i = 0, j = 0; i < dt.length; i += sd, j++) { c = dt[i]; f = c.fill || [1, 1, 1, 1]; D[j * 6] = c.cx; D[j * 6 + 1] = c.cy; D[j * 6 + 2] = c.r; D[j * 6 + 3] = f[0]; D[j * 6 + 4] = f[1]; D[j * 6 + 5] = f[2]; } return [{ c: C, r: R, d: D, x0: S.x0, y0: S.y0, w: S.w, h: S.h, links: cv.length, shownLinks: nc, items: dt.length + rc.length }]; } ';
+var HARNESS = PIC + 'self.onmessage = function (e) { var m = e.data, out = {}; try { var t0 = performance.now(); var L = NFMEngine.build(m.graph, m.opts); var t1 = performance.now(); var S = NFMScene.make(L, { colorBy: "group", theme: "light" }); var t2 = performance.now(); out.layoutMs = t1 - t0; out.sceneMs = t2 - t1; out.nodes = L.nodes.length; if (m.draw) { var tr = pic(S); out.pic = tr[0]; } } catch (err) { out.error = String(err && err.message || err); } postMessage(out); };';
 var HARNESS_MEM = 'self.onmessage = function (e) { var m = e.data, out = {}; try { var L = NFMEngine.build(m.graph, m.opts), E = L.edges, n = E.length, C = 25000, MC = self.MemoryCompression, i, j; var est = MC.estimateBytes(E); var t0 = performance.now(), parts = [], bytes = 0; for (i = 0; i < n; i += C) { var p = MC.pack(E.slice(i, i + C), { mode: "fast" }); parts.push(p); bytes += p.length; } var packMs = performance.now() - t0; t0 = performance.now(); var back = []; for (i = 0; i < parts.length; i++) { var u = MC.unpack(parts[i]); for (j = 0; j < u.length; j++) back.push(u[j]); } var wakeMs = performance.now() - t0; var same = back.length === n; for (i = 0; i < n && same; i += C) { if (JSON.stringify(E.slice(i, i + C)) !== JSON.stringify(back.slice(i, i + C))) same = false; } out = { items: L.nodes.length, edges: n, estBytes: est, packedBytes: bytes, packMs: packMs, wakeMs: wakeMs, exact: same }; } catch (err) { out.error = String(err && err.message || err); } self.postMessage(out); };';
 var CAP_MS = 60000;
 function code(id) { return $(id).textContent; }
@@ -91,14 +107,14 @@ function memUrl() { return URL.createObjectURL(new Blob([code('src-new-engine') 
 function blobUrl(engine, scene) { return URL.createObjectURL(new Blob([code(engine) + '\n' + code(scene) + '\n' + HARNESS], { type: 'text/javascript' })); }
 var URLS = null, MEM_URL = null;
 /* one run in a fresh worker; resolves { layoutMs, sceneMs, capped } */
-function runOne(which, graph, opts) {
+function runOne(which, graph, opts, draw) {
   return new Promise(function (resolve) {
     var w = new Worker(URLS[which]), done = false, t0 = performance.now();
     var fin = function (r) { if (done) return; done = true; clearTimeout(timer); try { w.terminate(); } catch (e) { /* gone */ } resolve(r); };
     var timer = setTimeout(function () { fin({ layoutMs: CAP_MS, sceneMs: 0, capped: true }); }, CAP_MS);
     w.onmessage = function (e) { fin(e.data); };
     w.onerror = function (e) { fin({ error: String(e && e.message || 'worker error') }); };
-    w.postMessage({ graph: graph, opts: opts });
+    w.postMessage({ graph: graph, opts: opts, draw: !!draw });
   });
 }
 function runMem(graph, opts) {
@@ -135,26 +151,102 @@ var med = function (a) { var s = a.slice().sort(function (x, y) { return x - y; 
 var fmt = function (ms) { return ms >= 10000 ? (ms / 1000).toFixed(1) + ' s' : ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : ms >= 10 ? Math.round(ms) + ' ms' : ms.toFixed(1) + ' ms'; };
 var fx = function (r) { return r >= 10 ? Math.round(r) + '×' : r.toFixed(1) + '×'; };
 var results = null;
+
+/* ---- device toggle: phones and tablets stop at 30,000 items ---- */
+function looksMobile() { try { if (navigator.userAgentData && typeof navigator.userAgentData.mobile === 'boolean') return navigator.userAgentData.mobile; } catch (e) { /* use the next check */ } var ua = navigator.userAgent || ''; return /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); }
+function applyDevice() {
+  var mobile = $('dev').value === 'mobile', h = $('huge');
+  if (mobile) h.checked = false;
+  h.disabled = mobile;
+  $('devnote').textContent = mobile ? ' Phone or tablet: the largest map is 30,000 items.' : '';
+}
+$('dev').value = looksMobile() ? 'mobile' : 'pc';
+$('dev').addEventListener('change', applyDevice);
+applyDevice();
+
+/* ---- live view: the finished picture of a run, drifting so its drawing speed shows as FPS ---- */
+var PICS = { old: null, now: null }, CV = { old: $('cvOld'), now: $('cvNow') }, CAP = { old: $('capOld'), now: $('capNow') }, active = null, idleOn = false, raf = 0;
+var DPR = Math.min(2, window.devicePixelRatio || 1);
+function sizeCanvas(c) { var w = Math.max(200, Math.round(c.clientWidth * DPR)), h = Math.round(w * 5 / 8); if (c.width !== w || c.height !== h) { c.width = w; c.height = h; } }
+function rgb(a, o) { return 'rgb(' + Math.round(a[o] * 255) + ',' + Math.round(a[o + 1] * 255) + ',' + Math.round(a[o + 2] * 255) + ')'; }
+function drawPic(which, t) {
+  var c = CV[which], pic = PICS[which]; sizeCanvas(c); var g = c.getContext('2d'), i;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, c.width, c.height);
+  if (!pic) return;
+  var fit = Math.min(c.width / pic.w, c.height / pic.h) * 0.94, z = fit * (1 + 0.12 * Math.sin(t / 1400)), dx = Math.sin(t / 2300) * 0.04 * c.width, dy = Math.cos(t / 1900) * 0.04 * c.height;
+  g.setTransform(z, 0, 0, z, c.width / 2 - (pic.x0 + pic.w / 2) * z + dx, c.height / 2 - (pic.y0 + pic.h / 2) * z + dy);
+  var C = pic.c, R = pic.r, D = pic.d, n = C.length / 12;
+  g.lineWidth = Math.max(1 / z, 0.6 * DPR / z);
+  for (i = 0; i < n; i++) { var o = i * 12; g.strokeStyle = 'rgba(' + Math.round(C[o + 8] * 255) + ',' + Math.round(C[o + 9] * 255) + ',' + Math.round(C[o + 10] * 255) + ',' + Math.max(0.15, C[o + 11]).toFixed(2) + ')'; g.beginPath(); g.moveTo(C[o], C[o + 1]); g.bezierCurveTo(C[o + 2], C[o + 3], C[o + 4], C[o + 5], C[o + 6], C[o + 7]); g.stroke(); }
+  for (i = 0; i < R.length; i += 7) { g.fillStyle = rgb(R, i + 4); g.fillRect(R[i], R[i + 1], R[i + 2], R[i + 3]); }
+  for (i = 0; i < D.length; i += 6) { g.fillStyle = rgb(D, i + 3); g.beginPath(); g.arc(D[i], D[i + 1], D[i + 2], 0, 6.2832); g.fill(); }
+}
+var frames = [], lastTick = 0, lastPageFps = 0, frameCount = 0;
+function loop(ts) {
+  raf = 0; frameCount++;
+  frames.push(ts); while (frames.length > 40 || (frames.length > 2 && ts - frames[0] > 1500)) frames.shift();
+  if (frames.length > 3) lastPageFps = (frames.length - 1) * 1000 / (ts - frames[0]);
+  if (active) drawPic(active, ts);
+  if (ts - lastTick > 250) {
+    lastTick = ts;
+    $('liveFps').innerHTML = active ? 'Drawing the <b>' + (active === 'old' ? 'first version' : 'current version') + '</b> picture: <span class="fpsbig">' + lastPageFps.toFixed(0) + ' FPS</span>' : 'Page: waiting';
+    if (active) { var cp = CAP[active]; cp.innerHTML = cp.dataset.base + ' · <span class="fpsbig">' + lastPageFps.toFixed(0) + ' FPS</span> now'; }
+  }
+  if (active) raf = requestAnimationFrame(loop);
+}
+function startLoop() { frames = []; if (!raf) raf = requestAnimationFrame(loop); }
+function caption(which, name, r) {
+  var pic = r.pic, cp = CAP[which];
+  cp.classList.remove('mut');
+  cp.dataset.base = (which === 'old' ? 'First version' : 'Now') + ': ' + name + ', layout ' + fmt(r.layoutMs) + ' (' + pic.items.toLocaleString('en-US') + ' items, ' + (pic.shownLinks < pic.links ? pic.shownLinks.toLocaleString('en-US') + ' of ' + pic.links.toLocaleString('en-US') + ' links drawn' : pic.links.toLocaleString('en-US') + ' links drawn') + ')';
+  cp.textContent = cp.dataset.base;
+}
+/* draw one picture for ms and return its median FPS (higher is better) */
+function playOne(which, ms) {
+  return new Promise(function (resolve) {
+    active = which; startLoop();
+    var t0 = performance.now(), f0 = -1, tf = 0, iv = setInterval(function () {
+      var now = performance.now();
+      if (f0 < 0 && now - t0 > 450) { f0 = frameCount; tf = now; }   /* skip the first 450 ms: warm-up */
+      if (now - t0 >= ms) {
+        clearInterval(iv); active = null;
+        var fps = f0 < 0 ? 0 : (frameCount - f0) * 1000 / (now - tf), cp = CAP[which];
+        cp.innerHTML = cp.dataset.base + ' · <span class="fpsbig">' + (fps >= 10 ? fps.toFixed(0) : fps.toFixed(1)) + ' FPS</span>';
+        resolve(fps);
+      }
+    }, 100);
+  });
+}
+function ffmt(v) { return v >= 10 ? v.toFixed(0) : v.toFixed(1); }
+function clearPics() { PICS = { old: null, now: null }; ['old', 'now'].forEach(function (w) { drawPic(w, 0); CAP[w].classList.add('mut'); CAP[w].textContent = (w === 'old' ? 'First version' : 'Now') + ': next map being laid out…'; }); }
+function showRun(which, name, r) { PICS[which] = r.pic; caption(which, name, r); drawPic(which, 0); }
+/* after everything is done: keep both pictures moving, taking turns */
+var idleWhich = 'now', idleTimer = 0;
+function idleStart() { if (idleTimer) return; idleTimer = setInterval(function () { idleWhich = idleWhich === 'now' ? 'old' : 'now'; active = PICS[idleWhich] ? idleWhich : null; if (active) startLoop(); }, 2500); active = PICS.now ? 'now' : null; if (active) startLoop(); }
+function idleStop() { clearInterval(idleTimer); idleTimer = 0; active = null; }
+
 async function go() {
-  var quick = $('quick').checked, big = $('big').checked, huge = $('huge').checked, turns = quick ? 1 : 3, list = TESTS.filter(function (t) { return t.huge ? huge : t.big ? big : true; });
+  var quick = $('quick').checked, big = $('big').checked, mobile = $('dev').value === 'mobile', huge = $('huge').checked && !mobile, turns = quick ? 1 : 3, list = TESTS.filter(function (t) { return t.huge ? huge : t.big ? big : true; });
+  idleStop(); PICS = { old: null, now: null };
   $('go').disabled = true; $('out').hidden = true; $('fill').style.width = '0%';
   var total = list.length * turns * 2, n = 0;
   results = [];
   for (var ti = 0; ti < list.length; ti++) {
-    var t = list[ti], g = t.make(), row = { test: t, old: [], now: [], oldScene: [], nowScene: [], oldCap: 0, nowCap: 0, error: '' };
+    var t = list[ti]; clearPics(); var g = t.make(), row = { test: t, old: [], now: [], oldScene: [], nowScene: [], oldCap: 0, nowCap: 0, error: '' };
     for (var k = 0; k < turns; k++) {
-      var order = k % 2 ? ['now', 'old'] : ['old', 'now'];   /* take turns: never all of one version first */
+      var order = (k + ti) % 2 ? ['now', 'old'] : ['old', 'now'];   /* take turns: never all of one version first */
       for (var oi = 0; oi < 2; oi++) {
         var which = order[oi];
         $('state').textContent = t.name + ': ' + (which === 'old' ? 'first version' : 'now') + ', turn ' + (k + 1) + ' of ' + turns + '…';
-        var r = await runOne(which, JSON.parse(JSON.stringify(g)), t.opts); n++; $('fill').style.width = Math.round(n / total * 100) + '%';
+        var r = await runOne(which, JSON.parse(JSON.stringify(g)), t.opts, k === 0); n++; $('fill').style.width = Math.round(n / total * 100) + '%';
         if (r.error) { row.error = r.error; continue; }
+        if (r.pic) { showRun(which, t.name, r); row[which + 'Fps'] = await playOne(which, 1300); }
         row[which].push(r.layoutMs); row[which + 'Scene'].push(r.sceneMs); if (r.capped) row[which + 'Cap']++;
       }
     }
     results.push(row);
   }
-  report(turns); await memPart(turns, list); $('go').disabled = false; $('state').textContent = 'Done.';
+  report(turns); await memPart(turns, list); $('go').disabled = false; $('state').textContent = 'Done.'; idleStart();
 }
 function report(turns) {
   var tbl = '<thead><tr><th>Map</th><th>First version<br>typical</th><th>First version<br>best</th><th>Now<br>typical</th><th>Now<br>best</th><th>Times faster<br>(higher is better)</th></tr></thead><tbody>', lines = [], md = ['| Map | First version typical | First version best | Now typical | Now best | Times faster |', '|---|---|---|---|---|---|'], verdict = [];
@@ -169,12 +261,19 @@ function report(turns) {
     verdict.push({ ratio: ratio, html: r.test.name + ': ' + plain + ', ' + mark + fmt(to) + ' to ' + fmt(tn) + ' (' + (cap ? 'at least ' : '') + fx(ratio) + ').', text: r.test.name + ': ' + (ratio >= 3 ? 'much faster' : ratio >= 1.3 ? 'faster' : ratio > 0.77 ? 'about the same' : 'slower') + ', ' + mark + fmt(to) + ' to ' + fmt(tn) + ' (' + (cap ? 'at least ' : '') + fx(ratio) + ')' });
   });
   tbl += '</tbody>'; $('tbl').innerHTML = tbl;
+  var ft = '<thead><tr><th>Map</th><th>First version<br>FPS</th><th>Now<br>FPS</th><th>Change<br>(higher is better)</th></tr></thead><tbody>', fmd = ['| Map | First version FPS | Now FPS | Change |', '|---|---|---|---|'];
+  results.forEach(function (r) {
+    if (r.oldFps === undefined || r.nowFps === undefined) return;
+    var fo = r.oldFps ? ffmt(r.oldFps) : '?', fn = r.nowFps ? ffmt(r.nowFps) : '?', ch = r.oldFps && r.nowFps ? (r.nowFps / r.oldFps >= 1.1 ? fx(r.nowFps / r.oldFps) + ' higher' : r.nowFps / r.oldFps <= 0.9 ? fx(r.oldFps / r.nowFps) + ' lower' : 'about the same') : '?';
+    ft += '<tr><td>' + r.test.name + '</td><td>' + fo + '</td><td>' + fn + '</td><td>' + ch + '</td></tr>'; fmd.push('| ' + r.test.name + ' | ' + fo + ' | ' + fn + ' | ' + ch + ' |');
+  });
+  ft += '</tbody>'; $('ftbl').innerHTML = ft;
   verdict.sort(function (a, b) { return b.ratio - a.ratio; });
   var best = verdict[0], worst = verdict[verdict.length - 1];
   $('verdict').innerHTML = (best ? '<li>Biggest gain: ' + best.html + '</li>' : '') + verdict.slice(1).map(function (v) { return '<li>' + v.html + '</li>'; }).join('') +
     '<li class="mut">Layout is only part of what changed. Memory, the first hover on a flat map, drawing speed and the features added since are in the box at the bottom, measured in my test browsers.</li>';
-  var env = 'Browser: ' + navigator.userAgent + '; cores: ' + (navigator.hardwareConcurrency || '?') + (navigator.deviceMemory ? '; memory hint: ' + navigator.deviceMemory + ' GB' : '') + '; ' + turns + ' turn(s) each, taking turns.';
-  var txt = ['Netflow Map: first version (2026.10.14.2136) vs now (__VERSION__)', env, '', 'Layout time, lower is better; times faster, higher is better.', ''].concat(md, ['', 'Verdict:'], verdict.map(function (v) { return '- ' + v.text; })).join('\n');
+  var env = 'Browser: ' + navigator.userAgent + '; cores: ' + (navigator.hardwareConcurrency || '?') + (navigator.deviceMemory ? '; memory hint: ' + navigator.deviceMemory + ' GB' : '') + '; this machine set to ' + ($('dev').value === 'mobile' ? 'phone or tablet (largest map 30,000 items)' : 'PC') + '; ' + turns + ' turn(s) each, taking turns.';
+  var txt = ['Netflow Map: first version (2026.10.14.2136) vs now (__VERSION__)', env, '', 'Layout time, lower is better; times faster, higher is better.', ''].concat(md, ['', 'Drawing speed of the finished picture, FPS, higher is better:', ''], fmd, ['', 'Verdict:'], verdict.map(function (v) { return '- ' + v.text; })).join('\n');
   $('txt').value = txt; $('env').textContent = env; $('out').hidden = false;
 }
 $('go').addEventListener('click', function () { try { if (!URLS) URLS = { old: blobUrl('src-old-engine', 'src-old-scene'), now: blobUrl('src-new-engine', 'src-new-scene') }; go(); } catch (e) { $('state').textContent = 'Could not start: ' + e.message; $('go').disabled = false; } });
