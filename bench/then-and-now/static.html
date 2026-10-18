@@ -1,0 +1,40 @@
+<p class="small mut">Measured 2026-10-18 in Firefox 158.0, ungoogled-chromium 155.0.8059.39-1, WebKitGTK 2.52.6 and GNOME Web (Epiphany) 46.5, one browser at a time, the two versions taking turns. First version = build 2026.10.14.2136, current = this page's build. Small-map rows in Chromium and Firefox are the typical of 3 runs each; every other number is one run, so treat differences under about 15% as noise.</p>
+
+<h3>Layout time (how long the map takes to lay out)</h3>
+<p class="small mut">Each cell: first version → now. "Times faster": higher is better. Times in ms or s: lower is better.</p>
+<div class="card scroll"><table>
+<thead><tr><th>Map</th><th>Chromium 155</th><th>Firefox 158</th><th>WebKitGTK 2.52.6</th><th>GNOME Web 46.5</th></tr></thead>
+<tbody>
+<tr><td>Network, 30,000 items</td><td>33.9 s → 1.55 s (22×)</td><td>at least 60 s → 1.47 s (41×+)</td><td>at least 60 s → 1.44 s (42×+)</td><td>at least 60 s → 1.24 s (49×+)</td></tr>
+<tr><td>Network, 10,000 items</td><td>4.10 s → 798 ms (5.1×)</td><td>10.7 s → 795 ms (13×)</td><td>6.99 s → 558 ms (13×)</td><td>6.90 s → 628 ms (11×)</td></tr>
+<tr><td>Network, 3,000 items</td><td>924 → 942 ms (1.0×)</td><td>1.55 s → 947 ms (1.6×)</td><td>1.25 s → 1.04 s (1.2×)</td><td>1.22 s → 999 ms (1.2×)</td></tr>
+<tr><td>Network, 1,000 items</td><td>255 → 139 ms (1.8×)</td><td>448 → 139 ms (3.2×)</td><td>420 → 174 ms (2.4×)</td><td>386 → 201 ms (1.9×)</td></tr>
+<tr><td>Flow, 1,000-page story</td><td>24 → 26 ms (0.9×)</td><td>26 → 27 ms (1.0×)</td><td>34 → 36 ms (0.9×)</td><td>39 → 42 ms (0.9×)</td></tr>
+<tr><td>Top-down, 5,000-page story</td><td>151 → 159 ms (0.9×)</td><td>139 → 164 ms (0.8×)</td><td>201 → 172 ms (1.2×)</td><td>276 → 231 ms (1.2×)</td></tr>
+</tbody></table></div>
+<p><b>Plain takeaway:</b> big networks are where it changed: 30,000 items went from half a minute or more to about one and a half seconds. Small maps, Flow and Top-down are about the same; Top-down on 5,000 pages is about 25 ms slower in Firefox because it now also works out chapters and the mini-map.</p>
+
+<h3>The whole app, 10,000 items (one run each)</h3>
+<p class="small mut">Time until the map is finished (lower is better) and drawing speed while panning (FPS, higher is better). Drawing FPS depends on the machine; only the first-versus-now ratio carries over to yours.</p>
+<div class="card scroll"><table>
+<thead><tr><th>Browser</th><th>Finished map, first → now</th><th>Panning FPS, first → now</th></tr></thead>
+<tbody>
+<tr><td>Chromium 155</td><td>5.2 s → 1.28 s (4.1× faster)</td><td>3.6 → 3.9 (about the same)</td></tr>
+<tr><td>Firefox 158</td><td>12.6 s → 0.96 s (13× faster)</td><td>8.9 → 16.3 (1.8× higher)</td></tr>
+<tr><td>WebKitGTK 2.52.6</td><td>7.95 s → 1.04 s (7.6× faster)</td><td>8.5 → 12.6 (1.5× higher)</td></tr>
+<tr><td>GNOME Web 46.5</td><td>8.6 s → 1.7 s (5.0× faster)</td><td>9.1 → 12.1 (1.3× higher)</td></tr>
+</tbody></table></div>
+<p>At 30,000 items in Chromium 155: finished map 40.1 s → 2.83 s (14× faster), panning 1.2 → 1.6 FPS.</p>
+
+<h3>Memory (Chromium 155 only: the other three browsers give no exact numbers)</h3>
+<p class="small mut">The page's own JavaScript memory after a forced cleanup, in MB, lower is better. The layout engine's separate worker is not included.</p>
+<div class="card scroll"><table>
+<thead><tr><th>Map</th><th>Just built, first → now</th><th>6 s idle, first → now</th></tr></thead>
+<tbody>
+<tr><td>Network, 10,000 items</td><td>30 → 42 MB</td><td>43 → 45 MB</td></tr>
+<tr><td>Network, 30,000 items</td><td>89 → 121 MB</td><td>128 → 131 MB</td></tr>
+</tbody></table></div>
+<p><b>Plain takeaway:</b> at these sizes the page uses about the same memory as the first version, a little more right after building because the app now keeps more (chapters, mini-map, link look-up). The memory savings come on very big maps: at 100,000 items, packing idle links saves 67 MB (402 → 335 MB) against the build just before that step. I did not run the first version at 100,000 items (it needs minutes), so there is no first-release figure there.</p>
+
+<h3>New since the first version (not in the first version at all)</h3>
+<p>Hovering a link shows it, and the first hover on a 30,000-item map takes 316 ms in Chromium 155, 279 ms in Firefox 158, 77 ms in WebKitGTK 2.52.6 and 134 ms in GNOME Web 46.5 (lower is better). Also new: a rough early picture while big maps finish, the multilevel layout for huge networks, reuse of the last layout when you only change the look, Top-down options (story order, chapters, mini-map, bundled and tapered links), and a leaner idle state (the layout worker rests after 4 seconds).</p>
