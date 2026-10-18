@@ -12,8 +12,12 @@ async function open() {
 (async () => {
   const B = await open(), page = B.page; console.log('browser', which, B.version, ', items', N);
   await page.goto(URL); await B.wait(() => window.NFM && NFM.client() && NFM.client().mode !== 'starting', null, 30000);
-  await page.evaluate((n) => { NFM.setGraph(NFMExamples.bigNetwork(n, 12, 7)); NFM.setV({ view: 'network', arrange: 'sphere' }); NFM.showTab('map'); }, N);
+  await page.evaluate((a) => { NFM.setGraph(NFMExamples.bigNetwork(a.n, 12, 7)); NFM.setV({ view: 'network', arrange: a.ar }); NFM.showTab('map'); }, { n: N, ar: process.env.NFM_HOVER ? 'force' : 'sphere' });
   await B.wait((n) => NFM.state.L && NFM.state.sceneOk && NFM.state.L.nodes.length > n * 0.98, N, 300000); await new Promise((r) => setTimeout(r, 2000));
+  if (process.env.NFM_HOVER) {   /* the first hover on a flat map: time of the first pick (builds the hover index) and of the next one, median of 3 fresh scenes is too slow, so the first of each of 3 different points on one scene is not possible; one scene, first and next */
+    const r = await page.evaluate(() => { const sc = NFM.state.scene, t0 = performance.now(); NFMScene.pickEdge(sc, sc.x0 + sc.w / 2, sc.y0 + sc.h / 2, 8); const t1 = performance.now(), a = [], I = sc.eidx; for (let i = 0; i < 20; i++) { const q = performance.now(); NFMScene.pickEdge(sc, sc.x0 + sc.w * (0.3 + 0.02 * i), sc.y0 + sc.h / 2, 8); a.push(performance.now() - q); } a.sort((x, y) => x - y); return { first: t1 - t0, next: a[10], links: sc.curveCount(), idx: I.ids ? Math.round((I.segs.byteLength + I.sci.byteLength + I.off.byteLength + I.ids.byteLength + I.mark.byteLength) / 1048576) : null }; });
+    console.log('flat map,', r.links, 'links: first hover (builds the index)', r.first.toFixed(0), 'ms; a later hover (median of 20)', r.next.toFixed(1), 'ms (lower is better); typed index', r.idx === null ? 'n/a (earlier index)' : r.idx + ' MB'); await B.close(); return;
+  }
   if (process.env.NFM_REAL) {   /* the app's own link store: pack everything now, then read every link (makes the objects again); median of 3 */
     const R = []; for (let r = 0; r < 3; r++) R.push(await page.evaluate(() => { const sc = NFM.state.scene; sc.autoPack({ delay: 1e9, min: 1e12 }); sc.curves.length; const t0 = performance.now(), ok = sc.packNow(), pk = performance.now() - t0, t1 = performance.now(); sc.curves.length; return { M: sc.curveCount(), ok, pk, rd: performance.now() - t1 }; }));
     const m = (k) => R.map((x) => x[k]).sort((a, b) => a - b)[1]; console.log('app link store,', R[0].M, 'links, packed ok:', R.every((x) => x.ok), '; median of 3 (lower is better): pack all', m('pk').toFixed(0), 'ms; read every link (objects again)', m('rd').toFixed(0), 'ms'); await B.close(); return;
