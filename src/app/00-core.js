@@ -194,6 +194,8 @@ function indexGraph() {
   S.byId = by; S.outAdj = out; S.inAdj = inn; S.kinds = Array.from(kinds).sort();
   S.dg = NFMColumns.derive(g); S.prof = NFMColumns.profile(S.dg); S.story = NFMColumns.isStory(g);
 }
+/** One link of the layout, read without bringing a packed link list back (see src/layout-park.js). */
+function edgeOf(i) { var L = S.L; return L.edgeAt ? L.edgeAt(i) : L.edges[i]; }
 var HOOKS = { graph: [], view: [] };
 /** Replace the whole graph. push=false means: do not remember the old one for Undo. */
 function setGraph(g, push, keepView) {

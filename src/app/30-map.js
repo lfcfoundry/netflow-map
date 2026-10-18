@@ -230,6 +230,8 @@ function applyPins(L) {
 /** Idle links of a big map are kept as typed arrays (see curveStore in scene.js): about 70 MB less page memory at 100,000 items. Not while the flow dots or a simulation run. */
 function keepPacked(sc) {
   if (sc && sc.autoPack) sc.autoPack({ delay: 4000, min: 20000, alive: function () { return S.scene === sc; }, hold: function () { return SIM.st === 'running' || !!DOTS.raf; }, packed: function () { DOTS.list = []; DOTS.key = ''; DOTS.sc = null; } });
+  var L0 = S.L;
+  if (L0 && window.NFMPark) NFMPark.attach(L0, { delay: 4000, min: 20000, alive: function () { return S.L === L0; }, hold: function () { return SIM.st === 'running' || !!DOTS.raf; } });
 }
 function editKey(sc) {
   var ed = S.V.key.edits || {}; if (!sc.legend) return;
