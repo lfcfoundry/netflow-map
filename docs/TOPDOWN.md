@@ -15,8 +15,7 @@ All the choices below are off by default (chapters fold only on very big maps, s
 | One column per group (Top-down) | One band per group, left to right. | `downLanes: true` |
 | Bundle links that share a start or an end (Flow, Top-down) | Links that start at the same page share one run of stand-in stops; links that end at the same page and are alone at their start share one from the end. | `bundle: true` |
 | Taper links (thick at the start, thin at the end) | Links are drawn as shapes that narrow from the start to the end, so direction shows without arrowheads. Also in SVG export. | `taper: true` (scene) |
-| River direction: top to bottom | River runs down the page instead of across it (hand edits stay left to right only). | `riverDir: 'TB'` (view) |
-| Chapters: Auto / On / Off | On a big map, runs of pages behind a must-pass page fold into one "Chapter" box; if more than 600 boxes remain, runs of about 80 to 130 pages fold into "Part" boxes. Click a box to open it, right-click an open one to fold it back. Search and selecting a page open the box that hides it. Auto folds above 1,500 pages. | `chapters: 1500`, `openCh` |
+| Chapters: Auto / On / Off | On a big map, runs of pages behind a must-pass page fold into one "Chapter" box; if more than 600 boxes remain, runs of about 80 to 130 pages fold into "Part" boxes. A folded box shows the name of its first page and the share of all routes that go through it ("under 1%" when small). Click a box to open it, right-click an open one to fold it back. Search and selecting a page open the box that hides it. Auto folds above 1,500 pages. | `chapters: 1500`, `openCh` |
 | Mini-map (Auto / On / Off) | A small picture of the whole map in the corner with a frame for the screen; click or drag it to move. Auto shows it when the screen sees less than 70% of the map across or down. | view `minimap` |
 
 Also a right-click item on a page: **Select every page on a route through it** (every page that can lead to it plus every page it can lead on to).
@@ -120,9 +119,9 @@ Plain takeaway: a folded 5,002-page story draws in 17 ms instead of 339 ms and f
 
 Plain takeaway: bundling pays on big maps without tags; with tags on there is nothing left to bundle, and a small map can end with a crossing or two more, so it stays a choice.
 
-### Tapered links and vertical River
+### Tapered links
 
-Tapering costs about 1 ms per draw at 5,258 links (0.76, 1.12 and 1.19 ms in three runs, within noise). Vertical River swaps the picture's two directions after the layout is made, so the layout time is unchanged.
+Tapering costs about 1 ms per draw at 5,258 links (0.76, 1.12 and 1.19 ms in three runs, within noise).
 
 ### Not adopted: straight-line placement (Brandes-Koepf)
 

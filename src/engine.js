@@ -522,6 +522,12 @@ var NFMEngine = (function () {
     return { exact: false, runs: runs, visits: visits, moves: moves, pGood: pg, pBad: pb, pNeutral: pn, outcome: oc, mode: mode };
   }
 
+  /** The second line of a folded chapter or part box: its first page's name and the share of all routes that go through it ("under 1%" when small). */
+  function chapterSub(n, pg) {
+    var name = String(pg.label || pg.id); if (name.length > 26) name = name.slice(0, 25) + '…';
+    var t = n.traffic, pct = !(t > 0) ? '' : t < 0.01 ? ' · under 1% of routes' : t > 0.995 ? ' · every route' : ' · ' + Math.round(t * 100) + '% of routes';
+    return name + pct;
+  }
   /**
    * Chapters and parts: pieces of a big story that can be drawn as one box each (for the Flow, Top-down, Spine and Lanes views).
    * A chapter is the set of pages that can only be reached through one gate (a choke page, or any page the start has to pass first)
@@ -2329,7 +2335,7 @@ var NFMEngine = (function () {
         if (flow.c) { var bk = -1, bv = 0.0005; for (var qk = 0; qk < flow.K; qk++) { var cv = flow.c[n.pi * flow.K + qk]; if (cv > bv) { bv = cv; bk = qk; } } n.dom = bk; n.domP = bk >= 0 ? bv : 0; }
       }
       n.label = n.chapter ? (n.part ? 'Part · ' : 'Chapter · ') + n.pages.length.toLocaleString('en-US') + ' pages' : n.run ? n.pages.length + ' in a row' : pg.label || pg.id;
-      n.sub = n.chapter ? 'click to open' : n.run ? P.nodes[n.pages[0]].label + ' … ' + P.nodes[n.pages[n.pages.length - 1]].label : '';
+      n.sub = n.chapter ? chapterSub(n, pg) : n.run ? P.nodes[n.pages[0]].label + ' … ' + P.nodes[n.pages[n.pages.length - 1]].label : '';
       n.nodeId = pg.id;
       n.group = o.colorBy === 'found' && found ? 'group ' + (found[n.pages[0]] + 1) : groupKey(pg, cmode.t === 'cat' ? cmode.key : 'group');
       n.sizeV = sizeV ? sizeV[gi] : NaN; n.colorV = colV ? colV[gi] : NaN;

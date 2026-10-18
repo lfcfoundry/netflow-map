@@ -191,7 +191,7 @@ function sceneOpts() {
   var V = S.V, sm = computeStyles(), dg = S.dg, byDg = new Map(); dg.nodes.forEach(function (n) { byDg.set(n.id, n); });
   var o = {
     theme: themeName(), colorBy: engineColor(), palette: V.palette, ramp: V.ramp, groupColors: V.groupColors, groupOrder: allGroupOrder(dg), story: S.story, lab: V.lab, widthScale: V.widthScale, widthMul: V.widthMul, hulls: V.hulls,
-    cam: V.cam, curve: V.curve, edgeValueLabels: V.valueLabels, ruler: V.ruler, taper: V.taper, vertical: V.view === 'river' && V.riverDir === 'TB', lens: V.lens.on ? { x: S.lens ? S.lens.x : 0, y: S.lens ? S.lens.y : 0, r: S.lens ? S.lens.r : 0, d: V.lens.d } : null,
+    cam: V.cam, curve: V.curve, edgeValueLabels: V.valueLabels, ruler: V.ruler, taper: V.taper, lens: V.lens.on ? { x: S.lens ? S.lens.x : 0, y: S.lens ? S.lens.y : 0, r: S.lens ? S.lens.r : 0, d: V.lens.d } : null,
     chName: function (c) { return chLabel(c, /^sys:(count|flow)$/.test(c) || c === 'weight' ? 'edges' : 'nodes'); }
   };
   if (sm.any) {
