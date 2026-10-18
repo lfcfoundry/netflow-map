@@ -162,7 +162,7 @@ Matches your stated preference: hold off on checks and benchmarks while the desi
 **Rules:**
 - Never run Tier 3 on a design that may be thrown away.
 - If Tier 2 passes, say so briefly. If it fails, show only the failing lines.
-- Record in the CHANGELOG exactly which browsers and versions each build was tested in.
+- Record in the full changelog exactly which browsers and versions each build was tested in.
 
 ---
 

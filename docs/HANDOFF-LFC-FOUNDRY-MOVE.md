@@ -38,7 +38,7 @@ It is **its own product** (owner, 2026-10-17). It grew from the Story Editor's s
 | `vendor/` | Small third-party or shared files: `back-close.js`, `env-probes.js` (both from the owner's JS-modules), `story-map.global.js`. |
 | `examples/` | Empty at the moment. |
 
-Root files: `AGENTS.md` (rules for any person or AI; read it), `README.md`, `CHANGELOG.md` (one row per shipped version), `LICENSE` (MIT).
+Root files: `AGENTS.md` (rules for any person or AI; read it), `README.md`, `CHANGELOG.md` (short, plain-words list for app users; the full row per shipped version is in `/mnt/project-files/changelogs-full/netflow-map/CHANGELOG-full.md`), `LICENSE` (MIT).
 
 ## 3. House rules (all enforced or expected; from `AGENTS.md`)
 
@@ -53,7 +53,7 @@ Root files: `AGENTS.md` (rules for any person or AI; read it), `README.md`, `CHA
 9. **WebAssembly is allowed** (owner's policy, 2026-10-17, for all his games, apps and modules): a page may add `'wasm-unsafe-eval'` to `script-src` and change nothing else in its policy (no `unsafe-eval`, no network). A WebAssembly helper keeps its source, a rebuild step and a plain-JavaScript fallback that gives the same answers, and stays embedded inside the single file.
 10. **Targets and test browsers.** Test only in the browsers on the `browsers` branch of `lfcfoundry/knowledge-base` (Firefox 158, ungoogled-chromium 155, WebKitGTK 2.52.6; GNOME Web 46.5 as an extra), ONE at a time, with the version printed on line 1 of every run. Re-read that branch's README before each run, because versions can change. That knowledgebase repository is private and also holds the universal QA guide named in `AGENTS.md`; a copy written from this project is `docs/QA-SPEED-GUIDE.md`.
 11. **Design rules.** Speed must not cost looks (the three drawing backends stay visually identical; the parity check is in `test/browser.test.js`). Pick a drawing backend by a real start-up test, never by `'gpu' in navigator`. A diagnostic page is one button and a plain-words verdict. Anything that reads a user's file needs a limit counted on what is really read, a plain-words refusal, and a test. Never edit a user's dropped file in place. Imported text is untrusted: no `innerHTML` without `esc()`; CSV export neutralizes leading `= + - @`.
-12. Do not claim a browser, a number or a behavior was tested unless it was; CHANGELOG rows list the browsers used AND the ones not used.
+12. Do not claim a browser, a number or a behavior was tested unless it was; full changelog rows list the browsers used AND the ones not used.
 
 ## 4. Build, test, release
 
@@ -73,7 +73,7 @@ Needs Node 22. Browser runs need the three browsers from the `browsers` branch (
 
 Current browser pass-count baseline (`test/baseline.json`, a run that passes fewer checks fails): chromium 134, firefox 114, webkit 123. GNOME Web 46.5 runs 118 of 123: the 5 failures are mouse-drag and click checks its WebDriver refuses; they fail the same way on the previous build.
 
-Release means: change `src/`, run the tests, `node tools/build.mjs`, add a CHANGELOG row with the version stamp (US Eastern, the real time) and the browsers used and not used, commit with the author rule, `git pull --rebase`, push. The owner reads `index.html` and the tester directly from GitHub or from files sent to him.
+Release means: change `src/`, run the tests, `node tools/build.mjs`, add a full changelog row (version stamp in US Eastern, the real time, and the browsers used and not used) and one short line in `CHANGELOG.md`, commit with the author rule, `git pull --rebase`, push. The owner reads `index.html` and the tester directly from GitHub or from files sent to him.
 
 **The tester.** `bench/net-flow-map-tester.html` is a one-button page the owner runs on his own laptop; he pastes or attaches the results (`*-net-flow-map-tester-results.md`). Send him a tester only when it has something new to measure or verify. Its source is `bench/tester/tester.js` and `template.html`; `bench/tester/run-local.js` runs it in the container (`TESTER_ONLY`, `TESTER_PLAN3D`). The tester checked into the repo was last built at 2026.10.17.0345 from the code of that time; **a rebuild now would also carry the WebAssembly Force work**. The tester title says whether WebGPU is detected and that it is used for layout math while WebGL 2 draws. That wording was never seen in the container (no WebGPU there), so look at it in the owner's next results.
 
