@@ -821,6 +821,28 @@ async function open() {
     await ev(async () => { const c = NFM.client(); c.parkMin = 20000; c.parkAfter = 0; if (c.parkTimer) { clearTimeout(c.parkTimer); c.parkTimer = null; } if (c.parked) await c.unpark(); });   /* off for the rest of the run, so later steps find the worker alive */
   } catch (e) { say(false, 'idle worker parking stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  /* 8c. scene links kept as typed arrays while idle: packed, picked, drawn again from rebuilt objects; the picture does not change by a single byte */
+  try {
+    await ev(() => { window.__g1 = JSON.parse(JSON.stringify(NFM.state.graph)); window.__v1 = { view: NFM.state.V.view, arrange: NFM.state.V.arrange }; window.__tab1 = NFM.state.tab; NFM.setGraph(NFMExamples.bigNetwork(1500, 8, 7)); NFM.setV({ view: 'network', arrange: 'sphere' }); NFM.showTab('map'); });
+    await D.wait(() => NFM.state.L && NFM.state.sceneOk && !NFM.state.mapBusy && NFM.state.scene && NFM.state.L.nodes.length > 1400, null, 60000); await settle(400);
+    const n0 = await ev(() => { const sc = NFM.state.scene; return sc.curveCount(); });
+    const p = await ev(() => { const sc = NFM.state.scene; sc.autoPack({ delay: 100, min: 1, alive: () => NFM.state.scene === sc }); return true; });
+    await D.wait(() => NFM.state.scene.curvesPacked(), null, 6000).catch(() => {});
+    const packed = await ev(() => NFM.state.scene.curvesPacked());
+    if (!packed) say(false, 'scene links were not packed after the idle time (' + n0 + ' links)');
+    else {
+      await ev(() => { const cv = document.querySelector('#map canvas, canvas'), o = document.createElement('canvas'); o.width = cv.width; o.height = cv.height; const c = o.getContext('2d'); c.drawImage(cv, 0, 0); window.__pa = c.getImageData(0, 0, o.width, o.height).data; });
+      const pick = await ev(() => { const sc = NFM.state.scene, c0 = sc.curveAt(0), r = NFMScene.pickEdge(sc, (c0.P[0] + c0.P[6]) / 2, (c0.P[1] + c0.P[7]) / 2, 8); return { edge: r && r.edge, packed: sc.curvesPacked(), n: sc.curveCount() }; });
+      say(pick.edge === (await ev(() => NFM.state.scene.curveAt(0).edge)) && pick.packed, 'a link can be picked while the links are packed, and picking leaves them packed: ' + JSON.stringify(pick));
+      await ev(() => { const sc = NFM.state.scene, m = NFM.manager(); sc.curves.length; if (m && m.r) m.r.setScene(sc); NFM.requestDraw && NFM.requestDraw(); }); await settle(500);
+      const df = await ev(() => { const cv = document.querySelector('#map canvas, canvas'), o = document.createElement('canvas'); o.width = cv.width; o.height = cv.height; const c = o.getContext('2d'); c.drawImage(cv, 0, 0); const b = c.getImageData(0, 0, o.width, o.height).data, a = window.__pa; let n = 0, mx = 0; for (let i = 0; i < a.length; i++) { const d = Math.abs(a[i] - b[i]); if (d) { n++; if (d > mx) mx = d; } } return { bytes: a.length, differ: n, maxDiff: mx }; });
+      say(df.differ === 0, 'the picture is byte for byte the same after the links were packed, rebuilt as objects and drawn again (' + n0 + ' links, ' + df.bytes + ' bytes compared, ' + df.differ + ' differ' + (df.differ ? ', by up to ' + df.maxDiff : '') + ')');
+      await D.wait(() => NFM.state.scene.curvesPacked(), null, 6000).catch(() => {}); say(await ev(() => NFM.state.scene.curvesPacked()), 'the links are packed again after the next idle time');
+      await ev(() => { NFM.state.scene.autoPack({ delay: 100000, min: 1e9 }); NFM.state.scene.curves.length; });
+    }
+    await ev(() => { NFM.setGraph(window.__g1, false, true); NFM.setV(window.__v1); if (window.__tab1 && window.__tab1 !== 'map') NFM.showTab(window.__tab1); }); await D.wait(() => NFM.state.sceneOk && !NFM.state.mapBusy, null, 30000).catch(() => {});
+  } catch (e) { say(false, 'packed scene links stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
   /* 9. the drawing manager never keeps a destroyed renderer; a worker that dies mid-job does not wedge the engine */
   try {
   { const r = await ev(async () => {

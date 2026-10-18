@@ -366,7 +366,7 @@ function stopDots() { if (DOTS.raf) cancelAnimationFrame(DOTS.raf); DOTS.raf = 0
 function dotsWanted() { return S.tab === 'map' && SC().dots && !!S.simSnap && !!S.scene && !reduceMotion && S.V.view !== 'matrix' && S.V.view !== 'river'; }
 function dotList() {
   var sc = liveScene(), L = S.L, mv = S.simSnap && S.simSnap.moves; if (!sc || !L || !mv) return [];
-  var key = S.simVer + '|' + (sc.curves && sc.curves.length) + '|' + S.gver; if (DOTS.key === key && DOTS.sc === sc) return DOTS.list;
+  var key = S.simVer + '|' + sc.curveCount() + '|' + S.gver; if (DOTS.key === key && DOTS.sc === sc) return DOTS.list;
   var out = [], mx = 0, tr = new Float64Array(sc.curves.length), i;
   for (i = 0; i < sc.curves.length; i++) {
     var cv = sc.curves[i]; if (cv.edge === undefined || cv.edge < 0 || cv.back) continue;
