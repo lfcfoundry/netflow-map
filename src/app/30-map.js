@@ -53,7 +53,7 @@ function keepList() {
 }
 function engineOpts() {
   var V = S.V, o = {
-    view: V.view, arrange: V.arrange, dir: V.dir, fold: V.fold, merge: V.merge, laneBy: V.laneBy, colorBy: engineColor(), sizeBy: V.sizeBy, widthBy: V.widthBy, edgeColorBy: V.edgeColorBy, agg: V.agg,
+    view: V.view, arrange: V.arrange, dir: V.dir, fold: V.fold, merge: V.merge, rows: V.rows, chapters: V.chapters === 'off' ? 0 : V.chapters === 'on' ? 1 : 1500, openCh: V.openCh, tagLen: V.tagLen, spineCol: V.spineCol, better: V.better, bundle: V.bundle, wrap: V.wrap, downLanes: V.downLanes, laneBy: V.laneBy, colorBy: engineColor(), sizeBy: V.sizeBy, widthBy: V.widthBy, edgeColorBy: V.edgeColorBy, agg: V.agg,
     block: V.block.slice(), hideKinds: V.hideKinds.slice(), mode: S.A.mode, runs: S.A.runs, weights: S.A.weights, wantFlow: V.colorBy === 'odds' || V.colorBy === 'heat'
   };
   var cut = strongestCut(); if (cut.min !== null) o.minEdge = { ch: cut.ch, min: cut.min };
@@ -80,6 +80,8 @@ function showMsg(content, buttons) {
 }
 function hideMsg() { $('msg').hidden = true; }
 var buildQueued = 0;
+/** What the engine's answer depends on: the settings it is given and the data it works on. While this stays the same the layout on the stage is still the right one, so a change of looks only (a color choice the engine does not use, a theme) makes a new picture from it instead of working the layout out again. */
+function buildKey() { return JSON.stringify(engineOpts()) + '|' + S.gver + '|' + JSON.stringify(S.V.pins[pinKey()] || 0); }   /* pins are put on the layout in place (applyPins), so a changed pin needs a fresh layout */
 /** Builds the map again from the data and settings. Off the Map tab it only notes that the picture is out of date (the Map builds it when shown), unless force is true (export asks for that). Returns a promise that settles when the build is over. */
 function refreshMap(reason, force) {
   if (S.tab !== 'map' && !force) { S.sceneOk = false; S.mapStale = -1; return Promise.resolve(); }
@@ -87,12 +89,17 @@ function refreshMap(reason, force) {
   clearTimeout(busyT);
   $('stage').classList.toggle('empty', !S.graph.nodes.length);
   if (!S.graph.nodes.length) {
-    S.L = null; S.scene = null; S.sceneOk = true; S.mapBusy = 0; if (mgr && mgr.r) mgr.r.setScene(null);
+    S.L = null; S.buildKey = null; S.scene = null; S.sceneOk = true; S.mapBusy = 0; if (mgr && mgr.r) mgr.r.setScene(null);
     showMsg(h('div', { style: { display: 'grid', gap: '6px' } }, [h('b', null, 'Nothing to draw yet.'), h('span', { class: 'muted small' }, 'Bring in a table, a JSON file, an outline or a folder of notes on the Data tab.')]), [['Go to Data', function () { showTab('data'); }, true]]);
     renderMapUI(); return Promise.resolve();
   }
+  if (S.L && S.buildKey && S.buildDg === S.dg && S.buildKey === buildKey()) {   /* nothing the layout depends on changed: only the picture is made again, which allocates one picture instead of a layout and a picture */
+    ++S.mapSeq; S.mapBusy = 0; clearTimeout(busyT); hideMsg(); S.reusedLayouts = (S.reusedLayouts || 0) + 1;
+    makeScene(false); S.sceneOk = true; return Promise.resolve();
+  }
+  S.buildKey = null;
   if (!client || client.mode === 'starting') { showMsg('Getting ready…'); return new Promise(function (res) { setTimeout(function () { res(refreshMap(reason, force)); }, 150); }); }
-  var seq = ++S.mapSeq; S.sceneOk = false; S.mapBusy = seq;
+  var seq = ++S.mapSeq; S.sceneOk = false; S.mapBusy = seq; var bk = buildKey(), bdg = S.dg;
   busyT = setTimeout(function () { if (seq === S.mapSeq) showMsg(h('div', { style: { display: 'grid', gap: '6px' } }, [h('b', null, 'Working out the map…'), h('span', { class: 'muted small' }, nfmt(S.graph.nodes.length) + ' items, ' + nfmt(S.graph.edges.length) + ' links')])); }, 350);
   var t0 = performance.now(), V = S.V;
   var shown = function (res, rough) {   // puts a layout on the stage; a rough one (the early preview of a big map) leaves the map marked as still being worked on
@@ -108,8 +115,10 @@ function refreshMap(reason, force) {
     if (S.tab !== 'map') { if (fit) S.needFit = true; fit = false; }   /* built for export while another tab is open: the stage has no size now, so it fits when the Map is shown */
     else if (S.needFit) { S.needFit = false; fit = true; }
     makeScene(fit); lastFitKey = fk;
+    if (S.centerAfter) { var ca = S.centerAfter; S.centerAfter = null; centerOn(ca); }
     if (rough) { toast('A rough picture is up. The finished one replaces it when ready.', 30000); return; }
     S.sceneOk = true; if (S.mapBusy === seq) S.mapBusy = 0;
+    S.buildKey = bk; S.buildDg = bdg;
     if (S.roughShown) { S.roughShown = false; toast('The finished picture is ready.', 2500); }
   };
   var p = client.build(engineOpts(), function (res) { if (seq !== S.mapSeq) return; S.roughShown = true; S.roughCount = (S.roughCount || 0) + 1; shown(res, true); }).then(function (res) {
@@ -182,7 +191,7 @@ function sceneOpts() {
   var V = S.V, sm = computeStyles(), dg = S.dg, byDg = new Map(); dg.nodes.forEach(function (n) { byDg.set(n.id, n); });
   var o = {
     theme: themeName(), colorBy: engineColor(), palette: V.palette, ramp: V.ramp, groupColors: V.groupColors, groupOrder: allGroupOrder(dg), story: S.story, lab: V.lab, widthScale: V.widthScale, widthMul: V.widthMul, hulls: V.hulls,
-    cam: V.cam, curve: V.curve, edgeValueLabels: V.valueLabels, lens: V.lens.on ? { x: S.lens ? S.lens.x : 0, y: S.lens ? S.lens.y : 0, r: S.lens ? S.lens.r : 0, d: V.lens.d } : null,
+    cam: V.cam, curve: V.curve, edgeValueLabels: V.valueLabels, ruler: V.ruler, taper: V.taper, lens: V.lens.on ? { x: S.lens ? S.lens.x : 0, y: S.lens ? S.lens.y : 0, r: S.lens ? S.lens.r : 0, d: V.lens.d } : null,
     chName: function (c) { return chLabel(c, /^sys:(count|flow)$/.test(c) || c === 'weight' ? 'edges' : 'nodes'); }
   };
   if (sm.any) {
@@ -297,8 +306,22 @@ function applyStyle(noDraw) {
   if (mgr && mgr.r && mgr.r.restyle) mgr.r.restyle();
   if (!noDraw) requestDraw();
 }
+/** Opens the chapters and parts that hide any of these pages (a search hit, a selection from the details list); true when something was opened and the map is being built again. */
+function revealPages(ids) {
+  var c = S.L && S.L.chapters; if (!c) return false;
+  var open = Object.assign({}, S.V.openCh), more = false;
+  ids.forEach(function (id) { var ks = c.of[id]; if (ks) ks.forEach(function (k) { if (!open[k]) { open[k] = true; more = true; } }); });
+  if (!more) return false;
+  S.centerAfter = ids.slice(0, 1); S.V.openCh = open; setV({}); return true;
+}
+/** Opens one chapter or part (by its key), or folds it back. */
+function toggleChapter(key, on) {
+  var open = Object.assign({}, S.V.openCh); if (on) open[key] = true; else delete open[key];
+  S.V.openCh = open; setV({});
+}
 function setSel(ids, opts) {
   opts = opts || {};
+  if (ids.length && revealPages(ids)) { S.sel = new Set(ids); S.selEdges = new Set(); }
   S.sel = new Set(ids); S.selEdges = new Set(opts.edges || []); S.ring = null;
   applyStyle(); renderDetails(); renderSelbar();
   if (opts.center && ids.length) centerOn(ids);
@@ -345,7 +368,7 @@ function requestDraw() {
     }
     if (tsc && tsc.turn && tsc.turn.on && S.view.k > tsc.turn.kmax) tsc.turnTo(tsc.turn.cam, S.view.k * 2);   /* zoomed in: more names can be seen */
     if (mgr && mgr.r && S.scene) { try { mgr.r.draw({ k: S.view.k, tx: S.view.tx, ty: S.view.ty, invalidate: requestDraw }); } catch (err) { mgr.log.push('draw: ' + err.message); } }
-    drawInk();
+    drawInk(); renderMinimap();
   });
 }
 function attach(r) { r.resize(S.stageW, S.stageH, S.dpr); if (S.scene) { r.setScene(S.scene); if (S.L && S.L.is3d && r.rigPrepare) r.rigPrepare(); } requestDraw(); renderMapUI(); warmCardSoon(); }

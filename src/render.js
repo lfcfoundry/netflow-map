@@ -23,6 +23,13 @@ var NFMRender = (function () {
     }
     return out;
   }
+  /** Half widths along a polyline that shrink from h0 to h1 by the length so far (tapered links). */
+  function taperHalf(pts, h0, h1) {
+    var n = pts.length / 2, cum = new Float64Array(n), i, tot = 0;
+    for (i = 1; i < n; i++) { tot += Math.hypot(pts[i * 2] - pts[i * 2 - 2], pts[i * 2 + 1] - pts[i * 2 - 1]); cum[i] = tot; }
+    var out = new Float64Array(n); for (i = 0; i < n; i++) out[i] = h0 + (h1 - h0) * (tot > 0 ? cum[i] / tot : 0);
+    return out;
+  }
   var SEG = new Float64Array(18), MESHBUF = null;
   var NODBG = {};
   /** A link that is one straight piece with no dashes (the common case on a big network). */
@@ -67,16 +74,19 @@ var NFMRender = (function () {
       var a = (p.a === undefined ? 1 : p.a), n = p.pts.length / 2, cx = p.c[0], cy = p.c[1];
       for (var q = 0; q < n; q++) { var q2 = (q + 1) % n; put(cx, cy, 0, 0, -1, 0, p.fill, a); put(p.pts[q * 2], p.pts[q * 2 + 1], 0, 0, -1, 0, p.fill, a); put(p.pts[q2 * 2], p.pts[q2 * 2 + 1], 0, 0, -1, 0, p.fill, a); }
     });
-    var strip = function (pts, hw, col, a) {
-      var n = pts.length / 2, nr = new Array(n * 2), i;
+    var strip = function (pts, hw, col, a, hw1) {
+      var n = pts.length / 2, nr = new Array(n * 2), i, hs = null;
       for (i = 0; i < n; i++) {
         var p0 = Math.max(0, i - 1), p1 = Math.min(n - 1, i + 1), tx = pts[p1 * 2] - pts[p0 * 2], ty = pts[p1 * 2 + 1] - pts[p0 * 2 + 1], d = Math.hypot(tx, ty) || 1;
         nr[i * 2] = -ty / d; nr[i * 2 + 1] = tx / d;
       }
+      if (hw1 !== undefined) {   /* a tapered link: the half width goes from hw at the start to hw1 at the end, by the length so far */
+        hs = taperHalf(pts, hw, hw1);
+      }
       for (i = 0; i + 1 < n; i++) {
-        var xa = pts[i * 2], ya = pts[i * 2 + 1], xb = pts[i * 2 + 2], yb = pts[i * 2 + 3];
-        put(xa, ya, nr[i * 2], nr[i * 2 + 1], hw, -1, col, a); put(xa, ya, nr[i * 2], nr[i * 2 + 1], hw, 1, col, a); put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hw, -1, col, a);
-        put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hw, -1, col, a); put(xa, ya, nr[i * 2], nr[i * 2 + 1], hw, 1, col, a); put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hw, 1, col, a);
+        var xa = pts[i * 2], ya = pts[i * 2 + 1], xb = pts[i * 2 + 2], yb = pts[i * 2 + 3], ha = hs ? hs[i] : hw, hb = hs ? hs[i + 1] : hw;
+        put(xa, ya, nr[i * 2], nr[i * 2 + 1], ha, -1, col, a); put(xa, ya, nr[i * 2], nr[i * 2 + 1], ha, 1, col, a); put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hb, -1, col, a);
+        put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hb, -1, col, a); put(xa, ya, nr[i * 2], nr[i * 2 + 1], ha, 1, col, a); put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hb, 1, col, a);
       }
     };
     S.curves.forEach(function (c) {
@@ -87,7 +97,7 @@ var NFMRender = (function () {
         var r0 = col[0], r1 = col[1], r2 = col[2], r3 = col[3] * a, V = SEG;
         V[0] = xa; V[1] = ya; V[2] = -1; V[3] = xa; V[4] = ya; V[5] = 1; V[6] = xb; V[7] = yb; V[8] = -1; V[9] = xb; V[10] = yb; V[11] = -1; V[12] = xa; V[13] = ya; V[14] = 1; V[15] = xb; V[16] = yb; V[17] = 1;
         for (i = 0; i < 18; i += 3) { mesh[o++] = V[i]; mesh[o++] = V[i + 1]; mesh[o++] = nx; mesh[o++] = ny; mesh[o++] = hw; mesh[o++] = V[i + 2]; mesh[o++] = r0; mesh[o++] = r1; mesh[o++] = r2; mesh[o++] = r3; }
-      } else if (c.dashed) c.dashed.forEach(function (q) { strip(q, hw, col, a); }); else strip(c.pts, hw, col, a);
+      } else if (c.dashed) c.dashed.forEach(function (q) { strip(q, hw, col, a); }); else strip(c.pts, hw, col, a, c.w1 !== undefined ? c.w1 / 2 : undefined);
       if (c.arrow) { var t = NFMScene.arrowTri(c); for (i = 0; i < 3; i++) put(t[i * 2], t[i * 2 + 1], 0, 0, -1, 0, col, a); }
     });
     return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE };
@@ -224,6 +234,12 @@ var NFMRender = (function () {
           var P = c.P, a = (c.a === undefined ? 1 : c.a) * c.color[3], col = css([c.color[0], c.color[1], c.color[2], 1]);
           ctx.globalAlpha = a; ctx.strokeStyle = col; ctx.lineWidth = Math.max(c.w, 1.4 / k);
           if (c.dash) { var lw = ctx.lineWidth; ctx.setLineDash(c.dash === 1 ? [0.01, lw * 2.2 + 2] : c.dash === 3 ? [lw * 6 + 6, lw * 3 + 5] : [lw * 3 + 4, lw * 2 + 4]); ctx.lineCap = c.dash === 1 ? 'round' : 'butt'; }
+          if (c.w1 !== undefined) {   /* tapered: a filled shape, thick at the start and thin at the end */
+            var tp = c.pts || (c.pts = bezPts(c.P, c.line)), th = taperHalf(tp, c.w / 2, c.w1 / 2), tn = tp.length / 2, tq, tx0, ty0, tl = [], tr = [];
+            for (tq = 0; tq < tn; tq++) { var pa = Math.max(0, tq - 1), pb = Math.min(tn - 1, tq + 1); tx0 = tp[pb * 2] - tp[pa * 2]; ty0 = tp[pb * 2 + 1] - tp[pa * 2 + 1]; var td = Math.hypot(tx0, ty0) || 1; tl.push(tp[tq * 2] - ty0 / td * th[tq], tp[tq * 2 + 1] + tx0 / td * th[tq]); tr.push(tp[tq * 2] + ty0 / td * th[tq], tp[tq * 2 + 1] - tx0 / td * th[tq]); }
+            ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(tl[0], tl[1]); for (tq = 1; tq < tn; tq++) ctx.lineTo(tl[tq * 2], tl[tq * 2 + 1]); for (tq = tn - 1; tq >= 0; tq--) ctx.lineTo(tr[tq * 2], tr[tq * 2 + 1]); ctx.closePath(); ctx.fill();
+            return;
+          }
           ctx.beginPath(); ctx.moveTo(P[0], P[1]);
           for (var i = 2; i < P.length; i += 6) ctx.bezierCurveTo(P[i], P[i + 1], P[i + 2], P[i + 3], P[i + 4], P[i + 5]);
           ctx.stroke();
