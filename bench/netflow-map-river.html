@@ -18,7 +18,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>River before and after</h1>
-<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (first picture) and with the improved layout (second picture), then measured the same way. Each picture fits inside its frame; scroll to zoom, drag to move, or open it full size. Nothing is sent anywhere. Version 2026.10.17.2329.</p>
+<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (first picture) and with the improved layout (second picture), then measured the same way. Each picture fits inside its frame; scroll to zoom, drag to move, or open it full size. Nothing is sent anywhere. Version 2026.10.18.1101.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>Summary</h2><p id="finalsay"></p>
@@ -7119,7 +7119,7 @@ var NFMSankey = (function () {
  * side by side, measures both with the same yardstick, and says in plain words which is better. Runs by itself when the page opens. */
 (function () {
   'use strict';
-  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NFMSankey, VERSION = '2026.10.17.2329';
+  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NFMSankey, VERSION = '2026.10.18.1101';
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
   var $ = function (id) { return document.getElementById(id); }, esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var r1 = function (v) { return Math.round(v * 10) / 10; }, r2 = function (v) { return Math.round(v * 100) / 100; };
