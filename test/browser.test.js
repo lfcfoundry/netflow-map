@@ -796,6 +796,31 @@ async function open() {
     say(dups.length === 0, 'no function or variable is declared twice at the top of src/app' + (dups.length ? ': ' + dups.join('; ') : '')); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  /* 8b. an idle engine worker is ended on a big map and restarts on the next layout; look-only changes never wake it; a running simulation keeps it */
+  try {
+    const mode0 = await ev(() => { const c = NFM.client(); c.parkMin = 0; c.parkAfter = 120; return c.mode; });
+    if (mode0 !== 'worker') say(true, 'idle worker parking: skipped here, the page runs the engine itself (' + mode0 + ')');
+    else {
+      await ev(() => { NFM.client().armPark(); });
+      await D.wait(() => NFM.client().parked && NFM.client().w === null, null, 8000).catch(async (e) => { const d = await ev(() => { const c = NFM.client(); return { mode: c.mode, w: !!c.w, parked: c.parked, busy: !!c.busy, pending: c.pending.size, hold: !!(c.holdIf && c.holdIf()), keepWarm: c.keepWarm, queues: Object.keys(c.queues || {}).filter((k) => c.queues[k]), nodes: c.graph && c.graph.nodes && c.graph.nodes.length, timer: !!c.parkTimer }; }); throw new Error('not parked: ' + JSON.stringify(d)); });
+      const a = await ev(() => { const c = NFM.client(); return { parked: c.parked, w: !!c.w, parks: c.parks }; });
+      say(a.parked && !a.w && a.parks >= 1, 'an idle worker is ended once nothing is waiting for it: ' + JSON.stringify(a));
+            await ev(() => NFM.setV({ ruler: true }, 'look')); await settle(300);
+      say(await ev(() => NFM.client().parked), 'a look-only change does not wake the ended worker');
+      await ev(() => { NFM.setGraph(JSON.parse(JSON.stringify(NFM.state.graph)), false, true); window.__tab0 = NFM.state.tab; NFM.showTab('map'); });
+      await D.wait(() => { const c = NFM.client(); return c.unparks >= 1 && NFM.state.sceneOk && !NFM.state.mapBusy; }, null, 30000).catch(async () => { const d = await ev(() => { const c = NFM.client(), S = NFM.state; return { parked: c.parked, w: !!c.w, busy: !!c.busy, pend: c.pending.size, unparkP: !!c.unparkP, mode: c.mode, mapBusy: S.mapBusy, sceneOk: S.sceneOk, tab: S.tab, gver: S.gver, mapStale: S.mapStale, err: S.err || null }; }); throw new Error('no restart: ' + JSON.stringify(d)); }); await settle(200);
+      const b = await ev(() => { const c = NFM.client(); return { unparks: c.unparks, nodes: NFM.state.L.nodes.length, ms: c.unparkMs }; });
+      await ev(() => { window.__u0 = NFM.client().unparks; NFM.setGraph(JSON.parse(JSON.stringify(NFM.state.graph)), false, true); NFM.showTab('map'); NFM.state.mapStale = -1; NFM.refreshMap('test'); });
+      await D.wait(() => NFM.client().unparks > window.__u0 && NFM.state.sceneOk && !NFM.state.mapBusy, null, 30000); await settle(200);
+      b.again = await ev(() => NFM.state.L.nodes.length);
+      say(b.unparks >= 1 && b.nodes > 0 && b.nodes === b.again && b.ms >= 0, 'the next layout restarts the worker, hands it the graph again and draws the same map: ' + JSON.stringify(b));
+      await ev(() => { if (window.__tab0 && window.__tab0 !== 'map') NFM.showTab(window.__tab0); });
+      const c2 = await ev(() => { const c = NFM.client(), keep = c.holdIf; c.holdIf = () => true; const r = c.park(); c.holdIf = keep; return r; });
+      say(c2 === false, 'a worker that the page asks to keep (a running simulation) is not ended');
+    }
+    await ev(async () => { const c = NFM.client(); c.parkMin = 20000; c.parkAfter = 0; if (c.parkTimer) { clearTimeout(c.parkTimer); c.parkTimer = null; } if (c.parked) await c.unpark(); });   /* off for the rest of the run, so later steps find the worker alive */
+  } catch (e) { say(false, 'idle worker parking stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
   /* 9. the drawing manager never keeps a destroyed renderer; a worker that dies mid-job does not wedge the engine */
   try {
   { const r = await ev(async () => {

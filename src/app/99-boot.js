@@ -11,6 +11,8 @@
   });
   bindIntake(); bindMapping();
   client = new NFMEngineClient.Client(engineSrc, getEngine);
+  client.holdIf = function () { return SIM.st === 'running'; };   /* a running simulation lives in the worker, so it stays */
+  client.parkAfter = 4000;   /* a big map's engine worker is ended after 4 s of nothing to do (frees its copy of the graph); the next layout restarts it */
   var saved = LS.get('nfm-graph');
   if (saved) { try { S.graph = NFMImport.sanitizeGraph(JSON.parse(saved)); S.gver++; } catch (e) { LS.del('nfm-graph'); } }
   applyTheme(); placeChrome(); keyboardLift();

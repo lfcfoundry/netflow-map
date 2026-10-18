@@ -214,7 +214,7 @@
   }
   async function drawStep() {
     var s = addSection('Drawing: pan and zoom, frame by frame'), sizes = Object.keys(ctx.layouts).map(Number).sort(function (a, b) { return a - b; });
-    var T1 = s.table('Pictures per second while panning and zooming (higher is better; your screen\'s refresh rate is the ceiling)', ['Items', 'D3 SVG', 'D3 canvas', 'Netflow Map (WebGL 2)', 'Netflow Map (basic canvas)']);
+    var T1 = s.table('FPS while panning and zooming (higher is better; your screen\'s refresh rate is the ceiling)', ['Items', 'D3 SVG', 'D3 canvas', 'Netflow Map (WebGL 2)', 'Netflow Map (basic canvas)']);
     var T2 = s.table('Slowest 1 in 20 pictures, in milliseconds (lower is better)', ['Items', 'D3 SVG', 'D3 canvas', 'Netflow Map (WebGL 2)', 'Netflow Map (basic canvas)']);
     var T3 = s.table('Time until the first picture is on screen, in milliseconds (lower is better)', ['Items', 'D3 SVG', 'D3 canvas', 'Netflow Map (WebGL 2)', 'Netflow Map (basic canvas)']);
     var wins = 0, tried = 0, winsB = 0, triedB = 0, i;
@@ -234,8 +234,8 @@
       doneSteps += 1 / sizes.length * 0.9; setBar(); delete ctx.layouts[n].L;
     }
     s.notes.push('Same item positions (Netflow Map\'s Stress layout) in all four. D3 here draws only plain dots and thin lines; Netflow Map\'s picture also carries curved links, arrowheads, shapes and labels, so it does MORE work per picture, which favors D3. The D3 canvas draws all lines in one path and the dots grouped by color, the quick way a D3 canvas is usually written. The motion is a slow zoom-in-and-out with a small sway, 2.5 seconds per test.');
-    if (tried) s.finish(wins === tried ? 'ok' : wins ? 'warn' : 'bad', 'Netflow Map (WebGL 2) came within 5% of the faster D3 drawing or beat it in ' + wins + ' of ' + tried + ' sizes (pictures per second, higher is better). Its basic canvas did so in ' + winsB + ' of ' + triedB + '.');
-    else s.finish('warn', 'Netflow Map\'s WebGL 2 drawing could not start in this browser, so only its basic canvas was raced: it came within 5% of the faster D3 drawing or beat it in ' + winsB + ' of ' + triedB + ' sizes (pictures per second, higher is better).');
+    if (tried) s.finish(wins === tried ? 'ok' : wins ? 'warn' : 'bad', 'Netflow Map (WebGL 2) came within 5% of the faster D3 drawing or beat it in ' + wins + ' of ' + tried + ' sizes (FPS, higher is better). Its basic canvas did so in ' + winsB + ' of ' + triedB + '.');
+    else s.finish('warn', 'Netflow Map\'s WebGL 2 drawing could not start in this browser, so only its basic canvas was raced: it came within 5% of the faster D3 drawing or beat it in ' + winsB + ' of ' + triedB + ' sizes (FPS, higher is better).');
     return s;
   }
 

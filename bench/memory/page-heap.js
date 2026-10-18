@@ -17,6 +17,17 @@ const CH = process.env.NFM_CHROME || (process.env.HOME || '/root') + '/browsers/
   await page.evaluate((n) => { NFM.setGraph(NFMExamples.bigNetwork(n, 12, 7)); NFM.setV({ view: 'network', arrange: 'sphere' }); }, N);
   await page.waitForFunction((n) => NFM.state.L && NFM.state.sceneOk && NFM.state.L.nodes.length > n * 0.98, N, { timeout: 240000 }); const tDone = Date.now() - t0;
   await new Promise((r) => setTimeout(r, 1500)); let shown = await heap('3D network shown (page heap only; the worker has its own)', tDone);
+  if (process.env.NFM_PARKL) {   /* does packing the layout and letting go of its objects lower the real heap? needs NFM_COMPRESSOR = path to memory-compression-jso.js */
+    await page.evaluate((src) => { const el = document.createElement('script'); el.textContent = src; document.head.appendChild(el); }, require('fs').readFileSync(process.env.NFM_COMPRESSOR, 'utf8'));
+    const before = await heap('layout still held (collected)');
+    const info = await page.evaluate(() => { const S = NFM.state, L = S.L, K = MemoryCompressionJSO.keeper({ mode: 'fast', refs: true }); const t0 = performance.now(); K.hold('nodes', L.nodes); K.hold('links', L.edges); const ms = performance.now() - t0; window.__K = K; window.__hold = { nodes: L.nodes, links: L.edges }; return { packMs: Math.round(ms), packedMB: +(K.memory().packed / 1e6).toFixed(1) }; });
+    const packed = await heap('packed copy made, objects still referenced by a test variable (collected)');
+    const who = await page.evaluate(() => { const S = NFM.state, L = S.L; const shell = {}; for (const k in L) if (k !== 'nodes' && k !== 'edges') shell[k] = L[k]; shell.nodes = []; shell.edges = []; S.L = shell; window.__hold = null; return Object.keys(S).filter((k) => S[k] && typeof S[k] === 'object' && (S[k].nodes || S[k].edges || (S[k].L && S[k].L.nodes))).join(','); });
+    const dropped = await heap('layout objects let go (collected)');
+    rows.push('layout parked: pack time (ms) and packed size'.padEnd(48) + '       ' + info.packMs + ' ms, ' + info.packedMB + ' MB');
+    rows.push('page heap change from letting the layout go'.padEnd(48) + String(Math.round(dropped - before)).padStart(6) + ' MB   (' + Math.round(before) + ' to ' + Math.round(dropped) + ' MB; state keys still holding nodes or edges: ' + (who || 'none') + ')');
+    console.log('step'.padEnd(48) + ' page heap\n' + rows.join('\n')); await b.close(); return;
+  }
   await page.evaluate(() => { NFM.setV({ colorBy: 'group' }); }); await page.waitForFunction(() => NFM.state.sceneOk && !NFM.state.mapBusy, null, { timeout: 240000 }); await new Promise((r) => setTimeout(r, 1500)); shown = await heap('set-up: switched to plain groups (a full rebuild)');   /* the network starts on found groups, which the engine uses; the measured change below is then a look-only one */
   await page.evaluate(() => { window.__calls = { make: 0 }; const mk = NFMScene.make; NFMScene.make = function () { __calls.make++; return mk.apply(this, arguments); }; });
   // peak: sample the heap every 20 ms while the second picture is made (the page is busy, so samples land between its tasks; the top one is a floor for the true peak)
