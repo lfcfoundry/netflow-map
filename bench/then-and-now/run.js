@@ -14,5 +14,5 @@ async function open() {
   await page.goto(URL); await B.wait(() => !!document.getElementById('go'), null, 30000);
   await page.evaluate((a) => { document.getElementById('quick').checked = a.quick; document.getElementById('big').checked = !a.nobig; document.getElementById('huge').checked = a.huge; document.getElementById('go').click(); }, { quick, nobig, huge });
   const t0 = Date.now(); await B.wait(() => !document.getElementById('out').hidden && !document.getElementById('go').disabled, null, 1500000);
-  console.log('page run took', ((Date.now() - t0) / 1000).toFixed(0), 's'); console.log(await page.evaluate(() => document.getElementById('txt').value)); await B.close();
+  console.log('renderers used:', await page.evaluate(() => Array.from(document.querySelectorAll('#hostOld canvas, #hostNow canvas')).length + ' canvases; caption: ' + document.getElementById('capLive').textContent)); console.log('page run took', ((Date.now() - t0) / 1000).toFixed(0), 's'); console.log(await page.evaluate(() => document.getElementById('txt').value)); await B.close();
 })();
