@@ -22,9 +22,9 @@ label{display:inline-flex;gap:.4em;align-items:center;margin-left:1em}
 </head>
 <body>
 <main>
-<!-- Netflow Map first version vs now, 2026.10.17.2327. Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry. https://github.com/lfcfoundry/netflow-map -->
+<!-- Netflow Map first version vs now, 2026.10.17.2329. Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry. https://github.com/lfcfoundry/netflow-map -->
 <h1>Netflow Map: first version vs now</h1>
-<p class="mut">Lays out the same maps with the very first Netflow Map (2026.10.14.2136, then called Net Flow Map) and with the version in this page (2026.10.17.2327, with every update since), taking turns, and tells you in plain words what changed. Nothing leaves this page.</p>
+<p class="mut">Lays out the same maps with the very first Netflow Map (2026.10.14.2136, then called Net Flow Map) and with the version in this page (2026.10.17.2329, with every update since), taking turns, and tells you in plain words what changed. Nothing leaves this page.</p>
 <p><button id="go">Run the comparison</button><label class="small"><input type="checkbox" id="quick"> Quick (one run each, rougher numbers)</label><label class="small"><input type="checkbox" id="big" checked> Include the big maps (up to 30,000 items)</label><label class="small"><input type="checkbox" id="huge"> Include the huge map (100,000 items; slow, and needs about 2 GB free)</label></p>
 <div class="bar"><i id="fill"></i></div>
 <p id="state" class="mut small">Ready. This takes a few minutes and keeps one extra browser worker busy at a time. Close other heavy tabs for the steadiest numbers.</p>
@@ -352,7 +352,7 @@ function report(turns) {
   $('verdict').innerHTML = (best ? '<li>Biggest gain: ' + best.html + '</li>' : '') + verdict.slice(1).map(function (v) { return '<li>' + v.html + '</li>'; }).join('') +
     '<li class="mut">Layout is only part of what changed. Memory, the first hover on a flat map, drawing speed and the features added since are in the box at the bottom, measured in my test browsers.</li>';
   var env = 'Browser: ' + navigator.userAgent + '; cores: ' + (navigator.hardwareConcurrency || '?') + (navigator.deviceMemory ? '; memory hint: ' + navigator.deviceMemory + ' GB' : '') + '; ' + turns + ' turn(s) each, taking turns.';
-  var txt = ['Netflow Map: first version (2026.10.14.2136) vs now (2026.10.17.2327)', env, '', 'Layout time, lower is better; times faster, higher is better.', ''].concat(md, ['', 'Verdict:'], verdict.map(function (v) { return '- ' + v.text; })).join('\n');
+  var txt = ['Netflow Map: first version (2026.10.14.2136) vs now (2026.10.17.2329)', env, '', 'Layout time, lower is better; times faster, higher is better.', ''].concat(md, ['', 'Verdict:'], verdict.map(function (v) { return '- ' + v.text; })).join('\n');
   $('txt').value = txt; $('env').textContent = env; $('out').hidden = false;
 }
 $('go').addEventListener('click', function () { try { if (!URLS) URLS = { old: blobUrl('src-old-engine', 'src-old-scene'), now: blobUrl('src-new-engine', 'src-new-scene') }; go(); } catch (e) { $('state').textContent = 'Could not start: ' + e.message; $('go').disabled = false; } });
