@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en-US"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; worker-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Netflow Map: first version vs now</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#201d18;--mut:#6b655a;--card:#fff;--line:#e3ded3;--acc:#b4531a;--good:#1f7a3d;--bad:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#17150f;--fg:#f0ece2;--mut:#a39c8c;--card:#211e17;--line:#38342a;--acc:#f0a35e;--good:#5fd08a;--bad:#ff8a80}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:1.5rem;margin:.2em 0 .1em}h2{font-size:1.15rem;margin:1.6em 0 .4em}
+p{margin:.5em 0}.mut{color:var(--mut)}.small{font-size:.88rem}
+button{font:inherit;padding:.65em 1.3em;border-radius:10px;border:1px solid var(--acc);background:var(--acc);color:#fff;cursor:pointer;font-weight:600}
+button.sec{background:transparent;color:var(--acc)}button:disabled{opacity:.55;cursor:default}
+.bar{height:10px;border-radius:5px;background:var(--line);overflow:hidden;margin:10px 0}.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .2s}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0}
+.verdict li{margin:.35em 0}.good{color:var(--good);font-weight:600}.bad{color:var(--bad);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:.88rem;font-variant-numeric:tabular-nums}
+th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}
+thead th{color:var(--mut);font-weight:600;vertical-align:bottom}
+.scroll{overflow-x:auto}textarea{width:100%;height:9em;font:12px/1.4 ui-monospace,Consolas,monospace;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px}
+label{display:inline-flex;gap:.4em;align-items:center;margin-left:1em}
+</style>
+</head>
+<body>
+<main>
+<!-- Netflow Map first version vs now, __VERSION__. Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry. https://github.com/lfcfoundry/netflow-map -->
+<h1>Netflow Map: first version vs now</h1>
+<p class="mut">Lays out the same maps with the very first Netflow Map (2026.10.14.2136, then called Net Flow Map) and with the version in this page (__VERSION__, with every update since), taking turns, and tells you in plain words what changed. Nothing leaves this page.</p>
+<p><button id="go">Run the comparison</button><label class="small"><input type="checkbox" id="quick"> Quick (one run each, rougher numbers)</label><label class="small"><input type="checkbox" id="big" checked> Include the big maps (up to 30,000 items)</label><label class="small"><input type="checkbox" id="huge"> Include the huge map (100,000 items; slow, and needs about 2 GB free)</label></p>
+<div class="bar"><i id="fill"></i></div>
+<p id="state" class="mut small">Ready. This takes a few minutes and keeps one extra browser worker busy at a time. Close other heavy tabs for the steadiest numbers.</p>
+<p id="env" class="mut small"></p>
+<div id="out" hidden>
+  <h2>The verdict</h2>
+  <div class="card verdict"><ul id="verdict" style="margin:0;padding-left:1.2em"></ul></div>
+  <h2>Layout time, same map, one after the other</h2>
+  <p class="mut small">"Typical" is the middle of the runs, "best" the fastest. Lower is better in every time column. "Times faster" is typical first version divided by typical now (higher is better). A run that passed the time limit was stopped and counts as the limit, so those rows say "at least".</p>
+  <div class="card scroll"><table id="tbl"></table></div>
+  <h2>Copy the results</h2>
+  <p><button id="copy" class="sec">Copy results</button> <span id="copied" class="small mut"></span></p>
+  <textarea id="txt" readonly></textarea>
+</div>
+<h2>What I measured in the four test browsers (not on your laptop)</h2>
+__STATIC__
+</main>
+<script type="text/plain" id="src-old-engine">__OLD_ENGINE__</script>
+<script type="text/plain" id="src-old-scene">__OLD_SCENE__</script>
+<script type="text/plain" id="src-new-engine">__NEW_ENGINE__</script>
+<script type="text/plain" id="src-new-scene">__NEW_SCENE__</script>
+<script>
+__EXAMPLES__
+</script>
+<script>
+(function () {
+'use strict';
+var $ = function (id) { return document.getElementById(id); };
+/* the maps: seeded, the same for both versions. bigNetwork comes from the app's own examples; the story map is the shape the Flow and Top-down views are made for */
+function rng(seed) { var s = seed | 0; return function () { s = (s + 0x6d2b79f5) | 0; var x = Math.imul(s ^ (s >>> 15), 1 | s); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; }; }
+function story(n, seed) {
+  var r = rng(seed), edges = [], id = 0, mk = function () { return id++; }, cur = mk(), chokes = [cur], i, j;
+  while (id < n) {
+    var b = 2 + Math.floor(r() * 3), ends = [], br = [];
+    for (i = 0; i < b; i++) { var d = 1 + Math.floor(r() * 3), p = cur, list = []; for (j = 0; j < d; j++) { var v = mk(); edges.push([p, v]); p = v; list.push(v); } ends.push(p); br.push(list); }
+    for (i = 0; i + 1 < b; i++) if (r() < 0.35) edges.push([br[i][Math.floor(r() * br[i].length)], br[i + 1][Math.floor(r() * br[i + 1].length)]]);
+    var m = mk(); ends.forEach(function (e) { edges.push([e, m]); });
+    if (r() < 0.12) edges.push([m, chokes[Math.floor(r() * chokes.length)]]);
+    if (r() < 0.15) edges.push([cur, m]);
+    cur = m; chokes.push(m);
+  }
+  var od = new Array(id).fill(0); edges.forEach(function (e) { od[e[0]]++; }); var last = -1; for (i = id - 1; i >= 0; i--) if (!od[i]) { last = i; break; }
+  var nodes = []; for (i = 0; i < id; i++) nodes.push({ id: 'n' + i, label: 'Page ' + i, group: 'g' + (i % 3), valence: od[i] ? '' : i === last ? 'good' : 'bad', ghost: false, attrs: {} });
+  return { name: 'story', start: 'n0', nodes: nodes, edges: edges.map(function (e) { return { from: 'n' + e[0], to: 'n' + e[1], weight: 1, label: '', kind: '' }; }) };
+}
+var TESTS = [
+  { id: 'net1k', name: 'Network, 1,000 items', make: function () { return NFMExamples.bigNetwork(1000, 8, 7); }, opts: { view: 'network', colorBy: 'group' } },
+  { id: 'net3k', name: 'Network, 3,000 items', make: function () { return NFMExamples.bigNetwork(3000, 12, 7); }, opts: { view: 'network', colorBy: 'group' } },
+  { id: 'flow1k', name: 'Flow, 1,000-page story', make: function () { return story(1000, 2); }, opts: { view: 'flow' } },
+  { id: 'down5k', name: 'Top-down, 5,000-page story', make: function () { return story(5000, 4); }, opts: { view: 'down' } },
+  { id: 'net10k', name: 'Network, 10,000 items', make: function () { return NFMExamples.bigNetwork(10000, 12, 7); }, opts: { view: 'network', colorBy: 'group' }, big: true },
+  { id: 'net30k', name: 'Network, 30,000 items', make: function () { return NFMExamples.bigNetwork(30000, 12, 7); }, opts: { view: 'network', colorBy: 'group' }, big: true },
+  { id: 'net100k', name: 'Network, 100,000 items', make: function () { return NFMExamples.bigNetwork(100000, 12, 7); }, opts: { view: 'network', colorBy: 'group' }, huge: true }
+];
+var HARNESS = 'self.onmessage = function (e) { var m = e.data, out = {}; try { var t0 = performance.now(); var L = NFMEngine.build(m.graph, m.opts); var t1 = performance.now(); var S = NFMScene.make(L, { colorBy: "group", theme: "light" }); var t2 = performance.now(); out.layoutMs = t1 - t0; out.sceneMs = t2 - t1; out.nodes = L.nodes.length; } catch (err) { out.error = String(err && err.message || err); } postMessage(out); };';
+var CAP_MS = 60000;
+function code(id) { return $(id).textContent; }
+function blobUrl(engine, scene) { return URL.createObjectURL(new Blob([code(engine) + '\n' + code(scene) + '\n' + HARNESS], { type: 'text/javascript' })); }
+var URLS = null;
+/* one run in a fresh worker; resolves { layoutMs, sceneMs, capped } */
+function runOne(which, graph, opts) {
+  return new Promise(function (resolve) {
+    var w = new Worker(URLS[which]), done = false, t0 = performance.now();
+    var fin = function (r) { if (done) return; done = true; clearTimeout(timer); try { w.terminate(); } catch (e) { /* gone */ } resolve(r); };
+    var timer = setTimeout(function () { fin({ layoutMs: CAP_MS, sceneMs: 0, capped: true }); }, CAP_MS);
+    w.onmessage = function (e) { fin(e.data); };
+    w.onerror = function (e) { fin({ error: String(e && e.message || 'worker error') }); };
+    w.postMessage({ graph: graph, opts: opts });
+  });
+}
+var med = function (a) { var s = a.slice().sort(function (x, y) { return x - y; }); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : NaN; };
+var fmt = function (ms) { return ms >= 10000 ? (ms / 1000).toFixed(1) + ' s' : ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : ms >= 10 ? Math.round(ms) + ' ms' : ms.toFixed(1) + ' ms'; };
+var fx = function (r) { return r >= 10 ? Math.round(r) + '×' : r.toFixed(1) + '×'; };
+var results = null;
+async function go() {
+  var quick = $('quick').checked, big = $('big').checked, huge = $('huge').checked, turns = quick ? 1 : 3, list = TESTS.filter(function (t) { return t.huge ? huge : t.big ? big : true; });
+  $('go').disabled = true; $('out').hidden = true; $('fill').style.width = '0%';
+  var total = list.length * turns * 2, n = 0;
+  results = [];
+  for (var ti = 0; ti < list.length; ti++) {
+    var t = list[ti], g = t.make(), row = { test: t, old: [], now: [], oldScene: [], nowScene: [], oldCap: 0, nowCap: 0, error: '' };
+    for (var k = 0; k < turns; k++) {
+      var order = k % 2 ? ['now', 'old'] : ['old', 'now'];   /* take turns: never all of one version first */
+      for (var oi = 0; oi < 2; oi++) {
+        var which = order[oi];
+        $('state').textContent = t.name + ': ' + (which === 'old' ? 'first version' : 'now') + ', turn ' + (k + 1) + ' of ' + turns + '…';
+        var r = await runOne(which, JSON.parse(JSON.stringify(g)), t.opts); n++; $('fill').style.width = Math.round(n / total * 100) + '%';
+        if (r.error) { row.error = r.error; continue; }
+        row[which].push(r.layoutMs); row[which + 'Scene'].push(r.sceneMs); if (r.capped) row[which + 'Cap']++;
+      }
+    }
+    results.push(row);
+  }
+  report(turns); $('go').disabled = false; $('state').textContent = 'Done.';
+}
+function report(turns) {
+  var tbl = '<thead><tr><th>Map</th><th>First version<br>typical</th><th>First version<br>best</th><th>Now<br>typical</th><th>Now<br>best</th><th>Times faster<br>(higher is better)</th></tr></thead><tbody>', lines = [], md = ['| Map | First version typical | First version best | Now typical | Now best | Times faster |', '|---|---|---|---|---|---|'], verdict = [];
+  results.forEach(function (r) {
+    if (r.error || !r.old.length || !r.now.length) { tbl += '<tr><td>' + r.test.name + '</td><td colspan="5">' + (r.error || 'no result') + '</td></tr>'; md.push('| ' + r.test.name + ' | ' + (r.error || 'no result') + ' | | | | |'); return; }
+    var to = med(r.old), tn = med(r.now), bo = Math.min.apply(null, r.old), bn = Math.min.apply(null, r.now), ratio = to / Math.max(tn, 0.01), cap = r.oldCap > 0, mark = cap ? '≥ ' : '';
+    r.ratio = ratio; r.cap = cap;
+    var cells = [mark + fmt(to), mark + fmt(bo), fmt(tn), fmt(bn), (cap ? 'at least ' : '') + fx(ratio)];
+    tbl += '<tr><td>' + r.test.name + '</td>' + cells.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>';
+    md.push('| ' + r.test.name + ' | ' + cells.join(' | ') + ' |');
+    var plain = ratio >= 3 ? '<span class="good">much faster</span>' : ratio >= 1.3 ? '<span class="good">faster</span>' : ratio > 0.77 ? 'about the same' : '<span class="bad">slower</span>';
+    verdict.push({ ratio: ratio, html: r.test.name + ': ' + plain + ', ' + mark + fmt(to) + ' to ' + fmt(tn) + ' (' + (cap ? 'at least ' : '') + fx(ratio) + ').', text: r.test.name + ': ' + (ratio >= 3 ? 'much faster' : ratio >= 1.3 ? 'faster' : ratio > 0.77 ? 'about the same' : 'slower') + ', ' + mark + fmt(to) + ' to ' + fmt(tn) + ' (' + (cap ? 'at least ' : '') + fx(ratio) + ')' });
+  });
+  tbl += '</tbody>'; $('tbl').innerHTML = tbl;
+  verdict.sort(function (a, b) { return b.ratio - a.ratio; });
+  var best = verdict[0], worst = verdict[verdict.length - 1];
+  $('verdict').innerHTML = (best ? '<li>Biggest gain: ' + best.html + '</li>' : '') + verdict.slice(1).map(function (v) { return '<li>' + v.html + '</li>'; }).join('') +
+    '<li class="mut">Layout is only part of what changed. Memory, the first hover on a flat map, drawing speed and the features added since are in the box at the bottom, measured in my test browsers.</li>';
+  var env = 'Browser: ' + navigator.userAgent + '; cores: ' + (navigator.hardwareConcurrency || '?') + (navigator.deviceMemory ? '; memory hint: ' + navigator.deviceMemory + ' GB' : '') + '; ' + turns + ' turn(s) each, taking turns.';
+  var txt = ['Netflow Map: first version (2026.10.14.2136) vs now (__VERSION__)', env, '', 'Layout time, lower is better; times faster, higher is better.', ''].concat(md, ['', 'Verdict:'], verdict.map(function (v) { return '- ' + v.text; })).join('\n');
+  $('txt').value = txt; $('env').textContent = env; $('out').hidden = false;
+}
+$('go').addEventListener('click', function () { try { if (!URLS) URLS = { old: blobUrl('src-old-engine', 'src-old-scene'), now: blobUrl('src-new-engine', 'src-new-scene') }; go(); } catch (e) { $('state').textContent = 'Could not start: ' + e.message; $('go').disabled = false; } });
+$('copy').addEventListener('click', function () { var t = $('txt'); t.select(); var ok = false; try { ok = document.execCommand('copy'); } catch (e) { /* use the box */ } if (!ok && navigator.clipboard) navigator.clipboard.writeText(t.value).then(function () { $('copied').textContent = 'Copied.'; }, function () { $('copied').textContent = 'Select the text in the box and copy it.'; }); else $('copied').textContent = ok ? 'Copied.' : 'Select the text in the box and copy it.'; });
+window.__thenNow = function () { return results; };
+}());
+</script>
+</body></html>
