@@ -227,6 +227,10 @@ function applyPins(L) {
   L.nodes.forEach(function (n) { var id = n.nodeId || n.id, p = own(pins, id) ? pins[id] : null; if (p && typeof p[0] === 'number' && typeof p[1] === 'number') { n.cx = p[0]; n.cy = p[1]; } });
 }
 /** Applies key edits (renamed or hidden entries, recolored groups) to a fresh key list. */
+/** Idle links of a big map are kept as typed arrays (see curveStore in scene.js): about 70 MB less page memory at 100,000 items. Not while the flow dots or a simulation run. */
+function keepPacked(sc) {
+  if (sc && sc.autoPack) sc.autoPack({ delay: 4000, min: 20000, alive: function () { return S.scene === sc; }, hold: function () { return SIM.st === 'running' || !!DOTS.raf; }, packed: function () { DOTS.list = []; DOTS.key = ''; DOTS.sc = null; } });
+}
 function editKey(sc) {
   var ed = S.V.key.edits || {}; if (!sc.legend) return;
   if (ed.__title) sc.legendTitle = ed.__title;
@@ -243,7 +247,7 @@ function makeScene(fit) {
   var so0 = sceneOpts();
   if (S.L.is3d && mgr && mgr.r && mgr.r.rigPrepare) { mgr.r.rigPrepare(); S.camPlan = {}; so0.plan = S.camPlan; so0.rig = true; }   /* a big 3D map is ready to turn on the card from the first drag */
   S.scene = NFMScene.make(S.L, so0);
-  editKey(S.scene);
+  editKey(S.scene); keepPacked(S.scene);
   S.sceneMs = performance.now() - t0;
   applyStyle(true);
   if (mgr && mgr.r) mgr.r.setScene(S.scene);
@@ -263,7 +267,7 @@ function scheduleScene(camOnly) {
     if (sceneCamOnly && S.L.is3d && sc && sc.turnTo && r && r.rigOK && !sc.noTurn) { sc.turnTo(S.V.cam, S.view.k * 2); requestDraw(); armSettle(); return; }
     applyPins(S.L); var so = sceneOpts();
     if (sceneCamOnly && S.L.is3d) { so.plan = S.camPlan || (S.camPlan = {}); if (r && r.rigPrepare) { r.rigPrepare(); so.rig = true; } } else S.camPlan = null;
-    sceneCamOnly = true; S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (r) r.setScene(S.scene); requestDraw();
+    sceneCamOnly = true; S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (r) r.setScene(S.scene); keepPacked(S.scene); requestDraw();
   });
 }
 /** While a big 3D map turns, the picture lives on the card and the lists in the scene are out of date. A moment after the turning stops (or when something needs them: saving, printing) they are made again. */
@@ -276,7 +280,7 @@ function settleTurn() {
   clearTimeout(settleTimer);
   var sc = S.scene; if (!S.L || !sc || !sc.turn || !sc.turn.on) return;
   applyPins(S.L); var so = sceneOpts(); so.plan = S.camPlan || (S.camPlan = {}); so.rig = true;
-  S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (mgr && mgr.r) mgr.r.setScene(S.scene); requestDraw();
+  S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (mgr && mgr.r) mgr.r.setScene(S.scene); keepPacked(S.scene); requestDraw();
 }
 
 /* ---------------------------------------------------------------- selection, dimming, search, route lighting */

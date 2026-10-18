@@ -174,7 +174,7 @@ function showLayout(L) {
   if (!L || !S.mapBuilt) return;
   var t0 = performance.now();
   S.L = L; S.buildKey = null; applyPins(L);
-  S.scene = NFMScene.make(L, sceneOpts()); editKey(S.scene);
+  S.scene = NFMScene.make(L, sceneOpts()); editKey(S.scene); keepPacked(S.scene);
   S.keyMap = null; applyStyle(true);
   if (mgr && mgr.r) mgr.r.setScene(S.scene);
   requestDraw();
