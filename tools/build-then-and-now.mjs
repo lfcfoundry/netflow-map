@@ -19,12 +19,13 @@ const ok = (name, s) => { if (/<\/script|<!--/i.test(s)) throw new Error(name + 
 const oldEngine = ok('old engine', bundle(['bench/then-and-now/first-release/engine.js'], 'old-engine'));
 const oldScene = ok('old scene', bundle(['bench/then-and-now/first-release/scene.js'], 'old-scene'));
 const newEngine = ok('new engine', bundle(['src/columns.js', 'src/pack.js', 'src/sankey.js', 'vendor/netflow-layers.js', 'src/engine.js'], 'new-engine'));
+const mc = ok('memory-compression', min("(function (Function) {\n" + clean(rd('vendor/memory-compression.js')) + "\n}).call(this, function () { throw new Error('code generation is not allowed on this page'); });", 'memory-compression'));
 const newScene = ok('new scene', bundle(['src/scene.js'], 'new-scene'));
 const examples = ok('examples', clean(rd('src/examples.js')));
 const staticHtml = existsSync(join(root, 'bench/then-and-now/static.html')) ? rd('bench/then-and-now/static.html') : '<p class="mut">(not filled in yet)</p>';
 let html = rd('bench/then-and-now/template.html');
 const put = (k, v) => { html = html.split(k).join(v); };
-html = html.replace('__OLD_ENGINE__', () => oldEngine).replace('__OLD_SCENE__', () => oldScene).replace('__NEW_ENGINE__', () => newEngine).replace('__NEW_SCENE__', () => newScene).replace('__EXAMPLES__', () => examples).replace('__STATIC__', () => staticHtml);
+html = html.replace('__OLD_ENGINE__', () => oldEngine).replace('__OLD_SCENE__', () => oldScene).replace('__NEW_ENGINE__', () => newEngine).replace('__NEW_SCENE__', () => newScene).replace('__MC__', () => mc).replace('__EXAMPLES__', () => examples).replace('__STATIC__', () => staticHtml);
 put('__VERSION__', version);
 writeFileSync(join(root, 'bench/netflow-map-then-and-now.html'), html);
 console.log(`built bench/netflow-map-then-and-now.html ${(html.length / 1024) | 0} KB, version ${version}`);

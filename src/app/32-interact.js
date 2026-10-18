@@ -191,7 +191,7 @@ function hover(p) {
       var id = hh.node.nodeId, g = S.byId.get(id), n = hh.node.n; cur = canDrag() || skOn() ? 'move' : 'pointer';
       if (g) { text = g.label + (g.group ? ' · ' + g.group : ''); if (n && n.sizeV === n.sizeV && S.V.sizeBy) text += ' · ' + chLabel(S.V.sizeBy) + ' ' + NFMColumns.fmt(n.sizeV); if (n && n.colorV === n.colorV && /^(col|sys):/.test(S.V.colorBy)) text += ' · ' + chLabel(S.V.colorBy) + ' ' + NFMColumns.fmt(n.colorV); }
     } else if (hh.type === 'edge') {
-      var e = S.L.edges[hh.edge]; cur = 'pointer';
+      var e = edgeOf(hh.edge); cur = 'pointer';
       if (e) { var a = S.byId.get(e.from), b = S.byId.get(e.to); text = (a ? a.label : e.from) + ' → ' + (b ? b.label : e.to) + (e.widthV === e.widthV && S.V.widthBy ? ' · ' + chLabel(S.V.widthBy, 'edges') + ' ' + NFMColumns.fmt(e.widthV) : '') + (e.count > 1 ? ' · ' + e.count + ' links' : '') + (skOn() ? ' · drag bars to place · double-click for color' : ''); }
     } else if (hh.type === 'group') { text = 'Group: ' + (hh.group || '(none)'); cur = 'pointer'; }
     stage.style.cursor = cur; stage.classList.toggle('over-node', !!cur);
@@ -313,7 +313,7 @@ function selectionMenu(ids) {
     { t: 'Clear selection', fn: function () { setSel([]); }, k: 'Esc' }];
 }
 function edgeMenu(ei) {
-  var e = S.L.edges[ei]; if (!e) return [];
+  var e = edgeOf(ei); if (!e) return [];
   var kinds = e.orig && S.dg.edges[e.orig[0]] ? S.dg.edges[e.orig[0]].kind : '';
   return [{ hd: labelOf(e.from) + ' → ' + labelOf(e.to) },
     { t: 'Show details', fn: function () { renderDetails(true); } },
@@ -443,7 +443,7 @@ function renderDetails(force) {
     kids.push(h('div', { class: 'chips' }, ids.slice(0, 40).map(function (i) { return h('button', { class: 'chip', onclick: function () { setSel([i], { center: true }); } }, labelOf(i)); }).concat(ids.length > 40 ? [h('span', { class: 'muted small' }, 'and ' + (ids.length - 40) + ' more')] : [])));
     kids.push(h('div', { class: 'row tight' }, [h('button', { class: 'sm', onclick: function () { makeGroup(ids); } }, 'Group them…'), h('button', { class: 'sm', onclick: function () { makeSet(ids); } }, 'Save as a set…'), h('button', { class: 'sm', onclick: function () { onlyShow(ids); } }, 'Show only these'), h('button', { class: 'sm', onclick: function () { openStyleFor({ type: 'set' }, ids); } }, 'Style…')]));
   } else {
-    var e = S.L.edges[eds[0]]; if (!e) { d.hidden = true; return; }
+    var e = edgeOf(eds[0]); if (!e) { d.hidden = true; return; }
     var os = (e.orig || []).map(function (i) { return S.dg.edges[i]; }).filter(Boolean);
     kids.push(h('div', { class: 'row' }, [h('h3', { style: { flex: 1 } }, labelOf(e.from) + ' → ' + labelOf(e.to)), h('button', { class: 'quiet icon', onclick: closeDetails, 'aria-label': 'Close details' }, '✕')]));
     var rr = [['Links merged here', e.count || 1]]; if (e.widthV === e.widthV && S.V.widthBy) rr.push([chLabel(S.V.widthBy, 'edges'), NFMColumns.fmt(e.widthV)]);
