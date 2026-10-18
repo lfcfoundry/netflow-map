@@ -1317,6 +1317,25 @@ Plain takeaway: 1.2 to 2.2 times faster in every engine except one WebKitGTK row
 
 **Other small changes in the same build.** The report page base64-encodes its GIF with `Uint8Array.toBase64()` where the browser has it (4 MB of bytes: 28.8, 28, 53 and 60 ms with the old `btoa` loop in Chromium 155, Firefox 158, WebKitGTK 2.52.6 and GNOME Web 46.5, and 2.5, 4, 3 and 1 ms with the new call; identical text; a 121 KB GIF saves under 1 ms). Embedded WebAssembly bytes are read with `Uint8Array.fromBase64()` when present. Headings use `text-wrap: balance` and paragraphs `text-wrap: pretty`: on 36 sample titles at 280, 360 and 480 px wide the lonely last words went from 11, 9 and 12 to 2 to 3, 0 and 0 with `balance` (Chromium 155, Firefox 158, WebKitGTK 2.52.6, GNOME Web 46.5; `pretty` is ignored by Firefox 158). The prototype measurements behind these are in the project's shared files at `tech-ideas/PROTOTYPE-RESULTS.md`. `ArrayBuffer.transfer()` was measured (200 MB: about 150 ms with a copy, 0 ms transferred) but this page already transfers its buffers, so there is no call site to change.
 
+## 23. Distances 3D: the flat Distances method in three dimensions (2026-10-18)
+
+**What.** A new arrangement, `stress3d` ("Distances 3D (stress)"), in the Network view's arrangement list. It uses the 3D stress code that already started 3D force (pivot items far apart, the links and a few near neighbors, weights 1/hops^2, gradient steps that cool), without the force steps afterwards, and adds the multilevel start of the flat Distances (shrink the piece by about half, lay the smaller copy out, grow it back, polish with 5 gentle sweeps). The multilevel start is used only by this arrangement; 3D force draws exactly the same picture as before. Plain JavaScript only (no WebAssembly yet).
+
+**Truth** (hop error, lower is truer; 24 to 60 breadth-first sources in the largest piece; Node, one run each, moderate maps):
+
+| Items | Flat Distances | 3D force | Distances 3D |
+|---|---|---|---|
+| 1,000 | 0.137 | 0.095 | 0.091 |
+| 3,000 | 0.152 | 0.104 | 0.110 |
+| 10,000 | 0.171 | 0.118 | 0.117 |
+| 30,000 | 0.177 | 0.127 | 0.117 |
+
+**Build time** (ms, lower is better; Node 22, one run each): 1,000 items 126 (3D force) to 72 (Distances 3D); 3,000 276 to 124; 10,000 905 to 171; 30,000 3,002 to 926.
+
+**Plain reading.** A third axis makes the picture truer than the flat one at every size (0.091 against 0.137 at 1,000 items; 0.117 against 0.177 at 30,000). Against 3D force it is about as true (slightly worse at 3,000 items, 0.110 against 0.104, and on dense "complex" maps 3D force's polish steps still win at 10,000 items, 0.147 against 0.162) and builds 1.8 to 5.3 times faster. On a dense "complex" map of 3,000 items it is about the same as the flat one (0.136 against 0.138): a dense map gains little from a third axis.
+
+**Knobs** (`force3dTuning`): `ml` (1 on, 0 off), `mlMin` 700, `mlCoarse` 700, `mlEta` 0.2, `mlIters` 5, `mlJitter` 0.3, `mlPiv` 6, `mlNear` 6. Chosen from a sweep at 1,000, 3,000 and 10,000 items on moderate and complex maps. Test: `node test/distances3d.test.js` (6 checks).
+
 ## Reproduce
 
 ```
@@ -1331,6 +1350,7 @@ node force-wasm.js chromium                           # or: firefox, webkit, epi
 node stress-wasm.js chromium                          # or: firefox, webkit, epiphany, node; Distances layout: previous build, new JavaScript, WebAssembly (section 22; NFM_OLD_REV names the previous commit)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)
 node ../test/force3d.test.js                      # 3D force: hop error at 3,000 items, not flat, robust cases (section 20)
+node ../test/distances3d.test.js                  # Distances 3D: truth, same every run, multilevel switch, odd inputs (section 23)
 TESTER_ONLY=3d TESTER_PLAN3D=1000,3000 node tester/run-local.js chromium   # the tester's 3D step alone (section 20)
 node tools/build-tester.mjs                       # the laptop tester page (section 19)
 node run.js chromium drawsRun; node run.js chromium drawsVar; node run.js chromium csvVar; node run.js chromium csvCold   # or: firefox; normal draws and CSV looked at again (section 18)

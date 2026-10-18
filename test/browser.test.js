@@ -269,6 +269,9 @@ async function open() {
   await ev(() => NFM.setV({ view: 'network', arrange: 'force3d' })); await D.wait(() => NFM.state.L.is3d && NFM.state.scene.is3d, null, 20000);
   const yaw0 = await ev(() => NFM.state.V.cam.yaw); await D.drag(700, 400, 820, 380); await settle(250);
   say((await ev(() => NFM.state.V.cam.yaw)) - yaw0 > 0.3, '3D view turns when dragged');
+  await ev(() => NFM.setV({ arrange: 'stress3d' })); await D.wait(() => NFM.state.L.is3d && NFM.state.L.arrange === 'stress3d' && NFM.state.scene.is3d, null, 20000); await settle(250);
+  { const yaw1 = await ev(() => NFM.state.V.cam.yaw), n3 = await ev(() => new Set(NFM.state.L.nodes.map((n) => Math.round(n.z))).size); await D.drag(700, 400, 820, 380); await settle(250);
+    say((await ev(() => NFM.state.V.cam.yaw)) - yaw1 > 0.3 && n3 > 5, 'Distances 3D is a 3D picture and turns when dragged (' + n3 + ' different depths)'); }
   await ev(() => NFM.setV({ arrange: 'stress' })); await D.wait(() => NFM.state.L.view === 'network' && !NFM.state.L.is3d && NFM.state.scene.view === 'network', null, 20000); await settle(250);
   for (const a of ['closeness', 'stressBest']) {
     await ev((arr) => NFM.setV({ arrange: arr }), a); await D.wait(() => NFM.state.L.view === 'network' && NFM.state.scene.view === 'network', null, 20000); await settle(150);
