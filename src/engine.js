@@ -522,6 +522,92 @@ var NFMEngine = (function () {
     return { exact: false, runs: runs, visits: visits, moves: moves, pGood: pg, pBad: pb, pNeutral: pn, outcome: oc, mode: mode };
   }
 
+  /** The second line of a folded chapter or part box: its first page's name and the share of all routes that go through it ("under 1%" when small). */
+  function chapterSub(n, pg) {
+    var name = String(pg.label || pg.id); if (name.length > 26) name = name.slice(0, 25) + '…';
+    var t = n.traffic, pct = !(t > 0) ? '' : t < 0.01 ? ' · under 1% of routes' : t > 0.995 ? ' · every route' : ' · ' + Math.round(t * 100) + '% of routes';
+    return name + pct;
+  }
+  /**
+   * Chapters and parts: pieces of a big story that can be drawn as one box each (for the Flow, Top-down, Spine and Lanes views).
+   * A chapter is the set of pages that can only be reached through one gate (a choke page, or any page the start has to pass first)
+   * and are not choke pages themselves. Gates with fewer than `min` pages behind them stay open; a gate with more than `cap` pages
+   * behind it stays open and is looked into one level deeper. When the map is still big after that (more than `partsAbove` boxes),
+   * stretches of the must-pass chain are grouped into parts of about `part` pages; both ends of a part stay visible as joints.
+   * Needs the dominator tree (imp.idom); without it nothing is folded.
+   * Returns { list: [{ key, kind, pages (sorted), folded }], of: { page number: [keys, outermost first] } }. Keys: 'c:' + first page's id
+   * for a chapter, 'p:' + the id of the part's opening joint for a part. `c.open` maps keys to true for boxes shown open.
+   */
+  function findChapters(P, imp, c) {
+    var n = P.n, i, list = [], res = { list: list, of: {} };
+    if (!imp.idom || !imp.rpo) return res;
+    var size = new Int32Array(n), kids = new Array(n), q, v;
+    for (q = imp.rpo.length - 1; q >= 0; q--) {
+      v = imp.rpo[q];
+      if (imp.choke[v] || imp.depth[v] < 0) continue;
+      size[v] += 1;
+      var d = imp.idom[v];
+      if (d >= 0 && d !== v && !imp.choke[d]) size[d] += size[v];
+      if (d >= 0 && d !== v) (kids[d] || (kids[d] = [])).push(v);
+    }
+    var min = c.min || 8, cap = c.cap || Math.max(60, Math.ceil(n / 12)), open = c.open || {};
+    var subtree = function (roots) {
+      var pages = [];
+      roots.forEach(function (r) { var st = [r]; while (st.length) { var x = st.pop(); pages.push(x); var k = kids[x]; if (k) for (var j = 0; j < k.length; j++) if (!imp.choke[k[j]]) st.push(k[j]); } });
+      return pages.sort(function (a, b) { return a - b; });
+    };
+    var chapters = [];
+    var take = function (roots) { var pages = subtree(roots); chapters.push({ key: 'c:' + P.nodes[pages[0]].id, kind: 'chapter', pages: pages }); };
+    var visit = function (gate) {
+      var ks = (kids[gate] || []).filter(function (k) { return !imp.choke[k]; }), total = 0, j;
+      if (!ks.length) return;
+      for (j = 0; j < ks.length; j++) total += size[ks[j]];
+      if (total < min) return;
+      if (total <= cap && ks.every(function (k) { return size[k] <= cap; })) { take(ks); return; }
+      ks.forEach(function (k) { if (size[k] <= cap) { if (size[k] >= min) take([k]); } else visit(k); });
+    };
+    for (q = 0; q < imp.rpo.length; q++) { v = imp.rpo[q]; if (imp.choke[v] && imp.depth[v] >= 0) visit(v); }
+    var parts = [], hidden = 0;
+    chapters.forEach(function (ch) { hidden += ch.pages.length; });
+    if (c.partsAbove && n - hidden > c.partsAbove) {
+      var chain = imp.spine.filter(function (x) { return x !== P.start; }), target = c.part || Math.max(80, Math.ceil(n / 40));
+      var own = new Int32Array(n).fill(-1), spineAt = new Int32Array(n).fill(-1);
+      imp.spine.forEach(function (x, si) { spineAt[x] = si; });
+      imp.spine.forEach(function (x, si) { own[x] = si; });
+      imp.rpo.forEach(function (x) { if (x === P.start || imp.depth[x] < 0) return; var dd = imp.idom[x]; if (imp.choke[x]) return; if (dd >= 0) own[x] = spineAt[dd] >= 0 ? spineAt[dd] : own[dd]; });
+      var byStretch = new Array(imp.spine.length); for (i = 0; i < imp.spine.length; i++) byStretch[i] = [];
+      for (i = 0; i < n; i++) if (own[i] >= 0 && i !== P.start && imp.depth[i] >= 0) byStretch[own[i]].push(i);
+      /* stretch si = the choke page spine[si] (a joint, not folded) and everything it alone leads to, up to the next choke page */
+      var si0 = 0, acc = [], from = 0;
+      var close = function (upTo) {
+        if (acc.length >= min && upTo > from) parts.push({ key: 'p:' + P.nodes[imp.spine[from]].id, kind: 'part', pages: acc.sort(function (a, b) { return a - b; }) });
+        acc = []; from = upTo;
+      };
+      for (si0 = 0; si0 < imp.spine.length; si0++) {
+        if (si0 > from) acc.push(imp.spine[si0]);
+        byStretch[si0].forEach(function (pg) { if (!imp.choke[pg]) acc.push(pg); });
+        if (acc.length >= target && si0 + 1 < imp.spine.length) close(si0 + 1);
+      }
+      /* the last stretch (everything after the last joint) is left open: it is where the story ends */
+      acc = [];
+    }
+    parts.forEach(function (pt) { list.push(pt); });
+    chapters.forEach(function (ch) { list.push(ch); });
+    /* which keys cover each page (outermost first), and which boxes are folded now */
+    var partOf = new Map();
+    parts.forEach(function (pt) { pt.pages.forEach(function (pg) { partOf.set(pg, pt); }); });
+    list.forEach(function (box) {
+      box.folded = !open[box.key];
+      if (box.kind !== 'chapter') return;
+      var pt = partOf.get(box.pages[0]);
+      var inside = box.pages.filter(function (pg) { return partOf.has(pg); }).length;
+      if (pt && inside === box.pages.length && box.pages.every(function (pg) { return partOf.get(pg) === pt; })) { box.inPart = pt.key; if (!open[pt.key]) box.folded = false; }
+      else if (inside) box.folded = false;   /* a chapter that straddles the edge of a part is not drawn as a chapter at all */
+    });
+    list.forEach(function (box) { box.pages.forEach(function (pg) { var arr = res.of[pg] || (res.of[pg] = []); if (box.kind === 'part') arr.unshift(box.key); else arr.push(box.key); }); });
+    return res;
+  }
+
   /* ---------------------------------------------------------------- 4. what to draw: runs folded, arrows merged */
   function mapGraph(P, imp, opts) {
     opts = opts || {};
@@ -550,12 +636,16 @@ var NFMEngine = (function () {
       if (run.length >= 2) runs.push(run);
     }
     var runOf = new Int32Array(n).fill(-1);
-    if (opts.fold) runs.forEach(function (run, ri) { if (!(opts.open && opts.open[run[0]])) run.forEach(function (id) { runOf[id] = ri; }); });
+    var chOf = new Int32Array(n).fill(-1), found = opts.chapters ? findChapters(P, imp, opts.chapters) : null;
+    var chapters = found ? found.list.filter(function (ch) { return ch.folded; }) : [];
+    chapters.forEach(function (ch, ci) { ch.pages.forEach(function (id) { chOf[id] = ci; }); });
+    if (opts.fold) runs.forEach(function (run, ri) { if (!(opts.open && opts.open[run[0]]) && !run.some(function (id) { return chOf[id] >= 0; })) run.forEach(function (id) { runOf[id] = ri; }); });
     var nodes = [], groupOf = new Array(n);
     for (i = 0; i < n; i++) {
-      var ri2 = runOf[i];
+      var ri2 = runOf[i], ci2 = chOf[i];
+      if (ci2 >= 0 && chapters[ci2].pages[0] !== i) continue;
       if (ri2 >= 0 && runs[ri2][0] !== i) continue;
-      var node = ri2 >= 0 ? { id: 'run:' + i, pages: runs[ri2].slice(), run: true } : { id: 'n' + i, pages: [i], run: false };
+      var node = ci2 >= 0 ? { id: 'ch:' + i, pages: chapters[ci2].pages.slice(), run: false, chapter: true, chKey: chapters[ci2].key, part: chapters[ci2].kind === 'part' } : ri2 >= 0 ? { id: 'run:' + i, pages: runs[ri2].slice(), run: true } : { id: 'n' + i, pages: [i], run: false };
       node.pages.forEach(function (pg) { groupOf[pg] = node.id; });
       nodes.push(node);
     }
@@ -564,12 +654,12 @@ var NFMEngine = (function () {
       var a = groupOf[P.from[e]], b = groupOf[P.to[e]];
       if (a === b && P.from[e] !== P.to[e]) continue;
       var key = a + '>' + b;
-      if (opts.merge && seen.has(key)) { seen.get(key).srcs.push(e); continue; }
+      if ((opts.merge || (opts.mergeIfFolded && chapters.length)) && seen.has(key)) { seen.get(key).srcs.push(e); continue; }
       var ed = { from: a, to: b, srcs: [e] };
       seen.set(key, ed);
       edges.push(ed);
     }
-    return { nodes: nodes, edges: edges, groupOf: groupOf, runs: runs, imp: imp };
+    return { nodes: nodes, edges: edges, groupOf: groupOf, runs: runs, imp: imp, chapters: chapters, chapterInfo: found };
   }
 
   /* ---------------------------------------------------------------- 5. the layered engine (Sugiyama-style) */
@@ -619,8 +709,47 @@ var NFMEngine = (function () {
   }
 
   /**
+   * Rows in the order of the story. Links that close a loop (found depth-first from the start) are set aside, then each page goes one row
+   * below the lowest page that leads to it. Pages the start cannot reach keep going below the rest, as in the shortest-route drawing.
+   */
+  function storyRows(G, layer, outs, opts, byNode) {
+    var state = {}, backE = new Set(), order = [], reach = {};
+    var dfs = function (r, isMain) {
+      if (state[r]) return;
+      state[r] = 1; if (isMain) reach[r] = true;
+      var stack = [[r, 0]];
+      while (stack.length) {
+        var t = stack[stack.length - 1], list = outs[t[0]];
+        if (t[1] < list.length) {
+          var w = list[t[1]++];
+          if (state[w] === 1) backE.add(t[0] + '>' + w);
+          else if (!state[w]) { state[w] = 1; if (isMain) reach[w] = true; stack.push([w, 0]); }
+        } else { state[t[0]] = 2; order.push(t[0]); stack.pop(); }
+      }
+    };
+    if (opts.root && byNode[opts.root]) dfs(opts.root, true);
+    G.nodes.forEach(function (n) { dfs(n.id, false); });
+    order.reverse();
+    var ins = {}, lay = {}, maxMain = -1;
+    G.nodes.forEach(function (n) { ins[n.id] = []; });
+    G.edges.forEach(function (e) { if (e.from !== e.to && !backE.has(e.from + '>' + e.to) && !reach[e.from] === !reach[e.to]) ins[e.to].push(e.from); });
+    order.forEach(function (v) {
+      var m = 0, l = ins[v];
+      for (var i = 0; i < l.length; i++) if (lay[l[i]] + 1 > m) m = lay[l[i]] + 1;
+      lay[v] = m;
+      if (reach[v] && m > maxMain) maxMain = m;
+    });
+    G.nodes.forEach(function (n) { layer[n.id] = lay[n.id] + (reach[n.id] ? 0 : maxMain + 1); });
+  }
+  /**
    * A layered drawing of G (boxes with w and h set). opts: dir 'LR'|'TB', root (box id), spine (hold choke boxes on one line),
    * lane (box -> number), prev ({boxId: 0-1 order from last time}), gapLayer, gapNode, maxVertices.
+   * Off unless asked for (the picture is then exactly the old one):
+   *   rows: 'story'   rows follow the order of the story (a page sits below every page that leads to it; only real loops go back)
+   *                   instead of the shortest route from the start,
+   *   tagLen: N       links that span more than N rows are not drawn through the rows between; they get kind 'tag' (a tag at each end),
+   *   better: true    crossing reduction with the middle value and neighbor swaps on big maps too,
+   *   wrapRows: R     a tall map is cut every R rows into columns side by side (links between columns become tags).
    */
   function layered(G, opts) {
     opts = opts || {};
@@ -647,8 +776,36 @@ var NFMEngine = (function () {
       if (layer[n.id] === undefined && !ins[n.id].some(function (f) { return layer[f] === undefined && f !== n.id; })) bfsFrom(n.id, maxL + 1, true);
     });
     G.nodes.forEach(function (n) { if (layer[n.id] === undefined) bfsFrom(n.id, maxL + 1, true); });
+    var tagLen = opts.tagLen > 1 ? opts.tagLen : 0, wrapR = opts.wrapRows > 1 && !opts.lane ? Math.floor(opts.wrapRows) : 0;
+    /* a link is drawn as a pair of tags when it is very long, or (when a tall map is wrapped into columns) when it leaves its column */
+    var tagged = function (la, lb) { return (tagLen && Math.abs(lb - la) > tagLen) || (wrapR && Math.floor(la / wrapR) !== Math.floor(lb / wrapR)); };
+    if (opts.rows === 'story') { storyRows(G, layer, outs, opts, byNode); maxL = 0; for (var idr in layer) if (layer[idr] > maxL) maxL = layer[idr]; }
     var dummies = 0;
-    G.edges.forEach(function (e) { var s = Math.abs(layer[e.to] - layer[e.from]); if (s > 1) dummies += s - 1; });
+    /* bundling: links (forward or back) that start from the same page at the top share one run of stand-in stops, as far as the longest of
+       them goes; links that end at the same page at the bottom and are alone at their top share one run from the bottom upward.
+       Flat and tagged links are left alone. */
+    var topOf = function (e) { return layer[e.to] > layer[e.from] ? e.from : e.to; }, botOf = function (e) { return layer[e.to] > layer[e.from] ? e.to : e.from; };
+    var bundle = opts.bundle ? (function () {
+      var byTop = {}, byBot = {}, mode = new Array(G.edges.length);
+      var usable = function (e) { var la = layer[e.from], lb = layer[e.to]; return e.from !== e.to && Math.abs(lb - la) >= 2 && !tagged(la, lb); };
+      G.edges.forEach(function (e, i) { if (usable(e)) (byTop[topOf(e)] || (byTop[topOf(e)] = [])).push(i); });
+      Object.keys(byTop).forEach(function (f) { if (byTop[f].length > 1) byTop[f].forEach(function (i) { mode[i] = 'top'; }); });
+      G.edges.forEach(function (e, i) { if (usable(e) && !mode[i]) (byBot[botOf(e)] || (byBot[botOf(e)] = [])).push(i); });
+      Object.keys(byBot).forEach(function (t) { if (byBot[t].length > 1) byBot[t].forEach(function (i) { mode[i] = 'bot'; }); });
+      return { mode: mode, topTrunk: {}, botTrunk: {} };
+    })() : null;
+    if (bundle) {
+      var need = {}, count = 0;
+      G.edges.forEach(function (e, i) {
+        var s0 = Math.abs(layer[e.to] - layer[e.from]) - 1, m = bundle.mode[i];
+        if (e.from === e.to || tagged(layer[e.from], layer[e.to]) || s0 < 1) return;
+        if (m === 'top') { var ks = 't' + topOf(e); need[ks] = Math.max(need[ks] || 0, s0); }
+        else if (m === 'bot') { var kb = 'b' + botOf(e); need[kb] = Math.max(need[kb] || 0, s0); }
+        else count += s0;
+      });
+      for (var nk in need) count += need[nk];
+      dummies = count;
+    } else G.edges.forEach(function (e) { var s = Math.abs(layer[e.to] - layer[e.from]); if (tagged(layer[e.from], layer[e.to])) return; if (s > 1) dummies += s - 1; });
     if (dummies + G.nodes.length > (opts.maxVertices || 90000)) {
       var err = new Error('too big for a layered drawing (' + (dummies + G.nodes.length) + ' stops); use the Network view or filter first');
       err.tooBig = true;
@@ -658,12 +815,28 @@ var NFMEngine = (function () {
     var addV = function (rec, k) { rec.layer = k; rec.idx = vert.length; vert.push(rec); (L[k] = L[k] || []).push(rec); return rec; };
     G.nodes.forEach(function (n) { n.v = addV({ id: n.id, node: n, dummy: false }, layer[n.id]); });
     var links = [];
-    G.edges.forEach(function (e) {
+    G.edges.forEach(function (e, ei0) {
       var a = byNode[e.from], b = byNode[e.to], la = layer[e.from], lb = layer[e.to];
       e.chain = [];
       if (e.from === e.to) { e.kind = 'self'; return; }
       if (la === lb) { e.kind = 'flat'; return; }
+      if (tagged(la, lb)) { e.kind = 'tag'; e.tagFwd = lb > la; return; }
       e.kind = lb > la ? 'fwd' : 'back';
+      var bm = bundle ? bundle.mode[ei0] : null;
+      if (bm) {
+        var tn = byNode[topOf(e)], bn = byNode[botOf(e)], lt = Math.min(la, lb), lbm = Math.max(la, lb), nd = lbm - lt - 1, part;
+        if (bm === 'top') {
+          var tr = bundle.topTrunk[tn.id] || (bundle.topTrunk[tn.id] = []);
+          while (tr.length < nd) { var dd = addV({ dummy: true, edge: e }, lt + 1 + tr.length); links.push([tr.length ? tr[tr.length - 1] : tn.v, dd, tr.length ? 8 : 2]); tr.push(dd); }
+          part = tr.slice(0, nd); links.push([tr[nd - 1], bn.v, 2]);
+        } else {
+          var tb = bundle.botTrunk[bn.id] || (bundle.botTrunk[bn.id] = []);
+          while (tb.length < nd) { var d3 = addV({ dummy: true, edge: e }, lbm - 1 - tb.length); links.push([d3, tb.length ? tb[tb.length - 1] : bn.v, tb.length ? 8 : 2]); tb.push(d3); }
+          part = tb.slice(0, nd).reverse(); links.push([tn.v, tb[nd - 1], 2]);
+        }
+        e.chain = lb > la ? part : part.reverse();
+        return;
+      }
       var lo = Math.min(la, lb), hi = Math.max(la, lb), prevV = (lb > la ? a : b).v;
       for (var k = lo + 1; k < hi; k++) {
         var d = addV({ dummy: true, edge: e }, k);
@@ -713,10 +886,12 @@ var NFMEngine = (function () {
     var totalCross = function () { var c = 0; for (var k = 0; k + 1 < nL; k++) c += crossBetween(k); return c; };
     var snapshot = function () { return L.map(function (list) { return list.slice(); }); };
     var best = snapshot(), bestC = totalCross();
+    var medianNow = false;
     var sweep = function (k, nb) {
       L[k].forEach(function (v) {
         var ns = nb[v.idx];
-        v.bary = ns.length ? ns.reduce(function (s, o) { return s + o[0].pos; }, 0) / ns.length : v.pos;
+        if (medianNow && ns.length) { var ps = ns.map(function (o) { return o[0].pos; }).sort(function (a, b) { return a - b; }), mid = ps.length >> 1; v.bary = ps.length % 2 ? ps[mid] : (ps[mid - 1] + ps[mid]) / 2; }
+        else v.bary = ns.length ? ns.reduce(function (s, o) { return s + o[0].pos; }, 0) / ns.length : v.pos;
       });
       L[k].sort(function (a, b) { return laneOf(a) - laneOf(b) || a.bary - b.bary || a.pos - b.pos; });
       L[k].forEach(function (v, i) { v.pos = i; });
@@ -741,11 +916,13 @@ var NFMEngine = (function () {
         }
       }
     };
-    var big = vert.length > 600;
-    for (var it = 0; it < (big ? 2 : 6) && bestC > 0; it++) {
+    var big = vert.length > 600, baseRounds = big ? 2 : 6;
+    /* "better": after the usual rounds, six more (average and middle value in turn, neighbor swaps always); the best order seen is kept, so it is never worse */
+    for (var it = 0; it < baseRounds + (opts.better ? 6 : 0) && bestC > 0; it++) {
+      medianNow = it >= baseRounds && (it - baseRounds) % 2 === 1;
       for (var k1 = 1; k1 < nL; k1++) sweep(k1, up);
       for (var k2 = nL - 2; k2 >= 0; k2--) sweep(k2, down);
-      if (!big) for (var k3 = 0; k3 < nL; k3++) transpose(k3);
+      if (!big || it >= baseRounds) for (var k3 = 0; k3 < nL; k3++) transpose(k3);
       var c = totalCross();
       if (c < bestC) { bestC = c; best = snapshot(); }
     }
@@ -798,12 +975,23 @@ var NFMEngine = (function () {
       depthOf[k6] = [at2, mm || 20];
       at2 += (mm || 20) + gapL;
     }
-    var minC = Infinity;
-    vert.forEach(function (v) { minC = Math.min(minC, v.c - across(v) / 2); });
-    if (!isFinite(minC)) minC = 0;
-    var pad = 20;
+    var minC = Infinity, band = function (v) { return wrapR ? Math.floor(v.layer / wrapR) : 0; }, nb = wrapR ? Math.floor((nL - 1) / wrapR) + 1 : 1;
+    var bLo = [], bHi = [], bAt = [];
     vert.forEach(function (v) {
-      var dm = depthOf[v.layer], along = dm[0] + dm[1] / 2, acrossC = v.c - minC;
+      var lo = v.c - across(v) / 2, hi = v.c + across(v) / 2, b = band(v);
+      minC = Math.min(minC, lo);
+      if (bLo[b] === undefined || lo < bLo[b]) bLo[b] = lo;
+      if (bHi[b] === undefined || hi > bHi[b]) bHi[b] = hi;
+    });
+    if (!isFinite(minC)) minC = 0;
+    var pad = 20, bX = [], bY = [], gapB = 90, run = 0;
+    for (var bb = 0; bb < nb; bb++) {
+      bY[bb] = wrapR ? depthOf[bb * wrapR][0] : 0;
+      bX[bb] = wrapR && bLo[bb] !== undefined ? run - bLo[bb] + minC : 0;   /* shift so this column starts right after the one before */
+      if (wrapR && bLo[bb] !== undefined) run += bHi[bb] - bLo[bb] + gapB;
+    }
+    vert.forEach(function (v) {
+      var b = band(v), dm = depthOf[v.layer], along = dm[0] + dm[1] / 2 - bY[b], acrossC = v.c - minC + bX[b];
       if (v.dummy) { v.x = LR ? pad + along : pad + acrossC; v.y = LR ? pad + acrossC : pad + along; return; }
       var n = v.node;
       n.layer = v.layer;
@@ -821,7 +1009,12 @@ var NFMEngine = (function () {
     var pos = {};
     G.nodes.forEach(function (n) { pos[n.id] = n; delete n.v; });
     G.edges.forEach(function (e) { delete e.chain; });
-    return { kind: 'nodes', dir: dir, nodes: G.nodes, edges: G.edges, pos: pos, order: ord, lanes: lanes, width: W + pad + 60, height: H + pad + 30, crossings: bestC };
+    var ruler = depthOf.map(function (dm, k) { var b = wrapR ? Math.floor(k / wrapR) : 0; return { at: pad + dm[0] + dm[1] / 2 - bY[b], edge: pad + (wrapR && bLo[b] !== undefined ? bLo[b] - minC + bX[b] : 0) }; });
+    var kinds = { fwd: 0, back: 0, flat: 0, self: 0, tag: 0 };
+    var goldTags = 0;
+    G.edges.forEach(function (e) { kinds[e.kind]++; if (e.kind === 'tag' && !e.tagFwd) goldTags++; });
+    return { kind: 'nodes', dir: dir, nodes: G.nodes, edges: G.edges, pos: pos, order: ord, lanes: lanes, width: W + pad + 60, height: H + pad + 30, crossings: bestC,
+      rows: depthOf, ruler: ruler, info: { columns: nb, rows: nL, stops: vert.length - G.nodes.length, back: kinds.back, flat: kinds.flat, tags: kinds.tag, goldTags: goldTags, rowMode: opts.rows === 'story' ? 'story' : 'route' } };
   }
 
   /* ---------------------------------------------------------------- 6. the other views */
@@ -1930,7 +2123,7 @@ var NFMEngine = (function () {
       }
     } else if (L.kind !== 'matrix') {
       L.edges.forEach(function (e, ei) {
-        if (e.from === e.to) return;
+        if (e.from === e.to || e.kind === 'tag') return;   /* a tagged link is not drawn across the page, so it crosses nothing */
         var pts = [C[e.from]].concat(e.pts || [], [C[e.to]]);
         for (var q = 0; q + 1 < pts.length; q++) segs.push([pts[q], pts[q + 1], ei]);
       });
@@ -2119,7 +2312,9 @@ var NFMEngine = (function () {
         flow = { exact: ab.converged, converged: ab.converged, residual: ab.residual, note: ab.converged ? '' : NOT_SETTLED, runs: 1, visits: ab.visits, moves: ab.moves, pGood: zg, pBad: zb, pNeutral: zn, outcome: oc0, mode: 'random', c: ab.c, K: ab.K, story: classes.story, start: ab.start, classes: classes.list.map(function (cl, k) { return { id: cl.id, label: cl.label, kind: cl.kind, p: ab.start[k] }; }) };
       }
     }
-    var G = mapGraph(P, imp, { fold: o.fold !== false && !flowing && view !== 'matrix' && view !== 'network' && view !== 'shape', open: o.open, merge: !!o.merge || flowing || view === 'matrix' || view === 'arc' || view === 'network' });
+    var foldOn = o.fold !== false && !flowing && view !== 'matrix' && view !== 'network' && view !== 'shape';
+    var chOn = foldOn && o.chapters > 0 && P.n > o.chapters && (view === 'flow' || view === 'down' || view === 'spine' || view === 'lanes');
+    var G = mapGraph(P, imp, { fold: foldOn, open: o.open, mergeIfFolded: chOn, chapters: chOn ? { min: o.chapterMin, cap: o.chapterCap, open: o.openCh, partsAbove: o.partsAbove === undefined ? 600 : o.partsAbove, part: o.partPages } : null, merge: !!o.merge || flowing || view === 'matrix' || view === 'arc' || view === 'network' });
     var found = o.colorBy === 'found' || o.laneBy === 'found' ? communities(P) : null;
     var how = o.agg || 'sum', colCh = o.colorBy === 'sim' ? 'sys:sim' : o.colorBy, cmode = colCh && /^sys:/.test(colCh) ? { t: 'num' } : colorMode(P, colCh);
     var sizeV = o.sizeBy ? nodeChan(P, G, o.sizeBy, how, imp, flow, o) : null, sizeR = sizeV ? rangeOf(sizeV) : null;
@@ -2139,13 +2334,13 @@ var NFMEngine = (function () {
         n.pGood = flow.pGood[n.pi]; n.pBad = flow.pBad[n.pi]; n.pNeutral = flow.pNeutral[n.pi];
         if (flow.c) { var bk = -1, bv = 0.0005; for (var qk = 0; qk < flow.K; qk++) { var cv = flow.c[n.pi * flow.K + qk]; if (cv > bv) { bv = cv; bk = qk; } } n.dom = bk; n.domP = bk >= 0 ? bv : 0; }
       }
-      n.label = n.run ? n.pages.length + ' in a row' : pg.label || pg.id;
-      n.sub = n.run ? P.nodes[n.pages[0]].label + ' … ' + P.nodes[n.pages[n.pages.length - 1]].label : '';
+      n.label = n.chapter ? (n.part ? 'Part · ' : 'Chapter · ') + n.pages.length.toLocaleString('en-US') + ' pages' : n.run ? n.pages.length + ' in a row' : pg.label || pg.id;
+      n.sub = n.chapter ? chapterSub(n, pg) : n.run ? P.nodes[n.pages[0]].label + ' … ' + P.nodes[n.pages[n.pages.length - 1]].label : '';
       n.nodeId = pg.id;
       n.group = o.colorBy === 'found' && found ? 'group ' + (found[n.pages[0]] + 1) : groupKey(pg, cmode.t === 'cat' ? cmode.key : 'group');
       n.sizeV = sizeV ? sizeV[gi] : NaN; n.colorV = colV ? colV[gi] : NaN;
       n.start = n.pages.indexOf(P.start) >= 0;
-      n.end = !n.run && outdeg(P, n.pages[0]) === 0;
+      n.end = !n.run && !n.chapter && outdeg(P, n.pages[0]) === 0;
       n.valence = n.end ? (P.valence[n.pages[0]] === 1 ? 'good' : P.valence[n.pages[0]] === 2 ? 'bad' : 'neutral') : '';
       n.unreached = imp.depth[n.pages[0]] < 0;
       n.deg = indeg(P, n.pages[0]) + outdeg(P, n.pages[0]);
@@ -2203,9 +2398,24 @@ var NFMEngine = (function () {
     keys.forEach(function (k, i) { laneNames.push(k); laneIdx.set(k, i); });
     G.nodes.forEach(function (n) { laneOfBox[n.id] = laneIdx.get(cls[n.id]); });
     var root = P.start >= 0 ? G.groupOf[P.start] : undefined, prev = o.prev || undefined, Lr;
-    if (view === 'down') Lr = layered(G, { dir: 'TB', root: root, prev: prev });
-    else if (view === 'spine') Lr = layered(G, { dir: 'LR', root: root, prev: prev, spine: true });
-    else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, { dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } });
+    /* optional layered-drawing choices (all off by default, so the picture is the old one): see layered() */
+    var LO = { rows: o.rows === 'story' ? 'story' : undefined, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle };
+    var withLO = function (x) { return Object.assign(x, LO); };
+    /* top to bottom (and the Flow view turned that way): a map more than about twice as tall as wide can be cut into columns (o.wrap) */
+    var downLanes = view === 'down' && o.downLanes && laneNames.length > 1;
+    var topDown = function (dir) {
+      var base = { dir: dir, root: root, prev: prev, spine: !!o.spineCol }, L1;
+      if (downLanes) base.lane = function (n) { return Math.max(0, laneOfBox[n.id]); };
+      L1 = layered(G, withLO(Object.assign({}, base)));
+      if (o.wrap && dir === 'TB' && L1.height > 2.2 * L1.width) {
+        var K = Math.round(Math.sqrt(1.6 * L1.height / L1.width)), R = Math.ceil(L1.info.rows / Math.max(1, K));
+        if (K >= 2 && R >= 2 && R < L1.info.rows) L1 = layered(G, withLO(Object.assign({ wrapRows: R }, base)));
+      }
+      return L1;
+    };
+    if (view === 'down') Lr = topDown('TB');
+    else if (view === 'spine') Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, spine: true }));
+    else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } }));
     else if (view === 'river') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
     else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow })); }
     else if (view === 'matrix') {
@@ -2213,8 +2423,8 @@ var NFMEngine = (function () {
       Lr.nodes.forEach(function (n) { n.cx = n.cy = Lr.head + n.mi * Lr.cell + Lr.cell / 2; n.w = n.h = Lr.cell; });
     } else if (view === 'shape') Lr = shapeLayout(P, G);
     else if (view === 'network') { STRESS.previewStop = !!o.previewOnly; try { Lr = networkLayout(P, G, o); } finally { STRESS.previewStop = false; } }
-    else Lr = layered(G, { dir: o.dir === 'TB' ? 'TB' : 'LR', root: root, prev: prev });
-    if (view === 'lanes' && laneNames.length > 1) Lr.laneNames = laneNames;
+    else Lr = topDown(o.dir === 'TB' ? 'TB' : 'LR');
+    if ((view === 'lanes' || downLanes) && laneNames.length > 1) Lr.laneNames = laneNames;
     Lr.view = view;
     Lr.cls = cls;
     Lr.imp = {
@@ -2222,6 +2432,14 @@ var NFMEngine = (function () {
       spine: imp.spine.map(function (v) { return P.nodes[v].id; }), routesLog10: imp.routesLog10, reached: imp.reached,
       chokeCount: imp.spine.length
     };
+    if (chOn) {   /* which boxes every page is inside (outermost first, by the id of the page that names the box), so a search or a click on a page can open what hides it */
+      var ci = G.chapterInfo, folded = G.chapters;
+      Lr.chapters = { chapters: folded.filter(function (c) { return c.kind === 'chapter'; }).length, parts: folded.filter(function (c) { return c.kind === 'part'; }).length, hidden: 0, all: ci.list.length, of: {} };
+      folded.forEach(function (ch) { Lr.chapters.hidden += ch.pages.length; });
+      ci.list.forEach(function (ch) { if (!ch.folded) return; ch.pages.forEach(function (pi) { Lr.chapters.of[P.nodes[pi].id] = ci.of[pi]; }); });
+      Lr.chapters.openOf = {};   /* pages shown now that sit inside a box the reader opened: the keys to fold it back */
+      ci.list.forEach(function (ch) { if (!(o.openCh && o.openCh[ch.key])) return; ch.pages.forEach(function (pi) { if (ci.of[pi]) { var id = P.nodes[pi].id, a = Lr.chapters.openOf[id] || (Lr.chapters.openOf[id] = []); a.push(ch.key); } }); });
+    }
     Lr.n = P.n; Lr.m = P.m; Lr.startId = P.start >= 0 ? P.nodes[P.start].id : null; Lr.autoStart = P.autoStart;
     Lr.flow = flow ? { exact: flow.exact, note: flow.note || '', mode: flow.mode, runs: flow.runs, outcome: flow.outcome, K: flow.K || 0, classes: flow.classes || null, story: !!flow.story } : (amounts ? { exact: true, mode: 'amounts', runs: 1, outcome: null, K: 0, classes: null, story: false } : null);
     Lr.amounts = !!amountMass;
