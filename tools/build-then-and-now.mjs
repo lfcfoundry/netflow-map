@@ -19,7 +19,7 @@ const ok = (name, s) => { if (/<\/script|<!--/i.test(s)) throw new Error(name + 
 const oldEngine = ok('old engine', bundle(['bench/then-and-now/first-release/engine.js'], 'old-engine'));
 const oldScene = ok('old scene', bundle(['bench/then-and-now/first-release/scene.js'], 'old-scene'));
 const newEngine = ok('new engine', bundle(['src/columns.js', 'src/pack.js', 'src/sankey.js', 'vendor/netflow-layers.js', 'src/engine.js'], 'new-engine'));
-const mc = ok('memory-compression', min("(function (Function) {\n" + clean(rd('vendor/memory-compression.js')) + "\n}).call(this, function () { throw new Error('code generation is not allowed on this page'); });", 'memory-compression'));
+const mc = ok('memory-compression', min("self.MEMORY_COMPRESSION_NO_EVAL = true;\n" + clean(rd('vendor/memory-compression.js')), 'memory-compression'));
 const newScene = ok('new scene', bundle(['src/scene.js'], 'new-scene'));
 const examples = ok('examples', clean(rd('src/examples.js')));
 const staticHtml = existsSync(join(root, 'bench/then-and-now/static.html')) ? rd('bench/then-and-now/static.html') : '<p class="mut">(not filled in yet)</p>';
