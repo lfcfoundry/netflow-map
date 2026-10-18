@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 LFC Foundry. MIT License. The river (Sankey) before-and-after page: draws each test network the way the app does today and the way the improved layout would,
+/* Copyright (c) 2026 LFC Foundry. MIT License. The Sankey before-and-after page: draws each test network the way the app does today and the way the improved layout would,
  * side by side, measures both with the same yardstick, and says in plain words which is better. Runs by itself when the page opens. */
 (function () {
   'use strict';
@@ -84,9 +84,9 @@
     var graph, opts, ex;
     if (net.kind === 'example') {
       ex = X.LIST.find(function (x) { return x.id === net.id; }).load(); graph = ex.graph;
-      opts = net.odds ? { view: 'river', colorBy: 'odds', wantFlow: true } : { view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group' };
+      opts = net.odds ? { view: 'sankey', colorBy: 'odds', wantFlow: true } : { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group' };
       if (ex.opts) opts = Object.assign({}, opts, ex.opts);
-    } else { graph = I.importDelimited(synth(net.nl, net.per, 5, net.loops), ',').graph; opts = { view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group' }; }
+    } else { graph = I.importDelimited(synth(net.nl, net.per, 5, net.loops), ',').graph; opts = { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group' }; }
     return { graph: graph, opts: opts };
   }
   async function runOne(net, sec) {
@@ -153,11 +153,11 @@
     var avgGain = results.length ? results.reduce(function (s, r) { return s + r.ordGain; }, 0) / results.length : 0;
     var overall = 'The improved layout was at least as good on ' + good + ' of ' + results.length + ' networks. Weighted crossings fell by ' + Math.round(avgGain * 100) + '% on average against the old-style order on the same layout.';
     $('finalsay').textContent = overall; $('done').style.display = '';
-    var L = ['# Netflow Map river before and after', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + (el / 1000).toFixed(1) + ' s' + (QUICK ? ' · QUICK' : ''), '', overall, ''];
+    var L = ['# Netflow Map sankey before and after', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + (el / 1000).toFixed(1) + ' s' + (QUICK ? ' · QUICK' : ''), '', overall, ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
     L.push('## Raw data', '', '```json', JSON.stringify(results, null, 1), '```', '');
     var md = L.join('\n');
-    $('dl').onclick = function () { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'netflow-map-river-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
+    $('dl').onclick = function () { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'netflow-map-sankey-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
     $('cp').onclick = function () { if (navigator.clipboard) navigator.clipboard.writeText(md).then(function () { $('cp').textContent = 'Copied'; }, function () { $('cp').textContent = 'Copy blocked'; }); };
     window.__NFM_SANKEY_RESULT = { md: md, results: results, sections: sections.map(function (s) { return { title: s.title, level: s.level, verdict: s.verdict }; }) };
   }

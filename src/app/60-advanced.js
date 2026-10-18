@@ -25,7 +25,7 @@ function renderAdv() {
       field('Choosing', select([['random', 'At random (exact odds, no dice)'], ['first', 'Always the first option'], ['curious', 'Prefer places not seen yet']], S.A.mode, function (v) { S.A.mode = v; saveAdv(); renderAdv(); })),
       S.A.mode !== 'random' ? field('Number of ' + word('walkers'), select([500, 2000, 10000, 50000].map(function (r) { return [r, nfmt(r)]; }), S.A.runs, function (v) { S.A.runs = +v; saveAdv(); })) : null]),
     check('Use link weights as the odds of taking a link', S.A.weights, function (on) { S.A.weights = on; saveAdv(); }),
-    h('p', { class: 'muted small', style: { margin: 0 } }, 'Used by the "' + word('odds') + '" colors and the River view.')]));
+    h('p', { class: 'muted small', style: { margin: 0 } }, 'Used by the "' + word('odds') + '" colors and the Sankey view.')]));
   kids.push(tuneCard());
   kids.push(deviceCard());
   mount(box, kids);

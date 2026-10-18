@@ -375,7 +375,7 @@ var NFMScene = (function () {
       if (widthR) S.legend.push({ k: 'width', t: 'Line width: ' + (widthR.ch === 'sys:sim' ? 'Simulated traffic' : chName(widthR.ch)), lo: fmtNum(widthR.min), hi: fmtNum(widthR.max) });
       if (ecR) S.legend.push({ k: 'ramp', ramp: 'plasma', a: rampAt('plasma', 1), b: rampAt('plasma', 0), lo: fmtNum(ecR.min), hi: fmtNum(ecR.max), t: 'Line color: ' + chName(CH.ecolor.ch) });
       else if (edgeCats) { S.legend.push({ k: 'text', t: 'Line color: ' + chName(CH.ecolor.ch), head: true }); edgeCats.slice(0, 8).forEach(function (c, i) { legend(T.groups[(i + 3) % T.groups.length], c, 'e:' + c); }); }
-      if (story && view !== 'river') { legend(T.good, 'good ending', 'endgood'); legend(T.bad, 'bad ending', 'endbad'); }
+      if (story && view !== 'sankey') { legend(T.good, 'good ending', 'endgood'); legend(T.bad, 'bad ending', 'endbad'); }
       if (S.nodes.some(function (n) { return n.n && n.n.start; })) S.legend.push({ k: 'mark', c: T.accent, t: 'start', key: 'start' });
       if (colorBy !== 'choke' && (L.nodes || []).some(function (n) { return n.choke; })) S.legend.push({ k: 'mark', c: T.gold, t: 'choke point', key: 'chokemark', dot: true });
     }
@@ -386,8 +386,8 @@ var NFMScene = (function () {
     S.rects.forEach(function (r) { if (r.x < x0) x0 = r.x; if (r.y < y0) y0 = r.y; if (r.x + r.w > x1) x1 = r.x + r.w; if (r.y + r.h > y1) y1 = r.y + r.h; });
     S.dots.forEach(function (d) { if (d.cx - d.r < x0) x0 = d.cx - d.r; if (d.cy - d.r < y0) y0 = d.cy - d.r; if (d.cx + d.r > x1) x1 = d.cx + d.r; if (d.cy + d.r > y1) y1 = d.cy + d.r; });
     S.polys.forEach(function (p) { for (var i = 0; i < p.pts.length; i += 2) { if (p.pts[i] < x0) x0 = p.pts[i]; if (p.pts[i] > x1) x1 = p.pts[i]; if (p.pts[i + 1] < y0) y0 = p.pts[i + 1]; if (p.pts[i + 1] > y1) y1 = p.pts[i + 1]; } });
-    if ((view === 'river' && L.sk) || S.ruler) S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
-    if (view === 'river' && L.sk && L.height && L.height > y1) y1 = L.height;
+    if ((view === 'sankey' && L.sk) || S.ruler) S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
+    if (view === 'sankey' && L.sk && L.height && L.height > y1) y1 = L.height;
     if (S.tagChips) S.labels.forEach(function (l) { if (!l.boundXY) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; if (b[1] < y0) y0 = b[1]; if (b[3] > y1) y1 = b[3]; } });   /* tag names beyond the last box still count for the picture's edges */
     if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 100; y1 = 100; }
     if (L.is3d && L.c3) { var R3 = (L.radius3 || 300) * 1.18; x0 = L.c3[0] - R3; x1 = L.c3[0] + R3; y0 = L.c3[1] - R3; y1 = L.c3[1] + R3; }
@@ -523,7 +523,7 @@ var NFMScene = (function () {
       }
     }
     if (best >= 0) { var ci = I.sci[best], cv = S.curveAt(ci); return { edge: cv.edge, from: cv.from, to: cv.to, curve: ci }; }
-    for (var q = 0; q < S.ribbons.length; q++) { /* river ribbons */
+    for (var q = 0; q < S.ribbons.length; q++) { /* sankey ribbons */
       var rb = S.ribbons[q]; if (wx < rb.x0 || wx > rb.x1) continue;
       var lo = 0, hi = 1, u;   // the band's x runs along a cubic; find where it is at wx, then read the height there
       for (var it = 0; it < 14; it++) { u = (lo + hi) / 2; var m = 1 - u, xx = m * m * m * rb.x0 + 3 * m * m * u * rb.xm + 3 * m * u * u * rb.xm + u * u * u * rb.x1; if (xx < wx) lo = u; else hi = u; }
@@ -572,10 +572,10 @@ var NFMScene = (function () {
     return { type: 'bg' };
   }
 
-  /* ---------------------------------------------------------------- layered views (flow, top-down, spine, lanes, river) */
+  /* ---------------------------------------------------------------- layered views (flow, top-down, spine, lanes, sankey) */
   function layeredScene(X, view) {
     var S = X.S, L = X.L, T = X.T, lab = X.lab, addNode = X.addNode, fillOf = X.fillOf, valCol = X.valCol, nodeLabel = X.nodeLabel;
-    var LR = L.dir !== 'TB', river = view === 'river', W = L.width || 0, H = L.height || 0;
+    var LR = L.dir !== 'TB', sankey = view === 'sankey', W = L.width || 0, H = L.height || 0;
     (L.lanes || []).forEach(function (ln, i) {
       var name = (L.laneNames || [])[ln.lane] || '';
       var r = LR ? { x: -10, y: ln.from, w: W + 20, h: ln.to - ln.from } : { x: ln.from, y: -10, w: ln.to - ln.from, h: H + 20 };
@@ -586,7 +586,7 @@ var NFMScene = (function () {
       var ch = L.nodes.filter(function (n) { return n.choke; }).sort(function (a, b) { return a.x - b.x; });
       if (ch.length > 1) { var P = [ch[0].x + ch[0].w / 2, ch[0].y + ch[0].h / 2]; for (var i = 1; i < ch.length; i++) { var a = ch[i - 1], b = ch[i]; var ax = a.x + a.w / 2, ay = a.y + a.h / 2, bx = b.x + b.w / 2, by = b.y + b.h / 2; P.push(ax + (bx - ax) / 3, ay, ax + 2 * (bx - ax) / 3, by, bx, by); } S.curves.push({ P: P, w: 9, color: alpha(T.gold, 0.28), arrow: false, edge: -1, from: null, to: null }); }
     }
-    if (X.o.ruler && !LR && !river && L.ruler && L.ruler.length > 1) {
+    if (X.o.ruler && !LR && !sankey && L.ruler && L.ruler.length > 1) {
       /* step numbers down the left edge of each column; the busy levels (every 5th, 25th ...) show only when zoomed out far enough to leave room */
       var pitch = (L.ruler[L.ruler.length - 1].at - L.ruler[0].at) / (L.ruler.length - 1) || 100;
       if (L.info && L.info.columns > 1) pitch = L.ruler[1].at - L.ruler[0].at || pitch;
@@ -606,7 +606,7 @@ var NFMScene = (function () {
       if (LR) return isFwd(e) === (end === 'out') ? 'R' : 'L';
       return isFwd(e) === (end === 'out') ? 'B' : 'T';
     };
-    if (!river) {
+    if (!sankey) {
       L.edges.forEach(function (e) {
         var a = L.pos[e.from], b = L.pos[e.to];
         if (!a || !b) return;
@@ -670,14 +670,14 @@ var NFMScene = (function () {
         if (txt && X.LC.links.show && !many && L.edges.length < 400) { var mid = bez(P, 0.5); lab(mid[0], mid[1] - 4, clip(txt, 28), 10 * X.LC.links.scale, T.muted, { minK: 0.9, edge: ei, bg: true }); }
         else if (!txt && X.o.edgeValueLabels && e.widthV === e.widthV && L.edges.length < 400) { var mid2 = bez(P, 0.5); lab(mid2[0], mid2[1] - 4, fmtNum(e.widthV), 10 * X.LC.links.scale, T.muted, { minK: 0.7, edge: ei, bg: true }); }
       });
-    } else if (L.sk) sankeyBands(X); else riverRibbons(X);
+    } else if (L.sk) sankeyBands(X); else sankeyRibbons(X);
 
     order.forEach(function (n) {
       var st = n._st, f = fillOf(n), vc = n.end ? valCol(n.valence) : null;
       if (st && st.hide) return;
       var sc = st && st.scale ? st.scale : 1, nx = n.x - (n.w * (sc - 1)) / 2, ny = n.y - (n.h * (sc - 1)) / 2, nw = n.w * sc, nh = n.h * sc, rr = st && (st.shape === 'dot' || st.shape === 'circle') ? Math.min(nw, nh) / 2 : st && st.shape === 'square' ? 2 : 10;
-      if (river && L.sk) { sankeyNode(X, n); return; }
-      if (river) {
+      if (sankey && L.sk) { sankeyNode(X, n); return; }
+      if (sankey) {
         var rec0 = addNode(n, n.x, n.y, n.w, n.h);
         var bc = (X.endCol(n) || (n.end ? valCol(n.valence) : T.neutral));
         if (st && st.fill) bc = hex(st.fill);
@@ -699,7 +699,7 @@ var NFMScene = (function () {
     });
   }
 
-  /* ---------------------------------------------------------------- Sankey (river) pictures from NFMSankey.layout */
+  /* ---------------------------------------------------------------- Sankey pictures from NFMSankey.layout */
   /** Color of one bar: the person's choice, else by group (each item its own color when there are no groups), else what the color mode says. */
   function sankeyColor(X, n) {
     var T = X.T, st = n._st, cb = X.o.colorBy || 'group', L = X.L;
@@ -779,7 +779,7 @@ var NFMScene = (function () {
     if (two && l1) X.lab(cx, cy + 12.5, fmtNum(tot), 10.5, T.muted, { align: left ? 'r' : 'l', node: rec.i, minK: 0.4, sub: true, bound: true });
   }
 
-  function riverRibbons(X) {
+  function sankeyRibbons(X) {
     var S = X.S, L = X.L, T = X.T;
     var K = 420, outs = {}, ins = {};
     L.edges.forEach(function (e, ei) { if (e.kind === 'fwd' && e.flow > 1e-6) { (outs[e.from] = outs[e.from] || []).push(ei); (ins[e.to] = ins[e.to] || []).push(ei); } });
