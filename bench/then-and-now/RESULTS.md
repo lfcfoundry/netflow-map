@@ -41,6 +41,32 @@ At 30,000 items in Chromium 155: finished map 40.1 s to 2.83 s (14x faster), pan
 
 Plain takeaway: no memory gain at these sizes (slightly more, because the app now keeps chapters, a mini-map and a link look-up). Savings come on very big maps: at 100,000 items packing idle links saves 67 MB (402 to 335 MB) against the build just before that step. The first release was not run at 100,000 items (it needs minutes), so there is no first-release figure there. Firefox, WebKitGTK and GNOME Web give no exact heap numbers, so memory is Chromium only.
 
+## With the compressor (memory-compression 2.0.1), added 2026-10-18
+
+Chromium 155 exact page heap, flat Force map left alone 9 s, build before the compressor against the build with it (MB, lower is better):
+
+| Map | Without | With | Change | Cost to wake the links |
+|---|---|---|---|---|
+| 30,000 items | 101.8 | 93.1 | -8.7 (-8.5%) | 192 ms |
+| 100,000 items | 331.5 | 295.7 | -35.8 (-10.8%) | 490 ms |
+
+The module costs the page about 8 MB of its own, so the 30,000-item saving is smaller than the 17.5 MB the packed links alone free. Page file 754 to 926 KB. Not packed because it frees nothing or costs more than it saves: layout items (+3.9 MB, the picture points at them), graph links with look-up tables (-14 MB at 30,000 items, but every click rebuilds them), undo steps (under 1 MB each).
+
+Tester part "Idle memory of the layout links" (made-up maps, very regular, so they pack to 99% smaller; real data will be less dramatic), one run each, lower is better in size and time:
+
+| Browser | Map | Links | As objects (est.) | Packed | Pack time | Wake time | Exact |
+|---|---|---|---|---|---|---|---|
+| Chromium 155 | 10,000 | 30,951 | 7.8 MB | 0.1 MB | 43 ms | 25 ms | yes |
+| Chromium 155 | 30,000 | 93,185 | 24 MB | 0.3 MB | 99 ms | 67 ms | yes |
+| Firefox 158 | 10,000 | 30,951 | 7.8 MB | 0.1 MB | 48 ms | 33 ms | yes |
+| Firefox 158 | 30,000 | 93,185 | 24 MB | 0.3 MB | 100 ms | 85 ms | yes |
+| WebKitGTK 2.52.6 | 10,000 | 30,951 | 7.8 MB | 0.1 MB | 46 ms | 31 ms | yes |
+| WebKitGTK 2.52.6 | 30,000 | 93,185 | 24 MB | 0.3 MB | 72 ms | 90 ms | yes |
+| GNOME Web 46.5 | 10,000 | 30,951 | 7.8 MB | 0.1 MB | 48 ms | 23 ms | yes |
+| GNOME Web 46.5 | 30,000 | 93,185 | 24 MB | 0.3 MB | 108 ms | 99 ms | yes |
+
+Checks: Chromium 170, Firefox, WebKitGTK and GNOME Web 159 each (4 new), picture identical byte for byte after park and wake in all four.
+
 ## New since the first release
 
 Link hover (first hover on 30,000 items, lower is better: Chromium 155 316 ms, Firefox 158 279 ms, WebKitGTK 2.52.6 77 ms, GNOME Web 46.5 134 ms), early rough picture for big maps, multilevel layout for huge networks, look-only layout reuse (100,000 items 6.2 s to 2.6 s), Top-down options (story order, chapters, mini-map, bundled and tapered links), idle layout worker rest after 4 s on 20,000+ items.

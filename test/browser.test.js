@@ -843,6 +843,28 @@ async function open() {
     await ev(() => { NFM.setGraph(window.__g1, false, true); NFM.setV(window.__v1); if (window.__tab1 && window.__tab1 !== 'map') NFM.showTab(window.__tab1); }); await D.wait(() => NFM.state.sceneOk && !NFM.state.mapBusy, null, 30000).catch(() => {});
   } catch (e) { say(false, 'packed scene links stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  /* 8d. the layout's link list kept packed while idle: packed, one link read without waking the rest, brought back exactly, picture byte for byte the same */
+  try {
+    await ev(() => { window.__g1 = JSON.parse(JSON.stringify(NFM.state.graph)); window.__v1 = { view: NFM.state.V.view, arrange: NFM.state.V.arrange }; window.__tab1 = NFM.state.tab; NFM.setGraph(NFMExamples.bigNetwork(1500, 8, 7)); NFM.setV({ view: 'network', arrange: 'force' }); NFM.showTab('map'); });
+    await D.wait(() => NFM.state.L && NFM.state.sceneOk && !NFM.state.mapBusy && NFM.state.scene && NFM.state.L.nodes.length > 1400, null, 60000); await settle(400);
+    const cap = () => ev(() => { const cv = document.querySelector('#map canvas, canvas'), o = document.createElement('canvas'); o.width = cv.width; o.height = cv.height; const c = o.getContext('2d'); c.drawImage(cv, 0, 0); window.__pb = c.getImageData(0, 0, o.width, o.height).data; return window.__pb.length; });
+    const before = await ev(() => { const L = NFM.state.L; return { has: typeof L.parkNow === 'function', n: L.edges.length, json: JSON.stringify(L.edges) }; });
+    if (!before.has) say(false, 'the layout has no link park attached');
+    else {
+      await cap();
+      const park = await ev(() => { const L = NFM.state.L, ok = L.parkNow(); return { ok: ok, parked: L.parked(), bytes: L.parkBytes() }; });
+      say(park.ok && park.parked, 'the layout links were packed (' + before.n + ' links, ' + park.bytes + ' bytes packed)');
+      const one = await ev(() => { const L = NFM.state.L, e = L.edgeAt(7), same = JSON.stringify(e); return { json: same, parked: L.parked() }; });
+      say(one.parked && one.json === JSON.stringify(JSON.parse(before.json)[7]), 'one link is read while the list stays packed, and it equals the original');
+      const back = await ev(() => { const L = NFM.state.L, t = performance.now(), ed = L.edges, ms = performance.now() - t; return { json: JSON.stringify(ed), parked: L.parked(), ms: ms }; });
+      say(!back.parked && back.json === before.json, 'reading the list brings every link back exactly (' + before.n + ' links, same JSON text, ' + back.ms.toFixed(0) + ' ms)');
+      await ev(() => { const sc = NFM.state.scene, m = NFM.manager(); if (m && m.r) m.r.setScene(sc); NFM.requestDraw && NFM.requestDraw(); }); await settle(500);
+      const df = await ev(() => { const cv = document.querySelector('#map canvas, canvas'), o = document.createElement('canvas'); o.width = cv.width; o.height = cv.height; const c = o.getContext('2d'); c.drawImage(cv, 0, 0); const b = c.getImageData(0, 0, o.width, o.height).data, a = window.__pb; let n = 0, mx = 0; for (let i = 0; i < a.length; i++) { const d = Math.abs(a[i] - b[i]); if (d) { n++; if (d > mx) mx = d; } } return { bytes: a.length, differ: n, maxDiff: mx }; });
+      say(df.differ === 0, 'the picture is byte for byte the same after the links were packed, brought back and drawn again (' + df.bytes + ' bytes compared, ' + df.differ + ' differ' + (df.differ ? ', by up to ' + df.maxDiff : '') + ')');
+    }
+    await ev(() => { NFM.setGraph(window.__g1, false, true); NFM.setV(window.__v1); if (window.__tab1 && window.__tab1 !== 'map') NFM.showTab(window.__tab1); }); await D.wait(() => NFM.state.sceneOk && !NFM.state.mapBusy, null, 30000).catch(() => {});
+  } catch (e) { say(false, 'the packed layout links stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
   /* 9. the drawing manager never keeps a destroyed renderer; a worker that dies mid-job does not wedge the engine */
   try {
   { const r = await ev(async () => {

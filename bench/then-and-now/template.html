@@ -35,6 +35,9 @@ label{display:inline-flex;gap:.4em;align-items:center;margin-left:1em}
   <h2>Layout time, same map, one after the other</h2>
   <p class="mut small">"Typical" is the middle of the runs, "best" the fastest. Lower is better in every time column. "Times faster" is typical first version divided by typical now (higher is better). A run that passed the time limit was stopped and counts as the limit, so those rows say "at least".</p>
   <div class="card scroll"><table id="tbl"></table></div>
+  <h2>Idle memory of the layout links (what the compressor does)</h2>
+  <p class="mut small">The first version keeps every link of a finished layout as a plain object. Now, once a big map has been left alone for 4 seconds, the links are packed by memory-compression 2.0.1 and the objects are let go. "As objects" is an estimate (a rule of thumb, usually within a third); "packed" is the real size of the packed bytes. Lower is better in every size and time column. "Exact" says every link came back with the same values. These maps are made up and very regular, so they pack far better than real data usually does; real data will be less dramatic.</p>
+  <div class="card scroll"><table id="mtbl"></table></div>
   <h2>Copy the results</h2>
   <p><button id="copy" class="sec">Copy results</button> <span id="copied" class="small mut"></span></p>
   <textarea id="txt" readonly></textarea>
@@ -45,6 +48,7 @@ __STATIC__
 <script type="text/plain" id="src-old-engine">__OLD_ENGINE__</script>
 <script type="text/plain" id="src-old-scene">__OLD_SCENE__</script>
 <script type="text/plain" id="src-new-engine">__NEW_ENGINE__</script>
+<script type="text/plain" id="src-mc">__MC__</script>
 <script type="text/plain" id="src-new-scene">__NEW_SCENE__</script>
 <script>
 __EXAMPLES__
@@ -75,15 +79,17 @@ var TESTS = [
   { id: 'net3k', name: 'Network, 3,000 items', make: function () { return NFMExamples.bigNetwork(3000, 12, 7); }, opts: { view: 'network', colorBy: 'group' } },
   { id: 'flow1k', name: 'Flow, 1,000-page story', make: function () { return story(1000, 2); }, opts: { view: 'flow' } },
   { id: 'down5k', name: 'Top-down, 5,000-page story', make: function () { return story(5000, 4); }, opts: { view: 'down' } },
-  { id: 'net10k', name: 'Network, 10,000 items', make: function () { return NFMExamples.bigNetwork(10000, 12, 7); }, opts: { view: 'network', colorBy: 'group' }, big: true },
-  { id: 'net30k', name: 'Network, 30,000 items', make: function () { return NFMExamples.bigNetwork(30000, 12, 7); }, opts: { view: 'network', colorBy: 'group' }, big: true },
-  { id: 'net100k', name: 'Network, 100,000 items', make: function () { return NFMExamples.bigNetwork(100000, 12, 7); }, opts: { view: 'network', colorBy: 'group' }, huge: true }
+  { id: 'net10k', mem: true, name: 'Network, 10,000 items', make: function () { return NFMExamples.bigNetwork(10000, 12, 7); }, opts: { view: 'network', colorBy: 'group' }, big: true },
+  { id: 'net30k', mem: true, name: 'Network, 30,000 items', make: function () { return NFMExamples.bigNetwork(30000, 12, 7); }, opts: { view: 'network', colorBy: 'group' }, big: true },
+  { id: 'net100k', mem: true, name: 'Network, 100,000 items', make: function () { return NFMExamples.bigNetwork(100000, 12, 7); }, opts: { view: 'network', colorBy: 'group' }, huge: true }
 ];
 var HARNESS = 'self.onmessage = function (e) { var m = e.data, out = {}; try { var t0 = performance.now(); var L = NFMEngine.build(m.graph, m.opts); var t1 = performance.now(); var S = NFMScene.make(L, { colorBy: "group", theme: "light" }); var t2 = performance.now(); out.layoutMs = t1 - t0; out.sceneMs = t2 - t1; out.nodes = L.nodes.length; } catch (err) { out.error = String(err && err.message || err); } postMessage(out); };';
+var HARNESS_MEM = 'self.onmessage = function (e) { var m = e.data, out = {}; try { var L = NFMEngine.build(m.graph, m.opts), E = L.edges, n = E.length, C = 25000, MC = self.MemoryCompression, i, j; var est = MC.estimateBytes(E); var t0 = performance.now(), parts = [], bytes = 0; for (i = 0; i < n; i += C) { var p = MC.pack(E.slice(i, i + C), { mode: "fast" }); parts.push(p); bytes += p.length; } var packMs = performance.now() - t0; t0 = performance.now(); var back = []; for (i = 0; i < parts.length; i++) { var u = MC.unpack(parts[i]); for (j = 0; j < u.length; j++) back.push(u[j]); } var wakeMs = performance.now() - t0; var same = back.length === n; for (i = 0; i < n && same; i += C) { if (JSON.stringify(E.slice(i, i + C)) !== JSON.stringify(back.slice(i, i + C))) same = false; } out = { items: L.nodes.length, edges: n, estBytes: est, packedBytes: bytes, packMs: packMs, wakeMs: wakeMs, exact: same }; } catch (err) { out.error = String(err && err.message || err); } self.postMessage(out); };';
 var CAP_MS = 60000;
 function code(id) { return $(id).textContent; }
+function memUrl() { return URL.createObjectURL(new Blob([code('src-new-engine') + '\n' + code('src-mc') + '\n' + HARNESS_MEM], { type: 'text/javascript' })); }
 function blobUrl(engine, scene) { return URL.createObjectURL(new Blob([code(engine) + '\n' + code(scene) + '\n' + HARNESS], { type: 'text/javascript' })); }
-var URLS = null;
+var URLS = null, MEM_URL = null;
 /* one run in a fresh worker; resolves { layoutMs, sceneMs, capped } */
 function runOne(which, graph, opts) {
   return new Promise(function (resolve) {
@@ -94,6 +100,36 @@ function runOne(which, graph, opts) {
     w.onerror = function (e) { fin({ error: String(e && e.message || 'worker error') }); };
     w.postMessage({ graph: graph, opts: opts });
   });
+}
+function runMem(graph, opts) {
+  return new Promise(function (resolve) {
+    var w = new Worker(MEM_URL), done = false, fin = function (r) { if (done) return; done = true; clearTimeout(timer); try { w.terminate(); } catch (e) { /* gone */ } resolve(r); };
+    var timer = setTimeout(function () { fin({ error: 'took longer than ' + CAP_MS / 1000 + ' s' }); }, CAP_MS);
+    w.onmessage = function (e) { fin(e.data); }; w.onerror = function (e) { fin({ error: String(e && e.message || 'worker error') }); };
+    w.postMessage({ graph: graph, opts: opts });
+  });
+}
+var mb = function (b) { return b >= 1e7 ? Math.round(b / 1048576) + ' MB' : (b / 1048576).toFixed(1) + ' MB'; };
+async function memPart(turns, list) {
+  var tests = list.filter(function (t) { return t.mem; }), tbl = '<thead><tr><th>Map</th><th>Links</th><th>As objects<br>(first version, est.)</th><th>Packed<br>(now, idle)</th><th>Smaller<br>(higher is better)</th><th>Pack time<br>(lower is better)</th><th>Wake time<br>(lower is better)</th><th>Exact</th></tr></thead><tbody>', md = ['| Map | Links | As objects (first version, est.) | Packed (now, idle) | Smaller (higher is better) | Pack time | Wake time | Exact |', '|---|---|---|---|---|---|---|---|'], first = null;
+  if (!tests.length) { $('mtbl').innerHTML = '<tbody><tr><td>Tick "Include the big maps" to see this part.</td></tr></tbody>'; return ''; }
+  if (!MEM_URL) MEM_URL = memUrl();
+  for (var ti = 0; ti < tests.length; ti++) {
+    var t = tests[ti], g = t.make(), runs = [], err = '';
+    for (var k = 0; k < turns; k++) {
+      $('state').textContent = 'Idle memory: ' + t.name + ', turn ' + (k + 1) + ' of ' + turns + '…';
+      var r = await runMem(JSON.parse(JSON.stringify(g)), t.opts); if (r.error) { err = r.error; break; } runs.push(r);
+    }
+    if (err || !runs.length) { tbl += '<tr><td>' + t.name + '</td><td colspan="7">' + (err || 'no result') + '</td></tr>'; md.push('| ' + t.name + ' | ' + (err || 'no result') + ' | | | | | | |'); continue; }
+    var r0 = runs[0], pk = med(runs.map(function (x) { return x.packMs; })), wk = med(runs.map(function (x) { return x.wakeMs; })), sm = (1 - r0.packedBytes / r0.estBytes) * 100, ex = runs.every(function (x) { return x.exact; });
+    var cells = [r0.edges.toLocaleString('en-US'), mb(r0.estBytes), mb(r0.packedBytes), Math.round(sm) + '%', fmt(pk), fmt(wk), ex ? 'yes' : 'NO'];
+    tbl += '<tr><td>' + t.name + '</td>' + cells.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; md.push('| ' + t.name + ' | ' + cells.join(' | ') + ' |'); first = { name: t.name, est: r0.estBytes, packed: r0.packedBytes, sm: sm, wk: wk, ex: ex };
+  }
+  tbl += '</tbody>'; $('mtbl').innerHTML = tbl;
+  var line = first ? first.name + ': the layout links take about ' + mb(first.est) + ' as objects and ' + mb(first.packed) + ' packed (' + Math.round(first.sm) + '% smaller); waking them takes ' + fmt(first.wk) + (first.ex ? ', every link back exactly.' : ', NOT exact: tell me.') : '';
+  if (line) { var li = document.createElement('li'); li.textContent = 'Idle memory (' + line.replace(/^[^:]+: /, first.name + ': ') + ')'; $('verdict').appendChild(li); }
+  $('txt').value += '\n\nIdle memory of the layout links, lower is better in the size and time columns; smaller, higher is better. "As objects" is an estimate.\n\n' + md.join('\n');
+  return line;
 }
 var med = function (a) { var s = a.slice().sort(function (x, y) { return x - y; }); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : NaN; };
 var fmt = function (ms) { return ms >= 10000 ? (ms / 1000).toFixed(1) + ' s' : ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : ms >= 10 ? Math.round(ms) + ' ms' : ms.toFixed(1) + ' ms'; };
@@ -118,7 +154,7 @@ async function go() {
     }
     results.push(row);
   }
-  report(turns); $('go').disabled = false; $('state').textContent = 'Done.';
+  report(turns); await memPart(turns, list); $('go').disabled = false; $('state').textContent = 'Done.';
 }
 function report(turns) {
   var tbl = '<thead><tr><th>Map</th><th>First version<br>typical</th><th>First version<br>best</th><th>Now<br>typical</th><th>Now<br>best</th><th>Times faster<br>(higher is better)</th></tr></thead><tbody>', lines = [], md = ['| Map | First version typical | First version best | Now typical | Now best | Times faster |', '|---|---|---|---|---|---|'], verdict = [];
