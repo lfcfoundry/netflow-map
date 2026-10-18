@@ -199,6 +199,17 @@ t('5j folding a long chain still makes one run (visited marks replaced run.index
   ok(G.runs.length === 1 && G.runs[0].length === 48 && G.nodes.length === 4, 'runs ' + G.runs.map((r) => r.length) + ' nodes ' + G.nodes.length);
 });
 
+t('5k spread: wide makes the story views wider, tight and no choice are the same drawing', () => {
+  const ids = Array.from({ length: 120 }, (_, i) => 'p' + i), e = []; for (let i = 1; i < 120; i++) { e.push([ids[i - 1], ids[i]]); if (i > 3 && i % 3 === 0) e.push([ids[i - 3], ids[i]]); }
+  const g = mkG(ids, e);
+  ['flow', 'down', 'spine', 'lanes'].forEach((view) => {
+    const none = E.build(g, { view, dir: 'TB' }), tight = E.build(g, { view, dir: 'TB', spread: 'tight' }), wide = E.build(g, { view, dir: 'TB', spread: 'wide' });
+    ok(JSON.stringify(none.nodes) === JSON.stringify(tight.nodes), view + ': tight is not the old drawing'); ok(wide.width > none.width * 1.05, view + ': wide ' + wide.width + ' against ' + none.width);
+  });
+  const lr = E.build(g, { view: 'flow', dir: 'LR' }), lw = E.build(g, { view: 'flow', dir: 'LR', spread: 'wide' }); ok(lw.width > lr.width * 1.05, 'left to right: wide ' + lw.width + ' against ' + lr.width);
+  return 'top-to-bottom width ' + Math.round(E.build(g, { view: 'flow', dir: 'TB' }).width) + ' to ' + Math.round(E.build(g, { view: 'flow', dir: 'TB', spread: 'wide' }).width);
+});
+
 /* 6. picking */
 t('6a matrix: every link cell can be picked, also below the diagonal (3-cycle a>b, b>c, c>a)', () => {
   const L = E.build(mkG(['a', 'b', 'c'], [['a', 'b'], ['b', 'c'], ['c', 'a']]), { view: 'matrix' }), S = SC.make(L, { theme: 'light' }), M = S.matrix; let seen = 0;
