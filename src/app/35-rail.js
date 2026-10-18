@@ -269,6 +269,7 @@ function panelLook() {
   if (['flow', 'down', 'spine', 'lanes'].indexOf(V.view) >= 0) k1.push(check('Taper links (thick at the start, thin at the end)', V.taper, function (on) { setV({ taper: on }, 'look'); }));
   if (!(L && L.is3d)) k1.push(field('Mini-map', seg([['auto', 'Auto'], ['on', 'Always'], ['off', 'Off']], V.minimap, function (v) { setV({ minimap: v }, 'none'); renderMinimap(); }), 'A small picture of the whole map in the corner with a frame for what is on screen; click or drag it to move around. Auto shows it when you are zoomed in or the map is bigger than the screen.'));
   if (V.view === 'flow') k1.push(field('Direction', seg([['LR', 'Left to right'], ['TB', 'Top to bottom']], V.dir, function (v) { setV({ dir: v }); })));
+  if (['flow', 'down', 'spine', 'lanes'].indexOf(V.view) >= 0) k1.push(field('Spacing', seg([['tight', 'Tight'], ['wide', 'Wide']], V.spread, function (v) { setV({ spread: v }); }), 'Tight packs the boxes close together. Wide gives a looser, more tree-like drawing with more room between boxes and rows, easier to read on a wide screen.'));
   if (['flow', 'down', 'spine', 'lanes', 'sankey'].indexOf(V.view) >= 0) { k1.push(check('Fold straight runs into one box', V.fold, function (on) { setV({ fold: on }); })); k1.push(check('Merge parallel arrows', V.merge, function (on) { setV({ merge: on }); })); }
   if (V.view === 'flow' || V.view === 'down') {
     k1.push(field('Rows', seg([['route', 'Shortest route'], ['story', 'Story order']], V.rows, function (v) { setV({ rows: v }); }), 'Story order puts every page below all the pages that lead to it, so gold links are real loops only.'));
@@ -500,7 +501,7 @@ function panelStyle() {
 }
 
 /* ---- Views */
-var SNAP_KEYS = ['view', 'arrange', 'colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'labelCol', 'dir', 'fold', 'merge', 'rows', 'chapters', 'openCh', 'minimap', 'bundle', 'taper', 'tagLen', 'spineCol', 'better', 'wrap', 'ruler', 'downLanes', 'laneBy', 'agg', 'strongest', 'facets', 'around', 'block', 'hideKinds', 'only', 'sets', 'marks', 'rules', 'palette', 'ramp', 'groupColors', 'widthScale', 'widthMul', 'hulls', 'curve', 'valueLabels', 'lab', 'lens', 'cam', 'vocab', 'pins', 'sk'];
+var SNAP_KEYS = ['view', 'arrange', 'colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'labelCol', 'dir', 'spread', 'fold', 'merge', 'rows', 'chapters', 'openCh', 'minimap', 'bundle', 'taper', 'tagLen', 'spineCol', 'better', 'wrap', 'ruler', 'downLanes', 'laneBy', 'agg', 'strongest', 'facets', 'around', 'block', 'hideKinds', 'only', 'sets', 'marks', 'rules', 'palette', 'ramp', 'groupColors', 'widthScale', 'widthMul', 'hulls', 'curve', 'valueLabels', 'lab', 'lens', 'cam', 'vocab', 'pins', 'sk'];
 function snapshot() { var o = {}; SNAP_KEYS.forEach(function (k) { o[k] = JSON.parse(JSON.stringify(S.V[k] === undefined ? null : S.V[k])); }); return o; }
 /** Only known settings of the right kind are accepted from shared text. */
 function cleanSnapshot(o) {

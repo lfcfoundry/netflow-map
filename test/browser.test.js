@@ -154,6 +154,12 @@ async function open() {
     await ev(() => NFM.setV({ rows: 'route', tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false }));
     await D.wait((b) => NFM.state.L && NFM.state.L.info && NFM.state.L.info.rowMode === 'route' && NFM.state.L.info.tags === 0 && NFM.state.scene && !NFM.state.scene.labels.some((l) => /^(from |[↓↑→←] )/.test(l.t)) && !NFM.state.scene.rects.some((r) => r.lane !== undefined), null, 30000); await settle(250);
     say((await fpOf()) === base, 'with every choice off again the picture is exactly the old one');
+    const w0 = await ev(() => NFM.state.L.width);
+    await ev(() => NFM.setV({ spread: 'wide' })); await D.wait((w) => NFM.state.L && NFM.state.V.spread === 'wide' && NFM.state.L.width > w * 1.05 && NFM.state.scene, w0, 30000); await settle(250);
+    const wd = await ev(() => { const sn = NFM.snapshot(); NFM.setV({ spread: 'tight' }); NFM.applySnapshot(sn); return { w: NFM.state.L.width, sp: NFM.state.V.spread, svgOk: !/NaN|undefined/.test(NFMScene.toSvg(NFM.state.scene, 't')) }; });
+    say(wd.w > w0 * 1.05 && wd.sp === 'wide' && wd.svgOk, `Spacing Wide spreads the Top-down story ${Math.round(w0)} to ${Math.round(wd.w)} wide, comes back with a saved view, clean SVG export`);
+    await ev(() => NFM.setV({ spread: 'tight' })); await D.wait((b) => NFM.state.L && NFM.state.V.spread === 'tight' && NFM.state.scene, null, 30000); await settle(250);
+    say((await fpOf()) === base, 'Spacing Tight is exactly the old picture');
     /* chapters and parts: a big story as a few boxes; a click opens a box, a search hit opens what hides it, folding back works, off restores the picture */
     await ev(() => NFM.setV({ chapters: 'on' })); await D.wait(() => NFM.state.L && NFM.state.L.chapters && NFM.state.scene && NFM.state.scene.rects.length > 0, null, 30000); await settle(250);
     const c1 = await ev(() => { const L = NFM.state.L; return { boxes: L.nodes.length, chaps: L.chapters.chapters, hidden: L.chapters.hidden, n: L.n, svgOk: !/NaN|undefined/.test(NFMScene.toSvg(NFM.state.scene, 't')), part: (L.nodes.find((n) => n.chapter) || {}).chKey }; });
