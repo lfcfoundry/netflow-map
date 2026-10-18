@@ -4,7 +4,7 @@
  * Copyright (c) 2026 LFC Foundry. MIT License.
  *
  * Starts from the layered / arc / matrix / shape drawings, choke points, traffic and drawing scores of the Story Editor's
- * map (p-see-story-editor/editor/maplayout.js, MIT, copied and generalized; there is no dependency on it) and adds:
+ * map (story-editor/editor/maplayout.js, MIT, copied and generalized; there is no dependency on it) and adds:
  *   - typed-array graph storage (compressed rows), so a big network is a few flat arrays
  *   - choke points as a dominator tree (Cooper-Harvey-Kennedy), same answers as the editor's remove-and-search rule, much faster
  *   - traffic in log space (no overflow on thousands of stacked split-and-rejoin diamonds)
