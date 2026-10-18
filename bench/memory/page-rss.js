@@ -24,6 +24,14 @@ const rss = (pid0) => { const all = {}; for (const d of fs.readdirSync('/proc'))
   await page.evaluate((n) => { NFM.setGraph(NFMExamples.bigNetwork(n, 12, 7)); NFM.setV({ view: 'network', arrange: 'sphere' }); }, N);
   await page.waitForFunction((n) => NFM.state.L && NFM.state.sceneOk && NFM.state.L.nodes.length > n * 0.98, { timeout: 240000 }, N);
   const tDone = Date.now() - t0; await new Promise((r) => setTimeout(r, 1500)); mark('3D network shown', tDone);
+  if (process.env.NFM_PACKCHECK) {   /* the idle link packing: memory just after the map is up (links are objects), then after the idle time (packed, or with NFM_NOPACK=1 left as objects) */
+    if (process.env.NFM_NOPACK) await page.evaluate(() => { const sc = NFM.state.scene; sc.autoPack({ delay: 4000, min: 1e12 }); });
+    await new Promise((r) => setTimeout(r, 1500)); mark('map up 1.5 s');
+    await new Promise((r) => setTimeout(r, 8000)); const ps = await page.evaluate(() => ({ packed: NFM.state.scene.curvesPacked(), n: NFM.state.scene.curveCount() }));
+    mark('idle 9.5 s (links ' + (ps.packed ? 'packed' : 'objects') + ', ' + ps.n + ')');
+    const rd = await page.evaluate(() => { const sc = NFM.state.scene, t0 = performance.now(); sc.curves.length; return performance.now() - t0; }); mark('after reading every link once (' + Math.round(rd) + ' ms)');
+    console.log('step'.padEnd(44) + ' whole browser  content process'); console.log(out.join('\n')); await b.close(); return;
+  }
   if (process.env.NFM_PARKCHECK) {   /* the real idle worker park: memory while idle (NFM_NOPARK=1 turns it off in the page), then the cost of the next layout, which restarts the worker */
     if (process.env.NFM_NOPARK) await page.evaluate(() => { const c = NFM.client(); c.parkAfter = 0; if (c.parkTimer) { clearTimeout(c.parkTimer); c.parkTimer = null; } });
     await new Promise((r) => setTimeout(r, 2000)); mark('idle 2 s');
