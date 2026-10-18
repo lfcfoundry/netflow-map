@@ -50,7 +50,7 @@ thead th{color:var(--mut);font-weight:600;vertical-align:bottom}
   <p class="mut small">FPS while the finished layout is drawn and slowly panned in this browser (higher is better). Taken once per map, in the first turn, one picture at a time, drawn by each version's own renderer.</p>
   <div class="card scroll"><table id="ftbl"></table></div>
   <h2>Idle memory of the layout links (what the compressor does)</h2>
-  <p class="mut small">The first version keeps every link of a finished layout as a plain object. Now, once a big map has been left alone for 4 seconds, the links are packed by memory-compression 2.0.2 and the objects are let go. "As objects" is an estimate (a rule of thumb, usually within a third); "packed" is the real size of the packed bytes. Lower is better in every size and time column. "Exact" says every link came back with the same values. These maps are made up and very regular, so they pack far better than real data usually does; real data will be less dramatic.</p>
+  <p class="mut small">The first version keeps every link of a finished layout as a plain object. Now, once a big map has been left alone for 4 seconds, the links are packed by memory-compression 2.0.3 and the objects are let go. "As objects" is an estimate (a rule of thumb, usually within a third); "packed" is the real size of the packed bytes. Lower is better in every size and time column. "Exact" says every link came back with the same values. These maps are made up and very regular, so they pack far better than real data usually does; real data will be less dramatic.</p>
   <div class="card scroll"><table id="mtbl"></table></div>
   <h2>The results as text</h2>
   <p class="mut small">The Copy results button at the top copies this text.</p>
