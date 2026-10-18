@@ -594,8 +594,8 @@ var NFMPack = (function () {
 })();
 
 /*!
- * Netflow Map river (Sankey) layout, prototype. Copyright (c) 2026 LFC Foundry. MIT License.
- * Takes the engine's River drawing (which layer each item is in, the links and how much flows on each) and lays it out the way a
+ * Netflow Map Sankey layout, prototype. Copyright (c) 2026 LFC Foundry. MIT License.
+ * Takes the engine's Sankey drawing (which layer each item is in, the links and how much flows on each) and lays it out the way a
  * careful Sankey should be: one scale for the whole picture (a band is as thick as its flow, everywhere), item bars as tall as the
  * flow through them, long links routed through the layers in between instead of over the top of other items, an order that
  * minimizes WEIGHTED crossings (big flows crossing big flows cost most), link ends stacked in the order of where they go, and links
@@ -660,7 +660,7 @@ var NFMSankey = (function () {
   }
 
   /**
-   * layout(L, opts). L: the River drawing from the engine (L.nodes with .id .layer .label, L.edges with .from .to .flow .kind and, for long links, .pts).
+   * layout(L, opts). L: the Sankey drawing from the engine (L.nodes with .id .layer .label, L.edges with .from .to .flow .kind and, for long links, .pts).
    * opts: unweighted (order as the old picture does: every link counts the same, no restarts), justifySinks, height (picture height to aim for), nodeW (bar width), gapLayer, pad (space between bars), restarts, budgetMs, seed.
    * Returns { nodes: [{id, label, x, y, w, h, layer, flow}], bands: [{edge, from, to, x0, y0a, y0b, x1, y1a, y1b, xm}], loops: [{edge, from, to, d, w, pts}],
    *           width, height, ky (pixels per unit of flow), crossingWeight, ms }.
@@ -3244,7 +3244,7 @@ var NFMEngine = (function () {
     ['spine', 'Choke-point spine', 'Places every route to the goal must pass, held on one line.'],
     ['lanes', 'Lanes', 'One band per group; items in several groups sit in the middle.'],
     ['shape', 'Shape', 'The stretches between choke points, each named by its pattern.'],
-    ['river', 'River', 'Simulated walkers pour through; the wider the band, the more take that arrow.'],
+    ['sankey', 'Sankey', 'Simulated walkers pour through; the wider the band, the more take that arrow.'],
     ['arc', 'Arc', 'Everything on one line; arcs show the links, long arcs are long jumps.'],
     ['matrix', 'Matrix', 'A grid of who links to whom; patterns show clusters and loops.'],
     ['network', 'Network', 'Closeness on the page follows closeness in the data; for data that is not a story.']
@@ -3331,7 +3331,7 @@ var NFMEngine = (function () {
     var t0 = now(), view = o.view || 'flow';
     var P = prepare(graph, o);
     var imp = importance(P);
-    var flowing = view === 'river', amounts = flowing && !!o.amounts;
+    var flowing = view === 'sankey', amounts = flowing && !!o.amounts;
     var sysFlow = [o.sizeBy, o.widthBy, o.edgeColorBy, o.colorBy].some(function (c) { return c && /^sys:(flow|visits)$/.test(c); });
     var needFlow = (flowing && !amounts) || o.colorBy === 'odds' || o.colorBy === 'heat' || o.wantFlow || sysFlow;
     var flow = null, classes = null;
@@ -3451,7 +3451,7 @@ var NFMEngine = (function () {
     if (view === 'down') Lr = topDown('TB');
     else if (view === 'spine') Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, spine: true }));
     else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } }));
-    else if (view === 'river') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
+    else if (view === 'sankey') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
     else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow })); }
     else if (view === 'matrix') {
       Lr = matrixLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow }));
@@ -3498,7 +3498,7 @@ var NFMEngine = (function () {
   /** Scores every view for the Compare table. */
   function compare(graph, o) {
     var rows = [];
-    ['flow', 'down', 'spine', 'lanes', 'river', 'arc', 'matrix', 'network'].forEach(function (v) {
+    ['flow', 'down', 'spine', 'lanes', 'sankey', 'arc', 'matrix', 'network'].forEach(function (v) {
       var oo = Object.assign({}, o, { view: v });
       try {
         var L = build(graph, oo);
@@ -4650,7 +4650,7 @@ var NFMExamples = (function () {
       { id: 'flowa', label: 'Follow the flow: exact odds', group: 'Prepare' },
       { id: 'flows', label: 'Follow the flow: dice', group: 'Prepare' },
       { id: 'view', label: 'Choose a view', group: 'Arrange' },
-      { id: 'lay', label: 'Lanes, rivers and rings', group: 'Arrange' },
+      { id: 'lay', label: 'Lanes, Sankey and rings', group: 'Arrange' },
       { id: 'net', label: 'Network arrangement', group: 'Arrange' },
       { id: 'quick', label: 'Quick sample of pairs', group: 'Arrange' },
       { id: 'exact', label: 'Every pair on the processor', group: 'Arrange' },
@@ -4703,7 +4703,7 @@ var NFMExamples = (function () {
       { from: 'screen', to: 'view', weight: 30 }] };
 
   var LIST = [
-    { id: 'story', title: 'A short adventure (story)', blurb: 'Eighteen pages with choices, endings and a few loops. Try River, Choke-point spine and Story shape.', load: function () { var r = NFMImport.importJSON(JSON.stringify(STORY), 'The Old Lighthouse', {}); return r; } },
+    { id: 'story', title: 'A short adventure (story)', blurb: 'Eighteen pages with choices, endings and a few loops. Try Sankey, Choke-point spine and Story shape.', load: function () { var r = NFMImport.importJSON(JSON.stringify(STORY), 'The Old Lighthouse', {}); return r; } },
     { id: 'pipeline', title: 'How work moves through a team (table)', blurb: 'A table of handoffs with weights and groups. Try Given lanes.', load: function () { return NFMImport.importDelimited(PIPELINE, 'Release pipeline', {}); } },
     { id: 'notes', title: 'A folder of linked notes (Markdown)', blurb: 'Eight notes that link to each other with [[double brackets]], with tags and one folder.', load: function () { return NFMImport.importNotes(NOTES, 'Garden notes', {}); } },
     { id: 'outline', title: 'A bulleted outline with cross links', blurb: 'An indented list; lines with [[brackets]] add links back across the outline.', load: function () { return NFMImport.importOutline(OUTLINE, 'Weekend trip', {}); } },

@@ -1,5 +1,5 @@
 /*!
- * Netflow Map app, part 5b: River (Sankey) pictures. Hand edits (colors, labels, order, placement), their undo, the side panel and the click menus.
+ * Netflow Map app, part 5b: Sankey pictures. Hand edits (colors, labels, order, placement), their undo, the side panel and the click menus.
  * Copyright (c) 2026 LFC Foundry. MIT License.
  *
  * Everything the person changes by hand lives in S.V.sk so it is saved with the view:
@@ -10,7 +10,7 @@
  *   links {"from>to": {color, color2, mode, opacity, hide, label}}
  */
 var skHist = [], skLast = 0, skSoon = 0;
-function skOn() { return !!(S.L && S.L.view === 'river' && S.L.sk); }   /* hand edits (drag a bar, edit a label) are for the left-to-right picture */
+function skOn() { return !!(S.L && S.L.view === 'sankey' && S.L.sk); }   /* hand edits (drag a bar, edit a label) are for the left-to-right picture */
 function skV() {
   var V = S.V, d = defaultView().sk;
   if (!V.sk || typeof V.sk !== 'object') V.sk = d;
@@ -184,7 +184,7 @@ function skBackgroundItems() {
 function skPanel() {
   var k = skV(), later = function (f) { return function (x) { skPush(false); f(x); }; };
   var re = function () { skLayoutSoon(); };
-  return section('River picture', [
+  return section('Sankey picture', [
     field('Flow color', select(SK_COLOR_MODES, k.color, function (v) { skPush(true); k.color = v; skCommit(false); })),
     slider('Flow see-through', k.opacity, 0.08, 1, 0.02, later(function (x) { k.opacity = x; saveView(); scheduleScene(); }), function (x) { return Math.round((1 - x) * 100) + '%'; }),
     slider('Bar width', k.nodeW, 4, 60, 1, later(function (x) { k.nodeW = x; re(); }), function (x) { return Math.round(x) + ' px'; }),

@@ -1,6 +1,6 @@
 /*!
- * Netflow Map river (Sankey) layout, prototype. Copyright (c) 2026 LFC Foundry. MIT License.
- * Takes the engine's River drawing (which layer each item is in, the links and how much flows on each) and lays it out the way a
+ * Netflow Map Sankey layout, prototype. Copyright (c) 2026 LFC Foundry. MIT License.
+ * Takes the engine's Sankey drawing (which layer each item is in, the links and how much flows on each) and lays it out the way a
  * careful Sankey should be: one scale for the whole picture (a band is as thick as its flow, everywhere), item bars as tall as the
  * flow through them, long links routed through the layers in between instead of over the top of other items, an order that
  * minimizes WEIGHTED crossings (big flows crossing big flows cost most), link ends stacked in the order of where they go, and links
@@ -65,7 +65,7 @@ var NFMSankey = (function () {
   }
 
   /**
-   * layout(L, opts). L: the River drawing from the engine (L.nodes with .id .layer .label, L.edges with .from .to .flow .kind and, for long links, .pts).
+   * layout(L, opts). L: the Sankey drawing from the engine (L.nodes with .id .layer .label, L.edges with .from .to .flow .kind and, for long links, .pts).
    * opts: unweighted (order as the old picture does: every link counts the same, no restarts), justifySinks, height (picture height to aim for), nodeW (bar width), gapLayer, pad (space between bars), restarts, budgetMs, seed.
    * Returns { nodes: [{id, label, x, y, w, h, layer, flow}], bands: [{edge, from, to, x0, y0a, y0b, x1, y1a, y1b, xm}], loops: [{edge, from, to, d, w, pts}],
    *           width, height, ky (pixels per unit of flow), crossingWeight, ms }.

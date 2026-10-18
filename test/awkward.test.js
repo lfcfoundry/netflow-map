@@ -12,7 +12,7 @@ const nonFinite = (L) => { const out = []; [L.nodes || [], L.edges || []].forEac
   const g0 = await I.importAny([{ name: 'e.csv', text: rows.join('\n') }]), g = g0.graph || g0;
   assert(g.nodes.length > 20 && g.edges.length > 10, 'the awkward table still gives items and links');
   const dg = C.derive(JSON.parse(JSON.stringify(g))); let n = 0;
-  for (const view of ['network', 'flow', 'river', 'matrix', 'arc']) for (const arrange of (view === 'network' ? ['stress', 'force3d', 'sphere'] : [undefined])) {
+  for (const view of ['network', 'flow', 'sankey', 'matrix', 'arc']) for (const arrange of (view === 'network' ? ['stress', 'force3d', 'sphere'] : [undefined])) {
     const L = E.build(dg, { view, arrange, colorBy: 'col:cost', sizeBy: 'weight', widthBy: 'weight', edgeColorBy: 'col:cost' }), bad = nonFinite(L);
     assert.strictEqual(bad.length, 0, view + '/' + (arrange || '') + ': non-finite numbers in the layout: ' + bad.slice(0, 3).join(', '));
     const svg = SC.toSvg(SC.make(L, { colorBy: 'col:cost', theme: 'light', plan: true }), 't');

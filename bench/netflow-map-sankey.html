@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; worker-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
-<title>River Before and After</title>
+<title>Sankey Before and After</title>
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--ink:#1f2430;--mut:#667;--line:#dcd9d0;--ok:#2f7d4f;--warn:#b26a00;--bad:#b3362f;--acc:#3b6ea5}
 @media (prefers-color-scheme:dark){:root{--bg:#16181d;--card:#1f232a;--ink:#e8e8ea;--mut:#9aa0ab;--line:#343a44;--ok:#5fc08a;--warn:#e0a34a;--bad:#ef7b73;--acc:#7fb0e8}}
@@ -17,8 +17,8 @@ h1{font-size:1.5rem;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 16px}
 button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:8px;cursor:pointer;margin:4px 8px 4px 0}button.p{background:var(--acc);color:#fff;border-color:var(--acc)}
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
-<h1>River before and after</h1>
-<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (first picture) and with the improved layout (second picture), then measured the same way. Each picture fits inside its frame; scroll to zoom, drag to move, or open it full size. Nothing is sent anywhere. Version 2026.10.18.1149.</p>
+<h1>Sankey before and after</h1>
+<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (first picture) and with the improved layout (second picture), then measured the same way. Each picture fits inside its frame; scroll to zoom, drag to move, or open it full size. Nothing is sent anywhere. Version 2026.10.18.1220.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>Summary</h2><p id="finalsay"></p>
@@ -4048,7 +4048,7 @@ var NFMEngine = (function () {
     ['spine', 'Choke-point spine', 'Places every route to the goal must pass, held on one line.'],
     ['lanes', 'Lanes', 'One band per group; items in several groups sit in the middle.'],
     ['shape', 'Shape', 'The stretches between choke points, each named by its pattern.'],
-    ['river', 'River', 'Simulated walkers pour through; the wider the band, the more take that arrow.'],
+    ['sankey', 'Sankey', 'Simulated walkers pour through; the wider the band, the more take that arrow.'],
     ['arc', 'Arc', 'Everything on one line; arcs show the links, long arcs are long jumps.'],
     ['matrix', 'Matrix', 'A grid of who links to whom; patterns show clusters and loops.'],
     ['network', 'Network', 'Closeness on the page follows closeness in the data; for data that is not a story.']
@@ -4135,7 +4135,7 @@ var NFMEngine = (function () {
     var t0 = now(), view = o.view || 'flow';
     var P = prepare(graph, o);
     var imp = importance(P);
-    var flowing = view === 'river', amounts = flowing && !!o.amounts;
+    var flowing = view === 'sankey', amounts = flowing && !!o.amounts;
     var sysFlow = [o.sizeBy, o.widthBy, o.edgeColorBy, o.colorBy].some(function (c) { return c && /^sys:(flow|visits)$/.test(c); });
     var needFlow = (flowing && !amounts) || o.colorBy === 'odds' || o.colorBy === 'heat' || o.wantFlow || sysFlow;
     var flow = null, classes = null;
@@ -4255,7 +4255,7 @@ var NFMEngine = (function () {
     if (view === 'down') Lr = topDown('TB');
     else if (view === 'spine') Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, spine: true }));
     else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } }));
-    else if (view === 'river') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
+    else if (view === 'sankey') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
     else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow })); }
     else if (view === 'matrix') {
       Lr = matrixLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow }));
@@ -4302,7 +4302,7 @@ var NFMEngine = (function () {
   /** Scores every view for the Compare table. */
   function compare(graph, o) {
     var rows = [];
-    ['flow', 'down', 'spine', 'lanes', 'river', 'arc', 'matrix', 'network'].forEach(function (v) {
+    ['flow', 'down', 'spine', 'lanes', 'sankey', 'arc', 'matrix', 'network'].forEach(function (v) {
       var oo = Object.assign({}, o, { view: v });
       try {
         var L = build(graph, oo);
@@ -5457,7 +5457,7 @@ var NFMExamples = (function () {
       { id: 'flowa', label: 'Follow the flow: exact odds', group: 'Prepare' },
       { id: 'flows', label: 'Follow the flow: dice', group: 'Prepare' },
       { id: 'view', label: 'Choose a view', group: 'Arrange' },
-      { id: 'lay', label: 'Lanes, rivers and rings', group: 'Arrange' },
+      { id: 'lay', label: 'Lanes, Sankey and rings', group: 'Arrange' },
       { id: 'net', label: 'Network arrangement', group: 'Arrange' },
       { id: 'quick', label: 'Quick sample of pairs', group: 'Arrange' },
       { id: 'exact', label: 'Every pair on the processor', group: 'Arrange' },
@@ -5510,7 +5510,7 @@ var NFMExamples = (function () {
       { from: 'screen', to: 'view', weight: 30 }] };
 
   var LIST = [
-    { id: 'story', title: 'A short adventure (story)', blurb: 'Eighteen pages with choices, endings and a few loops. Try River, Choke-point spine and Story shape.', load: function () { var r = NFMImport.importJSON(JSON.stringify(STORY), 'The Old Lighthouse', {}); return r; } },
+    { id: 'story', title: 'A short adventure (story)', blurb: 'Eighteen pages with choices, endings and a few loops. Try Sankey, Choke-point spine and Story shape.', load: function () { var r = NFMImport.importJSON(JSON.stringify(STORY), 'The Old Lighthouse', {}); return r; } },
     { id: 'pipeline', title: 'How work moves through a team (table)', blurb: 'A table of handoffs with weights and groups. Try Given lanes.', load: function () { return NFMImport.importDelimited(PIPELINE, 'Release pipeline', {}); } },
     { id: 'notes', title: 'A folder of linked notes (Markdown)', blurb: 'Eight notes that link to each other with [[double brackets]], with tags and one folder.', load: function () { return NFMImport.importNotes(NOTES, 'Garden notes', {}); } },
     { id: 'outline', title: 'A bulleted outline with cross links', blurb: 'An indented list; lines with [[brackets]] add links back across the outline.', load: function () { return NFMImport.importOutline(OUTLINE, 'Weekend trip', {}); } },
@@ -5899,7 +5899,7 @@ var NFMScene = (function () {
       if (widthR) S.legend.push({ k: 'width', t: 'Line width: ' + (widthR.ch === 'sys:sim' ? 'Simulated traffic' : chName(widthR.ch)), lo: fmtNum(widthR.min), hi: fmtNum(widthR.max) });
       if (ecR) S.legend.push({ k: 'ramp', ramp: 'plasma', a: rampAt('plasma', 1), b: rampAt('plasma', 0), lo: fmtNum(ecR.min), hi: fmtNum(ecR.max), t: 'Line color: ' + chName(CH.ecolor.ch) });
       else if (edgeCats) { S.legend.push({ k: 'text', t: 'Line color: ' + chName(CH.ecolor.ch), head: true }); edgeCats.slice(0, 8).forEach(function (c, i) { legend(T.groups[(i + 3) % T.groups.length], c, 'e:' + c); }); }
-      if (story && view !== 'river') { legend(T.good, 'good ending', 'endgood'); legend(T.bad, 'bad ending', 'endbad'); }
+      if (story && view !== 'sankey') { legend(T.good, 'good ending', 'endgood'); legend(T.bad, 'bad ending', 'endbad'); }
       if (S.nodes.some(function (n) { return n.n && n.n.start; })) S.legend.push({ k: 'mark', c: T.accent, t: 'start', key: 'start' });
       if (colorBy !== 'choke' && (L.nodes || []).some(function (n) { return n.choke; })) S.legend.push({ k: 'mark', c: T.gold, t: 'choke point', key: 'chokemark', dot: true });
     }
@@ -5910,8 +5910,8 @@ var NFMScene = (function () {
     S.rects.forEach(function (r) { if (r.x < x0) x0 = r.x; if (r.y < y0) y0 = r.y; if (r.x + r.w > x1) x1 = r.x + r.w; if (r.y + r.h > y1) y1 = r.y + r.h; });
     S.dots.forEach(function (d) { if (d.cx - d.r < x0) x0 = d.cx - d.r; if (d.cy - d.r < y0) y0 = d.cy - d.r; if (d.cx + d.r > x1) x1 = d.cx + d.r; if (d.cy + d.r > y1) y1 = d.cy + d.r; });
     S.polys.forEach(function (p) { for (var i = 0; i < p.pts.length; i += 2) { if (p.pts[i] < x0) x0 = p.pts[i]; if (p.pts[i] > x1) x1 = p.pts[i]; if (p.pts[i + 1] < y0) y0 = p.pts[i + 1]; if (p.pts[i + 1] > y1) y1 = p.pts[i + 1]; } });
-    if ((view === 'river' && L.sk) || S.ruler) S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
-    if (view === 'river' && L.sk && L.height && L.height > y1) y1 = L.height;
+    if ((view === 'sankey' && L.sk) || S.ruler) S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
+    if (view === 'sankey' && L.sk && L.height && L.height > y1) y1 = L.height;
     if (S.tagChips) S.labels.forEach(function (l) { if (!l.boundXY) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; if (b[1] < y0) y0 = b[1]; if (b[3] > y1) y1 = b[3]; } });   /* tag names beyond the last box still count for the picture's edges */
     if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 100; y1 = 100; }
     if (L.is3d && L.c3) { var R3 = (L.radius3 || 300) * 1.18; x0 = L.c3[0] - R3; x1 = L.c3[0] + R3; y0 = L.c3[1] - R3; y1 = L.c3[1] + R3; }
@@ -6047,7 +6047,7 @@ var NFMScene = (function () {
       }
     }
     if (best >= 0) { var ci = I.sci[best], cv = S.curveAt(ci); return { edge: cv.edge, from: cv.from, to: cv.to, curve: ci }; }
-    for (var q = 0; q < S.ribbons.length; q++) { /* river ribbons */
+    for (var q = 0; q < S.ribbons.length; q++) { /* sankey ribbons */
       var rb = S.ribbons[q]; if (wx < rb.x0 || wx > rb.x1) continue;
       var lo = 0, hi = 1, u;   // the band's x runs along a cubic; find where it is at wx, then read the height there
       for (var it = 0; it < 14; it++) { u = (lo + hi) / 2; var m = 1 - u, xx = m * m * m * rb.x0 + 3 * m * m * u * rb.xm + 3 * m * u * u * rb.xm + u * u * u * rb.x1; if (xx < wx) lo = u; else hi = u; }
@@ -6096,10 +6096,10 @@ var NFMScene = (function () {
     return { type: 'bg' };
   }
 
-  /* ---------------------------------------------------------------- layered views (flow, top-down, spine, lanes, river) */
+  /* ---------------------------------------------------------------- layered views (flow, top-down, spine, lanes, sankey) */
   function layeredScene(X, view) {
     var S = X.S, L = X.L, T = X.T, lab = X.lab, addNode = X.addNode, fillOf = X.fillOf, valCol = X.valCol, nodeLabel = X.nodeLabel;
-    var LR = L.dir !== 'TB', river = view === 'river', W = L.width || 0, H = L.height || 0;
+    var LR = L.dir !== 'TB', sankey = view === 'sankey', W = L.width || 0, H = L.height || 0;
     (L.lanes || []).forEach(function (ln, i) {
       var name = (L.laneNames || [])[ln.lane] || '';
       var r = LR ? { x: -10, y: ln.from, w: W + 20, h: ln.to - ln.from } : { x: ln.from, y: -10, w: ln.to - ln.from, h: H + 20 };
@@ -6110,7 +6110,7 @@ var NFMScene = (function () {
       var ch = L.nodes.filter(function (n) { return n.choke; }).sort(function (a, b) { return a.x - b.x; });
       if (ch.length > 1) { var P = [ch[0].x + ch[0].w / 2, ch[0].y + ch[0].h / 2]; for (var i = 1; i < ch.length; i++) { var a = ch[i - 1], b = ch[i]; var ax = a.x + a.w / 2, ay = a.y + a.h / 2, bx = b.x + b.w / 2, by = b.y + b.h / 2; P.push(ax + (bx - ax) / 3, ay, ax + 2 * (bx - ax) / 3, by, bx, by); } S.curves.push({ P: P, w: 9, color: alpha(T.gold, 0.28), arrow: false, edge: -1, from: null, to: null }); }
     }
-    if (X.o.ruler && !LR && !river && L.ruler && L.ruler.length > 1) {
+    if (X.o.ruler && !LR && !sankey && L.ruler && L.ruler.length > 1) {
       /* step numbers down the left edge of each column; the busy levels (every 5th, 25th ...) show only when zoomed out far enough to leave room */
       var pitch = (L.ruler[L.ruler.length - 1].at - L.ruler[0].at) / (L.ruler.length - 1) || 100;
       if (L.info && L.info.columns > 1) pitch = L.ruler[1].at - L.ruler[0].at || pitch;
@@ -6130,7 +6130,7 @@ var NFMScene = (function () {
       if (LR) return isFwd(e) === (end === 'out') ? 'R' : 'L';
       return isFwd(e) === (end === 'out') ? 'B' : 'T';
     };
-    if (!river) {
+    if (!sankey) {
       L.edges.forEach(function (e) {
         var a = L.pos[e.from], b = L.pos[e.to];
         if (!a || !b) return;
@@ -6194,14 +6194,14 @@ var NFMScene = (function () {
         if (txt && X.LC.links.show && !many && L.edges.length < 400) { var mid = bez(P, 0.5); lab(mid[0], mid[1] - 4, clip(txt, 28), 10 * X.LC.links.scale, T.muted, { minK: 0.9, edge: ei, bg: true }); }
         else if (!txt && X.o.edgeValueLabels && e.widthV === e.widthV && L.edges.length < 400) { var mid2 = bez(P, 0.5); lab(mid2[0], mid2[1] - 4, fmtNum(e.widthV), 10 * X.LC.links.scale, T.muted, { minK: 0.7, edge: ei, bg: true }); }
       });
-    } else if (L.sk) sankeyBands(X); else riverRibbons(X);
+    } else if (L.sk) sankeyBands(X); else sankeyRibbons(X);
 
     order.forEach(function (n) {
       var st = n._st, f = fillOf(n), vc = n.end ? valCol(n.valence) : null;
       if (st && st.hide) return;
       var sc = st && st.scale ? st.scale : 1, nx = n.x - (n.w * (sc - 1)) / 2, ny = n.y - (n.h * (sc - 1)) / 2, nw = n.w * sc, nh = n.h * sc, rr = st && (st.shape === 'dot' || st.shape === 'circle') ? Math.min(nw, nh) / 2 : st && st.shape === 'square' ? 2 : 10;
-      if (river && L.sk) { sankeyNode(X, n); return; }
-      if (river) {
+      if (sankey && L.sk) { sankeyNode(X, n); return; }
+      if (sankey) {
         var rec0 = addNode(n, n.x, n.y, n.w, n.h);
         var bc = (X.endCol(n) || (n.end ? valCol(n.valence) : T.neutral));
         if (st && st.fill) bc = hex(st.fill);
@@ -6223,7 +6223,7 @@ var NFMScene = (function () {
     });
   }
 
-  /* ---------------------------------------------------------------- Sankey (river) pictures from NFMSankey.layout */
+  /* ---------------------------------------------------------------- Sankey pictures from NFMSankey.layout */
   /** Color of one bar: the person's choice, else by group (each item its own color when there are no groups), else what the color mode says. */
   function sankeyColor(X, n) {
     var T = X.T, st = n._st, cb = X.o.colorBy || 'group', L = X.L;
@@ -6303,7 +6303,7 @@ var NFMScene = (function () {
     if (two && l1) X.lab(cx, cy + 12.5, fmtNum(tot), 10.5, T.muted, { align: left ? 'r' : 'l', node: rec.i, minK: 0.4, sub: true, bound: true });
   }
 
-  function riverRibbons(X) {
+  function sankeyRibbons(X) {
     var S = X.S, L = X.L, T = X.T;
     var K = 420, outs = {}, ins = {};
     L.edges.forEach(function (e, ei) { if (e.kind === 'fwd' && e.flow > 1e-6) { (outs[e.from] = outs[e.from] || []).push(ei); (ins[e.to] = ins[e.to] || []).push(ei); } });
@@ -6770,8 +6770,8 @@ var NFMScene = (function () {
 
 /* ---- src/sankey.js ---- */
 /*!
- * Netflow Map river (Sankey) layout, prototype. Copyright (c) 2026 LFC Foundry. MIT License.
- * Takes the engine's River drawing (which layer each item is in, the links and how much flows on each) and lays it out the way a
+ * Netflow Map Sankey layout, prototype. Copyright (c) 2026 LFC Foundry. MIT License.
+ * Takes the engine's Sankey drawing (which layer each item is in, the links and how much flows on each) and lays it out the way a
  * careful Sankey should be: one scale for the whole picture (a band is as thick as its flow, everywhere), item bars as tall as the
  * flow through them, long links routed through the layers in between instead of over the top of other items, an order that
  * minimizes WEIGHTED crossings (big flows crossing big flows cost most), link ends stacked in the order of where they go, and links
@@ -6836,7 +6836,7 @@ var NFMSankey = (function () {
   }
 
   /**
-   * layout(L, opts). L: the River drawing from the engine (L.nodes with .id .layer .label, L.edges with .from .to .flow .kind and, for long links, .pts).
+   * layout(L, opts). L: the Sankey drawing from the engine (L.nodes with .id .layer .label, L.edges with .from .to .flow .kind and, for long links, .pts).
    * opts: unweighted (order as the old picture does: every link counts the same, no restarts), justifySinks, height (picture height to aim for), nodeW (bar width), gapLayer, pad (space between bars), restarts, budgetMs, seed.
    * Returns { nodes: [{id, label, x, y, w, h, layer, flow}], bands: [{edge, from, to, x0, y0a, y0b, x1, y1a, y1b, xm}], loops: [{edge, from, to, d, w, pts}],
    *           width, height, ky (pixels per unit of flow), crossingWeight, ms }.
@@ -7115,11 +7115,11 @@ var NFMSankey = (function () {
 })();
 
 /* ---- bench/sankey/lab.js ---- */
-/* Copyright (c) 2026 LFC Foundry. MIT License. The river (Sankey) before-and-after page: draws each test network the way the app does today and the way the improved layout would,
+/* Copyright (c) 2026 LFC Foundry. MIT License. The Sankey before-and-after page: draws each test network the way the app does today and the way the improved layout would,
  * side by side, measures both with the same yardstick, and says in plain words which is better. Runs by itself when the page opens. */
 (function () {
   'use strict';
-  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NFMSankey, VERSION = '2026.10.18.1149';
+  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NFMSankey, VERSION = '2026.10.18.1220';
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
   var $ = function (id) { return document.getElementById(id); }, esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var r1 = function (v) { return Math.round(v * 10) / 10; }, r2 = function (v) { return Math.round(v * 100) / 100; };
@@ -7201,9 +7201,9 @@ var NFMSankey = (function () {
     var graph, opts, ex;
     if (net.kind === 'example') {
       ex = X.LIST.find(function (x) { return x.id === net.id; }).load(); graph = ex.graph;
-      opts = net.odds ? { view: 'river', colorBy: 'odds', wantFlow: true } : { view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group' };
+      opts = net.odds ? { view: 'sankey', colorBy: 'odds', wantFlow: true } : { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group' };
       if (ex.opts) opts = Object.assign({}, opts, ex.opts);
-    } else { graph = I.importDelimited(synth(net.nl, net.per, 5, net.loops), ',').graph; opts = { view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group' }; }
+    } else { graph = I.importDelimited(synth(net.nl, net.per, 5, net.loops), ',').graph; opts = { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group' }; }
     return { graph: graph, opts: opts };
   }
   async function runOne(net, sec) {
@@ -7270,11 +7270,11 @@ var NFMSankey = (function () {
     var avgGain = results.length ? results.reduce(function (s, r) { return s + r.ordGain; }, 0) / results.length : 0;
     var overall = 'The improved layout was at least as good on ' + good + ' of ' + results.length + ' networks. Weighted crossings fell by ' + Math.round(avgGain * 100) + '% on average against the old-style order on the same layout.';
     $('finalsay').textContent = overall; $('done').style.display = '';
-    var L = ['# Netflow Map river before and after', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + (el / 1000).toFixed(1) + ' s' + (QUICK ? ' · QUICK' : ''), '', overall, ''];
+    var L = ['# Netflow Map sankey before and after', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + (el / 1000).toFixed(1) + ' s' + (QUICK ? ' · QUICK' : ''), '', overall, ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
     L.push('## Raw data', '', '```json', JSON.stringify(results, null, 1), '```', '');
     var md = L.join('\n');
-    $('dl').onclick = function () { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'netflow-map-river-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
+    $('dl').onclick = function () { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'netflow-map-sankey-results.md'; document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 500); };
     $('cp').onclick = function () { if (navigator.clipboard) navigator.clipboard.writeText(md).then(function () { $('cp').textContent = 'Copied'; }, function () { $('cp').textContent = 'Copy blocked'; }); };
     window.__NFM_SANKEY_RESULT = { md: md, results: results, sections: sections.map(function (s) { return { title: s.title, level: s.level, verdict: s.verdict }; }) };
   }

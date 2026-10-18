@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 LFC Foundry. MIT License. Regression cases for confirmed layout-engine, scene, simulator and River bugs (one case per bug). */
+/* Copyright (c) 2026 LFC Foundry. MIT License. Regression cases for confirmed layout-engine, scene, simulator and Sankey bugs (one case per bug). */
 'use strict';
 global.NFMColumns = require('../src/columns.js');
 const E = require('../src/engine.js'); global.NFMEngine = E;
@@ -170,21 +170,21 @@ t('5f scene: 30,000 links with 30,000 different link colors (by category) draw i
   const L = E.build(g, { view: 'network', arrange: 'circle', edgeColorBy: 'col:cat' }); ok(L.ch.ecolor && L.ch.ecolor.kind === 'cat', 'set-up: categories');
   const { r: S, ms } = timed(() => SC.make(L, { theme: 'light', colorBy: 'group' })); ok(S.curves.length > 29000, 'curves ' + S.curves.length); ok(ms < 700, ms + ' ms'); return ms + ' ms';
 });
-t('5g River scene: 6,000 bars with end values and labels draw in under 1 s (was one pass over all links per bar)', () => {
+t('5g Sankey scene: 6,000 bars with end values and labels draw in under 1 s (was one pass over all links per bar)', () => {
   const n = 6000, e = []; for (let i = 1; i <= n / 3; i++) e.push(['n0', 'n' + i]); for (let i = n / 3 + 1; i < n; i++) e.push(['n' + (1 + (i % (n / 3))), 'n' + i]);
-  const L = E.build(mkG(Array.from({ length: n }, (_, i) => 'n' + i), e), { view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group', sk: {} }); ok(L.sk, 'set-up: River layout');
+  const L = E.build(mkG(Array.from({ length: n }, (_, i) => 'n' + i), e), { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group', sk: {} }); ok(L.sk, 'set-up: Sankey layout');
   const { r: S, ms } = timed(() => SC.make(L, { theme: 'light', colorBy: 'group', sk: { nodeValues: true } })); ok(S.labels.length > 1000, 'labels ' + S.labels.length); ok(ms < 1000, ms + ' ms'); return ms + ' ms';
 });
-t('5h River layout: a 400-item chain with a link from the first item to every other is capped (not 80,000 bands) and says so', () => {
+t('5h Sankey layout: a 400-item chain with a link from the first item to every other is capped (not 80,000 bands) and says so', () => {
   const n = 400, ids = Array.from({ length: n }, (_, i) => 'n' + i), e = []; for (let i = 1; i < n; i++) e.push([ids[i - 1], ids[i]]); for (let i = 2; i < n; i++) e.push([ids[0], ids[i]]);
-  const L = E.build(mkG(ids, e), { view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group' });
+  const L = E.build(mkG(ids, e), { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group' });
   const { r: R, ms } = timed(() => SK.layout(L)); ok(R.bands.length < 30000, R.bands.length + ' bands'); ok(R.simplified > 0 && /long links/.test(R.note), 'note: ' + R.note); ok(ms < 800, ms + ' ms');
   const usable = L.edges.filter((x) => x.kind !== 'self' && x.flow > 1e-9).length, drawn = new Set(R.bands.map((b) => b.edge).concat(R.loops.map((l) => l.edge))).size; ok(drawn === usable, 'every link is still drawn: ' + drawn + ' of ' + usable);
   return R.bands.length + ' bands, ' + R.simplified + ' links drawn straight through, ' + ms + ' ms';
 });
-t('5i River layout: a small map is not changed by the cap (no note, every long link routed)', () => {
+t('5i Sankey layout: a small map is not changed by the cap (no note, every long link routed)', () => {
   const ids = Array.from({ length: 30 }, (_, i) => 'n' + i), e = []; for (let i = 1; i < 30; i++) e.push([ids[i - 1], ids[i]]); for (let i = 2; i < 30; i += 3) e.push([ids[0], ids[i]]);
-  const L = E.build(mkG(ids, e), { view: 'river', amounts: true, widthBy: 'weight', colorBy: 'group' }), R = SK.layout(L); ok(R.simplified === 0 && R.note === '', 'simplified ' + R.simplified);
+  const L = E.build(mkG(ids, e), { view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group' }), R = SK.layout(L); ok(R.simplified === 0 && R.note === '', 'simplified ' + R.simplified);
 });
 t('5j folding a long chain still makes one run (visited marks replaced run.indexOf)', () => {
   const ids = Array.from({ length: 50 }, (_, i) => 'n' + i).concat(['x']), ed = [['n0', 'x']]; for (let i = 1; i < 50; i++) ed.push([ids[i - 1], ids[i]]);
@@ -247,11 +247,11 @@ t('8c SVG export: labels stop at 2,500 in list order, like the canvas (not at 1,
   S.labels = mkLabels(2600); const svg = SC.toSvg(S, 't'), c2 = (svg.match(/<text /g) || []).length; ok(c2 === 2500, '2,600 labels gave ' + c2); ok(svg.indexOf('>L2499<') > 0 && svg.indexOf('>L2500<') < 0, 'the first 2,500 in list order');
 });
 
-/* 9. smaller River items */
-t('9 an empty River has height 0 (not -Infinity) and applies cleanly', () => {
+/* 9. smaller Sankey items */
+t('9 an empty Sankey has height 0 (not -Infinity) and applies cleanly', () => {
   const L = { nodes: [], edges: [], pos: {} }, R = SK.layout(L); ok(R.height === 0 && isFinite(R.width), 'height ' + R.height + ' width ' + R.width);
   SK.apply(L, R); ok(L.height === 0, 'L.height ' + L.height);
-  const L2 = E.build(mkG(['a'], []), { view: 'river', amounts: true, widthBy: 'weight', sk: {} }); ok(isFinite(L2.height) && isFinite(L2.width), 'one item alone: ' + L2.height + ' x ' + L2.width);
+  const L2 = E.build(mkG(['a'], []), { view: 'sankey', amounts: true, widthBy: 'weight', sk: {} }); ok(isFinite(L2.height) && isFinite(L2.width), 'one item alone: ' + L2.height + ' x ' + L2.width);
 });
 t('12 two link filters keep only the links that pass both (edgeFacets)', () => {
   const g = mkG(['a', 'b', 'c', 'd'], [['a', 'b'], ['b', 'c'], ['c', 'd'], ['a', 'd']]);
