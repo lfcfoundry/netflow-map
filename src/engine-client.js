@@ -69,6 +69,8 @@ var NFMEngineClient = (function () {
   function Client(engineSrc, onMain) {
     this.src = engineSrc; this.onMain = onMain; this.w = null; this.mode = 'starting'; this.seq = 0; this.pending = new Map();
     this.ver = 0; this.graph = null; this.queue = null; this.busy = null; this.why = '';
+    /* Parking (off unless the page sets parkAfter): when nothing has been asked for parkAfter ms, a big graph's worker is ended, which frees the graph copy and everything else it holds; the next job starts a fresh worker and sends the graph again. */
+    this.parkAfter = 0; this.parkMin = 20000; this.parked = false; this.parks = 0; this.unparks = 0; this.unparkMs = 0; this.parkTimer = null; this.holdIf = null; this.keepWarm = false;
   }
   Client.prototype.start = function () {
     var self = this;
@@ -78,13 +80,18 @@ var NFMEngineClient = (function () {
         var blob = new Blob([self.src + WORKER_MAIN], { type: 'text/javascript' }), url = URL.createObjectURL(blob);
         self.w = new Worker(url);
         URL.revokeObjectURL(url);
-        self.w.onerror = function (ev) { if (self.mode === 'starting') fallback('The worker could not start (' + (ev && ev.message || 'blocked') + ').'); else self.died('The background engine stopped (' + (ev && ev.message || 'unknown reason') + ').'); };
-        self.w.onmessageerror = function () { if (self.mode !== 'starting') self.died('The background engine sent something the page could not read.'); };
-        self.w.onmessage = function (e) { self.onMsg(e.data); };
+        self.attach(self.w, function (ev) { fallback('The worker could not start (' + (ev && ev.message || 'blocked') + ').'); });
         var t = setTimeout(function () { if (self.mode === 'starting') fallback('The worker did not answer in time.'); }, 3000);
         self.call({ type: 'ping' }).then(function () { clearTimeout(t); if (self.mode === 'starting') { self.mode = 'worker'; resolve(self); } }, function () { clearTimeout(t); fallback('The worker test failed.'); });
       } catch (err) { fallback(String(err && err.message || err)); }
     });
+  };
+  /** Hooks a worker's events up to this client. startFail is called for an error while the client is still starting. */
+  Client.prototype.attach = function (w, startFail) {
+    var self = this;
+    w.onerror = function (ev) { if (self.mode === 'starting' && startFail) startFail(ev); else self.died('The background engine stopped (' + (ev && ev.message || 'unknown reason') + ').'); };
+    w.onmessageerror = function () { if (self.mode !== 'starting') self.died('The background engine sent something the page could not read.'); };
+    w.onmessage = function (e) { self.onMsg(e.data); };
   };
   /** The worker died or broke while jobs were out: every job waiting for it fails with a plain-words message (the one running frees the line), and from now on the page does the work itself, as when a worker cannot start. */
   Client.prototype.died = function (why) {
@@ -102,18 +109,25 @@ var NFMEngineClient = (function () {
     if (d.ok) p.resolve(d.result === true || d.result === 'pong' ? d.result : { L: typeof NFMPack !== 'undefined' ? NFMPack.unpackResult(d.result) : d.result, ms: d.ms }); else p.reject(new Error(d.error));
   };
   Client.prototype.call = function (msg) {
+    var self = this;
+    if (this.parked) return this.unpark().then(function () { return self.call(msg); });
+    return this.rawCall(msg);
+  };
+  Client.prototype.rawCall = function (msg) {
     var self = this, id = ++this.seq;
     return new Promise(function (resolve, reject) { self.pending.set(id, { resolve: resolve, reject: reject, type: msg.type }); msg.id = id; try { self.w.postMessage(msg); } catch (err) { self.pending.delete(id); reject(err); } });
   };
   /** Gives the engine a new graph. Call whenever the data changes. */
   Client.prototype.setGraph = function (graph) {
     this.graph = graph; this.ver++; this.st = null;
+    if (this.parked) return Promise.resolve(true);   // the fresh worker gets this graph when the next job starts it
     if (this.mode === 'worker') return this.call({ type: 'graph', graph: graph, ver: this.ver });
     return Promise.resolve(true);
   };
   /** Runs a job (build, compare, check, simStart, simRun, simExact, sweep). If a newer request of the same kind arrives while one waits, only the newest waits its turn. */
   Client.prototype.run = function (type, opts, extra) {
     var self = this;
+    if (this.parkTimer) { clearTimeout(this.parkTimer); this.parkTimer = null; }
     return new Promise(function (resolve, reject) {
       self.queues = self.queues || {};
       var key = type === 'build' || type === 'compare' || type === 'gpuPiece' ? 'view' : type;
@@ -129,10 +143,10 @@ var NFMEngineClient = (function () {
     for (i = 0; i < order.length; i++) if (self.queues[order[i]]) { key = order[i]; break; }
     if (!key) return;
     var job = self.queues[key]; self.queues[key] = null; self.busy = job;
-    var done = function () { self.busy = null; self.pump(); };
+    var done = function () { self.busy = null; self.pump(); if (!self.busy) self.armPark(); };
     var t0 = Date.now(), ver = self.ver, msg = Object.assign({ type: job.type, opts: job.opts, ver: ver }, job.extra);
     if (self.mode === 'worker') {
-      self.call(msg).then(function (r) { r.total = Date.now() - t0; r.res = r.L; job.resolve(r); }, function (err) { job.reject(err); }).then(done);
+      self.call(msg).then(function (r) { r.total = Date.now() - t0; r.res = r.L; self.keepWarm = job.type === 'gpuPiece' || !!(r.L && r.L.rough); job.resolve(r); }, function (err) { job.reject(err); }).then(done);
     } else {
       setTimeout(function () {
         try {
@@ -143,6 +157,41 @@ var NFMEngineClient = (function () {
         done();
       }, 0);
     }
+  };
+  /** Starts the idle timer; when it fires, park() runs. */
+  Client.prototype.armPark = function () {
+    var self = this;
+    if (this.parkTimer) { clearTimeout(this.parkTimer); this.parkTimer = null; }
+    if (!(this.parkAfter > 0) || this.mode !== 'worker' || this.parked) return;
+    this.parkTimer = setTimeout(function () { self.parkTimer = null; self.park(); }, this.parkAfter);
+  };
+  /** Ends the worker if nothing needs it: no job out or waiting, holdIf() (set by the page) not true, no rough picture waiting to be finished, and a graph big enough (parkMin items) to be worth it. Returns true when it parked. */
+  Client.prototype.park = function () {
+    var q = this.queues, k;
+    if (this.mode !== 'worker' || !this.w || this.parked || this.busy || this.pending.size || this.keepWarm || (this.holdIf && this.holdIf())) return false;
+    if (q) for (k in q) if (q[k]) return false;
+    if (!this.graph || !this.graph.nodes || this.graph.nodes.length < this.parkMin) return false;
+    try { this.w.terminate(); } catch (e) { /* gone already */ }
+    this.w = null; this.parked = true; this.parks++;
+    return true;
+  };
+  /** Starts a fresh worker and gives it the graph again (called by the next job). */
+  Client.prototype.unpark = function () {
+    var self = this;
+    if (this.unparkP) return this.unparkP;
+    var t0 = Date.now();
+    this.unparkP = new Promise(function (resolve, reject) {
+      var fail = function (why) { self.unparkP = null; self.parked = false; self.died(why); reject(new Error(why)); };
+      try {
+        var blob = new Blob([self.src + WORKER_MAIN], { type: 'text/javascript' }), url = URL.createObjectURL(blob);
+        self.w = new Worker(url);
+        URL.revokeObjectURL(url);
+        self.attach(self.w);
+        self.parked = false;
+        self.rawCall({ type: 'graph', graph: self.graph, ver: self.ver }).then(function () { self.unparkMs = Date.now() - t0; self.unparks++; self.unparkP = null; resolve(true); }, function (err) { fail('The background engine could not restart (' + (err && err.message || err) + ').'); });
+      } catch (err) { fail('The background engine could not restart (' + String(err && err.message || err) + ').'); }
+    });
+    return this.unparkP;
   };
   /** Cancels a running Monte Carlo simulation (it simply stops being asked for more). */
   /** Start-up test of the graphics card, once (resolves the card record: { state: 'ready' | 'none', max, info, why, layout }). Needs NFMGpuStress on the page. */
