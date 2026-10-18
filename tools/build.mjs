@@ -23,7 +23,7 @@ const version = process.env.NFM_VERSION || `${g('year')}.${+g('month')}.${+g('da
 const order = ['vendor/env-probes.js', 'vendor/back-close.js', 'src/importers.js', 'src/unpack.js', 'src/pack.js', 'src/scene.js', 'src/sankey.js', 'src/gif.js', 'src/render.js', 'src/probe.js', 'src/engine-client.js', 'src/gpustress.js', 'src/tune.js', 'src/examples.js'];
 const clean = (s) => s.replace(/if \(typeof module !== 'undefined' && module\.exports\) module\.exports = \w+;\n?/g, '');
 const bad = (name, s) => { if (/<\/script|<!--/i.test(s)) throw new Error(name + ' contains a sequence that would break the page'); };
-const engine = jsMin(['src/columns.js', 'src/pack.js', 'src/sankey.js', 'src/engine.js', 'src/sim.js', 'src/check.js'].map((p) => clean(rd(p))).join('\n'), 'engine'); bad('engine bundle', engine);
+const engine = jsMin(['src/columns.js', 'src/pack.js', 'src/sankey.js', 'vendor/netflow-layers.js', 'src/engine.js', 'src/sim.js', 'src/check.js'].map((p) => clean(rd(p))).join('\n'), 'engine'); bad('engine bundle', engine);
 const appParts = readdirSync(join(root, 'src/app')).filter((f) => f.endsWith('.js')).sort().map((f) => 'src/app/' + f);
 const appText = "/* ---- Netflow Map app (src/app/*.js, one function) ---- */\n(function () {\n'use strict';\n" + appParts.map((p) => { const s = rd(p); bad(p, s); return `/* ---- ${p} ---- */\n` + s; }).join('\n') + '\n})();';
 const scripts = jsMin(order.map((p) => { const s = clean(rd(p)); bad(p, s); return `/* ---- ${p} ---- */\n` + s; }).join('\n') + '\n' + appText, 'app'); bad('app bundle', scripts);
