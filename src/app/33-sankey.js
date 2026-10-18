@@ -10,7 +10,7 @@
  *   links {"from>to": {color, color2, mode, opacity, hide, label}}
  */
 var skHist = [], skLast = 0, skSoon = 0;
-function skOn() { return !!(S.L && S.L.view === 'river' && S.L.sk); }
+function skOn() { return !!(S.L && S.L.view === 'river' && S.L.sk); }   /* hand edits (drag a bar, edit a label) are for the left-to-right picture */
 function skV() {
   var V = S.V, d = defaultView().sk;
   if (!V.sk || typeof V.sk !== 'object') V.sk = d;

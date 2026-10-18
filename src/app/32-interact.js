@@ -116,6 +116,7 @@ stage.addEventListener('pointerleave', hideTip);
 function clickAt(q, e) {
   var hh = q.hit, add = q.shift;
   if (hh.type === 'node' || (hh.type === 'label' && hh.node)) {
+    if (hh.node.chapter && hh.node.chKey) { S.centerAfter = [hh.node.nodeId]; toggleChapter(hh.node.chKey, true); return; }
     var id = hh.node.nodeId; if (id === undefined) return;
     if (add) { var s = new Set(S.sel); if (s.has(id)) s.delete(id); else s.add(id); setSel(Array.from(s)); } else setSel([id]);
   } else if (hh.type === 'edge') {
@@ -258,6 +259,15 @@ function openContext(x, y, hh, touch) {
   showMenu(x, y, items);
   if (touch && navigator.vibrate) { try { navigator.vibrate(12); } catch (e) { /* none */ } }
 }
+/** Every page that can lead to this one plus every page it can lead on to (the pages on some route through it). */
+function routeIds(id) {
+  var seen = new Set([id]);
+  [[S.outAdj, 'to'], [S.inAdj, 'from']].forEach(function (d) {
+    var q = [id], seenD = new Set([id]);
+    for (var i = 0; i < q.length; i++) (d[0].get(q[i]) || []).forEach(function (e) { var w = e[d[1]]; if (!seenD.has(w)) { seenD.add(w); seen.add(w); q.push(w); } });
+  });
+  return Array.from(seen);
+}
 function nodeMenu(id) {
   var g = S.byId.get(id), outs = S.outAdj.get(id) || [], blocked = S.V.block.indexOf(id) >= 0, pinned = own(S.V.pins[pinKey()], id);
   var it = [{ hd: g ? g.label : id },
@@ -265,6 +275,8 @@ function nodeMenu(id) {
     { t: 'Zoom to it and its neighbors', fn: function () { var v = fitTarget(Array.from(neighborIds([id]))); if (v) viewTo(v, 480); } },
     { t: 'Select what it leads to', fn: function () { setSel(outs.map(function (e) { return e.to; }).concat([id])); } },
     { t: 'Select what leads to it', fn: function () { setSel((S.inAdj.get(id) || []).map(function (e) { return e.from; }).concat([id])); } },
+    { t: 'Select every page on a route through it', fn: function () { setSel(routeIds(id)); } },
+    ].concat(((S.L && S.L.chapters && S.L.chapters.openOf && S.L.chapters.openOf[id]) || []).map(function (k) { return { t: k.charAt(0) === 'p' ? 'Fold this part back into one box' : 'Fold this chapter back into one box', fn: function () { toggleChapter(k, false); } }; })).concat([
     { sep: 1 },
     { hd: 'Show only…' },
     { t: 'Around it, 1 step', fn: function () { setAround(id, 1); } }, { t: 'Around it, 2 steps', fn: function () { setAround(id, 2); } }, { t: 'Around it, 3 steps', fn: function () { setAround(id, 3); } },
@@ -272,7 +284,7 @@ function nodeMenu(id) {
     { sep: 1 },
     { hd: 'Change' },
     { t: 'Make this the start', fn: function () { edit(function (gg) { gg.start = id; }); toast('Start is now ' + labelOf(id) + '.'); } },
-    { t: blocked ? 'Put it back' : 'Take it out (what if)', fn: function () { var b = S.V.block.slice(), i = b.indexOf(id); if (i >= 0) b.splice(i, 1); else b.push(id); setV({ block: b }); } }];
+    { t: blocked ? 'Put it back' : 'Take it out (what if)', fn: function () { var b = S.V.block.slice(), i = b.indexOf(id); if (i >= 0) b.splice(i, 1); else b.push(id); setV({ block: b }); } }]);
   if (S.story && !outs.length) it.push({ t: 'Mark as good ending', fn: function () { setValence([id], 'good'); } }, { t: 'Mark as bad ending', fn: function () { setValence([id], 'bad'); } });
   it.push({ t: 'Highlight in a color', fn: function () { markMenu([id], null); } }, { t: 'Style this item…', fn: function () { openStyleFor({ type: 'set' }, [id]); } });
   if (canDrag()) it.push({ t: pinned ? 'Let it float again' : 'Keep it where it is', fn: function () { if (pinned) clearPins([id]); else { var n = layoutPositions().get(id); if (n) setPins(JSON.parse('{"' + id.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '":[' + n.cx + ',' + n.cy + ']}')); } } });

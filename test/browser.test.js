@@ -123,6 +123,91 @@ async function open() {
     if (v === 'flow' || v === 'river' || v === 'network') await D.shot(path.join(outDir, `nfm-${which}-${v}.png`));
   }
 
+  /* Top-down choices: story order, tags, must-pass column, harder untangling, columns, step numbers, group columns (defaults must leave the picture as it was) */
+  {
+    const mkStory = () => { /* a long story-shaped map made in the page: chapters of 2-4 branches that merge, side links, shortcuts, links back */
+      let s = 7; const r = () => { s = (s + 0x6d2b79f5) | 0; let x = Math.imul(s ^ (s >>> 15), 1 | s); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+      const E = []; let id = 0; const mk = () => id++; let cur = mk(); const ch = [cur];
+      while (id < 700) { const b = 2 + Math.floor(r() * 3), ends = [], br = []; for (let i = 0; i < b; i++) { const d = 1 + Math.floor(r() * 3); let p = cur; const l = []; for (let j = 0; j < d; j++) { const v = mk(); E.push([p, v]); p = v; l.push(v); } ends.push(p); br.push(l); }
+        for (let i = 0; i + 1 < b; i++) if (r() < 0.35) E.push([br[i][Math.floor(r() * br[i].length)], br[i + 1][Math.floor(r() * br[i + 1].length)]]);
+        const m = mk(); ends.forEach((e) => E.push([e, m])); if (r() < 0.12) E.push([m, ch[Math.floor(r() * ch.length)]]); if (r() < 0.15) E.push([cur, m]); cur = m; ch.push(m); }
+      const od = new Array(id).fill(0); E.forEach(([a]) => od[a]++); let last = -1; for (let i = id - 1; i >= 0; i--) if (!od[i]) { last = i; break; }
+      return { name: 'Long story', start: 'n0', nodes: Array.from({ length: id }, (_, i) => ({ id: 'n' + i, label: 'Page ' + i, group: 'Ch' + Math.floor(i / 60), valence: od[i] ? '' : i === last ? 'good' : 'bad', ghost: false, attrs: {} })), edges: E.map(([a, b]) => ({ from: 'n' + a, to: 'n' + b, weight: 1, label: '', kind: '' })) };
+    };
+    const fpOf = () => ev(() => { const L = NFM.state.L; return L.nodes.map((n) => n.id + ':' + Math.round(n.x) + ',' + Math.round(n.y)).join('|') + '#' + L.nodes.length; });
+    await ev((g) => { NFM.setGraph(g); NFM.showTab('map'); NFM.setV({ view: 'down', rows: 'route', tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false }); }, await ev(mkStory));
+    await D.wait(() => NFM.state.L && NFM.state.L.view === 'down' && NFM.state.L.nodes.length > 300 && NFM.state.scene && NFM.state.scene.view === 'down', null, 30000); await settle(200);
+    const base = await fpOf(), before = await ev(() => ({ gold: NFM.state.L.info.back + NFM.state.L.info.flat, stops: NFM.state.L.info.stops, rows: NFM.state.L.info.rows, cross: NFM.state.L.crossings }));
+    await ev(() => NFM.setV({ rows: 'story', tagLen: 8, spineCol: true, better: true }));
+    await D.wait(() => NFM.state.L && NFM.state.L.info && NFM.state.L.info.rowMode === 'story' && NFM.state.L.info.tags > 0 && NFM.state.scene && NFM.state.scene.labels.some((l) => /^(from |[↓↑→←] )/.test(l.t)), null, 30000); await settle(250);
+    const after = await ev(() => ({ gold: NFM.state.L.info.back + NFM.state.L.info.flat + NFM.state.L.edges.filter((e) => e.kind === 'tag' && !e.tagFwd).length, stops: NFM.state.L.info.stops, tags: NFM.state.L.info.tags, rows: NFM.state.L.info.rows, cross: NFM.state.L.crossings, mode: NFM.state.L.info.rowMode }));
+    say(after.mode === 'story' && after.tags > 0 && after.stops < before.stops && after.gold < before.gold && after.cross < before.cross, `Top-down choices work from the page: gold ${before.gold} to ${after.gold}, stand-in stops ${before.stops} to ${after.stops}, crossings ${before.cross} to ${after.cross}, ${after.tags} tags`);
+    const chips = await ev(() => { const S = NFM.state.scene, ch = S.labels.filter((l) => l.edge >= 0 && /^(from |[↓↑→←] )/.test(l.t)); let ok = 0; ch.forEach((c) => { const r = NFMScene.pickLabel(S, c.x, c.y - 3, 1); if (r && r.edge === c.edge) ok++; }); return { n: ch.length, ok, tags: NFM.state.L.info.tags }; });
+    say(chips.n === 2 * chips.tags && chips.ok === chips.n, `every tag chip names its page and picks its link (${chips.ok} of ${chips.n})`);
+    await ev(() => NFM.setV({ wrap: true, ruler: true })); await D.wait(() => NFM.state.L && NFM.state.L.info && NFM.state.L.info.columns > 1 && NFM.state.scene && NFM.state.scene.labels.some((l) => l.bound && /^step/.test(l.t)), null, 30000); await settle(250);
+    const wr = await ev(() => { const L = NFM.state.L, S = NFM.state.scene; return { cols: L.info.columns, aspect: L.height / L.width, steps: S.labels.filter((l) => l.bound && /^(step|start)/.test(l.t)).length, rows: L.info.rows, svgOk: !/NaN|undefined/.test(NFMScene.toSvg(S, 't')) }; });
+    say(wr.cols > 1 && wr.aspect < 3 && wr.steps === wr.rows && wr.svgOk, `a tall map is cut into ${wr.cols} columns (tall-to-wide ${wr.aspect.toFixed(1)}), ${wr.steps} step numbers, clean SVG export`);
+    await ev(() => NFM.setV({ wrap: false, downLanes: true })); await D.wait(() => NFM.state.L && NFM.state.L.lanes && NFM.state.L.lanes.length > 1 && NFM.state.scene && NFM.state.scene.rects.some((r) => r.lane !== undefined), null, 30000); await settle(200);
+    say(await ev(() => NFM.state.L.lanes.length > 1 && NFM.state.scene.rects.some((r) => r.lane !== undefined)), 'one column per group in Top-down draws the group bands');
+    const snap = await ev(() => { NFM.setV({ rows: 'story', tagLen: 8, spineCol: true }); const sn = NFM.snapshot(); NFM.setV({ rows: 'route', tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false }); NFM.applySnapshot(sn); return { r: NFM.state.V.rows, t: NFM.state.V.tagLen, c: NFM.state.V.spineCol }; });
+    say(snap.r === 'story' && snap.t === 8 && snap.c === true, 'the new settings are saved with a view and come back');
+    await ev(() => NFM.setV({ rows: 'route', tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false }));
+    await D.wait((b) => NFM.state.L && NFM.state.L.info && NFM.state.L.info.rowMode === 'route' && NFM.state.L.info.tags === 0 && NFM.state.scene && !NFM.state.scene.labels.some((l) => /^(from |[↓↑→←] )/.test(l.t)) && !NFM.state.scene.rects.some((r) => r.lane !== undefined), null, 30000); await settle(250);
+    say((await fpOf()) === base, 'with every choice off again the picture is exactly the old one');
+    /* chapters and parts: a big story as a few boxes; a click opens a box, a search hit opens what hides it, folding back works, off restores the picture */
+    await ev(() => NFM.setV({ chapters: 'on' })); await D.wait(() => NFM.state.L && NFM.state.L.chapters && NFM.state.scene && NFM.state.scene.rects.length > 0, null, 30000); await settle(250);
+    const c1 = await ev(() => { const L = NFM.state.L; return { boxes: L.nodes.length, chaps: L.chapters.chapters, hidden: L.chapters.hidden, n: L.n, svgOk: !/NaN|undefined/.test(NFMScene.toSvg(NFM.state.scene, 't')), part: (L.nodes.find((n) => n.chapter) || {}).chKey }; });
+    say(c1.chaps > 20 && c1.boxes < c1.n * 0.6 && c1.hidden > c1.n * 0.3 && c1.svgOk, `chapters on: ${c1.n} pages drawn as ${c1.boxes} boxes (${c1.chaps} chapters), clean SVG`);
+    const scr = (x, y) => ev(([a, b]) => { const S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + a * S.view.k + S.view.tx, r.top + b * S.view.k + S.view.ty]; }, [x, y]);
+    const pxy = await ev((k) => { const n = NFM.state.L.nodes.find((x) => x.chKey === k), S = NFM.state; S.view.k = 1; S.view.tx = S.stageW / 2 - (n.x + n.w / 2); S.view.ty = S.stageH / 2 - (n.y + n.h / 2); NFM.scheduleScene(); return [n.x + n.w / 2, n.y + n.h / 2]; }, c1.part); await settle(300);
+    const sp = await scr(pxy[0], pxy[1]);
+    await D.click(sp[0], sp[1]);
+    await D.wait((k) => NFM.state.L && !NFM.state.L.nodes.some((n) => n.chKey === k) && NFM.state.L.nodes.length > 0 && NFM.state.scene && NFM.state.scene.view === 'down', c1.part, 30000); await settle(300);
+    const c2 = await ev(() => ({ boxes: NFM.state.L.nodes.length, open: Object.keys(NFM.state.V.openCh).length }));
+    say(c2.boxes > c1.boxes && c2.open === 1, `a click on a chapter box opens it: ${c1.boxes} boxes to ${c2.boxes}`);
+    await ev(() => NFM.toggleChapter(Object.keys(NFM.state.V.openCh)[0], false)); await D.wait((n) => NFM.state.L && NFM.state.L.nodes.length === n, c1.boxes, 30000); await settle(200);
+    say(true, 'folding it back restores the closed picture');
+    await ev(() => { const hid = Object.keys(NFM.state.L.chapters.of); NFM.runSearch('Page ' + hid[Math.floor(hid.length / 2)].slice(1)); NFM.select(NFM.state.search.list[0]); });
+    await D.wait(() => NFM.state.L && Object.keys(NFM.state.V.openCh).length > 0 && NFM.state.scene && NFM.state.L.nodes.length > 0, null, 30000); await settle(300);
+    const c3 = await ev(() => { const id = Array.from(NFM.state.sel)[0]; return { shown: !(NFM.state.L.chapters && NFM.state.L.chapters.of[id]), sel: !!id }; });
+    say(c3.sel && c3.shown, 'selecting a page that is folded away (a search hit) opens its boxes and shows it');
+    await ev(() => { NFM.state.V.openCh = {}; NFM.setV({ chapters: 'off' }); }); await D.wait((n) => NFM.state.L && !NFM.state.L.chapters && NFM.state.scene && NFM.state.L.nodes.length > 300, null, 30000); await settle(250);
+    say((await fpOf()) === base, 'with chapters off again the picture is exactly the old one');
+    /* mini-map: shown when zoomed in or the picture is bigger than the screen, drawn from the picture, moves the screen when clicked, can be turned off */
+    await ev(() => { NFM.setV({ chapters: 'off', minimap: 'auto' }); NFM.fitView(true); });
+    await D.wait(() => NFM.state.L && NFM.state.L.nodes.length > 300 && NFM.state.scene, null, 30000); await settle(300);
+    await ev(() => { const S = NFM.state; S.view.k = Math.max(S.view.k * 4, 0.6); NFM.scheduleScene(); }); await settle(400);
+    const m1 = await ev(() => NFM.minimap()); say(m1.shown && m1.w > 20 && m1.h > 20, `the mini-map shows when zoomed in (${m1.w} x ${m1.h} px)`);
+    const t0 = await ev(() => ({ tx: NFM.state.view.tx, ty: NFM.state.view.ty }));
+    await D.click(m1.box.x + m1.box.width * 0.5, m1.box.y + m1.box.height * 0.9); await settle(300);
+    const t1 = await ev(() => ({ tx: NFM.state.view.tx, ty: NFM.state.view.ty }));
+    say(Math.abs(t1.ty - t0.ty) > 50, `a click low on the mini-map moves the screen there (down by ${Math.round(t0.ty - t1.ty)} px)`);
+    const px = await ev(() => { const e = document.getElementById('minimap'), d = e.getContext('2d').getImageData(0, 0, e.width, e.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 30) n++; return n / (d.length / 4); });
+    say(px > 0.02, `the mini-map is drawn from the picture (${Math.round(px * 100)}% of it inked)`);
+    await ev(() => NFM.setV({ minimap: 'off' }, 'none')); await ev(() => NFM.renderMinimap()); await settle(100);
+    say(!(await ev(() => NFM.minimap())).shown, 'the mini-map can be turned off');
+    await ev(() => { NFM.setV({ minimap: 'auto' }, 'none'); NFM.fitView(true); }); await settle(300);
+    /* bundled links and tapered links */
+    await ev(() => NFM.setV({ chapters: 'off', rows: 'route', tagLen: 0, bundle: false, taper: false, view: 'down' }));
+    await D.wait(() => NFM.state.L && NFM.state.L.view === 'down' && NFM.state.L.info && NFM.state.L.nodes.length > 300 && NFM.state.scene && NFM.state.scene.view === 'down', null, 30000); await settle(250);
+    const st0 = await ev(() => ({ stops: NFM.state.L.info.stops, cross: NFM.state.L.crossings }));
+    await ev(() => NFM.setV({ rows: 'story', bundle: false })); await D.wait(() => NFM.state.L.info.rowMode === 'story' && NFM.state.scene, null, 30000); await settle(200);
+    const st1 = await ev(() => ({ stops: NFM.state.L.info.stops }));
+    await ev(() => NFM.setV({ bundle: true })); await D.wait((n) => NFM.state.L.info.stops < n, st1.stops, 30000); await settle(250);
+    const st2 = await ev(() => ({ stops: NFM.state.L.info.stops, cross: NFM.state.L.crossings }));
+    say(st2.stops < st1.stops, `bundling links shares stand-in stops (story order: ${st1.stops} to ${st2.stops})`);
+    await ev(() => NFM.setV({ taper: true }, 'look')); await D.wait(() => NFM.state.scene.curves.some((c) => c.w1 !== undefined), null, 30000); await settle(250);
+    const tp = await ev(() => { const S = NFM.state.scene; const t = S.curves.filter((c) => c.w1 !== undefined); return { n: t.length, ok: t.every((c) => c.w1 < c.w && !c.arrow), svg: !/NaN|undefined/.test(NFMScene.toSvg(S, 't')), filled: (NFMScene.toSvg(S, 't').match(/fill="rgb/g) || []).length }; });
+    say(tp.n > 100 && tp.ok && tp.svg && tp.filled > 100, `tapered links: ${tp.n} links thick to thin, no arrowheads, filled shapes in the SVG`);
+    const pxT = await ev(() => { const cv = document.querySelector('#stage canvas'); if (!cv) return -1; const g = cv.getContext('2d'); if (!g) return -1; const d = g.getImageData(0, 0, Math.min(cv.width, 400), Math.min(cv.height, 400)).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 30) n++; return n; });
+    say(pxT !== 0, 'the tapered picture draws without errors');
+    await ev(() => NFM.setV({ taper: false, bundle: false, rows: 'route' })); await D.wait(() => NFM.state.L.info.rowMode === 'route' && !NFM.state.scene.curves.some((c) => c.w1 !== undefined), null, 30000); await settle(250);
+    say((await fpOf()) === base, 'with bundling and tapering off the picture is exactly the old one');
+    await ev(() => NFM.setV({ view: 'down' })); await D.wait(() => NFM.state.L.view === 'down' && NFM.state.scene && NFM.state.scene.view === 'down' && NFM.state.L.nodes.length > 300, null, 30000); await settle(250);
+    await ev(() => NFM.showTab('data')); await set('#examples', 'story'); await click('#b-example'); await click('#tabbtn-map');   /* the example story again for the checks that follow */
+    await D.wait(() => NFM.state.scene && NFM.manager() && NFM.manager().r && NFM.state.L && NFM.state.L.nodes.length < 60, null, 30000); await settle(200);
+  }
+
   /* River (Sankey) pictures: click and right-click on links, bars and labels, drag a bar, hand edits, undo */
   {
     await ev(() => NFM.setV({ view: 'river' })); await D.wait(() => NFM.state.L.view === 'river' && NFM.state.scene.view === 'river' && NFM.state.L.sk, null, 20000); await settle(300);
@@ -326,6 +411,20 @@ async function open() {
   await D.wait(() => NFM.state.L && NFM.state.L.view === 'network' && NFM.state.sceneOk && NFM.state.scene && NFM.state.L.nodes.length > 4900, null, 90000); await settle(300);
   say(await ev(() => NFM.state.roughCount >= 1 && !NFM.state.L.rough && NFM.state.sceneOk), 'a big map: rough picture shown first, then replaced by the finished one');
   await ev(() => { NFM.engine().stressTuning.previewMin = 40000; });
+
+  /* a change of looks only (a color choice the engine does not use) makes a new picture from the layout already on the stage instead of working the layout out again; the picture is the one a full rebuild gives, and a change the engine does use still rebuilds */
+  { const idle = () => NFM.state.sceneOk && !NFM.state.mapBusy && NFM.state.scene, was = await ev(() => NFM.state.V.colorBy);
+    await ev(() => { NFM.setV({ colorBy: 'group' }); }); await D.wait(idle, null, 60000); await settle(200);   /* the network starts on found groups, which the engine uses; start the check from plain groups */
+    await ev(() => { const c = NFM.client(), ob = c.build; window.__nb = 0; c.build = function () { window.__nb++; return ob.apply(this, arguments); }; window.__L0 = NFM.state.L; window.__pos0 = NFM.state.L.nodes.slice(0, 300).map((n) => [n.x, n.y]); window.__n0 = NFM.state.scene.nodes.length; NFM.state.reusedLayouts = 0; NFM.setV({ colorBy: 'size' }); });
+    await D.wait(idle, null, 60000); await settle(200);
+    const a = await ev(() => ({ nb: window.__nb, same: NFM.state.L === window.__L0, reused: NFM.state.reusedLayouts, n: NFM.state.scene.nodes.length === window.__n0 }));
+    say(a.nb === 0 && a.same && a.reused === 1 && a.n, `a color choice the engine does not use reuses the layout (engine builds ${a.nb}, same layout ${a.same}, reused ${a.reused})`);
+    await ev(() => { NFM.state.buildKey = null; NFM.refreshMap('options'); }); await D.wait(() => window.__nb >= 1 && NFM.state.sceneOk && !NFM.state.mapBusy, null, 60000); await settle(200);
+    const b = await ev(() => { const P = NFM.state.L.nodes.slice(0, 300).map((n) => [n.x, n.y]); return { nb: window.__nb, equal: P.length === window.__pos0.length && P.every((p, i) => p[0] === window.__pos0[i][0] && p[1] === window.__pos0[i][1]), n: NFM.state.scene.nodes.length === window.__n0 }; });
+    say(b.nb === 1 && b.equal && b.n, `a full rebuild gives the same layout and picture as the reused one (positions of 300 items equal ${b.equal})`);
+    await ev(() => { NFM.setV({ colorBy: 'found' }); }); await D.wait(() => window.__nb >= 2 && NFM.state.sceneOk && !NFM.state.mapBusy, null, 60000);
+    say(await ev(() => window.__nb === 2), 'a color choice the engine uses (found groups) still works the layout out again');
+    await ev((c) => { NFM.setV({ colorBy: c }); }, was); await D.wait(() => NFM.state.sceneOk && !NFM.state.mapBusy, null, 60000); await settle(200); }
 
   /* turning a big 3D map on the card: the picture while turning is the ordinary picture, labels and selection survive, and the full picture comes back once the turning stops */
   await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(800, 9, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'force3d' }); });
