@@ -57,4 +57,12 @@ ok('a map with no must-pass pages folds nothing and still draws', () => {
   for (let i = 0; i < 57; i++) { r.edges.push({ from: 'a' + i, to: 'a' + (i + 1 + (i % 3)), weight: 1, label: '', kind: '' }, { from: 'a' + i, to: 'a' + Math.min(59, i + 2), weight: 1, label: '', kind: '' }); }
   const L = E.build(r, { view: 'down', chapters: 1 }); assert(L.nodes.length > 0);
 });
+ok('a folded box names its first page and says what share of all routes go through it', () => {
+  const L = E.build(clone(g), { view: 'down', chapters: 1 }), boxes = L.nodes.filter((n) => n.chapter);
+  assert(boxes.length > 10);
+  boxes.forEach((n) => { assert(n.sub && n.sub.indexOf(g.nodes.find((x) => x.id === n.nodeId).label.slice(0, 20)) === 0, 'name first: ' + n.sub); assert(/ of routes$| every route$/.test(n.sub) || n.sub.indexOf(' · ') < 0, 'routes part: ' + n.sub); });
+  const withShare = boxes.filter((n) => /\d+% of routes|under 1% of routes|every route/.test(n.sub)).length;
+  assert(withShare > boxes.length / 2, withShare + ' of ' + boxes.length + ' say a share');
+  return boxes.length + ' boxes, e.g. "' + boxes[Math.floor(boxes.length / 2)].sub + '"';
+});
 if (fails) { console.log(fails + ' failed'); process.exit(1); } else console.log('all chapter checks passed');

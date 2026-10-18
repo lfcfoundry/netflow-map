@@ -18,7 +18,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .note{color:var(--mut);font-size:.9rem}
 </style></head><body><main>
 <h1>River before and after</h1>
-<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (first picture) and with the improved layout (second picture), then measured the same way. Each picture fits inside its frame; scroll to zoom, drag to move, or open it full size. Nothing is sent anywhere. Version 2026.10.17.1901.</p>
+<p class="sub">Runs by itself when this page opens, in a few seconds. Each network is drawn the way the app does today (first picture) and with the improved layout (second picture), then measured the same way. Each picture fits inside its frame; scroll to zoom, drag to move, or open it full size. Nothing is sent anywhere. Version 2026.10.17.2015.</p>
 <div class="bar"><i id="barfill"></i></div><div id="status">Starting…</div>
 <div id="out"></div>
 <div id="done" class="card" style="display:none"><h2>Summary</h2><p id="finalsay"></p>
@@ -2265,6 +2265,12 @@ var NFMEngine = (function () {
     return { exact: false, runs: runs, visits: visits, moves: moves, pGood: pg, pBad: pb, pNeutral: pn, outcome: oc, mode: mode };
   }
 
+  /** The second line of a folded chapter or part box: its first page's name and the share of all routes that go through it ("under 1%" when small). */
+  function chapterSub(n, pg) {
+    var name = String(pg.label || pg.id); if (name.length > 26) name = name.slice(0, 25) + '…';
+    var t = n.traffic, pct = !(t > 0) ? '' : t < 0.01 ? ' · under 1% of routes' : t > 0.995 ? ' · every route' : ' · ' + Math.round(t * 100) + '% of routes';
+    return name + pct;
+  }
   /**
    * Chapters and parts: pieces of a big story that can be drawn as one box each (for the Flow, Top-down, Spine and Lanes views).
    * A chapter is the set of pages that can only be reached through one gate (a choke page, or any page the start has to pass first)
@@ -4072,7 +4078,7 @@ var NFMEngine = (function () {
         if (flow.c) { var bk = -1, bv = 0.0005; for (var qk = 0; qk < flow.K; qk++) { var cv = flow.c[n.pi * flow.K + qk]; if (cv > bv) { bv = cv; bk = qk; } } n.dom = bk; n.domP = bk >= 0 ? bv : 0; }
       }
       n.label = n.chapter ? (n.part ? 'Part · ' : 'Chapter · ') + n.pages.length.toLocaleString('en-US') + ' pages' : n.run ? n.pages.length + ' in a row' : pg.label || pg.id;
-      n.sub = n.chapter ? 'click to open' : n.run ? P.nodes[n.pages[0]].label + ' … ' + P.nodes[n.pages[n.pages.length - 1]].label : '';
+      n.sub = n.chapter ? chapterSub(n, pg) : n.run ? P.nodes[n.pages[0]].label + ' … ' + P.nodes[n.pages[n.pages.length - 1]].label : '';
       n.nodeId = pg.id;
       n.group = o.colorBy === 'found' && found ? 'group ' + (found[n.pages[0]] + 1) : groupKey(pg, cmode.t === 'cat' ? cmode.key : 'group');
       n.sizeV = sizeV ? sizeV[gi] : NaN; n.colorV = colV ? colV[gi] : NaN;
@@ -5735,7 +5741,6 @@ var NFMScene = (function () {
       if (colorBy !== 'choke' && (L.nodes || []).some(function (n) { return n.choke; })) S.legend.push({ k: 'mark', c: T.gold, t: 'choke point', key: 'chokemark', dot: true });
     }
 
-    if (view === 'river' && o.vertical) transposeScene(S);   /* a River drawn top to bottom: the same picture turned a quarter turn (text stays upright) */
     /* bounds, then a grid for picking */
     var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     S.nodes.forEach(function (n) { if (n.x < x0) x0 = n.x; if (n.y < y0) y0 = n.y; if (n.x + n.w > x1) x1 = n.x + n.w; if (n.y + n.h > y1) y1 = n.y + n.h; });
@@ -5743,7 +5748,7 @@ var NFMScene = (function () {
     S.dots.forEach(function (d) { if (d.cx - d.r < x0) x0 = d.cx - d.r; if (d.cy - d.r < y0) y0 = d.cy - d.r; if (d.cx + d.r > x1) x1 = d.cx + d.r; if (d.cy + d.r > y1) y1 = d.cy + d.r; });
     S.polys.forEach(function (p) { for (var i = 0; i < p.pts.length; i += 2) { if (p.pts[i] < x0) x0 = p.pts[i]; if (p.pts[i] > x1) x1 = p.pts[i]; if (p.pts[i + 1] < y0) y0 = p.pts[i + 1]; if (p.pts[i + 1] > y1) y1 = p.pts[i + 1]; } });
     if ((view === 'river' && L.sk) || S.ruler) S.labels.forEach(function (l) { if (!l.bound) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; } });
-    if (view === 'river' && L.sk && L.height && L.height > (o.vertical ? x1 : y1)) { if (o.vertical) x1 = L.height; else y1 = L.height; }
+    if (view === 'river' && L.sk && L.height && L.height > y1) y1 = L.height;
     if (S.tagChips) S.labels.forEach(function (l) { if (!l.boundXY) return; var b = labelBox(l); if (b) { if (b[0] < x0) x0 = b[0]; if (b[2] > x1) x1 = b[2]; if (b[1] < y0) y0 = b[1]; if (b[3] > y1) y1 = b[3]; } });   /* tag names beyond the last box still count for the picture's edges */
     if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 100; y1 = 100; }
     if (L.is3d && L.c3) { var R3 = (L.radius3 || 300) * 1.18; x0 = L.c3[0] - R3; x1 = L.c3[0] + R3; y0 = L.c3[1] - R3; y1 = L.c3[1] + R3; }
@@ -5752,24 +5757,6 @@ var NFMScene = (function () {
     return S;
   }
 
-  /** Turns a finished left-to-right picture a quarter turn (x and y swapped): bars, dots, curves, ribbons, shapes and label positions. Text stays upright; names move from beside a bar to below or above it. */
-  function transposeScene(S) {
-    S.rects.forEach(function (r) { var t = r.x; r.x = r.y; r.y = t; t = r.w; r.w = r.h; r.h = t; });
-    S.dots.forEach(function (d) { var t = d.cx; d.cx = d.cy; d.cy = t; });
-    S.nodes.forEach(function (n) { var t = n.x; n.x = n.y; n.y = t; t = n.w; n.w = n.h; n.h = t; });
-    S.icons.forEach(function (c) { var t = c.cx; c.cx = c.cy; c.cy = t; });
-    S.curves.forEach(function (c) { for (var i = 0; i + 1 < c.P.length; i += 2) { var t = c.P[i]; c.P[i] = c.P[i + 1]; c.P[i + 1] = t; } if (c.tip) c.tip = [c.tip[1], c.tip[0]]; });
-    S.polys.forEach(function (p) { for (var i = 0; i + 1 < p.pts.length; i += 2) { var t = p.pts[i]; p.pts[i] = p.pts[i + 1]; p.pts[i + 1] = t; } if (p.c) p.c = [p.c[1], p.c[0]]; });
-    S.ribbons.forEach(function (r) { r.v = true; });
-    var prev = null;
-    S.labels.forEach(function (l) {
-      if (l.rot) return;
-      var ox = l.x, oy = l.y, a = l.align;
-      if (l.sub && prev && prev.node === l.node) { l.x = prev.x; l.y = prev.y + 12.5; l.align = 'c'; prev = l; return; }
-      l.x = oy; l.y = ox + (a === 'l' ? 14 : a === 'r' ? -8 : 0); l.align = 'c'; prev = l;
-    });
-    S.vertical = true;
-  }
   function buildGrid(S) {
     var cell = Math.max(40, Math.max(S.w, S.h) / 80), cols = Math.ceil(S.w / cell) + 1, rows = Math.ceil(S.h / cell) + 1, g = new Map();
     S.nodes.forEach(function (n) {
@@ -5863,7 +5850,7 @@ var NFMScene = (function () {
     }
     if (best) { var cv = S.curves[best.i]; return { edge: cv.edge, from: cv.from, to: cv.to, curve: best.i }; }
     for (var q = 0; q < S.ribbons.length; q++) { /* river ribbons */
-      var rb = S.ribbons[q]; if (rb.v) { var rr = ribbonHitV(rb, wx, wy, tol); if (rr) return { edge: rb.edge, from: rb.from, to: rb.to, ribbon: q }; continue; } if (wx < rb.x0 || wx > rb.x1) continue;
+      var rb = S.ribbons[q]; if (wx < rb.x0 || wx > rb.x1) continue;
       var lo = 0, hi = 1, u;   // the band's x runs along a cubic; find where it is at wx, then read the height there
       for (var it = 0; it < 14; it++) { u = (lo + hi) / 2; var m = 1 - u, xx = m * m * m * rb.x0 + 3 * m * m * u * rb.xm + 3 * m * u * u * rb.xm + u * u * u * rb.x1; if (xx < wx) lo = u; else hi = u; }
       u = (lo + hi) / 2; var m2 = 1 - u, w0 = m2 * m2 * (m2 + 3 * u), w1 = u * u * (3 * m2 + u);
@@ -5871,14 +5858,6 @@ var NFMScene = (function () {
       if (wy >= Math.min(ya, yb) - tol && wy <= Math.max(ya, yb) + tol) return { edge: rb.edge, from: rb.from, to: rb.to, ribbon: q };
     }
     return matrixCellAt(S, wx, wy);
-  }
-  /** Is the point on a turned ribbon (its length runs along y, its width along x)? */
-  function ribbonHitV(rb, wx, wy, tol) {
-    if (wy < rb.x0 || wy > rb.x1) return false;
-    var lo = 0, hi = 1, u;
-    for (var it = 0; it < 14; it++) { u = (lo + hi) / 2; var m = 1 - u, yy = m * m * m * rb.x0 + 3 * m * m * u * rb.xm + 3 * m * u * u * rb.xm + u * u * u * rb.x1; if (yy < wy) lo = u; else hi = u; }
-    u = (lo + hi) / 2; var m2 = 1 - u, w0 = m2 * m2 * (m2 + 3 * u), w1 = u * u * (3 * m2 + u), xa = rb.y0a * w0 + rb.y1a * w1, xb = rb.y0b * w0 + rb.y1b * w1;
-    return wx >= Math.min(xa, xb) - tol && wx <= Math.max(xa, xb) + tol;
   }
   /** Rough box of a label in world units (for clicking labels). */
   function labelBox(l) {
@@ -6526,11 +6505,7 @@ var NFMScene = (function () {
     S.rects.filter(function (r) { return r.layer === 0; }).forEach(function (r) { out.push(rectSvg(r, css, f, op)); });
     S.polys.forEach(function (p) { var d = 'M'; for (var i = 0; i < p.pts.length; i += 2) d += (i ? 'L' : '') + f(p.pts[i]) + ' ' + f(p.pts[i + 1]); out.push('<path d="' + d + 'Z" fill="' + css(p.fill) + '" stroke="' + css(p.stroke) + '" stroke-width="1.5"' + op(p) + '/>'); });
     var defs = [];
-    S.ribbons.forEach(function (r, ri) {
-      var fill = css(r.color), pt = r.v ? function (x, y) { return f(y) + ' ' + f(x); } : function (x, y) { return f(x) + ' ' + f(y); };   /* a turned ribbon swaps every x and y */
-      if (r.color2) { defs.push('<linearGradient id="rg' + ri + '" gradientUnits="userSpaceOnUse" x1="' + (r.v ? '0' : f(r.x0)) + '" y1="' + (r.v ? f(r.x0) : '0') + '" x2="' + (r.v ? '0' : f(r.x1)) + '" y2="' + (r.v ? f(r.x1) : '0') + '"><stop offset="0" stop-color="' + css([r.color[0], r.color[1], r.color[2], 1]) + '"/><stop offset="1" stop-color="' + css([r.color2[0], r.color2[1], r.color2[2], 1]) + '"/></linearGradient>'); fill = 'url(#rg' + ri + ')'; }
-      out.push('<path d="M' + pt(r.x0, r.y0a) + 'C' + pt(r.xm, r.y0a) + ' ' + pt(r.xm, r.y1a) + ' ' + pt(r.x1, r.y1a) + 'L' + pt(r.x1, r.y1b) + 'C' + pt(r.xm, r.y1b) + ' ' + pt(r.xm, r.y0b) + ' ' + pt(r.x0, r.y0b) + 'Z" fill="' + fill + '"' + (r.color2 ? ' fill-opacity="' + f(r.color[3]) + '"' : '') + op(r) + '/>');
-    });
+    S.ribbons.forEach(function (r, ri) { var fill = css(r.color); if (r.color2) { defs.push('<linearGradient id="rg' + ri + '" gradientUnits="userSpaceOnUse" x1="' + f(r.x0) + '" y1="0" x2="' + f(r.x1) + '" y2="0"><stop offset="0" stop-color="' + css([r.color[0], r.color[1], r.color[2], 1]) + '"/><stop offset="1" stop-color="' + css([r.color2[0], r.color2[1], r.color2[2], 1]) + '"/></linearGradient>'); fill = 'url(#rg' + ri + ')'; } out.push('<path d="M' + f(r.x0) + ' ' + f(r.y0a) + 'C' + f(r.xm) + ' ' + f(r.y0a) + ' ' + f(r.xm) + ' ' + f(r.y1a) + ' ' + f(r.x1) + ' ' + f(r.y1a) + 'L' + f(r.x1) + ' ' + f(r.y1b) + 'C' + f(r.xm) + ' ' + f(r.y1b) + ' ' + f(r.xm) + ' ' + f(r.y0b) + ' ' + f(r.x0) + ' ' + f(r.y0b) + 'Z" fill="' + fill + '"' + (r.color2 ? ' fill-opacity="' + f(r.color[3]) + '"' : '') + op(r) + '/>'); });
     if (defs.length) out.splice(out.length - S.ribbons.length, 0, '<defs>' + defs.join('') + '</defs>');
     S.curves.forEach(function (c) {
       var d = 'M' + f(c.P[0]) + ' ' + f(c.P[1]);
@@ -6946,7 +6921,7 @@ var NFMSankey = (function () {
  * side by side, measures both with the same yardstick, and says in plain words which is better. Runs by itself when the page opens. */
 (function () {
   'use strict';
-  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NFMSankey, VERSION = '2026.10.17.1901';
+  var E = NFMEngine, I = NFMImport, X = NFMExamples, Sc = NFMScene, SK = NFMSankey, VERSION = '2026.10.17.2015';
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
   var $ = function (id) { return document.getElementById(id); }, esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var r1 = function (v) { return Math.round(v * 10) / 10; }, r2 = function (v) { return Math.round(v * 100) / 100; };

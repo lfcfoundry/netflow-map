@@ -30,7 +30,7 @@ Every import ends with a short report of what was kept, merged, skipped or short
 
 ## The nine views
 
-Flow, Top-down (with optional story order, tags for long links, a must-pass column, step numbers, bundled and tapered links, chapters that fold big maps, and columns for tall maps), Choke-point spine, Lanes (one band per group), Shape (the stretches between choke points), River (bands as wide as the number of players who take them, across or down the page), Arc, Matrix, and Network (for data that is not a story).
+Flow, Top-down (with optional story order, tags for long links, a must-pass column, step numbers, bundled and tapered links, chapters that fold big maps, and columns for tall maps), Choke-point spine, Lanes (one band per group), Shape (the stretches between choke points), River (bands as wide as the number of players who take them), Arc, Matrix, and Network (for data that is not a story).
 
 ## How it draws
 
