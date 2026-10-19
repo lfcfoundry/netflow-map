@@ -29,6 +29,21 @@ t('early preview: a rough picture first, then the finished one is the same as wi
   return 'preview ' + tRough + ' ms, finish after it ' + tFin + ' ms';
 });
 t('same picture in Closeness and Group clusters (they start from the stress picture)', () => { for (const arr of ['closeness', 'groups']) { const r = both(derive(GEN.graph('moderate', 800, 4)), arr); const d = diff(r.a, r.b); ok(d === 0, arr + ': largest position difference ' + d); } });
+W.min3d = 100; W.minClose = 100;   // the real minimums are higher (timings in the four browsers); these tests check the pictures at small sizes too
+const bothC = (dg, arrange) => { W.on = false; const a = build(dg, arrange); W.on = true; const c3 = W.calls3, cc = W.closeCalls, b = build(dg, arrange); return { a, b, d3: W.calls3 - c3, close: W.closeCalls - cc }; };
+for (const [n, kind] of [[150, 'moderate'], [400, 'moderate'], [1500, 'moderate'], [3000, 'complex'], [9000, 'moderate']]) {   // 400 uses every pair, the others pivots, and 1,500 and up the multilevel start (itself in WebAssembly at every level)
+  t(`Distances 3D: same picture with WebAssembly, ${n} items (${kind})`, () => { const r = bothC(derive(GEN.graph(kind, n, 3)), 'stress3d'); ok(r.d3 >= 1, 'Distances 3D did not use wasm'); const d = diff(r.a, r.b); ok(d === 0, 'largest position difference ' + d); let dz = 0; r.a.nodes.forEach((q, i) => { dz = Math.max(dz, Math.abs(q.z - r.b.nodes[i].z)); }); ok(dz === 0, 'largest depth difference ' + dz); return r.d3 + ' wasm runs'; });
+}
+t('Distances 3D in several pieces and the 3D Force start (which uses it): same pictures', () => { const g = GEN.graph('moderate', 2500, 5), n = g.nodes.length; g.nodes.push({ id: 'lone1' }, { id: 'lone2' }, { id: 'a1' }, { id: 'a2' }); g.edges.push({ from: 'a1', to: 'a2', value: 1 }); ok(n > 0, 'no graph'); for (const arr of ['stress3d', 'force3d']) { const r = bothC(derive(g), arr); const d = diff(r.a, r.b); ok(d === 0, arr + ': largest position difference ' + d); ok(r.d3 >= 1, arr + ' did not use wasm'); } });
+t('Closeness: same picture with WebAssembly (800, 1,500 items), and small pictures stay on JavaScript', () => { for (const [n, kind] of [[800, 'moderate'], [1500, 'complex']]) { const r = bothC(derive(GEN.graph(kind, n, 4)), 'closeness'); ok(r.close >= 1, 'Closeness did not use wasm at ' + n); const d = diff(r.a, r.b); ok(d === 0, n + ' items: largest position difference ' + d); } const s = bothC(derive(GEN.graph('moderate', 60, 4)), 'closeness'); ok(s.close === 0 && s.d3 === 0 && diff(s.a, s.b) === 0, '60 items used wasm or differed'); });
+t('the real minimums: Distances 3D under 3,000 items and Closeness under 20,000 stay on JavaScript', () => { const m3 = W.min3d, mc = W.minClose; W.min3d = 3000; W.minClose = 20000; try { const r = bothC(derive(GEN.graph('moderate', 1000, 4)), 'stress3d'); ok(r.d3 === 0, 'Distances 3D used wasm at 1,000'); const c = bothC(derive(GEN.graph('moderate', 1000, 4)), 'closeness'); ok(c.close === 0, 'Closeness used wasm at 1,000'); const b = bothC(derive(GEN.graph('moderate', 3200, 4)), 'stress3d'); ok(b.d3 >= 1 && diff(b.a, b.b) === 0, 'Distances 3D did not use wasm at 3,200'); } finally { W.min3d = m3; W.minClose = mc; } });
+t('Closeness and Distances 3D with broken or missing WebAssembly: JavaScript takes over with the same picture', () => {
+  const dg = derive(GEN.graph('moderate', 900, 6)); W.on = false; const want = ['closeness', 'stress3d'].map((a) => build(dg, a)); W.on = true;
+  const keep = { mod: W.mod, tried: W.tried, b64: W.b64 };
+  W.mod = null; W.tried = false; W.b64 = 'AAAA'; const got = ['closeness', 'stress3d'].map((a) => build(dg, a));
+  want.forEach((w, i) => ok(diff(w, got[i]) === 0, 'fallback differs ' + i));
+  W.mod = keep.mod; W.tried = keep.tried; W.b64 = keep.b64; W.error = '';
+});
 t('hop counts over 511 stay on the Float32 lists and give the same picture', () => { const r = both(derive(chain(700))); ok(diff(r.a, r.b) === 0, 'differs'); ok(r.stress === 0, 'the code cannot hold 700 hops, so wasm must hand back to JavaScript'); });
 t('small pictures stay on JavaScript', () => { const r = both(derive(GEN.graph('moderate', 60, 4))); ok(r.stress === 0 && r.sep === 0, 'used wasm for 60 items'); ok(diff(r.a, r.b) === 0, 'differs'); });
 t('push-apart: crowded, a grid that outgrows the start table, and a grid too big for a plain grid', () => {
@@ -40,6 +55,18 @@ t('push-apart: crowded, a grid that outgrows the start table, and a grid too big
     const rad = (i) => 6 + (i % 5) * 3, XA = Float64Array.from(X0), XB = Float64Array.from(X0);
     W.on = false; const ra = E.separate(XA, k, 2, rad, 30); W.on = true; const s0 = W.sepCalls, rb = E.separate(XB, k, 2, rad, 30);
     ok(W.sepCalls > s0, 'wasm did not run for spread ' + spread); let d = 0; for (let i = 0; i < XA.length; i++) d = Math.max(d, Math.abs(XA[i] - XB[i])); ok(d === 0 && ra === rb, 'spread ' + spread + ': difference ' + d + ', result ' + ra + ' vs ' + rb); n++;
+  }
+  return n + ' cases';
+});
+t('hash-grid push-apart (pictures too spread out for a plain grid): same positions, and it ran in WebAssembly', () => {
+  let n = 0;
+  for (const [k, spread, seed] of [[300, 400000, 2], [2000, 900000, 5], [5000, 2000000, 7]]) {
+    const r = rng(seed + 3), X0 = new Float64Array(k * 2); for (let i = 0; i < k * 2; i++) X0[i] = (r() - 0.5) * spread;
+    for (let i = 1; i < k; i += 5) { X0[i * 2] = X0[(i - 1) * 2] + 3; X0[i * 2 + 1] = X0[(i - 1) * 2 + 1] + (i % 3); }   // many touching pairs
+    for (let i = 0; i < 40 && i < k; i++) { X0[2 * i] = -3e5 - i; X0[2 * i + 1] = 7e5; }   // far outside the key range of the hash grid: keys that wrap onto others
+    const rad = (i) => 6 + (i % 5) * 3, XA = Float64Array.from(X0), XB = Float64Array.from(X0);
+    W.on = false; const ra = E.separate(XA, k, 2, rad, 30); W.on = true; const s0 = W.sparseCalls, rb = E.separate(XB, k, 2, rad, 30);
+    ok(W.sparseCalls > s0, 'the hash-grid version did not run in wasm for spread ' + spread); let d = 0; for (let i = 0; i < XA.length; i++) d = Math.max(d, Math.abs(XA[i] - XB[i])); ok(d === 0 && ra === rb, 'spread ' + spread + ': difference ' + d + ' / ' + ra + ' ' + rb); n++;
   }
   return n + ' cases';
 });
