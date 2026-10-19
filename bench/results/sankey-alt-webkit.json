@@ -1,0 +1,54 @@
+{
+ "version": "MiniBrowser 2.52.6",
+ "reps": 5,
+ "rows": [
+  {
+   "n": 60,
+   "nodes": 60,
+   "oldFirst": 8,
+   "newFirst": 8,
+   "oldAgain": 7,
+   "newAgain": 7,
+   "oldLater": 4,
+   "newLater": 4.000000000000007,
+   "same": true,
+   "wasm": true
+  },
+  {
+   "n": 300,
+   "nodes": 300,
+   "oldFirst": 24,
+   "newFirst": 23,
+   "oldAgain": 16,
+   "newAgain": 17,
+   "oldLater": 10,
+   "newLater": 10,
+   "same": true,
+   "wasm": true
+  },
+  {
+   "n": 1000,
+   "nodes": 1000,
+   "oldFirst": 75,
+   "newFirst": 74,
+   "oldAgain": 71,
+   "newAgain": 69,
+   "oldLater": 54,
+   "newLater": 55,
+   "same": true,
+   "wasm": true
+  },
+  {
+   "n": 3000,
+   "nodes": 3000,
+   "oldFirst": 381.00000000000006,
+   "newFirst": 387.00000000000006,
+   "oldAgain": 396,
+   "newAgain": 394.99999999999994,
+   "oldLater": 376,
+   "newLater": 371,
+   "same": true,
+   "wasm": true
+  }
+ ]
+}
