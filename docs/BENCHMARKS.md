@@ -1386,6 +1386,53 @@ Hop error (lower is truer), old → new, the same in all four browsers to within
 
 **Plain reading.** At 5,000 and 10,000 items the new start is faster in all four browsers (1.5 to 2.4×) and as true or truer (moderate maps at 10,000 items 0.265 → 0.168, a lot truer; 5,000 items 0.165 → 0.160). At 30,000 items it is truer on moderate maps (0.226 → 0.175) but the speed is mixed: 1.0 to 1.4× on moderate maps and 0.52 to 1.12× on dense ones (slower in three of four browsers), so pieces of 20,000 items and more keep the old start. A start in between (20,000 to 30,000) was not measured; the limit of 20,000 is a cautious guess.
 
+## 26. Two-pair SIMD sweeps for the Distances layouts (2026-10-19)
+
+**What.** The Distances sweep (wasm/stress.c, `sweepsv`) now works on two pairs of items at a time, one pair per lane of a 128-bit WebAssembly register, whenever two neighbors in the shuffled order share no item (otherwise that pair runs alone, as before). Doing two untouching pairs side by side gives exactly what doing them one after the other gives, so the picture is the same to the last digit (largest position difference 0 in every run). It is used up to 20,000 items (`stressWasm.simdMax`); above that it gained nothing, so the older one-pair sweep is kept. The wasm file grows from 8,013 to 9,199 bytes (page file +1.6 KB).
+
+**Method.** One page per browser; one-pair and two-pair sweeps alternate (one pair, two pair, one pair, ...); one untimed pair first, then 7 timed pairs; cells are one-pair → two-pair medians in milliseconds (lower is better) and the middle ratio (one-pair time / two-pair time, higher is better).
+
+**Distances (hop pivots)**
+
+| items | ungoogled-chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| 1,000 moderate | 87 → 78 ms (1.11×) | 90 → 79 ms (1.14×) | 116 → 84 ms (1.41×) | 121 → 83 ms (1.42×) |
+| 5,000 moderate | 223 → 211 ms (1.06×) | 268 → 220 ms (1.13×) | 291 → 227 ms (1.29×) | 292 → 223 ms (1.32×) |
+| 15,000 moderate | 346 → 336 ms (1.02×) | 424 → 406 ms (1×) | 404 → 357 ms (1.15×) | 419 → 363 ms (1.16×) |
+
+**Distances, best quality (every pair)**
+
+| items | ungoogled-chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| 1,000 moderate | 88 → 77 ms (1.14×) | 89 → 77 ms (1.14×) | 117 → 82 ms (1.44×) | 117 → 83 ms (1.39×) |
+| 5,000 moderate | 550 → 555 ms (1.01×) | 544 → 546 ms (1.01×) | 380 → 392 ms (0.97×) | 380 → 379 ms (0.99×) |
+| 15,000 moderate | 3,742 → 3,760 ms (0.99×) | 3,699 → 3,733 ms (0.99×) | 2,521 → 2,488 ms (1.01×) | 2,602 → 2,572 ms (1×) |
+
+**Plain reading.** The Distances arrangement is 1.0 to 1.14× faster in Chromium and Firefox and 1.15 to 1.42× faster in WebKitGTK and GNOME Web (the two WebKit browsers gain the most); the gain fades toward 15,000 items, where memory access, not arithmetic, sets the speed. "Best quality" (every pair) is 1.14 to 1.44× faster at 1,000 items and unchanged (0.97 to 1.01×) from 5,000 items on. Nothing got slower by more than 3%, which is within the noise of these runs. Small gain, no risk: the pictures are identical.
+
+## 27. Saved layouts: a map laid out before is put back from the browser's storage (2026-10-19)
+
+**What.** Chosen by the owner's rules of 2026-10-19 (remember between visits). A Network map of 1,500 items or more in the Distances, Force, Radial or Closeness arrangements is fingerprinted (106 bits over the data, the build options, the tuning numbers and the text of the layout code, so a changed map, option or method never reuses an old picture). The first time, it is laid out as usual and the finished positions are saved in the browser's own storage (IndexedDB, up to 24 pictures and 120 MB, oldest unused go first). The next time, the same map is put straight back. Nothing leaves the computer. A switch and a "Forget saved pictures" button are on the Advanced tab. Storage that is blocked or full just means "not saved".
+
+**Method.** `bench/saved-alt.js`: a real engine worker, the browser's real storage, a page opened from a file. For each size three fresh runs: a plain build (no storage), a first open (lays out and saves) and a second open (from storage), the plain and first-open runs swapped every other round; median of 5 rounds, after one warm-up. Milliseconds, lower is better.
+
+| items | browser | plain build | first open (lays out + saves) | second open (from storage) | second open vs plain (higher is better) | same picture |
+|---|---|---|---|---|---|---|
+| 3,000 moderate | ungoogled-chromium 155 | 734 ms | 772 ms (+5%) | 55 ms | 13.8× | yes |
+| 3,000 moderate | Firefox 158 | 903 ms | 936 ms (+4%) | 60 ms | 14.9× | yes |
+| 3,000 moderate | WebKitGTK 2.52.6 | 686 ms | 725 ms (+6%) | 72 ms | 9.5× | yes |
+| 3,000 moderate | GNOME Web 46.5 | 672 ms | 681 ms (+1%) | 64 ms | 10.4× | yes |
+| 10,000 moderate | ungoogled-chromium 155 | 524 ms | 524 ms (+0%) | 157 ms | 3.1× | yes |
+| 10,000 moderate | Firefox 158 | 602 ms | 612 ms (+2%) | 170 ms | 3.6× | yes |
+| 10,000 moderate | WebKitGTK 2.52.6 | 491 ms | 547 ms (+11%) | 166 ms | 3× | yes |
+| 10,000 moderate | GNOME Web 46.5 | 500 ms | 511 ms (+2%) | 161 ms | 3.1× | yes |
+| 30,000 moderate | ungoogled-chromium 155 | 1,286 ms | 1,325 ms (+3%) | 480 ms | 2.6× | yes |
+| 30,000 moderate | Firefox 158 | 1,336 ms | 1,314 ms (-2%) | 547 ms | 2.4× | yes |
+| 30,000 moderate | WebKitGTK 2.52.6 | 1,176 ms | 1,211 ms (+3%) | 431 ms | 2.6× | yes |
+| 30,000 moderate | GNOME Web 46.5 | 1,138 ms | 1,280 ms (+12%) | 488 ms | 2.4× | yes |
+
+**Plain reading.** Opening the same map again is 2.4 to 14.9× faster in all four browsers, and the picture is exactly the same: 55 to 72 ms instead of 670 to 900 ms at 3,000 items, 157 to 170 ms instead of 490 to 600 ms at 10,000, 430 to 550 ms instead of 1,140 to 1,340 ms at 30,000. What is left on a second open is the start of a build (reading the data, sizes, links), not the layout. The first open pays for the fingerprint (about 16 ms for 10,000 items, about 40 ms for 30,000) and the save: it measured from 2% faster to 12% slower, about 3% slower in the middle of the twelve cells. The speed guard's 5% limit is crossed in four cells (ungoogled-chromium and WebKitGTK at 3,000 items, WebKitGTK at 10,000 items, GNOME Web at 30,000 items); the owner decides whether that cost is acceptable.
+
 ## Reproduce
 
 ```
@@ -1400,6 +1447,9 @@ node force-wasm.js chromium                           # or: firefox, webkit, epi
 node stress-wasm.js chromium                          # or: firefox, webkit, epiphany, node; Distances layout: previous build, new JavaScript, WebAssembly (section 22; NFM_OLD_REV names the previous commit)
 node wasm-alt.js chromium                             # or: firefox, webkit, epiphany; Distances 3D, Closeness, Circle and Radial, JavaScript against WebAssembly alternating (section 24)
 node force2d-alt.js chromium                          # or: firefox, webkit, epiphany; flat Force, old start against the Distances start, alternating (section 25)
+node simd-alt.js chromium                             # or: firefox, webkit, epiphany; one-pair against two-pair SIMD sweeps, alternating (section 26)
+node saved-alt.js chromium                            # or: firefox, webkit, epiphany; plain build, first open and second open of saved layouts (section 27)
+node storage-probe.js chromium                        # or: firefox, webkit, epiphany; does the browser's storage work from a file page, and compiled WebAssembly cannot be stored (section 27)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)
 node ../test/force3d.test.js                      # 3D force: hop error at 3,000 items, not flat, robust cases (section 20)
 node ../test/distances3d.test.js                  # Distances 3D: truth, same every run, multilevel switch, odd inputs (section 23)

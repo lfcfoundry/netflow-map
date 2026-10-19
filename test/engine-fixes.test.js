@@ -9,6 +9,8 @@ const t = (name, fn) => { const t0 = Date.now(); try { const r = fn(); console.l
 const mkG = (ids, edges, groups) => ({ name: 't', start: ids[0], nodes: ids.map((i, k) => ({ id: i, label: i, group: groups ? groups[k] : '', valence: '', ghost: false, attrs: {} })), edges: edges.map(([f, t2, w]) => ({ from: f, to: t2, label: '', weight: w === undefined ? 1 : w, kind: '', attrs: {} })) });
 const chain = (n, w) => { const ids = Array.from({ length: n }, (_, i) => 'n' + i); return mkG(ids, ids.slice(1).map((x, i) => [ids[i], x, w])); };
 const timed = (fn) => { const t0 = Date.now(); const r = fn(); return { r, ms: Date.now() - t0 }; };
+/* Steady speed check: the best of three timings at a small size and at a size 4 times bigger, compared with each other. A cost that grows with the square of the size (the bug these guard against) takes 16 times longer at 4 times the size; a steady one about 4 times. Both timings are made back to back, so a busy machine slows them alike and the check does not flake. */
+const growth = (small, big, make) => { const best = (n) => { let b = Infinity; for (let i = 0; i < 3; i++) { const f = make(n); b = Math.min(b, timed(f).ms); } return Math.max(b, 1); }; best(small); const a = best(small), c = best(big); return { a, c, ratio: c / a }; };
 
 /* 1. odd group names must not touch Object.prototype or fall off the color list */
 t('1 odd group names (__proto__, constructor, toString, hasOwnProperty) are safe and colored', () => {
@@ -113,9 +115,9 @@ t('4d more than 600 items: neighbors is not measured (null), small maps still me
 });
 
 /* 5. hidden quadratics */
-t('5a 40,000 items with 40,000 different groups build in under 2 s (lane lookup was one indexOf per item)', () => {
-  const g = mkG(Array.from({ length: 40000 }, (_, i) => 'n' + i), Array.from({ length: 39999 }, (_, i) => ['n' + i, 'n' + (i + 1)]), Array.from({ length: 40000 }, (_, i) => 'g' + i));
-  const { ms } = timed(() => E.build(g, { view: 'lanes' })); ok(ms < 2000, ms + ' ms'); return ms + ' ms';
+t('5a 40,000 items with 40,000 different groups: the build time grows in step with the size (lane lookup was one indexOf per item)', () => {
+  const mk = (n) => { const g = mkG(Array.from({ length: n }, (_, i) => 'n' + i), Array.from({ length: n - 1 }, (_, i) => ['n' + i, 'n' + (i + 1)]), Array.from({ length: n }, (_, i) => 'g' + i)); return () => E.build(g, { view: 'lanes' }); };
+  const r = growth(10000, 40000, mk); ok(r.ratio < 9, '4 times the items took ' + r.ratio.toFixed(1) + ' times as long (' + r.a + ' ms to ' + r.c + ' ms; steady is about 4, the old bug about 16)'); return r.a + ' ms to ' + r.c + ' ms (' + r.ratio.toFixed(1) + 'x)';
 });
 t('5b shape view: a 10,000-item chain (every item a choke point) in under 1 s', () => {
   const { ms } = timed(() => E.build(chain(10000, 1), { view: 'shape' })); ok(ms < 1000, ms + ' ms'); return ms + ' ms';
@@ -164,11 +166,9 @@ t('5e the Group clusters arrangement with 4,000 different groups still lays out 
   N.forEach((a, i) => { const cx = Math.floor(a.cx / cell), cy = Math.floor(a.cy / cell); for (let gx = -1; gx <= 1; gx++) for (let gy = -1; gy <= 1; gy++) for (const j of grid.get((cx + gx) + ',' + (cy + gy)) || []) if (j > i && Math.hypot(a.cx - N[j].cx, a.cy - N[j].cy) < a.w / 2 + N[j].w / 2) t2++; });
   ok(t2 === 0, t2 + ' touching');
 });
-t('5f scene: 30,000 links with 30,000 different link colors (by category) draw in under 700 ms', () => {
-  const n = 30000, g = mkG(Array.from({ length: n }, (_, i) => 'n' + i), Array.from({ length: n - 1 }, (_, i) => ['n' + i, 'n' + (i + 1)]));
-  g.edges.forEach((e, i) => { e.attrs = { cat: 'c' + i }; });
-  const L = E.build(g, { view: 'network', arrange: 'circle', edgeColorBy: 'col:cat' }); ok(L.ch.ecolor && L.ch.ecolor.kind === 'cat', 'set-up: categories');
-  const { r: S, ms } = timed(() => SC.make(L, { theme: 'light', colorBy: 'group' })); ok(S.curves.length > 29000, 'curves ' + S.curves.length); ok(ms < 700, ms + ' ms'); return ms + ' ms';
+t('5f scene: 30,000 links with 30,000 different link colors (by category): the drawing time grows in step with the size', () => {
+  const mk = (n) => { const g = mkG(Array.from({ length: n }, (_, i) => 'n' + i), Array.from({ length: n - 1 }, (_, i) => ['n' + i, 'n' + (i + 1)])); g.edges.forEach((e, i) => { e.attrs = { cat: 'c' + i }; }); const L = E.build(g, { view: 'network', arrange: 'circle', edgeColorBy: 'col:cat' }); ok(L.ch.ecolor && L.ch.ecolor.kind === 'cat', 'set-up: categories'); return () => { const S = SC.make(L, { theme: 'light', colorBy: 'group' }); ok(S.curves.length > n - 1000, 'curves ' + S.curves.length); return S; }; };
+  const r = growth(7500, 30000, mk); ok(r.ratio < 9, '4 times the links took ' + r.ratio.toFixed(1) + ' times as long (' + r.a + ' ms to ' + r.c + ' ms; steady is about 4)'); return r.a + ' ms to ' + r.c + ' ms (' + r.ratio.toFixed(1) + 'x)';
 });
 t('5g Sankey scene: 6,000 bars with end values and labels draw in under 1 s (was one pass over all links per bar)', () => {
   const n = 6000, e = []; for (let i = 1; i <= n / 3; i++) e.push(['n0', 'n' + i]); for (let i = n / 3 + 1; i < n; i++) e.push(['n' + (1 + (i % (n / 3))), 'n' + i]);

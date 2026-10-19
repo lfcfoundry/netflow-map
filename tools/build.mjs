@@ -20,7 +20,7 @@ const rd = (p) => readFileSync(join(root, p), 'utf8');
 const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
 const g = (t) => parts.find((p) => p.type === t).value;
 const version = process.env.NFM_VERSION || `${g('year')}.${+g('month')}.${+g('day')}.${g('hour')}${g('minute')}`;
-const order = ['vendor/env-probes.js', 'vendor/back-close.js', 'src/importers.js', 'src/unpack.js', 'src/pack.js', 'vendor/memory-compression.js', 'src/layout-park.js', 'src/scene.js', 'vendor/netflow-sankey.js', 'src/gif.js', 'src/render.js', 'src/probe.js', 'src/engine-client.js', 'src/gpustress.js', 'src/tune.js', 'src/examples.js'];
+const order = ['vendor/env-probes.js', 'vendor/back-close.js', 'src/importers.js', 'src/unpack.js', 'src/pack.js', 'vendor/memory-compression.js', 'src/layout-park.js', 'src/scene.js', 'vendor/netflow-sankey.js', 'src/gif.js', 'src/render.js', 'src/probe.js', 'src/layoutstore.js', 'src/engine-client.js', 'src/gpustress.js', 'src/tune.js', 'src/examples.js'];
 const clean = (s) => s.replace(/if \(typeof module !== 'undefined' && module\.exports\) module\.exports = \w+;\n?/g, '');
 const bad = (name, s) => { if (/<\/script|<!--/i.test(s)) throw new Error(name + ' contains a sequence that would break the page'); };
 const engine = jsMin(['src/columns.js', 'src/pack.js', 'vendor/netflow-sankey.js', 'vendor/netflow-layers.js', 'src/engine.js', 'src/sim.js', 'src/check.js'].map((p) => clean(rd(p))).join('\n'), 'engine'); bad('engine bundle', engine);

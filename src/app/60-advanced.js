@@ -27,6 +27,7 @@ function renderAdv() {
     check('Use link weights as the odds of taking a link', S.A.weights, function (on) { S.A.weights = on; saveAdv(); }),
     h('p', { class: 'muted small', style: { margin: 0 } }, 'Used by the "' + word('odds') + '" colors and the Sankey view.')]));
   kids.push(tuneCard());
+  kids.push(savedLayoutsCard());
   kids.push(deviceCard());
   mount(box, kids);
 }
