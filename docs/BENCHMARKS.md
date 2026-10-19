@@ -1388,7 +1388,7 @@ Hop error (lower is truer), old → new, the same in all four browsers to within
 
 ## 26. Two-pair SIMD sweeps for the Distances layouts (2026-10-19)
 
-**What.** The Distances sweep (wasm/stress.c, `sweepsv`) now works on two pairs of items at a time, one pair per lane of a 128-bit WebAssembly register, whenever two neighbors in the shuffled order share no item (otherwise that pair runs alone, as before). Doing two untouching pairs side by side gives exactly what doing them one after the other gives, so the picture is the same to the last digit (largest position difference 0 in every run). It is used up to 20,000 items (`stressWasm.simdMax`); above that it gained nothing, so the older one-pair sweep is kept. The wasm file grows from 8,013 to 9,199 bytes (page file +1.6 KB).
+**What.** The Distances sweep (wasm/stress.c, `sweepsv`) now works on two pairs of items at a time, one pair per lane of a 128-bit WebAssembly register, whenever two neighbors in the shuffled order share no item (otherwise that pair runs alone, as before). Doing two untouching pairs side by side gives exactly what doing them one after the other gives, so the picture is the same to the last digit (largest position difference 0 in every run). It was first limited to 20,000 items; section 29 measured 30,000 and 60,000 items and found 2 to 10% gains with no cell worse, so the limit is gone. The wasm file grows from 8,013 to 9,199 bytes (page file +1.6 KB).
 
 **Method.** One page per browser; one-pair and two-pair sweeps alternate (one pair, two pair, one pair, ...); one untimed pair first, then 7 timed pairs; cells are one-pair → two-pair medians in milliseconds (lower is better) and the middle ratio (one-pair time / two-pair time, higher is better).
 
@@ -1452,6 +1452,25 @@ Hop error (lower is truer), old → new, the same in all four browsers to within
 | LZMA copy | 321,824 (33%) |
 
 **Plain reading.** The fast copy opens in about the same time as the plain page (within 17 ms; in GNOME Web it measured 14 ms faster, which is noise) and 1.6 to 2.2 times faster than the LZMA copy (ungoogled-chromium 155 152 to 70 ms, Firefox 158 187 to 116 ms, WebKitGTK 2.52.6 145 to 66 ms, GNOME Web 46.5 158 to 81 ms). The price is 43,948 bytes (13.7%) more than the LZMA copy; it is still 62% smaller than the plain page. The full browser test passes on the fast copy in ungoogled-chromium (176 checks), and all four browsers open it with the app running. The loader writes raw bytes, so the copy works when opened from the computer; a page served by a host that sends charset=utf-8 needs the base64 form from `pack.py`.
+
+## 29. Two-pair SIMD above 20,000 items; Distances 3D with SIMD tried and not kept (2026-10-19)
+
+**What.** (1) The two-pair Distances sweep (section 26) no longer stops at 20,000 items. (2) A two-pair version of the Distances 3D sweep (`sweepsv3`: three coordinates per item, same pairing rule, positions identical to the last digit in every run) was written and measured. It gave no gain in the four browsers (0.95 to 1.08 times, middle about 1.0), so it is not built into the app; the source is kept in `bench/experiments/sweepsv3.c` so nobody has to write it again.
+
+**Method.** `bench/simd-alt.js`, one page per browser, one-pair and two-pair alternating, one untimed pair first. Medians in milliseconds (lower is better); ratio = one-pair time / two-pair time (higher is better, above 1 means SIMD is faster). Whole-build times, because that is what a person waits for. 5 pairs for 3D, 3 pairs for the big flat maps. Browsers: ungoogled-chromium 155.0.8059.39-1 / Firefox 158.0 / WebKitGTK 2.52.6 / GNOME Web 46.5.
+
+| Flat Distances, moderate map | Chromium | Firefox | WebKitGTK | GNOME Web |
+|---|---|---|---|---|
+| 30,000 items: one-pair ms → two-pair ms (ratio) | 755 → 715 (1.07) | 867 → 838 (1.04) | 910 → 807 (1.10) | 826 → 780 (1.06) |
+| 60,000 items | 1751 → 1681 (1.04) | 1970 → 1880 (1.06) | 1928 → 1853 (1.04) | 1889 → 1910 (1.02) |
+
+| Distances 3D, moderate map (ratio, higher is better) | Chromium | Firefox | WebKitGTK | GNOME Web |
+|---|---|---|---|---|
+| 3,000 items | 1.00 | 0.97 | 0.95 | 1.00 |
+| 10,000 items | 1.03 | 0.96 | 0.98 | 0.96 |
+| 30,000 items | 0.98 | 1.08 | 1.00 | 1.04 |
+
+**Reading it.** Flat Distances: a small gain (2 to 10%) in all eight cells, none worse, so the 20,000-item limit is removed. Distances 3D: the numbers scatter around 1.0 (four cells are 3 to 5% slower, three are 3 to 8% faster), which is no gain, so plain WebAssembly stays for 3D. Not measured: other map shapes.
 
 ## Reproduce
 

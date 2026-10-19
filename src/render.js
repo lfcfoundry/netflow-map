@@ -34,6 +34,29 @@ var NFMRender = (function () {
   var NODBG = {};
   /** A link that is one straight piece with no dashes (the common case on a big network). */
   function isSeg(c) { return c.line && !c.dash && c.P.length === 8; }
+  /** One item's dot as the 16 numbers the shape buffer holds (position, size, shape kind, outline width, fill, outline); the same numbers tessellate writes for every dot. */
+  function dotRec(out, d) {
+    var k = d.kind === undefined ? 1 : d.kind, a = d.a === undefined ? 1 : d.a, f = d.fill, s = d.stroke;
+    out[0] = d.cx; out[1] = d.cy; out[2] = d.r; out[3] = d.r; out[4] = k === 0 ? Math.min(3, d.r) : d.r; out[5] = k; out[6] = d.sw; out[7] = 0;
+    out[8] = f[0]; out[9] = f[1]; out[10] = f[2]; out[11] = f[3] * a; out[12] = s[0]; out[13] = s[1]; out[14] = s[2]; out[15] = s[3] * a;
+  }
+  /** A plain straight link as the 6 corner records (60 numbers) of its quad, written at o in mesh; returns the new o. */
+  function segRec(mesh, o, c) {
+    var a = c.a === undefined ? 1 : c.a, hw = c.w / 2, col = c.color, P = c.P, xa = P[0], ya = P[1], xb = P[6], yb = P[7], tx = xb - xa, ty = yb - ya, d = Math.hypot(tx, ty) || 1, nx = -ty / d, ny = tx / d, i;
+    var r0 = col[0], r1 = col[1], r2 = col[2], r3 = col[3] * a, V = SEG;
+    V[0] = xa; V[1] = ya; V[2] = -1; V[3] = xa; V[4] = ya; V[5] = 1; V[6] = xb; V[7] = yb; V[8] = -1; V[9] = xb; V[10] = yb; V[11] = -1; V[12] = xa; V[13] = ya; V[14] = 1; V[15] = xb; V[16] = yb; V[17] = 1;
+    for (i = 0; i < 18; i += 3) { mesh[o++] = V[i]; mesh[o++] = V[i + 1]; mesh[o++] = nx; mesh[o++] = ny; mesh[o++] = hw; mesh[o++] = V[i + 2]; mesh[o++] = r0; mesh[o++] = r1; mesh[o++] = r2; mesh[o++] = r3; }
+    return o;
+  }
+  var PATCH = new Float32Array(MESH_STRIDE * 6), PATCH_MAX = 4000;
+  /** Rewrites just the dots and links that were moved (dirty = {dots, curves}: sets of positions in S.dots and S.curves) straight into the graphics-memory buffers. write(which, byteOffset, Float32Array) does the send. False when the picture is not laid out so that this works (then the page sends it all). */
+  function patchBuffers(S, T, dirty, write) {
+    if (!T || !T.uni || !dirty || T.nDots !== S.dots.length || T.nCurves !== S.curves.length || dirty.dots.size + dirty.curves.size > PATCH_MAX) return false;
+    var dr = new Float32Array(SHAPE_STRIDE), cs = S.curves;
+    dirty.dots.forEach(function (i) { dotRec(dr, S.dots[i]); write('front', (T.dot0 + i) * SHAPE_STRIDE * 4, dr); });
+    dirty.curves.forEach(function (j) { segRec(PATCH, 0, cs[j]); write('mesh', j * 6 * MESH_STRIDE * 4, PATCH); });
+    return true;
+  }
   /** Turns a scene into flat arrays: back shapes, mesh (lines, arrows, ribbons), front shapes. a = item alpha from restyle. */
   function tessellate(S) {
     var back = [], front = [], i;
@@ -93,14 +116,14 @@ var NFMRender = (function () {
       var a = c.a === undefined ? 1 : c.a, hw = c.w / 2, col = c.color;
       if (isSeg(c)) {
         /* A plain straight link (every link on a big network): one quad written straight into the buffer, the same numbers the general path gives. */
-        var P = c.P, xa = P[0], ya = P[1], xb = P[6], yb = P[7], tx = xb - xa, ty = yb - ya, d = Math.hypot(tx, ty) || 1, nx = -ty / d, ny = tx / d;
-        var r0 = col[0], r1 = col[1], r2 = col[2], r3 = col[3] * a, V = SEG;
-        V[0] = xa; V[1] = ya; V[2] = -1; V[3] = xa; V[4] = ya; V[5] = 1; V[6] = xb; V[7] = yb; V[8] = -1; V[9] = xb; V[10] = yb; V[11] = -1; V[12] = xa; V[13] = ya; V[14] = 1; V[15] = xb; V[16] = yb; V[17] = 1;
-        for (i = 0; i < 18; i += 3) { mesh[o++] = V[i]; mesh[o++] = V[i + 1]; mesh[o++] = nx; mesh[o++] = ny; mesh[o++] = hw; mesh[o++] = V[i + 2]; mesh[o++] = r0; mesh[o++] = r1; mesh[o++] = r2; mesh[o++] = r3; }
+        o = segRec(mesh, o, c);
       } else if (c.dashed) c.dashed.forEach(function (q) { strip(q, hw, col, a); }); else strip(c.pts, hw, col, a, c.w1 !== undefined ? c.w1 / 2 : undefined);
       if (c.arrow) { var t = NFMScene.arrowTri(c); for (i = 0; i < 3; i++) put(t[i * 2], t[i * 2 + 1], 0, 0, -1, 0, col, a); }
     });
-    return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE };
+    /* where things sit, so an item that was moved can be rewritten in place (see patchBuffers): every link a plain straight piece, none with an arrow, no ribbons or hulls, so link j starts at vertex 6 * j */
+    var uni = !S.ribbons.length && !(S.polys && S.polys.length) && S.curves.every(function (c) { return isSeg(c) && !c.arrow; }), dot0 = 0;
+    S.rects.forEach(function (r) { if (r.layer !== 0) dot0++; });
+    return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE, uni: uni, dot0: dot0, nDots: S.dots.length, nCurves: S.curves.length };
   }
   /** Cuts a polyline into dashes: kind 1 = dots, 2 = short dashes, 3 = long dashes. Returns a list of flat polylines. */
   function dashPieces(pts, w, kind) {
@@ -200,6 +223,7 @@ var NFMRender = (function () {
     if (!ctx) throw new Error('no 2D canvas');
     var out = {
       name: 'canvas2d', label: 'Canvas 2D',
+      patch: function (s) { return s === S; },   /* nothing is kept on a card: the next draw reads the scene as it now is */
       setScene: function (s) { S = s; if (S) S.curves.forEach(function (c) { if (c.bb === undefined) { var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (var i = 0; i < c.P.length; i += 2) { x0 = Math.min(x0, c.P[i]); x1 = Math.max(x1, c.P[i]); y0 = Math.min(y0, c.P[i + 1]); y1 = Math.max(y1, c.P[i + 1]); } c.bb = [x0 - 12, y0 - 12, x1 + 12, y1 + 12]; } }); },
       resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
       draw: function (view) {
@@ -398,6 +422,10 @@ var NFMRender = (function () {
       name: 'webgl2', label: 'WebGL 2', device: info,
       setScene: function (s) { S = s; T = s ? tessellate(s) : null; if (T) { up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
       restyle: function () { if (S && !(S.turn && S.turn.on)) { T = tessellate(S); up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
+      patch: function (s, dirty) {
+        if (s !== S || (S.turn && S.turn.on)) return false;
+        return patchBuffers(S, T, dirty, function (which, at, data) { var b = which === 'front' ? bFront : bMesh; gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferSubData(gl.ARRAY_BUFFER, at, data); });
+      },
       rigPrepare: rigPrepare, rigOK: false,
       /* Puts a big 3D map on the card ahead of the first drag: the item and link textures are uploaded and each rig program is used once, drawing nothing (a zero-size scissor), so the driver finishes compiling and moving data now instead of during the first turn. */
       rigWarm: function () {
@@ -603,6 +631,10 @@ var NFMRender = (function () {
         name: 'webgpu', label: 'WebGPU', device: (r.adapter.info && (r.adapter.info.description || r.adapter.info.device)) || '', software: !!r.adapter.isFallbackAdapter, legacyBuffers: false,
         setScene: function (s) { S = s; if (S) load(); },
         restyle: function () { if (S && !(S.turn && S.turn.on)) load(); },
+        patch: function (s, dirty) {
+          if (s !== S || (S.turn && S.turn.on) || !bufs.front || !bufs.mesh) return false;
+          return patchBuffers(S, T, dirty, function (which, at, data) { device.queue.writeBuffer(bufs[which], at, data.buffer, data.byteOffset, data.byteLength); });
+        },
         rigPrepare: rigPrepare, rigOK: false,
         rigWarm: function () { if (!RW || !S || !S.rig) return false; try { rigSync(); return true; } catch (e) { return false; } },   /* the item and link buffers go to the card now, not during the first turn */
         resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },

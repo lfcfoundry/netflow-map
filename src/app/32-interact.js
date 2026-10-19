@@ -133,19 +133,37 @@ function beginNodeDrag(q) {
   var id = q.hit.node.nodeId; if (id === undefined) { q.mode = 'pan'; return; }
   if (!S.sel.has(id)) setSel([id]);
   var moving = Array.from(S.sel), pos = {};
-  var byId = new Map(); S.L.nodes.forEach(function (n) { byId.set(n.nodeId || n.id, n); });
+  var byId = new Map(), slot = {}; S.L.nodes.forEach(function (n, i) { var k = n.nodeId || n.id; byId.set(k, n); slot[k] = i; });
   moving.forEach(function (m) { var n = byId.get(m); if (n) pos[m] = [n.cx, n.cy]; });
   var key = pinKey(); S.V.pins[key] = S.V.pins[key] || {};
-  DRAG = { ids: Object.keys(pos), pos: pos, w0: worldOf(q.x, q.y), key: key };
+  DRAG = { ids: Object.keys(pos), pos: pos, w0: worldOf(q.x, q.y), key: key, slot: slot, fast: false };
 }
 function moveNodes(p) {
   if (!DRAG) return;
   if (DRAG.sk) { skDragTo(p); return; }
   var w = worldOf(p[0], p[1]), dx = w[0] - DRAG.w0[0], dy = w[1] - DRAG.w0[1], pins = S.V.pins[DRAG.key];
   DRAG.ids.forEach(function (id) { pins[id] = [DRAG.pos[id][0] + dx, DRAG.pos[id][1] + dy]; });
-  scheduleScene();
+  if (!moveInPlace(DRAG.ids, DRAG.slot, DRAG.key)) scheduleScene(); else DRAG.fast = true;
 }
-function endNodeDrag() { var was = DRAG; DRAG = null; if (was && was.sk) { skEndDrag(); return; } saveView(); renderMapUI(); }
+/** A big flat map: put the moved items' dots, names and links where they now are, in place, and send just those to the graphics card, instead of building and sending the whole picture for every mouse move (about 16 MB at 10,000 items). False when this picture cannot do it; the page then builds it again as before. ids and slot: the moved items and their places in L.nodes; their new places are in the pins. */
+function moveInPlace(ids, slot, key) {
+  var sc = S.scene, r = mgr && mgr.r;
+  if (!sc || !sc.moveNodes || !r || !S.L || S.L.is3d || S.L.view !== 'network' || sceneQueued || (sc.turn && sc.turn.on)) return false;
+  var pins = S.V.pins[key], moves = ids.map(function (id) { return [slot[id], pins[id][0], pins[id][1]]; });
+  var dirty = sc.moveNodes(moves); if (!dirty) return false;
+  if (!(r.patch && r.patch(sc, dirty)) && r.setScene) r.setScene(sc);
+  requestDraw(); return true;
+}
+/** Moves items to given places the way a drag does (for tests and scripts): list = [[id, x, y], ...]. Returns {fast}: whether the in-place way was used. */
+function moveItems(list, rebuild) {
+  if (!S.L || S.L.view !== 'network' || S.L.is3d) return { fast: false };
+  var key = pinKey(), pins = S.V.pins[key] = S.V.pins[key] || {}, slot = {}, ids = [];
+  S.L.nodes.forEach(function (n, i) { slot[n.nodeId || n.id] = i; });
+  list.forEach(function (m) { if (slot[m[0]] !== undefined) { pins[m[0]] = [m[1], m[2]]; ids.push(String(m[0])); } });
+  var fast = !rebuild && moveInPlace(ids, slot, key); if (!fast) scheduleScene();
+  return { fast: fast };
+}
+function endNodeDrag() { var was = DRAG; DRAG = null; if (was && was.sk) { skEndDrag(); return; } if (was && was.fast) scheduleScene(); /* the picture's outer box, pick grid and link store were left as they were while moving: build it properly once */ saveView(); renderMapUI(); }
 function setPins(map) { var key = pinKey(); S.V.pins[key] = Object.assign(S.V.pins[key] || {}, map); saveView(); makeScene(false); }
 function clearPins(ids) {
   var key = pinKey(), pins = S.V.pins[key]; if (!pins) return;
