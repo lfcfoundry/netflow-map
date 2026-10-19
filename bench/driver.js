@@ -1,10 +1,18 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. Opens a page in Firefox 158 (Puppeteer over WebDriver BiDi), ungoogled-chromium 155 (Playwright) or WebKitGTK 2.52.6 / GNOME Web (webkit-driver.js).
- * NFM_FIREFOX, NFM_CHROME, NFM_PUPPETEER, NFM_PLAYWRIGHT name the programs and packages (defaults are this machine's). */
+ * NFM_FIREFOX, NFM_CHROME, NFM_PUPPETEER, NFM_PLAYWRIGHT name the programs and packages (defaults are this machine's).
+ * Warm browsers: with NFM_WARM=1 and `node tools/test-runner/cli.js warm start firefox webkit epiphany` run once (JS-modules, tools/test-runner, 1.0.0), Firefox, WebKitGTK and GNOME Web are taken from the warm ones instead of started again (a start costs seconds, and GNOME Web often needs a second try); NFM_RUNNER names runner.js. Chromium is always started here (the benchmarks set its flags). A browser that is not warm is started as before. */
 'use strict';
 const CHROME = process.env.NFM_CHROME || (process.env.HOME || '/root') + '/browsers/ungoogled-chromium-155.0.8059.39-1-x86_64_linux/chrome';
 const FIREFOX = process.env.NFM_FIREFOX || (process.env.HOME || '/root') + '/browsers/firefox/firefox';
+async function openWarm(which) {
+  const T = require(process.env.NFM_RUNNER || (process.env.HOME || '/root') + '/js-modules/tools/test-runner/runner.js');
+  if (!T.warmInfo(which)) return null;
+  const h = await T.launch(which), page = await h.newPage();
+  return { b: h, page, version: await h.version(), warm: true, close: () => h.close().catch(() => {}), eval: (fn, arg) => page.evaluate(fn, arg), goto: (u) => page.goto(u, { waitUntil: 'load', timeout: 120000 }) };
+}
 async function open(which, opts) {
   opts = opts || {};
+  if (process.env.NFM_WARM && which !== 'chromium') { try { const w = await openWarm(which); if (w) return w; } catch (e) { console.log('warm ' + which + ' not usable (' + (e && e.message || e) + '); starting a new one'); } }
   if (which === 'webkit' || which === 'epiphany') {   /* WebKitGTK / GNOME Web through webkit-driver.js (software drawing, a virtual screen) */
     const WD = require('./webkit-driver.js'), b = await WD.launch({ browser: which === 'epiphany' ? 'epiphany' : 'webkitgtk', width: 1280, height: 800, timeout: opts.timeout || 600000 });
     return { b, page: b.page, version: b.version, close: () => b.close().catch(() => {}), eval: (fn, arg) => b.page.evaluate(fn, arg), goto: (u) => b.page.goto(u) };
