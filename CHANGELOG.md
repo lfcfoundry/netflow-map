@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39,
 
 ## October 18
 
+- **2026.10.18.2021** The flat Force arrangement is faster and truer on big maps (5,000 up to 20,000 items): it now starts from the Distances picture. Layout takes 1.5 to 2.4 times less time in all four test browsers (higher is better), and the hop error at 10,000 items drops from 0.265 to 0.168 (lower is truer). Force pictures change at those sizes; smaller and bigger maps are as before.
 - **2026.10.18.1951** More of the layout work now runs as WebAssembly, with plain JavaScript kept as the backup. Pictures are the same. Circle at 30,000 items is 1.7 to 2.8 times faster in all four test browsers; Distances 3D at 3,000 and at 30,000 items is 1.0 to 1.8 times faster; Closeness at 20,000 items and more is 1.1 to 1.5 times faster (higher is better; smaller maps stay on JavaScript, where the gain was not clear).
 - **2026.10.18.1823** New arrangement: Distances 3D. The Network view can now lay a map out in 3D with the Distances method (turn it by dragging). Compared with the flat Distances it is truer at every size (hop error 0.117 against 0.177 at 30,000 items; lower is truer) and builds in 0.9 s at 30,000 items, 3.2 times faster than 3D force.
 - **2026.10.18.1411** The Sankey view now uses the shared netflow-sankey module (2.2.1). Pictures are the same. The page file grows 0.8%.
