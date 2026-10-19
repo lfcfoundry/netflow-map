@@ -1,0 +1,228 @@
+{
+ "version": "firefox/158.0",
+ "loads": 9,
+ "out": {
+  "plain": [
+   {
+    "dcl": 62,
+    "load": 63,
+    "paint": 68,
+    "appAt": 70,
+    "ready": 101,
+    "app": true
+   },
+   {
+    "dcl": 70,
+    "load": 70,
+    "paint": null,
+    "appAt": 78,
+    "ready": 97,
+    "app": true
+   },
+   {
+    "dcl": 68,
+    "load": 68,
+    "paint": null,
+    "appAt": 75,
+    "ready": 98,
+    "app": true
+   },
+   {
+    "dcl": 67,
+    "load": 68,
+    "paint": null,
+    "appAt": 75,
+    "ready": 94,
+    "app": true
+   },
+   {
+    "dcl": 63,
+    "load": 63,
+    "paint": 69,
+    "appAt": 70,
+    "ready": 101,
+    "app": true
+   },
+   {
+    "dcl": 65,
+    "load": 65,
+    "paint": 67,
+    "appAt": 72,
+    "ready": 100,
+    "app": true
+   },
+   {
+    "dcl": 66,
+    "load": 67,
+    "paint": null,
+    "appAt": 73,
+    "ready": 97,
+    "app": true
+   },
+   {
+    "dcl": 68,
+    "load": 69,
+    "paint": null,
+    "appAt": 77,
+    "ready": 99,
+    "app": true
+   },
+   {
+    "dcl": 68,
+    "load": 68,
+    "paint": null,
+    "appAt": 76,
+    "ready": 101,
+    "app": true
+   }
+  ],
+  "fast": [
+   {
+    "dcl": 22,
+    "load": 26,
+    "paint": 101,
+    "appAt": 104,
+    "ready": 136,
+    "app": true
+   },
+   {
+    "dcl": 20,
+    "load": 24,
+    "paint": 92,
+    "appAt": 95,
+    "ready": 113,
+    "app": true
+   },
+   {
+    "dcl": 23,
+    "load": 27,
+    "paint": 85,
+    "appAt": 89,
+    "ready": 116,
+    "app": true
+   },
+   {
+    "dcl": 22,
+    "load": 25,
+    "paint": 84,
+    "appAt": 87,
+    "ready": 117,
+    "app": true
+   },
+   {
+    "dcl": 20,
+    "load": 23,
+    "paint": 27,
+    "appAt": 87,
+    "ready": 110,
+    "app": true
+   },
+   {
+    "dcl": 21,
+    "load": 24,
+    "paint": 82,
+    "appAt": 85,
+    "ready": 104,
+    "app": true
+   },
+   {
+    "dcl": 21,
+    "load": 25,
+    "paint": 83,
+    "appAt": 87,
+    "ready": 117,
+    "app": true
+   },
+   {
+    "dcl": 20,
+    "load": 23,
+    "paint": 81,
+    "appAt": 84,
+    "ready": 114,
+    "app": true
+   },
+   {
+    "dcl": 22,
+    "load": 25,
+    "paint": 83,
+    "appAt": 87,
+    "ready": 116,
+    "app": true
+   }
+  ],
+  "packed": [
+   {
+    "dcl": 21,
+    "load": 21,
+    "paint": 32,
+    "appAt": 184,
+    "ready": 215,
+    "app": true
+   },
+   {
+    "dcl": 16,
+    "load": 16,
+    "paint": 30,
+    "appAt": 162,
+    "ready": 180,
+    "app": true
+   },
+   {
+    "dcl": 19,
+    "load": 20,
+    "paint": 33,
+    "appAt": 160,
+    "ready": 184,
+    "app": true
+   },
+   {
+    "dcl": 16,
+    "load": 16,
+    "paint": 27,
+    "appAt": 171,
+    "ready": 195,
+    "app": true
+   },
+   {
+    "dcl": 17,
+    "load": 18,
+    "paint": 34,
+    "appAt": 159,
+    "ready": 184,
+    "app": true
+   },
+   {
+    "dcl": 16,
+    "load": 16,
+    "paint": 20,
+    "appAt": 157,
+    "ready": 187,
+    "app": true
+   },
+   {
+    "dcl": 17,
+    "load": 17,
+    "paint": 20,
+    "appAt": 171,
+    "ready": 203,
+    "app": true
+   },
+   {
+    "dcl": 17,
+    "load": 18,
+    "paint": 25,
+    "appAt": 167,
+    "ready": 192,
+    "app": true
+   },
+   {
+    "dcl": 19,
+    "load": 19,
+    "paint": 33,
+    "appAt": 162,
+    "ready": 182,
+    "app": true
+   }
+  ]
+ }
+}

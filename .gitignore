@@ -2,3 +2,4 @@ index.packed.html
 bench/dist/
 bench/node_modules
 bench/results/*.tmp
+index.fast.html
