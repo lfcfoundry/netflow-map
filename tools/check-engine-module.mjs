@@ -11,7 +11,7 @@ const rng = (seed) => { let s = seed | 0; return () => { s = (s + 0x6d2b79f5) | 
 function story(n, seed) { const r = rng(seed), nodes = [], edges = []; for (let i = 0; i < n; i++) nodes.push({ id: 'n' + i, label: 'Page ' + i, group: ['A', 'B', 'C'][i % 3], valence: i === n - 1 ? 'good' : i === n - 2 ? 'bad' : '', ghost: false, attrs: {} }); for (let i = 1; i < n; i++) { edges.push({ from: 'n' + Math.floor(r() * i), to: 'n' + i, label: '', kind: '', attrs: {} }); if (r() < 0.5) edges.push({ from: 'n' + Math.floor(r() * n), to: 'n' + Math.floor(r() * n), label: '', kind: '', attrs: {} }); } return { start: 'n0', nodes, edges: edges.filter((e) => e.from !== e.to) }; }
 function net(n, seed) { const r = rng(seed), g = story(n, seed); g.start = null; g.edges.forEach((e) => { e.weight = Math.round(r() * 1000) / 10; }); return g; }
 const graphs = [['story 40', story(40, 1)], ['story 300', story(300, 2)], ['story 900', story(900, 3)], ['network 150', net(150, 4)], ['network 1500', net(1500, 5)]];
-const views = App.VIEWS.map((v) => v[0]), opts = [{}, { colorBy: 'group' }, { arrange: 'stress' }, { arrange: 'force' }, { arrange: 'closeness' }];
+const views = App.VIEWS.map((v) => v[0]), opts = [{}, { colorBy: 'group' }, { arrange: 'stress' }, { arrange: 'force' }, { arrange: 'closeness' }, { arrange: 'stress3d' }, { arrange: 'force3d' }];
 /* the only thing that may differ between two runs is the clock: L.ms (milliseconds the build took) is left out */
 const digest = (L) => createHash('sha256').update(JSON.stringify(L, (k, v) => (k === 'ms' ? undefined : ArrayBuffer.isView(v) ? Array.from(v) : v))).digest('hex');
 let n = 0, bad = 0, errs = 0;
