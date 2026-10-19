@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Set(process.argv.slice(2));
 /* Smaller file by default (esbuild minify, top-level names kept so the page and the helper share the same globals).
-   node tools/build.mjs --dev  keeps the readable text.   node tools/build.mjs --pack  also writes index.packed.html (self-unpacking, LZMA) for local copies; add --tune for the smallest. */
+   node tools/build.mjs --dev  keeps the readable text.   node tools/build.mjs --pack  also writes index.fast.html (self-unpacking, deflate, opens fastest) and index.packed.html (LZMA, the smallest file) for local copies; add --tune for the smallest. */
 let esb = null;
 if (!args.has('--dev')) {
   for (const where of [root, process.env.NFM_ESBUILD_FROM, '/opt/npm-tools'].filter(Boolean)) { try { esb = createRequire(join(where, 'x.js'))('esbuild'); break; } catch (e) { /* try the next place */ } }
@@ -46,5 +46,7 @@ if (args.has('--pack')) {
     const out = join(root, 'index.packed.html');
     try { process.stdout.write(execFileSync('python3', [pack, join(root, 'index.html'), out, '--title', 'Netflow Map', ...(args.has('--tune') ? ['--tune'] : [])], { env }).toString()); } catch (e) { console.warn('lzma-pack failed: ' + String(e.stderr || e.message).slice(0, 300)); }
   }
+  /* The fast-opening copy (the default one to hand out): deflate, opened by the browser's own unpacker in a few milliseconds; the LZMA copy above is the smallest file. */
+  try { process.stdout.write(execFileSync('python3', [join(root, 'tools', 'fast-pack.py'), join(root, 'index.html'), join(root, 'index.fast.html'), 'Netflow Map']).toString()); } catch (e) { console.warn('fast-pack failed: ' + String(e.stderr || e.message).slice(0, 300)); }
 }
 console.log(`built index.html ${(html.length / 1024).toFixed(0)} KB, version ${version}`);
