@@ -1,0 +1,72 @@
+{
+ "version": "MiniBrowser 2.52.6",
+ "reps": 7,
+ "rows": [
+  {
+   "arr": "stress",
+   "n": 1000,
+   "js": 116,
+   "wasm": 84,
+   "ratio": 1.41,
+   "diff": 0,
+   "used": {
+    "calls": 16
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 5000,
+   "js": 291,
+   "wasm": 227,
+   "ratio": 1.29,
+   "diff": 0,
+   "used": {
+    "calls": 64
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 15000,
+   "js": 404,
+   "wasm": 357,
+   "ratio": 1.15,
+   "diff": 0,
+   "used": {
+    "calls": 144
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 1000,
+   "js": 117,
+   "wasm": 82,
+   "ratio": 1.44,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 5000,
+   "js": 380,
+   "wasm": 392,
+   "ratio": 0.97,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 15000,
+   "js": 2521,
+   "wasm": 2488,
+   "ratio": 1.01,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  }
+ ]
+}

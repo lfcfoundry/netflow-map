@@ -25,6 +25,7 @@ var NFMEngineClient = (function () {
         return { gpuPiece: cap };
       }
       case 'compare': return E.compare(st.G, d.opts);
+      case 'layoutKey': return { layoutKey: E.layoutKey(st.G, d.opts) };
       case 'check': return API.CHK.run(st.G, d.opts);
       case 'simStart': {
         st.P = E.prepare(st.G, d.prep || {});
@@ -155,7 +156,7 @@ var NFMEngineClient = (function () {
     if (this.parkTimer) { clearTimeout(this.parkTimer); this.parkTimer = null; }
     return new Promise(function (resolve, reject) {
       self.queues = self.queues || {};
-      var key = type === 'build' || type === 'compare' || type === 'gpuPiece' ? 'view' : type;
+      var key = type === 'build' || type === 'compare' || type === 'gpuPiece' || type === 'layoutKey' ? 'view' : type;
       if (self.queues[key]) self.queues[key].reject(new Error('superseded'));
       self.queues[key] = { type: type, opts: opts, extra: extra || {}, resolve: resolve, reject: reject };
       self.pump();
@@ -229,21 +230,46 @@ var NFMEngineClient = (function () {
   Client.prototype.cardInfo = function () { return this.card && this.card.state === 'ready' && !(this.tune && this.tune.card && this.tune.card.use === false) ? { max: this.card.max, info: this.card.info, min: this.tune && this.tune.card && this.tune.card.minItems || 0 } : null; };
   /** Saved results of the tuning test (or null): the page sets this at start-up and after a test. */
   Client.prototype.setTune = function (t) { this.tune = t || null; if (this.card && this.card.state === 'ready') this.card.prof = t && t.card || null; };
-  /** "Distances, best quality" on a big piece: the card makes the picture, the engine finishes it. Any problem: the processor does it as before. */
+  /** Builds a map: from the browser's saved pictures when the same map was laid out before, with the graphics card for "Distances, best quality" on a big piece, otherwise on the processor. */
   Client.prototype.build = function (opts, onPreview) {
     var self = this, tok = this.buildTok = (this.buildTok || 0) + 1, big = false, E = null;
     try { E = this.onMain(); big = opts && opts.arrange === 'stressBest' && this.graph && this.graph.nodes.length > E.stressTuning.fullMax && !this.cardOff && !(this.tune && this.tune.card && this.tune.card.use === false) && !(this.card && this.card.state !== 'ready'); } catch (e) { big = false; }
     if (!big) {
-      /* A big Network map first gets a rough picture (the start of the layout, grown back but not yet polished or cleaned of touching items), handed to onPreview; the finished build follows and continues from it. */
-      var Tn = E && E.stressTuning;
-      if (!onPreview || !Tn || !opts || opts.view !== 'network' || opts.arrange !== 'stress' || !this.graph || this.graph.nodes.length < Tn.previewMin) return this.run('build', opts);
-      return this.run('build', Object.assign({}, opts, { previewOnly: true })).then(function (r) {
-        if (!r.L || !r.L.rough) return r;   // nothing to polish later: this already is the finished picture
-        if (tok !== self.buildTok) throw new Error('superseded');
-        try { onPreview(r); } catch (err) { /* a preview that cannot be shown must not stop the real build */ }
-        return self.run('build', opts);
-      });
+      var St = this.store, Tn0 = E && E.stressTuning;
+      /* Saved layouts: a Network map of a few thousand items or more that was laid out before is put back from the browser's storage (nothing is sent anywhere); a new one is laid out as usual and then saved. */
+      if (St && E && opts && opts.view === 'network' && !opts.previewOnly && !opts.gpuPicture && !opts.saved && this.graph && this.graph.nodes.length >= (this.storeMin || 1500) && /^(stress|stressBest|force|radial|closeness)$/.test(opts.arrange || 'stress')) {
+        var gone = function () { if (tok !== self.buildTok) throw new Error('superseded'); };
+        return this.run('layoutKey', opts).then(function (kr) {
+          gone();
+          var key = kr && kr.L && kr.L.layoutKey;
+          if (!key) return self.buildPlain(opts, onPreview, tok, Tn0, false);
+          return St.get(key).then(function (rec) {
+            gone();
+            if (rec) return self.run('build', Object.assign({}, opts, { saved: rec, saveKey: key })).then(function (r) { r.fromSaved = !!(r.L && r.L.fromSaved); return r; });
+            return self.buildPlain(Object.assign({}, opts, { saveKey: key }), onPreview, tok, Tn0, true).then(function (r) { if (r && r.L && r.L.saveLayout) St.put(r.L.saveLayout.key, r.L.saveLayout); return r; });
+          });
+        }, function (err) { if (err && err.message === 'superseded') throw err; return self.buildPlain(opts, onPreview, tok, Tn0, false); });
+      }
+      return this.buildPlain(opts, onPreview, tok, Tn0, false);
     }
+    return this.buildBig(opts, tok, E);
+  };
+  /** The ordinary build: a big Network map first gets a rough picture, then the finished build. wantSave asks the engine to hand back the finished picture so the page can keep it. */
+  Client.prototype.buildPlain = function (opts, onPreview, tok, Tn, wantSave) {
+    var self = this;
+    if (wantSave) opts = Object.assign({}, opts, { wantSave: true });
+    /* A big Network map first gets a rough picture (the start of the layout, grown back but not yet polished or cleaned of touching items), handed to onPreview; the finished build follows and continues from it. */
+    if (!onPreview || !Tn || !opts || opts.view !== 'network' || opts.arrange !== 'stress' || !this.graph || this.graph.nodes.length < Tn.previewMin) return this.run('build', opts);
+    return this.run('build', Object.assign({}, opts, { previewOnly: true })).then(function (r) {
+      if (!r.L || !r.L.rough) return r;   // nothing to polish later: this already is the finished picture
+      if (tok !== self.buildTok) throw new Error('superseded');
+      try { onPreview(r); } catch (err) { /* a preview that cannot be shown must not stop the real build */ }
+      return self.run('build', opts);
+    });
+  };
+  /** "Distances, best quality" on a big piece: the card makes the picture, the engine finishes it. Any problem: the processor does it as before. */
+  Client.prototype.buildBig = function (opts, tok, E) {
+    var self = this;
     var stale = function () { return tok !== self.buildTok; }, plain = function () { if (stale()) throw new Error('superseded'); return self.run('build', opts); };
     return this.cardProbe().then(function (card) {
       if (stale()) throw new Error('superseded');

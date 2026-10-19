@@ -352,6 +352,17 @@ async function open() {
   say(chk.e === 0 && chk.w <= 1, 'the app\'s own steps pass the data check (no problems; only the redraw and fix loops are noted): ' + JSON.stringify(chk));
   await ev(() => NFM.showTab('adv')); await settle(300);
   say(await ev(() => /Tune for this computer/.test(document.getElementById('adv-body').innerText)), 'the Advanced tab has the tuning card');
+  say(await ev(() => /Saved pictures of big maps/.test(document.getElementById('adv-body').innerText) && /Forget saved pictures/.test(document.getElementById('adv-body').innerText)), 'the Advanced tab has the saved pictures card');
+  const sv = await ev(async () => {   // the real worker and this browser's real storage: the first open lays out and saves, the second comes back from storage with the same picture
+    const g = NFMExamples.bigNetwork(1600, 9, 7), db = 'nfm-test-' + Date.now(), st = new NFMLayoutStore.Store(NFMLayoutStore.idbBackend(db)), o = { view: 'network', arrange: 'stress', colorBy: 'group' };
+    const mk = async () => { const c = new NFMEngineClient.Client(document.getElementById('nfm-engine-src').textContent, NFM.engine); await c.start(); c.store = st; c.storeMin = 1000; await c.setGraph(g); return c; };
+    const c1 = await mk(), a = await c1.build(o); await new Promise((r) => setTimeout(r, 300));
+    const c2 = await mk(), b = await c2.build(o), info = await st.info();
+    const same = a.L.nodes.length === b.L.nodes.length && a.L.nodes.every((n, i) => n.x === b.L.nodes[i].x && n.y === b.L.nodes[i].y && n.cx === b.L.nodes[i].cx);
+    await st.clear(); indexedDB.deleteDatabase(db); [c1, c2].forEach((c) => c.w && c.w.terminate());
+    return { mode: c1.mode, first: !!a.fromSaved, second: !!b.fromSaved, same, count: info.count, errors: st.errors, why: st.last };
+  });
+  say(sv.mode === 'worker' && !sv.first && sv.second && sv.same && sv.count === 1 && sv.errors === 0, 'saved pictures: the first open lays out and saves, the second comes back from this browser\'s storage with the same picture: ' + JSON.stringify(sv));
   await ev(() => { [...document.querySelectorAll('#adv-body button')].find((b) => /Test this computer/.test(b.textContent)).click(); }); await settle(300);
   say(await ev(() => document.getElementById('dlg').open && /Run the test/.test(document.getElementById('dlg-body').innerText) && /nothing is sent anywhere/.test(document.getElementById('dlg-body').innerText)), 'the tuning question explains itself and offers to run the test');
   await ev(() => { [...document.querySelectorAll('#dlg-body button')].find((b) => /Cancel/.test(b.textContent)).click(); }); await settle(200);
