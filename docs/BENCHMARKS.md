@@ -1367,6 +1367,25 @@ Plain takeaway: 1.2 to 2.2 times faster in every engine except one WebKitGTK row
 - **Closeness: faster in Chromium and Firefox at every size (1.23 to 1.8×); in WebKitGTK and GNOME Web it is slower from 1,000 to 10,000 items (0.66 to 0.92×) and faster at 30,000 (1.29× and 1.08×).** So WebAssembly is used from 20,000 items up (`stressWasm.minClose`). Closeness at 1,000 to 10,000 items stays on JavaScript everywhere; a faster WebAssembly version for WebKit is open work (the loop reads random places in memory, which WebKit's JavaScript does well).
 - Pair memory is unchanged for Closeness, Radial and Circle (no pair lists); Distances 3D uses 10 bytes a pair instead of 16 (30,000 items: 6.9 to 4.3 MB).
 
+## 25. Flat Force from the Distances picture for 5,000 to 20,000 items (2026-10-19)
+
+**What.** Chosen by the owner (2026-10-19). Pieces of 5,000 up to 20,000 items in the flat Force arrangement now start from the Distances picture (its multilevel start and WebAssembly do the heavy part) and take 40 gentle force rounds (`force2dTuning`: `stressMin` 5000, `stressMax` 20000, `polish` 40, `polishHi` 3, `polishLo` 0.05), instead of the spiral start and 120 to 240 rounds. Smaller pieces and bigger ones are exactly as before. The 3D force arrangement has started this way since section 20.
+
+**Method.** One page per browser; the old start and the new start alternate (old, new, old, new, ...); one untimed pair first; then 3 timed pairs; each cell is old → new, medians in milliseconds (lower is better) and the middle ratio old time / new time (above 1 means the new start is faster). `node bench/force2d-alt.js <browser>`. The 30,000 rows were run with the new start forced on (`stressMax` raised) to decide where to stop.
+
+| map | items | ungoogled-chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|---|
+| moderate | 5,000 | 1,589 → 820 ms (1.9×) | 1,853 → 789 ms (2.37×) | 1,704 → 863 ms (1.94×) | 1,794 → 859 ms (2.13×) |
+| moderate | 10,000 | 2,091 → 1,439 ms (1.46×) | 2,543 → 1,527 ms (1.66×) | 2,734 → 1,556 ms (1.7×) | 2,717 → 1,204 ms (1.63×) |
+| moderate | 30,000 | 7,092 → 5,654 ms (1.26×) | 5,235 → 6,193 ms (1.04×) | 4,961 → 3,611 ms (1.37×) | 6,103 → 4,577 ms (1.27×) |
+| complex | 5,000 | 1,810 → 1,054 ms (1.87×) | 2,105 → 921 ms (2.24×) | 2,084 → 867 ms (2.28×) | 2,030 → 910 ms (2.23×) |
+| complex | 10,000 | 2,316 → 1,756 ms (1.74×) | 2,286 → 1,239 ms (1.81×) | 2,559 → 1,537 ms (1.54×) | 2,262 → 1,231 ms (1.77×) |
+| complex | 30,000 | 5,260 → 5,453 ms (0.88×) | 5,430 → 4,843 ms (1.12×) | 4,730 → 5,839 ms (0.8×) | 3,945 → 7,025 ms (0.52×) |
+
+Hop error (lower is truer), old → new, the same in all four browsers to within 0.01: moderate 5,000 items 0.165 → 0.16; moderate 10,000 items 0.265 → 0.168; moderate 30,000 items 0.226 → 0.176; complex 5,000 items 0.185 → 0.162; complex 10,000 items 0.199 → 0.172; complex 30,000 items 0.18 → 0.176.
+
+**Plain reading.** At 5,000 and 10,000 items the new start is faster in all four browsers (1.5 to 2.4×) and as true or truer (moderate maps at 10,000 items 0.265 → 0.168, a lot truer; 5,000 items 0.165 → 0.160). At 30,000 items it is truer on moderate maps (0.226 → 0.175) but the speed is mixed: 1.0 to 1.4× on moderate maps and 0.52 to 1.12× on dense ones (slower in three of four browsers), so pieces of 20,000 items and more keep the old start. A start in between (20,000 to 30,000) was not measured; the limit of 20,000 is a cautious guess.
+
 ## Reproduce
 
 ```
@@ -1380,6 +1399,7 @@ node run.js chromium cold                       # or: firefox; first run against
 node force-wasm.js chromium                           # or: firefox, webkit, epiphany, node; Force rounds in JavaScript against WebAssembly (section 21)
 node stress-wasm.js chromium                          # or: firefox, webkit, epiphany, node; Distances layout: previous build, new JavaScript, WebAssembly (section 22; NFM_OLD_REV names the previous commit)
 node wasm-alt.js chromium                             # or: firefox, webkit, epiphany; Distances 3D, Closeness, Circle and Radial, JavaScript against WebAssembly alternating (section 24)
+node force2d-alt.js chromium                          # or: firefox, webkit, epiphany; flat Force, old start against the Distances start, alternating (section 25)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)
 node ../test/force3d.test.js                      # 3D force: hop error at 3,000 items, not flat, robust cases (section 20)
 node ../test/distances3d.test.js                  # Distances 3D: truth, same every run, multilevel switch, odd inputs (section 23)
