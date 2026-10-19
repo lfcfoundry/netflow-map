@@ -27,4 +27,12 @@ Rules:
 - The wasm path writes X only at the end, so any failure (no WebAssembly, blocked, memory refused, hop count over 511) leaves the JavaScript to start from the same picture and the same random seed.
 - `separate` hands back "start table too small" or "grid over 4,000,000 cells" and the page continues with a bigger table or the sparse version, as the JavaScript does.
 - Check: `node test/stress-wasm.test.js` (largest position difference must be 0, also against Closeness, a 700-item chain, a crowded push-apart, a grid larger than the start table, a grid over 4,000,000 cells, and broken or missing WebAssembly). Numbers: `docs/BENCHMARKS.md` section 22 and `node bench/stress-wasm.js <node|chromium|firefox|webkit|epiphany>`.
-- Not ported: the settle step (`settleOverlaps`), 3D stress, the exact-quality path, the tuning option `reshuffle`.
+- Not ported: the settle step (`settleOverlaps`), the exact-quality path, the tuning option `reshuffle`.
+
+## stress.c, second set (build 2026.10.18.1847): Distances 3D, the Closeness rounds, the hash-grid push-apart
+
+`stress.c` is now 8,013 bytes. Three more pieces run in WebAssembly, each with the JavaScript kept as the first answer and the fallback, each giving the same positions to the last digit (`node test/stress-wasm.test.js`):
+- `sweeps3`: the 3D version of the sweeps. Distances 3D (`stress3d` in `src/engine.js`) uses `build` and `shuffle` as they are (the pair building does not depend on the number of dimensions) and `sweeps3` instead of `sweeps`. Every level of its multilevel start runs the same way. `E.stressWasm.calls3` counts the runs. The 3D Force arrangement starts from this picture, so it gains too.
+- `closeness`: the rounds of the Closeness arrangement (links pulled together, random other items pushed away, steps clipped). The random numbers are the page's xorshift, seeded by the page. `E.stressWasm.closeCalls` counts the runs. Only with the shape parameter `b = 1`, which is the only value the app uses.
+- `separate_sparse`: the push-apart on a hash grid, used when the picture is too spread out for a plain grid (Circle, Radial and other arrangements at about 30,000 items and more). An open-addressing table replaces the JavaScript `Map`; items of one cell form a list with the newest first, so the pushes happen in the same order. `E.stressWasm.sparseCalls` counts the runs.
+- Same rules as before: 150 items or more, `E.stressWasm.on = false` turns all of it off, and a failed WebAssembly start leaves the input untouched so the JavaScript continues from the same place.

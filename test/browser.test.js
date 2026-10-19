@@ -68,6 +68,15 @@ async function open() {
     w.onmessage = (e) => { w.terminate(); resolve(e.data); }; w.onerror = (e) => { resolve({ error: String(e.message || e) }); }; w.postMessage(1);
   }));
   say(sw.used === true && sw.sep === true && sw.jsUsed === false && sw.diff === 0, 'the WebAssembly Distances layout and push-apart run in the helper and give exactly the JavaScript picture: ' + JSON.stringify(sw));
+  /* Distances 3D and the Closeness rounds (wasm/stress.c, sweeps3 and closeness) in the same helper: same pictures as the JavaScript */
+  const sx = await ev(() => new Promise((resolve) => {
+    const body = ";self.onmessage=function(){var k=500,nodes=[],edges=[],s=5,r=function(){s=(s*1664525+1013904223)>>>0;return s/4294967296;},i;for(i=0;i<k;i++)nodes.push({id:'n'+i});for(i=1;i<k;i++){edges.push({from:'n'+i,to:'n'+Math.floor(r()*i),value:1});if(i%3===0)edges.push({from:'n'+i,to:'n'+Math.floor(r()*i),value:1});}var dg=NFMColumns.derive({nodes:nodes,edges:edges}),W=NFMEngine.stressWasm;W.min3d=100;W.minClose=100;" +
+      "function run(on,arr){W.on=on;var c0=W.calls3,q0=W.closeCalls,L=NFMEngine.build(dg,{view:'network',arrange:arr,colorBy:'group'});return{L:L,u3:W.calls3>c0,uc:W.closeCalls>q0};}" +
+      "var out={err:W.error},arrs=['stress3d','closeness'],d,j;for(j=0;j<2;j++){var a=run(false,arrs[j]),b=run(true,arrs[j]);d=0;for(i=0;i<a.L.nodes.length;i++)d=Math.max(d,Math.abs(a.L.nodes[i].cx-b.L.nodes[i].cx),Math.abs(a.L.nodes[i].cy-b.L.nodes[i].cy),Math.abs((a.L.nodes[i].z||0)-(b.L.nodes[i].z||0)));out[arrs[j]]={used:j?b.uc:b.u3,jsUsed:j?a.uc:a.u3,diff:d};}postMessage(out);};";
+    const w = new Worker(URL.createObjectURL(new Blob([document.getElementById('nfm-engine-src').textContent + body], { type: 'text/javascript' })));
+    w.onmessage = (e) => { w.terminate(); resolve(e.data); }; w.onerror = (e) => { resolve({ error: String(e.message || e) }); }; w.postMessage(1);
+  }));
+  say(sx.stress3d && sx.closeness && sx.stress3d.used === true && sx.stress3d.jsUsed === false && sx.stress3d.diff === 0 && sx.closeness.used === true && sx.closeness.jsUsed === false && sx.closeness.diff === 0, 'the WebAssembly Distances 3D and Closeness rounds run in the helper and give exactly the JavaScript pictures: ' + JSON.stringify(sx));
 
 
   /* Data tab */

@@ -1336,6 +1336,37 @@ Plain takeaway: 1.2 to 2.2 times faster in every engine except one WebKitGTK row
 
 **Knobs** (`force3dTuning`): `ml` (1 on, 0 off), `mlMin` 700, `mlCoarse` 700, `mlEta` 0.2, `mlIters` 5, `mlJitter` 0.3, `mlPiv` 6, `mlNear` 6. Chosen from a sweep at 1,000, 3,000 and 10,000 items on moderate and complex maps. Test: `node test/distances3d.test.js` (6 checks).
 
+## 24. More WebAssembly: Distances 3D, the Closeness rounds and the hash-grid push-apart (2026-10-18)
+
+**What.** Three more pieces of the engine run in WebAssembly (`wasm/stress.c`, now 8,013 bytes), each with the JavaScript kept as the first answer and the fallback: the 3D sweeps (`sweeps3`; used by Distances 3D at every level of its multilevel start, and so by the 3D force start), the Closeness rounds (`closeness`), and the push-apart on a hash grid (`separate_sparse`; Circle, Radial and the other arrangements at about 30,000 items and more, where the picture is too spread out for a plain grid). **Every picture is the same as the JavaScript one to the last digit** (largest position difference 0 in all 64 comparisons below; `node test/stress-wasm.test.js`; one more check in each browser's page test).
+
+**Method.** One page per browser; JavaScript and WebAssembly alternate (JavaScript, WebAssembly, JavaScript, ...) so a slow stretch of the machine hits both alike; one untimed pair first; then 5 timed pairs; the cell shows the medians (JavaScript → WebAssembly, milliseconds, lower is better) and the middle ratio (JavaScript time ÷ WebAssembly time; above 1 means WebAssembly is faster). Moderate maps, `node bench/wasm-alt.js <browser>`. An earlier run with a fresh page per version (not alternating) varied by up to 2× for the same JavaScript on this machine, so it was thrown away; these tables are the ones to trust, and even these swing by about ±30% between runs at small sizes.
+
+| arrangement | items | ungoogled-chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|---|
+| Distances 3D | 1,000 | 90 → 56 ms (1.69×) | 125 → 139 ms (1×) | 66 → 107 ms (0.55×) | 71 → 107 ms (0.66×) |
+| Distances 3D | 3,000 | 102 → 96 ms (1.27×) | 167 → 142 ms (1.11×) | 193 → 128 ms (1.51×) | 108 → 122 ms (1.05×) |
+| Distances 3D | 10,000 | 149 → 141 ms (1.22×) | 245 → 427 ms (0.7×) | 946 → 750 ms (1.41×) | 556 → 523 ms (1.09×) |
+| Distances 3D | 30,000 | 1,012 → 823 ms (1.08×) | 1,538 → 859 ms (1.79×) | 851 → 833 ms (1.04×) | 4,738 → 2,431 ms (1.46×) |
+| Closeness | 1,000 | 389 → 244 ms (1.43×) | 266 → 195 ms (1.34×) | 144 → 217 ms (0.66×) | 459 → 488 ms (0.91×) |
+| Closeness | 3,000 | 2,686 → 1,675 ms (1.8×) | 1,802 → 1,473 ms (1.26×) | 1,283 → 1,270 ms (0.71×) | 1,466 → 1,397 ms (0.83×) |
+| Closeness | 10,000 | 3,095 → 1,538 ms (1.78×) | 2,427 → 2,206 ms (1.34×) | 1,295 → 1,984 ms (0.78×) | 1,752 → 2,505 ms (0.92×) |
+| Closeness | 30,000 | 2,732 → 2,386 ms (1.23×) | 4,084 → 3,278 ms (1.45×) | 6,908 → 5,552 ms (1.29×) | 4,584 → 5,709 ms (1.08×) |
+| Radial (hash-grid push-apart) | 1,000 | 37 → 32 ms (1.09×) | 13 → 22 ms (0.56×) | 33 → 38 ms (0.7×) | 26 → 48 ms (0.73×) |
+| Radial (hash-grid push-apart) | 3,000 | 188 → 162 ms (0.69×) | 58 → 139 ms (0.71×) | 328 → 378 ms (1.11×) | 242 → 180 ms (1.73×) |
+| Radial (hash-grid push-apart) | 10,000 | 892 → 413 ms (2.48×) | 895 → 681 ms (2.18×) | 599 → 492 ms (1.1×) | 706 → 477 ms (1.25×) |
+| Radial (hash-grid push-apart) | 30,000 | 2,294 → 2,038 ms (1.13×) | 7,139 → 6,114 ms (0.99×) | 10,283 → 7,959 ms (1.33×) | 5,073 → 1,387 ms (2.73×) |
+| Circle (hash-grid push-apart) | 1,000 | 108 → 78 ms (1.48×) | 56 → 65 ms (0.85×) | 36 → 9 ms (3×) | 15 → 18 ms (1.12×) |
+| Circle (hash-grid push-apart) | 3,000 | 797 → 364 ms (1.31×) | 314 → 99 ms (2.78×) | 41 → 32 ms (1.19×) | 104 → 128 ms (1.03×) |
+| Circle (hash-grid push-apart) | 10,000 | 314 → 418 ms (0.83×) | 779 → 555 ms (1.15×) | 182 → 121 ms (1.41×) | 381 → 315 ms (1.06×) |
+| Circle (hash-grid push-apart) | 30,000 | 1,661 → 1,337 ms (1.76×) | 2,655 → 720 ms (2.76×) | 1,999 → 1,173 ms (1.7×) | 8,590 → 3,911 ms (2.2×) |
+
+**Plain reading.**
+- **Circle at 30,000 items: faster in all four browsers** (1.7 to 2.8×). Radial at 30,000: 2.7× in GNOME Web, 1.3× in WebKitGTK, 1.1× in Chromium, level in Firefox (0.99×). The rows for Radial and Circle below 10,000 items use the older plain-grid code that these changes did not touch, so their swings (0.56 to 3×) show the noise of the machine, not a result.
+- **Distances 3D: faster at 30,000 items in all four** (1.04 to 1.79×), at 3,000 items in all four (1.05 to 1.51×) and at 10,000 in three of four (Firefox 0.7×); at 1,000 items it is mixed (0.55 to 1.69×). So WebAssembly is used from 3,000 items up (`stressWasm.min3d`).
+- **Closeness: faster in Chromium and Firefox at every size (1.23 to 1.8×); in WebKitGTK and GNOME Web it is slower from 1,000 to 10,000 items (0.66 to 0.92×) and faster at 30,000 (1.29× and 1.08×).** So WebAssembly is used from 20,000 items up (`stressWasm.minClose`). Closeness at 1,000 to 10,000 items stays on JavaScript everywhere; a faster WebAssembly version for WebKit is open work (the loop reads random places in memory, which WebKit's JavaScript does well).
+- Pair memory is unchanged for Closeness, Radial and Circle (no pair lists); Distances 3D uses 10 bytes a pair instead of 16 (30,000 items: 6.9 to 4.3 MB).
+
 ## Reproduce
 
 ```
@@ -1348,6 +1379,7 @@ node run.js chromium forceOurs                       # or: firefox; our Force ar
 node run.js chromium cold                       # or: firefox; first run against later runs (section 19)
 node force-wasm.js chromium                           # or: firefox, webkit, epiphany, node; Force rounds in JavaScript against WebAssembly (section 21)
 node stress-wasm.js chromium                          # or: firefox, webkit, epiphany, node; Distances layout: previous build, new JavaScript, WebAssembly (section 22; NFM_OLD_REV names the previous commit)
+node wasm-alt.js chromium                             # or: firefox, webkit, epiphany; Distances 3D, Closeness, Circle and Radial, JavaScript against WebAssembly alternating (section 24)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)
 node ../test/force3d.test.js                      # 3D force: hop error at 3,000 items, not flat, robust cases (section 20)
 node ../test/distances3d.test.js                  # Distances 3D: truth, same every run, multilevel switch, odd inputs (section 23)
