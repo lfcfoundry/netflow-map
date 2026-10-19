@@ -1433,6 +1433,26 @@ Hop error (lower is truer), old → new, the same in all four browsers to within
 
 **Plain reading.** Opening the same map again is 2.4 to 14.9× faster in all four browsers, and the picture is exactly the same: 55 to 72 ms instead of 670 to 900 ms at 3,000 items, 157 to 170 ms instead of 490 to 600 ms at 10,000, 430 to 550 ms instead of 1,140 to 1,340 ms at 30,000. What is left on a second open is the start of a build (reading the data, sizes, links), not the layout. The first open pays for the fingerprint (about 16 ms for 10,000 items, about 40 ms for 30,000) and the save: it measured from 2% faster to 12% slower, about 3% slower in the middle of the twelve cells. The speed guard's 5% limit is crossed in four cells (ungoogled-chromium and WebKitGTK at 3,000 items, WebKitGTK at 10,000 items, GNOME Web at 30,000 items); the owner decides whether that cost is acceptable.
 
+## 28. A fast-opening copy: deflate instead of LZMA (2026-10-19)
+
+**What.** Chosen with the owner's rules of 2026-10-19 (first screen first, compile early; size limits suspended). `node tools/build.mjs --pack` now also writes `index.fast.html`: the page deflated and wrapped in the small loader from JS-modules `tools/single-file-tools/pack.py`, which the browser's own unpacker (`DecompressionStream`) opens in a few milliseconds. The LZMA copy (`index.packed.html`) stays as the smallest file. Compiling the WebAssembly early was looked at and dropped: no wasm compiles at start-up (the layout wasm is used in the worker when a big map is laid out) and a compile takes under 1 ms in all four browsers (section 27); keeping the compiled module is refused by all four browsers.
+
+**Method.** `bench/startup.js`: each copy opened from a file in one browser, the three copies rotating, one untimed open of each first, then 9 timed opens; "ready" is when the app exists and two frames have been drawn. Milliseconds, lower is better; medians.
+
+| copy | ungoogled-chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| plain page | 69 ms | 99 ms | 61 ms | 95 ms |
+| fast copy (deflate, new) | 70 ms | 116 ms | 66 ms | 81 ms |
+| LZMA copy (smallest file) | 152 ms | 187 ms | 145 ms | 158 ms |
+
+| size | bytes |
+|---|---|
+| plain page | 974,757 |
+| fast copy (zlib level 9, raw bytes) | 365,772 (38%) |
+| LZMA copy | 321,824 (33%) |
+
+**Plain reading.** The fast copy opens in about the same time as the plain page (within 17 ms; in GNOME Web it measured 14 ms faster, which is noise) and 1.6 to 2.2 times faster than the LZMA copy (ungoogled-chromium 155 152 to 70 ms, Firefox 158 187 to 116 ms, WebKitGTK 2.52.6 145 to 66 ms, GNOME Web 46.5 158 to 81 ms). The price is 43,948 bytes (13.7%) more than the LZMA copy; it is still 62% smaller than the plain page. The full browser test passes on the fast copy in ungoogled-chromium (176 checks), and all four browsers open it with the app running. The loader writes raw bytes, so the copy works when opened from the computer; a page served by a host that sends charset=utf-8 needs the base64 form from `pack.py`.
+
 ## Reproduce
 
 ```
@@ -1450,6 +1470,7 @@ node force2d-alt.js chromium                          # or: firefox, webkit, epi
 node simd-alt.js chromium                             # or: firefox, webkit, epiphany; one-pair against two-pair SIMD sweeps, alternating (section 26)
 node saved-alt.js chromium                            # or: firefox, webkit, epiphany; plain build, first open and second open of saved layouts (section 27)
 node storage-probe.js chromium                        # or: firefox, webkit, epiphany; does the browser's storage work from a file page, and compiled WebAssembly cannot be stored (section 27)
+node startup.js chromium                              # or: firefox, webkit, epiphany; how long the plain, fast and LZMA copies take to open (section 28)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)
 node ../test/force3d.test.js                      # 3D force: hop error at 3,000 items, not flat, robust cases (section 20)
 node ../test/distances3d.test.js                  # Distances 3D: truth, same every run, multilevel switch, odd inputs (section 23)
