@@ -1,0 +1,72 @@
+{
+ "version": "Epiphany 46.5",
+ "reps": 7,
+ "rows": [
+  {
+   "arr": "stress",
+   "n": 1000,
+   "js": 121,
+   "wasm": 83,
+   "ratio": 1.42,
+   "diff": 0,
+   "used": {
+    "calls": 16
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 5000,
+   "js": 292,
+   "wasm": 223,
+   "ratio": 1.32,
+   "diff": 0,
+   "used": {
+    "calls": 64
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 15000,
+   "js": 419,
+   "wasm": 363,
+   "ratio": 1.16,
+   "diff": 0,
+   "used": {
+    "calls": 144
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 1000,
+   "js": 117,
+   "wasm": 83,
+   "ratio": 1.39,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 5000,
+   "js": 380,
+   "wasm": 379,
+   "ratio": 0.99,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 15000,
+   "js": 2602,
+   "wasm": 2572,
+   "ratio": 1,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  }
+ ]
+}

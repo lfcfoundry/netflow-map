@@ -1,0 +1,72 @@
+{
+ "version": "chromium 155.0.8059.39",
+ "reps": 7,
+ "rows": [
+  {
+   "arr": "stress",
+   "n": 1000,
+   "js": 87,
+   "wasm": 78,
+   "ratio": 1.11,
+   "diff": 0,
+   "used": {
+    "calls": 16
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 5000,
+   "js": 223,
+   "wasm": 211,
+   "ratio": 1.06,
+   "diff": 0,
+   "used": {
+    "calls": 64
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 15000,
+   "js": 346,
+   "wasm": 336,
+   "ratio": 1.02,
+   "diff": 0,
+   "used": {
+    "calls": 144
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 1000,
+   "js": 88,
+   "wasm": 77,
+   "ratio": 1.14,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 5000,
+   "js": 550,
+   "wasm": 555,
+   "ratio": 1.01,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 15000,
+   "js": 3742,
+   "wasm": 3760,
+   "ratio": 0.99,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  }
+ ]
+}

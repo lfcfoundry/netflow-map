@@ -1,0 +1,34 @@
+{
+ "version": "MiniBrowser 2.52.6",
+ "reps": 5,
+ "arrange": "stress",
+ "rows": [
+  {
+   "n": 3000,
+   "plain": 686,
+   "first": 725,
+   "second": 72,
+   "ratio": 9.5,
+   "same": true,
+   "used": true
+  },
+  {
+   "n": 10000,
+   "plain": 491,
+   "first": 547,
+   "second": 166,
+   "ratio": 3,
+   "same": true,
+   "used": true
+  },
+  {
+   "n": 30000,
+   "plain": 1176,
+   "first": 1211,
+   "second": 431,
+   "ratio": 2.6,
+   "same": true,
+   "used": true
+  }
+ ]
+}

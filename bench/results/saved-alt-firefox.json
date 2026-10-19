@@ -1,0 +1,34 @@
+{
+ "version": "firefox/158.0",
+ "reps": 5,
+ "arrange": "stress",
+ "rows": [
+  {
+   "n": 3000,
+   "plain": 903,
+   "first": 936,
+   "second": 60,
+   "ratio": 14.9,
+   "same": true,
+   "used": true
+  },
+  {
+   "n": 10000,
+   "plain": 602,
+   "first": 612,
+   "second": 170,
+   "ratio": 3.6,
+   "same": true,
+   "used": true
+  },
+  {
+   "n": 30000,
+   "plain": 1336,
+   "first": 1314,
+   "second": 547,
+   "ratio": 2.4,
+   "same": true,
+   "used": true
+  }
+ ]
+}

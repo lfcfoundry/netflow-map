@@ -2,7 +2,7 @@
  * Netflow Map app, part 9: the tuning test (a question at first start, a card on the Advanced tab, and the saved results used by the graphics-card path).
  * Copyright (c) 2026 LFC Foundry. MIT License.
  */
-var TUNE_KEY = 'nfm-tune', TUNE_ASK = 'nfm-tune-ask';
+var TUNE_KEY = 'nfm-tune', TUNE_ASK = 'nfm-tune-ask', SAVE_LAYOUTS_KEY = 'nfm-save-layouts';
 function loadTune() { try { var t = JSON.parse(LS.get(TUNE_KEY) || 'null'); return t && t.v === NFMTune.VERSION ? t : null; } catch (e) { return null; } }
 S.tune = loadTune();
 /** The advice text for an arrangement, using what is known about this computer's graphics card and the saved timings. */
@@ -80,6 +80,16 @@ function tuneCard() {
   if (t) { kids.push(h('div', { class: 'verdict ok' }, t.verdict || 'Settings saved.')); var tb = tuneResultTable({ rows: t.rows }); if (tb) kids.push(tb); kids.push(h('p', { class: 'muted small', style: { margin: 0 } }, 'Tested ' + (t.when || '').slice(0, 10) + (S.tune.key !== NFMTune.deviceKey(t.card && t.card.info) ? ' (this browser or computer looks different now: running the test again is a good idea)' : '') + '.')); }
   else kids.push(h('p', { class: 'muted small', style: { margin: 0 } }, 'Not tested yet. Without a test the built-in guesses are used.'));
   kids.push(h('div', { class: 'row' }, [btn, t ? h('button', { onclick: function () { LS.del(TUNE_KEY); applyTune(null); renderAdv(); } }, 'Forget the results') : null]), out);
+  return h('div', { class: 'card' }, kids);
+}
+/** The card on the Advanced tab for saved pictures of big Network maps (kept in this browser only; one switch and one button). */
+function savedLayoutsCard() {
+  var info = h('p', { class: 'muted small', style: { margin: 0 } }, ''), st = client && client.store;
+  var kids = [h('h2', null, 'Saved pictures of big maps'),
+    h('p', { class: 'muted small', style: { margin: 0 } }, 'A Network map of 1,500 items or more takes a moment to arrange. The finished picture is kept in this browser, so opening the same map again is quick. Nothing leaves this computer.'),
+    check('Keep pictures of big maps in this browser', LS.get(SAVE_LAYOUTS_KEY) !== '0', function (on) { LS.set(SAVE_LAYOUTS_KEY, on ? '1' : '0'); client.store = on && typeof NFMLayoutStore !== 'undefined' ? NFMLayoutStore.open() : null; renderAdv(); }), info];
+  if (st) st.info().then(function (i) { info.textContent = i.error ? 'This browser does not allow saving here.' : i.count ? i.count + (i.count === 1 ? ' picture' : ' pictures') + ' saved, ' + (i.bytes / 1048576).toFixed(1) + ' MB.' : 'No pictures saved yet.'; });
+  kids.push(h('div', { class: 'row' }, [h('button', { onclick: function () { var s2 = client.store || (typeof NFMLayoutStore !== 'undefined' ? NFMLayoutStore.open() : null); (s2 ? s2.clear() : Promise.resolve()).then(renderAdv); } }, 'Forget saved pictures')]));
   return h('div', { class: 'card' }, kids);
 }
 /** At start-up: ask once (not in automatic test runs unless ?tune=ask). */

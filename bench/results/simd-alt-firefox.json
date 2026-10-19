@@ -1,0 +1,72 @@
+{
+ "version": "firefox/158.0",
+ "reps": 7,
+ "rows": [
+  {
+   "arr": "stress",
+   "n": 1000,
+   "js": 90,
+   "wasm": 79,
+   "ratio": 1.14,
+   "diff": 0,
+   "used": {
+    "calls": 16
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 5000,
+   "js": 268,
+   "wasm": 220,
+   "ratio": 1.13,
+   "diff": 0,
+   "used": {
+    "calls": 64
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 15000,
+   "js": 424,
+   "wasm": 406,
+   "ratio": 1,
+   "diff": 0,
+   "used": {
+    "calls": 144
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 1000,
+   "js": 89,
+   "wasm": 77,
+   "ratio": 1.14,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 5000,
+   "js": 544,
+   "wasm": 546,
+   "ratio": 1.01,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  },
+  {
+   "arr": "stressBest",
+   "n": 15000,
+   "js": 3699,
+   "wasm": 3733,
+   "ratio": 0.99,
+   "diff": 0,
+   "used": {
+    "calls": 160
+   }
+  }
+ ]
+}
