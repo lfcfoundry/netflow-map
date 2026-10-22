@@ -1,0 +1,17 @@
+{
+ "version": "chromium 155.0.8059.39",
+ "reps": 7,
+ "rows": [
+  {
+   "n": 20000,
+   "nodes": 20000,
+   "oldFirst": 175.5,
+   "newFirst": 160.20000000001164,
+   "oldAgain": 154,
+   "newAgain": 147.60000000000582,
+   "oldLater": 112.60000000000582,
+   "newLater": 109.39999999999418,
+   "same": true
+  }
+ ]
+}

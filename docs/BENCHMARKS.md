@@ -1560,6 +1560,34 @@ Size: 327,339 → 331,896 bytes (+4,557, 1.4% larger; higher is worse). The plai
 
 **Plain reading.** Letting go of an item on a big map used to freeze the page for about a tenth to a fifth of a second (Chromium 107 ms, Firefox 203 ms); now it takes 2 to 3 ms there. In the two WebKit browsers the remaining 18 to 20 ms is the drawing of the next frames, as for the move itself.
 
+## 35. netflow-layers 1.3.0 to 1.3.1: faster Flow, Down, Spine and Lanes layouts (2026-10-22)
+
+**What.** `vendor/netflow-layers.js` is now an exact copy of JS-modules netflow-layers 1.3.1 (main 143e758, PR 110): the inner work of the layered engine runs on flat number lists instead of many small lists. Same drawing, same options.
+
+**Same layout.** `bench/layers-same.js` runs the app's own engine with each version over 576 layouts (Flow, Down, Spine and Lanes; simple, moderate and complex random maps of 40, 220 and 900 pages, two seeds; story order, tags, bundled links, better untangling, wide spread, folded chapters) and compares a digest of each whole layout: 0 differ (16 are too big for both and refused alike). `bench/layers-alt.js` compares the same digest on every timed run below: all yes.
+
+**Method.** `bench/layers-alt.js`: the app's engine with the old module against the new one, a Flow layout, a FRESH page each time, taking turns, 7 pages per version, medians; main-thread milliseconds (lower is better; ratio = old / new, higher is better). "First" is the first layout of the page, "after a moment" one made when the page has been open a moment. The app refuses a Flow layout of the generator's 5,000-page moderate maps (about 3 links per page; over 90,000 stops), so 3,000 pages is the largest of those; the 20,000-page row is a plain tree.
+
+| First layout, old to new (ms) | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| 300 pages | 17 to 16 (1.04) | 25 to 18 (1.39) | 14 to 13 (1.08) | 18 to 13 (1.38) |
+| 1,000 pages | 82 to 53 (1.56) | 88 to 58 (1.52) | 69 to 40 (1.73) | 71 to 42 (1.69) |
+| 2,000 pages | 170 to 122 (1.40) | 192 to 125 (1.54) | 174 to 103 (1.69) | 162 to 93 (1.74) |
+| 3,000 pages | 447 to 248 (1.80) | 551 to 294 (1.87) | 469 to 211 (2.22) | 454 to 215 (2.11) |
+| 20,000 pages (tree) | 176 to 160 (1.10) | 207 to 190 (1.09) | 166 to 136 (1.22) | 150 to 136 (1.10) |
+
+| Layout after a moment, old to new (ms) | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| 300 pages | 10 to 8 (1.21) | 10 to 8 (1.25) | 9 to 6 (1.50) | 9 to 6 (1.50) |
+| 1,000 pages | 55 to 29 (1.88) | 68 to 33 (2.06) | 50 to 28 (1.79) | 51 to 28 (1.82) |
+| 2,000 pages | 143 to 84 (1.70) | 166 to 95 (1.75) | 147 to 75 (1.96) | 139 to 71 (1.96) |
+| 3,000 pages | 396 to 205 (1.93) | 525 to 265 (1.98) | 450 to 180 (2.50) | 457 to 188 (2.43) |
+| 20,000 pages (tree) | 113 to 109 (1.03) | 129 to 126 (1.02) | 109 to 95 (1.15) | 104 to 95 (1.09) |
+
+Cells below the 5% speed guard (second layout in the same page, which the files also hold): Chromium 300 pages 12 to 15 ms (0.79) and Firefox 20,000-page tree 143 to 150 ms (0.95); both are millisecond-sized noise-level cells and the first-layout and after-a-moment cells for the same sizes are faster or level.
+
+**Plain reading.** Layered views of a few thousand pages take 1.4 to 2.5 times less time on the main thread; a plain 20,000-page tree gains only 2 to 22%. Pictures are unchanged. The page file grows 0.19% (999,600 to 1,001,498 bytes).
+
 ## Reproduce
 
 ```
@@ -1581,6 +1609,7 @@ node startup.js chromium                              # or: firefox, webkit, epi
 node move-alt.js chromium                             # or: firefox, webkit, epiphany; moving items in place against rebuilding (section 30)
 node longtasks.js chromium                            # or: firefox, webkit, epiphany; the long stretches of a run, step by step (NFM_METHOD=webgl2, NFM_STEP)
 node drop.js chromium                                 # or: firefox, webkit, epiphany; the drop after moving an item with the links packed, the build before against this one (section 34)
+node layers-alt.js chromium                           # or: firefox, webkit, epiphany; the Flow layout with the older netflow-layers against the newer (section 35); layers-same.js is the all-views same-layout gate (Node)
 node first-move.js chromium                           # or: firefox, webkit, epiphany; the first move of an item with the links packed, the build before against this one (section 33)
 node sankey-alt.js chromium                           # or: firefox, webkit, epiphany; netflow-sankey 2.2.1 against 2.3.0 in the app's own build (section 31)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)
