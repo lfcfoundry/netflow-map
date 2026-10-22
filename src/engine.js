@@ -17,6 +17,7 @@ var NFMEngine = (function () {
   var C = typeof NFMColumns !== 'undefined' ? NFMColumns : require('./columns.js');
   var SK = typeof NetflowSankey !== 'undefined' ? NetflowSankey : (typeof require === 'function' ? require('../vendor/netflow-sankey.js') : null);
   var MAP_W = 176, MAP_H = 56;
+  var MAX_STOPS = 250000;   /* the largest layered drawing (pages plus the stand-in stops on long links) the Flow, Down, Spine and Lanes views will build; the module's own limit is 90,000. About 6,500 pages of a 3-links-per-page map: layout 0.6 s in the worker, 100 MB */
   var LN10 = Math.LN10;
 
   /* ---------------------------------------------------------------- small tools */
@@ -2143,7 +2144,7 @@ var NFMEngine = (function () {
     G.nodes.forEach(function (n) { laneOfBox[n.id] = laneIdx.get(cls[n.id]); });
     var root = P.start >= 0 ? G.groupOf[P.start] : undefined, prev = o.prev || undefined, Lr;
     /* optional layered-drawing choices (all off by default, so the picture is the old one): see layered() */
-    var LO = { rows: o.rows === 'story' ? 'story' : undefined, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined };
+    var LO = { rows: o.rows === 'story' ? 'story' : undefined, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
     var withLO = function (x) { return Object.assign(x, LO); };
     /* top to bottom (and the Flow view turned that way): a map more than about twice as tall as wide can be cut into columns (o.wrap) */
     var downLanes = view === 'down' && o.downLanes && laneNames.length > 1;
