@@ -91,7 +91,7 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - `tools/build-engine-module.mjs`, `tools/check-engine-module.mjs`: cut the engine into the standalone JS-modules file `netflow-engine.js` and prove it lays out exactly the same
 - `src/pack.js`: sends a big layout from the helper to the page as typed-array columns instead of copying every object
 - `src/app/*.js` (joined in file-name order into one function), `src/app.css`, `src/index.template.html`: the page (00 core, 10 data, 20 nodes, 30 map, 32 interact, 35 rail, 40 states, 50 check, 60 advanced, 61 simulation, 70 export, 72 gif, 99 boot)
-- `vendor/`: `netflow-layers.js` (the layered drawing; exact copy of JS-modules netflow-layers 1.3.0), `netflow-sankey.js` (the Sankey layout; exact copy of JS-modules netflow-sankey 2.2.1), `memory-compression.js` (exact copy of JS-modules memory-compression 2.0.3; the build sets `MEMORY_COMPRESSION_NO_EVAL` so it never probes `new Function`, which the page does not allow), `env-probes.js` and `back-close.js` from [JS-modules](https://github.com/lfcfoundry/JS-modules); `story-map.global.js` is only the test oracle, it is not shipped in `index.html`
+- `vendor/`: `netflow-layers.js` (the layered drawing; exact copy of JS-modules netflow-layers 1.3.1), `netflow-sankey.js` (the Sankey layout; exact copy of JS-modules netflow-sankey 2.3.0), `memory-compression.js` (exact copy of JS-modules memory-compression 2.0.3; the build sets `MEMORY_COMPRESSION_NO_EVAL` so it never probes `new Function`, which the page does not allow), `env-probes.js` and `back-close.js` from [JS-modules](https://github.com/lfcfoundry/JS-modules); `story-map.global.js` is only the test oracle, it is not shipped in `index.html`
 
 ## Known limits
 

@@ -1,0 +1,17 @@
+{
+ "version": "Epiphany 46.5",
+ "reps": 7,
+ "rows": [
+  {
+   "n": 20000,
+   "nodes": 20000,
+   "oldFirst": 150,
+   "newFirst": 136,
+   "oldAgain": 126,
+   "newAgain": 122.99999999999997,
+   "oldLater": 104,
+   "newLater": 95,
+   "same": true
+  }
+ ]
+}

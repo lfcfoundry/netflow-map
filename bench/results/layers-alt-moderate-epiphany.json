@@ -1,0 +1,50 @@
+{
+ "version": "Epiphany 46.5",
+ "reps": 7,
+ "rows": [
+  {
+   "n": 300,
+   "nodes": 300,
+   "oldFirst": 18.000000000000004,
+   "newFirst": 12.999999999999996,
+   "oldAgain": 12,
+   "newAgain": 11,
+   "oldLater": 8.999999999999986,
+   "newLater": 6,
+   "same": true
+  },
+  {
+   "n": 1000,
+   "nodes": 1000,
+   "oldFirst": 71,
+   "newFirst": 42,
+   "oldAgain": 62.999999999999986,
+   "newAgain": 43,
+   "oldLater": 51,
+   "newLater": 28,
+   "same": true
+  },
+  {
+   "n": 2000,
+   "nodes": 1999,
+   "oldFirst": 162,
+   "newFirst": 93,
+   "oldAgain": 161.99999999999997,
+   "newAgain": 92,
+   "oldLater": 139,
+   "newLater": 71,
+   "same": true
+  },
+  {
+   "n": 3000,
+   "nodes": 2999,
+   "oldFirst": 454.0000000000001,
+   "newFirst": 215.00000000000006,
+   "oldAgain": 505.0000000000001,
+   "newAgain": 228.99999999999994,
+   "oldLater": 457.0000000000002,
+   "newLater": 188,
+   "same": true
+  }
+ ]
+}
