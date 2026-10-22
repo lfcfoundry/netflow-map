@@ -1523,6 +1523,24 @@ Hop error (lower is truer), old → new, the same in all four browsers to within
 
 Size: 327,339 → 331,896 bytes (+4,557, 1.4% larger; higher is worse). The plain page is 997,825 bytes (was 974,757), the fast copy 376,020 (was 365,772) and the LZMA copy 331,896 (was 321,824); most of the growth is item moves (section 30) and the 2.3.0 Sankey module.
 
+## 33. The first move of an item no longer unpacks the whole link list (2026-10-22)
+
+**What.** On a big map the links are stored packed after the page has sat idle (30-second-class memory saving, `curveStore` in src/scene.js). The in-place item move of section 30 read every link as an object to find which links touch the moved item, so the first move woke the whole packed list (31,026 link objects on a 10,000-item map) and left garbage for the collector. Now the scene answers three questions from the packed arrays without making objects (`S.curveEnds`: which two items each link joins; `S.curvesStraight`: is every link a plain straight line; `S.curveHasBox`), writes a moved link's line straight into the packed arrays (`S.setCurveLine`) and hands the renderer one reused view per changed link (`S.curveView`, no garbage). The list stays packed through the whole drag. Positions are 32-bit floats in the packed list, which is what the graphics card gets anyway.
+
+**Method.** `bench/first-move.js`: the page of the build before (2026.10.18.2342, `git show origin/main:index.html`) against the page with this change, in a FRESH page each time, taking turns, 9 pages per version (15 for WebKitGTK, repeated because its timer counts whole milliseconds); a 10,000-item, 31,026-link Network map, links packed with `packNow()`, WebGL drawing, main-thread milliseconds of the move plus the picture work of the next two frames (graphics-card waits not counted). Medians; lower is better; ratio = old / new (higher is better).
+
+| Main-thread ms | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| first move, old page | 18.9 | 20.0 | 30.0 | 28.0 |
+| first move, new page | 8.4 | 6.0 | 23.0 | 24.0 |
+| ratio (higher is better) | 2.2 | 3.3 | 1.3 | 1.2 |
+| second move, old page | 3.1 | 2.0 | 19.0 | 18.0 |
+| second move, new page | 2.5 | 2.0 | 19.0 | 18.0 |
+
+**Pictures.** `test/browser.test.js` now packs the links before the in-place move and checks the list is still packed afterwards, then compares with a full rebuild in Canvas 2D, WebGL 2 and WebGPU: 0.000/255 difference. `test/move-nodes.test.js` compares a packed, moved scene with a new scene packed the same way, exactly.
+
+**Plain reading.** The hitch at the start of a drag is 1.2 to 3.3 times shorter; Chromium and Firefox are at 8.4 and 6.0 ms (Chromium is at the 8 ms line). Later moves are unchanged within noise (an early 22 ms against 18 ms WebKitGTK reading was timer noise: 19 against 19 with 15 pages). In the two WebKit browsers the rest of the first move is the drawing itself, as in section 30.
+
 ## Reproduce
 
 ```
@@ -1543,6 +1561,7 @@ node storage-probe.js chromium                        # or: firefox, webkit, epi
 node startup.js chromium                              # or: firefox, webkit, epiphany; how long the plain, fast and LZMA copies take to open; add a seventh argument (an older packer's LZMA copy) to take turns with it (sections 28 and 32)
 node move-alt.js chromium                             # or: firefox, webkit, epiphany; moving items in place against rebuilding (section 30)
 node longtasks.js chromium                            # or: firefox, webkit, epiphany; the long stretches of a run, step by step (NFM_METHOD=webgl2, NFM_STEP)
+node first-move.js chromium                           # or: firefox, webkit, epiphany; the first move of an item with the links packed, the build before against this one (section 33)
 node sankey-alt.js chromium                           # or: firefox, webkit, epiphany; netflow-sankey 2.2.1 against 2.3.0 in the app's own build (section 31)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)
 node ../test/force3d.test.js                      # 3D force: hop error at 3,000 items, not flat, robust cases (section 20)
