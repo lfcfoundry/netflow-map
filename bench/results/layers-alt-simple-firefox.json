@@ -1,0 +1,17 @@
+{
+ "version": "firefox/158.0",
+ "reps": 7,
+ "rows": [
+  {
+   "n": 20000,
+   "nodes": 20000,
+   "oldFirst": 207,
+   "newFirst": 190,
+   "oldAgain": 143,
+   "newAgain": 150,
+   "oldLater": 129,
+   "newLater": 126,
+   "same": true
+  }
+ ]
+}

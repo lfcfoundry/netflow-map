@@ -1,0 +1,50 @@
+{
+ "version": "firefox/158.0",
+ "reps": 7,
+ "rows": [
+  {
+   "n": 300,
+   "nodes": 300,
+   "oldFirst": 25,
+   "newFirst": 18,
+   "oldAgain": 16,
+   "newAgain": 13,
+   "oldLater": 10,
+   "newLater": 8,
+   "same": true
+  },
+  {
+   "n": 1000,
+   "nodes": 1000,
+   "oldFirst": 88,
+   "newFirst": 58,
+   "oldAgain": 73,
+   "newAgain": 43,
+   "oldLater": 68,
+   "newLater": 33,
+   "same": true
+  },
+  {
+   "n": 2000,
+   "nodes": 1999,
+   "oldFirst": 192,
+   "newFirst": 125,
+   "oldAgain": 165,
+   "newAgain": 118,
+   "oldLater": 166,
+   "newLater": 95,
+   "same": true
+  },
+  {
+   "n": 3000,
+   "nodes": 2999,
+   "oldFirst": 551,
+   "newFirst": 294,
+   "oldAgain": 522,
+   "newAgain": 278,
+   "oldLater": 525,
+   "newLater": 265,
+   "same": true
+  }
+ ]
+}
