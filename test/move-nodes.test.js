@@ -9,6 +9,15 @@ const graph = GEN.graph('moderate', 1500, 5), OPT = { view: 'network', arrange: 
 const mkL = () => E.build(derive(graph), OPT);
 const look = (S) => JSON.stringify({ dots: S.dots, curves: S.curves, labels: S.labels, icons: S.icons, nodes: S.nodes.map((n) => [n.i, n.key, n.x, n.y, n.w, n.h]) });
 const rng = (s) => () => (s = (s * 16807) % 2147483647) / 2147483647;
+const settledSame = (S1, S2, L) => {
+  const wasPacked = S1.curvesPacked(); ok(S1.settleMoves(), 'the drop should settle in place'); ok(S1.curvesPacked() === wasPacked, 'settling the drop must not unpack the list');
+  ok(S1.x0 === S2.x0 && S1.y0 === S2.y0 && S1.w === S2.w && S1.h === S2.h, 'outer box differs: ' + [S1.x0, S1.y0, S1.w, S1.h] + ' vs ' + [S2.x0, S2.y0, S2.w, S2.h]);
+  const grid = (S) => { SC.pick(S, 0, 0, 0); return JSON.stringify([S.grid.cell, S.grid.cols, S.grid.rows, Array.from(S.grid.map.entries()).sort((a, b) => a[0] - b[0])]); };
+  ok(grid(S1) === grid(S2), 'pick grid differs');
+  const r = rng(5); let hits = 0;
+  for (let k = 0; k < 400; k++) { const n = L.nodes[Math.floor(r() * L.nodes.length)], x = n.cx + (r() - 0.5) * 30, y = n.cy + (r() - 0.5) * 30, a = JSON.stringify(SC.pickEdge(S1, x, y, 6)), b = JSON.stringify(SC.pickEdge(S2, x, y, 6)); ok(a === b, 'link under the pointer differs at ' + x + ',' + y); if (a !== 'null' && a !== '-1') hits++; }
+  return hits;
+};
 t('moved items give the same dots, names and links as building the picture again', () => {
   const L1 = mkL(), S1 = SC.make(L1, {}); ok(L1.edges.length >= 600 && typeof S1.moveNodes === 'function', 'this map should be big enough for the fast path (' + L1.edges.length + ' links)');
   const r = rng(7), placed = new Map(); let touched = 0;
@@ -18,7 +27,8 @@ t('moved items give the same dots, names and links as building the picture again
   }
   const L2 = mkL(); placed.forEach((p, q) => { L2.nodes[q].cx = p[0]; L2.nodes[q].cy = p[1]; }); const S2 = SC.make(L2, {});
   const a = look(S1), b = look(S2); ok(a === b, 'the moved picture differs from a new picture (' + a.length + ' vs ' + b.length + ' characters)');
-  return touched + ' links moved';
+  const hits = settledSame(S1, S2, L2);
+  return touched + ' links moved, outer box, pick grid and link hover the same as a new picture (' + hits + ' link hits compared)';
 });
 t('moving items leaves a packed link list packed, and gives the same picture as packing a new one', () => {
   const L1 = mkL(), S1 = SC.make(L1, {}); ok(S1.packNow(), 'the links should pack'); ok(S1.curvesPacked(), 'packed before the moves');
@@ -30,6 +40,7 @@ t('moving items leaves a packed link list packed, and gives the same picture as 
   }
   const L2 = mkL(); placed.forEach((p, q) => { L2.nodes[q].cx = p[0]; L2.nodes[q].cy = p[1]; }); const S2 = SC.make(L2, {}); ok(S2.packNow(), 'the new picture packs');
   const a = look(S1), b = look(S2); ok(a === b, 'the moved packed picture differs from a new packed picture (' + a.length + ' vs ' + b.length + ' characters)');
+  settledSame(S1, S2, L2);
 });
 t('a map with an arrow-bearing or small picture does not use the fast path', () => {
   const small = E.build(derive(GEN.graph('moderate', 120, 3)), OPT), S = SC.make(small, {}); ok(typeof S.moveNodes !== 'function', 'small maps are built again, which is quick');

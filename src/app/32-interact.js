@@ -154,6 +154,12 @@ function moveInPlace(ids, slot, key) {
   if (!(r.patch && r.patch(sc, dirty)) && r.setScene) r.setScene(sc);
   requestDraw(); return true;
 }
+/** The drop after moving items in place: the outer box, pick grid and link hover index are worked out again for the new places (a few milliseconds) instead of building the whole picture again (about a tenth of a second at 10,000 items). Falls back to building it again when the picture cannot. Returns whether it settled in place. */
+function settleDrop() {
+  var sc = S.scene;
+  if (sceneQueued || !sc || !sc.settleMoves || !sc.settleMoves()) { scheduleScene(); return false; }
+  DOTS.sc = null; MM.sc = null; requestDraw(); return true;
+}
 /** Moves items to given places the way a drag does (for tests and scripts): list = [[id, x, y], ...]. Returns {fast}: whether the in-place way was used. */
 function moveItems(list, rebuild) {
   if (!S.L || S.L.view !== 'network' || S.L.is3d) return { fast: false };
@@ -163,7 +169,7 @@ function moveItems(list, rebuild) {
   var fast = !rebuild && moveInPlace(ids, slot, key); if (!fast) scheduleScene();
   return { fast: fast };
 }
-function endNodeDrag() { var was = DRAG; DRAG = null; if (was && was.sk) { skEndDrag(); return; } if (was && was.fast) scheduleScene(); /* the picture's outer box, pick grid and link store were left as they were while moving: build it properly once */ saveView(); renderMapUI(); }
+function endNodeDrag() { var was = DRAG; DRAG = null; if (was && was.sk) { skEndDrag(); return; } if (was && was.fast) settleDrop(); /* the picture's outer box, pick grid and link hover index were left as they were while moving: work them out again once */ saveView(); renderMapUI(); }
 function setPins(map) { var key = pinKey(); S.V.pins[key] = Object.assign(S.V.pins[key] || {}, map); saveView(); makeScene(false); }
 function clearPins(ids) {
   var key = pinKey(), pins = S.V.pins[key]; if (!pins) return;
