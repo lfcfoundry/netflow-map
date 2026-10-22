@@ -51,10 +51,10 @@ var NFMRender = (function () {
   var PATCH = new Float32Array(MESH_STRIDE * 6), PATCH_MAX = 4000;
   /** Rewrites just the dots and links that were moved (dirty = {dots, curves}: sets of positions in S.dots and S.curves) straight into the graphics-memory buffers. write(which, byteOffset, Float32Array) does the send. False when the picture is not laid out so that this works (then the page sends it all). */
   function patchBuffers(S, T, dirty, write) {
-    if (!T || !T.uni || !dirty || T.nDots !== S.dots.length || T.nCurves !== S.curves.length || dirty.dots.size + dirty.curves.size > PATCH_MAX) return false;
-    var dr = new Float32Array(SHAPE_STRIDE), cs = S.curves;
+    if (!T || !T.uni || !dirty || T.nDots !== S.dots.length || T.nCurves !== (S.curveCount ? S.curveCount() : S.curves.length) || dirty.dots.size + dirty.curves.size > PATCH_MAX) return false;
+    var dr = new Float32Array(SHAPE_STRIDE), cs = S.curveView ? null : S.curves;
     dirty.dots.forEach(function (i) { dotRec(dr, S.dots[i]); write('front', (T.dot0 + i) * SHAPE_STRIDE * 4, dr); });
-    dirty.curves.forEach(function (j) { segRec(PATCH, 0, cs[j]); write('mesh', j * 6 * MESH_STRIDE * 4, PATCH); });
+    dirty.curves.forEach(function (j) { segRec(PATCH, 0, cs ? cs[j] : S.curveView(j)); write('mesh', j * 6 * MESH_STRIDE * 4, PATCH); });
     return true;
   }
   /** Turns a scene into flat arrays: back shapes, mesh (lines, arrows, ribbons), front shapes. a = item alpha from restyle. */

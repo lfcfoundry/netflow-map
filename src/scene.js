@@ -208,6 +208,33 @@ var NFMScene = (function () {
     S.curveAt = function (i) { return pk ? (i >= 0 && i < pk.M ? makeOne(i) : undefined) : objs[i]; };
     S.eachCurve = function (fn) { var i, n; if (!pk) { objs.forEach(fn); return; } for (i = 0, n = pk.M; i < n; i++) fn(makeOne(i), i); };
     S.curvesPacked = function () { return !!pk; };
+    /* for moving items on a big map without waking the packed list: which two items each link joins (positions in L.nodes; null when a link names an unknown item), whether every link is a plain straight line, whether a link has a box, and a write of one link's line (and box) that goes into whichever form the list is in */
+    S.curveEnds = function (idxOf) {
+      var M = pk ? pk.M : objs.length, out = new Int32Array(M * 2), i, c, a, b;
+      if (pk) { for (i = 0; i < M; i++) { out[i * 2] = pk.FR[i]; out[i * 2 + 1] = pk.TO[i]; } return out; }
+      for (i = 0; i < M; i++) { c = objs[i]; a = idxOf.get(c.from); b = idxOf.get(c.to); if (a === undefined || b === undefined) return null; out[i * 2] = a; out[i * 2 + 1] = b; }
+      return out;
+    };
+    S.curvesStraight = function () {
+      var M = pk ? pk.M : objs.length, i, c;
+      if (pk) { for (i = 0; i < M; i++) if ((pk.FL[i] & 3) !== 2 || pk.DASH[i] !== 0) return false; return true; }
+      for (i = 0; i < M; i++) { c = objs[i]; if (!(c.line && !c.dash && !c.arrow && c.w1 === undefined && c.P.length === 8)) return false; }
+      return true;
+    };
+    /* one link for reading at once (the renderer's changed links): the live object when the list is not packed, otherwise a single object filled in again on every call, so it makes no garbage; do not keep it */
+    var VIEW = { P: [0, 0, 0, 0, 0, 0, 0, 0], color: [0, 0, 0, 0], w: 0, a: undefined };
+    S.curveView = function (i) {
+      var v = VIEW, o, q, k;
+      if (!pk) return objs[i];
+      o = i * 8; q = i * 4; for (k = 0; k < 8; k++) v.P[k] = pk.P[o + k]; for (k = 0; k < 4; k++) v.color[k] = pk.COL[q + k];
+      v.w = pk.W[i]; v.a = (pk.FL[i] & 8) ? undefined : pk.A[i]; return v;
+    };
+    S.curveHasBox = function (i) { return pk ? !(pk.FL[i] & 16) : objs[i].bb !== undefined; };
+    S.setCurveLine = function (i, P, bb) {
+      var k, o, q, c;
+      if (pk) { o = i * 8; for (k = 0; k < 8; k++) pk.P[o + k] = P[k]; if (bb) { q = i * 4; for (k = 0; k < 4; k++) pk.BB[q + k] = bb[k]; } return; }
+      touch++; c = objs[i]; for (k = 0; k < 8; k++) c.P[k] = P[k]; if (bb) c.bb = bb;
+    };
     S.autoPack = function (o) { auto = { delay: o.delay === undefined ? 4000 : o.delay, min: o.min === undefined ? 20000 : o.min, hold: o.hold, alive: o.alive, packed: o.packed }; arm(); };
     /* packs everything now (tests, and callers that want the memory back at once); true when done, false when something is not a plain link */
     S.packNow = function () { if (pk) return true; if (!objs || !objs.length) return false; if (timer) { clearTimeout(timer); timer = 0; } start(); var r = step(job.M); if (r === null) { job = null; refused = touch; return false; } finish(); return true; };
@@ -875,16 +902,15 @@ var NFMScene = (function () {
   var FAST_MOVE_MIN = 600;
   /** Moving items by hand on a big flat map: S.moveNodes(moves) puts the dots, icons, names and straight links of the moved items where they now belong, in place, and says what changed ({dots, curves}: lists of positions in S.dots and S.curves), so the page can send just those to the graphics card instead of building and sending the whole picture for every mouse move. Returns null when this picture cannot do it (a link that is not one plain straight piece, an arrow). The picture's outer box, pick grid and packed link store are left as they were: the page builds the picture again once the item is let go. moves: [[position in L.nodes, x, y], ...]. */
   function attachMove(S, L, FM, recs, idxOf) {
-    var adj = null, ok = null;
+    var adj = null, ok = null, LINE = new Array(8);
     function prepare() {
-      var cs = S.curves, n = L.nodes.length, cnt = new Int32Array(n + 1), j, c, a, b;
-      for (j = 0; j < cs.length; j++) {
-        c = cs[j]; if (!(c.line && !c.dash && !c.arrow && c.w1 === undefined && c.P.length === 8)) return false;
-        a = idxOf.get(c.from); b = idxOf.get(c.to); if (a === undefined || b === undefined) return false; cnt[a + 1]++; cnt[b + 1]++;
-      }
+      var n = L.nodes.length, cnt = new Int32Array(n + 1), j, a, b, M, ends;
+      if (!S.curveEnds || !S.curvesStraight || !S.curvesStraight()) return false;
+      ends = S.curveEnds(idxOf); if (!ends) return false; M = ends.length >> 1;
+      for (j = 0; j < M; j++) { cnt[ends[j * 2] + 1]++; cnt[ends[j * 2 + 1] + 1]++; }
       for (j = 0; j < n; j++) cnt[j + 1] += cnt[j];
-      var fill = cnt.slice(0, n), list = new Int32Array(cnt[n]), ends = new Int32Array(cs.length * 2);
-      for (j = 0; j < cs.length; j++) { c = cs[j]; a = idxOf.get(c.from); b = idxOf.get(c.to); ends[j * 2] = a; ends[j * 2 + 1] = b; list[fill[a]++] = j; list[fill[b]++] = j; }
+      var fill = cnt.slice(0, n), list = new Int32Array(cnt[n]);
+      for (j = 0; j < M; j++) { a = ends[j * 2]; b = ends[j * 2 + 1]; list[fill[a]++] = j; list[fill[b]++] = j; }
       adj = { start: cnt, list: list, ends: ends }; return true;
     }
     S.moveNodes = function (moves) {
@@ -901,10 +927,10 @@ var NFMScene = (function () {
         for (k = adj.start[q]; k < adj.start[q + 1]; k++) curves.add(adj.list[k]);
       }
       curves.forEach(function (j) {
-        c = S.curves[j]; var s = L.nodes[adj.ends[j * 2]], t = L.nodes[adj.ends[j * 2 + 1]], sr = recs[adj.ends[j * 2]].r, tr = recs[adj.ends[j * 2 + 1]].r;
+        var s = L.nodes[adj.ends[j * 2]], t = L.nodes[adj.ends[j * 2 + 1]], sr = recs[adj.ends[j * 2]].r, tr = recs[adj.ends[j * 2 + 1]].r;
         var dx = t.cx - s.cx, dy = t.cy - s.cy, dd = Math.sqrt(dx * dx + dy * dy) || 1, ex = t.cx - dx / dd * tr, ey = t.cy - dy / dd * tr, sx = s.cx + dx / dd * sr, sy = s.cy + dy / dd * sr;
-        var P = c.P; P[0] = sx; P[1] = sy; P[2] = sx + (ex - sx) / 3; P[3] = sy + (ey - sy) / 3; P[4] = sx + 2 * (ex - sx) / 3; P[5] = sy + 2 * (ey - sy) / 3; P[6] = ex; P[7] = ey;
-        if (c.bb !== undefined) c.bb = [Math.min(sx, ex) - 12, Math.min(sy, ey) - 12, Math.max(sx, ex) + 12, Math.max(sy, ey) + 12];
+        var P = LINE; P[0] = sx; P[1] = sy; P[2] = sx + (ex - sx) / 3; P[3] = sy + (ey - sy) / 3; P[4] = sx + 2 * (ex - sx) / 3; P[5] = sy + 2 * (ey - sy) / 3; P[6] = ex; P[7] = ey;
+        S.setCurveLine(j, P, S.curveHasBox(j) ? [Math.min(sx, ex) - 12, Math.min(sy, ey) - 12, Math.max(sx, ex) + 12, Math.max(sy, ey) + 12] : null);
       });
       return { dots: dots, curves: curves };
     };

@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Each build is stamped
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## October 22
+
+- **2026.10.22.1227** The first grab of an item on a big Network map no longer stalls. Before, picking up an item on a map with tens of thousands of links first unpacked the whole stored link list; now the app moves the links in place and the list stays packed. Main-thread time for the first move on a 10,000-item map with 31,026 links (lower is better): Chromium 18.9 to 8.4 ms (2.2 times faster, higher is better), Firefox 20.0 to 6.0 ms (3.3 times), WebKitGTK 30 to 23 ms (1.3 times), GNOME Web 28 to 24 ms (1.2 times). Later moves are unchanged and pictures are identical. The page file grows 0.1% (997,825 to 998,834 bytes).
+
 ## October 18
 
 - **2026.10.18.2342** Moving an item by hand on a big Network map is much faster: only the item and its links are redrawn, and the picture is identical. Time per move on a 10,000-item map with 31,026 links (lower is better): Chromium 50.8 to 3.4 ms (14.9 times faster, higher is better), Firefox 106 to 3.0 ms (35.3 times), WebKitGTK 50 to 18 ms (2.8 times), GNOME Web 59 to 19 ms (3.1 times). Distances keeps its faster two-pair math above 20,000 items too (1.02 to 1.10 times faster at 30,000 and 60,000 items). The Sankey view uses netflow-sankey 2.3.0 (same pictures, no measurable change in speed on the stories tried). The smallest copy opens 1.18 to 1.32 times sooner (Chromium 140 to 106 ms, Firefox 183 to 155 ms, WebKitGTK 144 to 111 ms, GNOME Web 151 to 122 ms; lower is better). The page file grows 2.4% (974,757 to 997,825 bytes).
