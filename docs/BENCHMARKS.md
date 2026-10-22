@@ -1541,6 +1541,25 @@ Size: 327,339 → 331,896 bytes (+4,557, 1.4% larger; higher is worse). The plai
 
 **Plain reading.** The hitch at the start of a drag is 1.2 to 3.3 times shorter; Chromium and Firefox are at 8.4 and 6.0 ms (Chromium is at the 8 ms line). Later moves are unchanged within noise (an early 22 ms against 18 ms WebKitGTK reading was timer noise: 19 against 19 with 15 pages). In the two WebKit browsers the rest of the first move is the drawing itself, as in section 30.
 
+## 34. Dropping a moved item no longer builds the whole picture again (2026-10-22)
+
+**What.** After you let go of an item moved by hand (sections 30 and 33), the page used to build the whole picture again once (`scheduleScene`) only to refresh three things that the quick move leaves as they were: the picture's outer box, the click grid and the link hover index. Now `S.settleMoves` (src/scene.js) works those three out again from the lists already in place, with the same formulas building the picture uses (`PICTURE_PAD` is shared), and `settleDrop` (src/app/32-interact.js) tells the minimap and the moving-dots list to look again. Nothing is rebuilt, the packed link list stays packed, and the scene keeps its identity. Pictures with parts the quick way does not know (group blobs, a ruler, tag chips) still build the whole picture again.
+
+**Method.** `bench/drop.js`: the build of section 33 (PR 36) against this one, a FRESH page each time, taking turns, 9 pages per version (15 for the two WebKit browsers); a 10,000-item, 31,026-link Network map, links packed, WebGL drawing; one item moved in place, then the drop, then two animation frames; main-thread milliseconds of the drop call plus every animation-frame callback in those two frames (building, buffer work, drawing calls; the wait for the graphics card is not counted). Medians; lower is better; ratio = old / new (higher is better).
+
+| Main-thread ms | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| first drop, old | 106.8 | 203.0 | 84.0 | 84.0 |
+| first drop, new | 2.3 | 3.0 | 19.0 | 20.0 |
+| ratio (higher is better) | 46.4 | 67.7 | 4.4 | 4.2 |
+| second drop, old | 61.1 | 171.0 | 67.0 | 68.0 |
+| second drop, new | 1.0 | 2.0 | 18.0 | 18.0 |
+| ratio (higher is better) | 61.1 | 85.5 | 3.7 | 3.8 |
+
+**Pictures and data.** `test/move-nodes.test.js` moves items, settles, and compares the outer box, the click grid and 400 link-hover probes (333 hits) with a new picture built from the final places: exactly equal, in the packed case too (list still packed). `test/browser.test.js` settles the drop in place, checks the scene is the same object and the outer box equals the rebuilt one, and compares the picture with a full rebuild in Canvas 2D, WebGL 2 and WebGPU: 0.000/255 difference.
+
+**Plain reading.** Letting go of an item on a big map used to freeze the page for about a tenth to a fifth of a second (Chromium 107 ms, Firefox 203 ms); now it takes 2 to 3 ms there. In the two WebKit browsers the remaining 18 to 20 ms is the drawing of the next frames, as for the move itself.
+
 ## Reproduce
 
 ```
@@ -1561,6 +1580,7 @@ node storage-probe.js chromium                        # or: firefox, webkit, epi
 node startup.js chromium                              # or: firefox, webkit, epiphany; how long the plain, fast and LZMA copies take to open; add a seventh argument (an older packer's LZMA copy) to take turns with it (sections 28 and 32)
 node move-alt.js chromium                             # or: firefox, webkit, epiphany; moving items in place against rebuilding (section 30)
 node longtasks.js chromium                            # or: firefox, webkit, epiphany; the long stretches of a run, step by step (NFM_METHOD=webgl2, NFM_STEP)
+node drop.js chromium                                 # or: firefox, webkit, epiphany; the drop after moving an item with the links packed, the build before against this one (section 34)
 node first-move.js chromium                           # or: firefox, webkit, epiphany; the first move of an item with the links packed, the build before against this one (section 33)
 node sankey-alt.js chromium                           # or: firefox, webkit, epiphany; netflow-sankey 2.2.1 against 2.3.0 in the app's own build (section 31)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)

@@ -1,0 +1,162 @@
+{
+ "version": "firefox/158.0",
+ "row": {
+  "items": 10000,
+  "links": 31026,
+  "pairs": 9,
+  "oldFirst": 203,
+  "newFirst": 3,
+  "oldSecond": 171,
+  "newSecond": 2,
+  "fastOk": true,
+  "packedAfterNew": true
+ },
+ "old": [
+  {
+   "first": 79,
+   "second": 86,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 103,
+   "second": 184,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 228,
+   "second": 96,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 152,
+   "second": 171,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 214,
+   "second": 236,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 203,
+   "second": 77,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 185,
+   "second": 290,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 204,
+   "second": 167,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 223,
+   "second": 223,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  }
+ ],
+ "new": [
+  {
+   "first": 4,
+   "second": 1,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 2,
+   "second": 2,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 2,
+   "second": 3,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 4,
+   "second": 1,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 3,
+   "second": 3,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 3,
+   "second": 2,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 0,
+   "second": 2,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 2,
+   "second": 2,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 5,
+   "second": 2,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  }
+ ]
+}

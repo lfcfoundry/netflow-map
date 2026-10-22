@@ -16,6 +16,7 @@
 var NFMScene = (function () {
   'use strict';
   var HEAD = 9;
+  var PICTURE_PAD = 30;   /* empty space kept around the picture */
 
   /* ---------------------------------------------------------------- colors */
   function hex(h, a) {
@@ -362,7 +363,7 @@ var NFMScene = (function () {
       S.labels.push(l);
       return l;
     };
-    var pad = 30;
+    var pad = PICTURE_PAD;
     var nodeLabel = function (n, rec, size) {
       var maxChars = Math.max(6, Math.floor((n.w - 16) / (size * 0.56))), lines = wrap(tx(n), maxChars, n.sub ? 1 : 2);
       var total = lines.length * (size + 3) + (n.sub ? 12 : 0), y0 = n.y + n.h / 2 - total / 2 + size, col = labColor(n, fillOf(n));
@@ -901,7 +902,7 @@ var NFMScene = (function () {
   /* ---------------------------------------------------------------- network view (2D with a fisheye lens, or 3D with a camera) */
   var FAST_MOVE_MIN = 600;
   /** Moving items by hand on a big flat map: S.moveNodes(moves) puts the dots, icons, names and straight links of the moved items where they now belong, in place, and says what changed ({dots, curves}: lists of positions in S.dots and S.curves), so the page can send just those to the graphics card instead of building and sending the whole picture for every mouse move. Returns null when this picture cannot do it (a link that is not one plain straight piece, an arrow). The picture's outer box, pick grid and packed link store are left as they were: the page builds the picture again once the item is let go. moves: [[position in L.nodes, x, y], ...]. */
-  function attachMove(S, L, FM, recs, idxOf) {
+  function attachMove(S, L, FM, recs, idxOf, pad) {
     var adj = null, ok = null, LINE = new Array(8);
     function prepare() {
       var n = L.nodes.length, cnt = new Int32Array(n + 1), j, a, b, M, ends;
@@ -933,6 +934,18 @@ var NFMScene = (function () {
         S.setCurveLine(j, P, S.curveHasBox(j) ? [Math.min(sx, ex) - 12, Math.min(sy, ey) - 12, Math.max(sx, ex) + 12, Math.max(sy, ey) + 12] : null);
       });
       return { dots: dots, curves: curves };
+    };
+    /** After the last move (the drop): the outer box of the picture, the pick grid and the link hover index are worked out again for the new places, from the same lists and in the same way as building the picture does, so the whole picture does not have to be built again. False when this picture has parts the quick way does not know (the caller then builds it again). */
+    S.settleMoves = function () {
+      if (S.tagChips || S.ruler || S.polys.length) return false;
+      var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      S.nodes.forEach(function (n) { if (n.x < x0) x0 = n.x; if (n.y < y0) y0 = n.y; if (n.x + n.w > x1) x1 = n.x + n.w; if (n.y + n.h > y1) y1 = n.y + n.h; });
+      S.rects.forEach(function (r) { if (r.x < x0) x0 = r.x; if (r.y < y0) y0 = r.y; if (r.x + r.w > x1) x1 = r.x + r.w; if (r.y + r.h > y1) y1 = r.y + r.h; });
+      S.dots.forEach(function (d) { if (d.cx - d.r < x0) x0 = d.cx - d.r; if (d.cy - d.r < y0) y0 = d.cy - d.r; if (d.cx + d.r > x1) x1 = d.cx + d.r; if (d.cy + d.r > y1) y1 = d.cy + d.r; });
+      if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 100; y1 = 100; }
+      S.x0 = x0 - pad; S.y0 = y0 - pad; S.w = x1 - x0 + 2 * pad; S.h = y1 - y0 + 2 * pad;
+      S.gridStale = true; S.eidx = null;
+      return true;
     };
   }
   function networkScene(X) {
@@ -1039,7 +1052,7 @@ var NFMScene = (function () {
       if (FM && FM.ico[q] === S.icons.length) FM.ico[q] = -1;
       var lbl = emitLabel(n, q, np, rec, p.px, p.py, r, p.f, fd); if (FM) FM.lab[q] = lbl;
     });
-    if (FM) attachMove(S, L, FM, recs, idxOf);
+    if (FM) attachMove(S, L, FM, recs, idxOf, PICTURE_PAD);
     if (recOf && o.rig && S.icons.length === 0 && m >= (o.rigMin === undefined ? RIG_MIN_LINKS : o.rigMin)) {
       if (ST.rig === undefined) ST.rig = makeRig(L, ST, T, idxOf, rk);
       if (ST.rig) attachTurn(X, ST.rig, { recOf: recOf, dotOf: dotOf, np: ST.nodes, idxOf: idxOf, rk: rk, emitLabel: emitLabel, cam: cam, R3: R3, topN: topN });

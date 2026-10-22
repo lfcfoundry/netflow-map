@@ -1,0 +1,258 @@
+{
+ "version": "MiniBrowser 2.52.6",
+ "row": {
+  "items": 10000,
+  "links": 31026,
+  "pairs": 15,
+  "oldFirst": 83.99999999999977,
+  "newFirst": 18.999999999999773,
+  "oldSecond": 66.99999999999977,
+  "newSecond": 18,
+  "fastOk": true,
+  "packedAfterNew": true
+ },
+ "old": [
+  {
+   "first": 94.99999999999977,
+   "second": 58.999999999999545,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 92,
+   "second": 56.99999999999977,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 108.00000000000023,
+   "second": 69.99999999999977,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 127.00000000000023,
+   "second": 102,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 122,
+   "second": 58,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 79,
+   "second": 75,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 76,
+   "second": 67,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 79,
+   "second": 64,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 70.99999999999977,
+   "second": 71,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 83.99999999999977,
+   "second": 56,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 90.99999999999977,
+   "second": 60.00000000000023,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 83,
+   "second": 66.99999999999977,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 88,
+   "second": 53,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 77.99999999999977,
+   "second": 66.99999999999977,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  },
+  {
+   "first": 70,
+   "second": 68,
+   "fast": true,
+   "packed": true,
+   "packedAfter": false,
+   "links": 31026
+  }
+ ],
+ "new": [
+  {
+   "first": 20,
+   "second": 24,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 25,
+   "second": 22.999999999999773,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 19.000000000000227,
+   "second": 16.999999999999773,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 18.999999999999773,
+   "second": 23.999999999999545,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 19.000000000000227,
+   "second": 18.000000000000227,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 20,
+   "second": 18,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 17,
+   "second": 22.000000000000227,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 24,
+   "second": 18,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 17.999999999999773,
+   "second": 17,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 18.999999999999773,
+   "second": 18,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 22,
+   "second": 20,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 18.999999999999773,
+   "second": 17,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 18,
+   "second": 17,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 18.000000000000227,
+   "second": 17,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  },
+  {
+   "first": 18,
+   "second": 18,
+   "fast": true,
+   "packed": true,
+   "packedAfter": true,
+   "links": 31026
+  }
+ ]
+}
