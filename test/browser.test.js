@@ -352,13 +352,13 @@ async function open() {
       await frames(); const L = NFM.state.L, pick = [5, 77, 400, 1200].map((i) => L.nodes[i]);
       const list = pick.map((n, k) => [n.nodeId || n.id, n.cx + 150 + k * 40, n.cy - 120 + k * 25]);
       const shot = async (key) => { const z = NFM.state.scene, v = { k: 0.5, tx: NFM.state.stageW / 2 - list[0][1] * 0.5, ty: NFM.state.stageH / 2 - list[0][2] * 0.5 }; NFM.state.view = v; m.r.draw(v); const s = m.r.snapshot(); await m.r.flush(); window.__px.keep[key] = s; };
-      const a = NFM.moveItems(list); await frames(); await shot('mv_fast_' + be);
+      const packed = NFM.state.scene.packNow(); const a = NFM.moveItems(list), kept = NFM.state.scene.curvesPacked(); await frames(); await shot('mv_fast_' + be);
       const sc1 = NFM.state.scene; NFM.moveItems(list, true); await frames(); await frames(); await shot('mv_full_' + be);
-      return { fast: a.fast, rebuilt: NFM.state.scene !== sc1 };
+      return { fast: a.fast && packed && kept, rebuilt: NFM.state.scene !== sc1 };
     }, be);
     if (r.err) { say(strict ? false : null, `${be} item moves: ${r.err}`); continue; }
     const c = await ev(([k, b]) => window.__px.cmp(k, b), ['mv_fast_' + be, 'mv_full_' + be]);
-    say(r.fast && r.rebuilt && c.same && c.mean === 0, `${be}: moving 4 items on a 1,500-item map takes the in-place way and draws exactly what a full rebuild draws (mean difference ${c.mean.toFixed(3)}/255)`);
+    say(r.fast && r.rebuilt && c.same && c.mean === 0, `${be}: moving 4 items on a 1,500-item map with the links packed takes the in-place way (list stays packed) and draws exactly what a full rebuild draws (mean difference ${c.mean.toFixed(3)}/255)`);
   }
 
   /* the app's own steps as an example, and the tuning test's question */
