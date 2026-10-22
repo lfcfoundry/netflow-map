@@ -1588,6 +1588,23 @@ Cells below the 5% speed guard (second layout in the same page, which the files 
 
 **Plain reading.** Layered views of a few thousand pages take 1.4 to 2.5 times less time on the main thread; a plain 20,000-page tree gains only 2 to 22%. Pictures are unchanged. The page file grows 0.19% (999,600 to 1,001,498 bytes).
 
+## 36. Flow, Down, Spine and Lanes: the "too many stops" limit raised from 90,000 to 250,000 (2026-10-22)
+
+**What.** The layered engine (`src/engine.js`) used to stop at the netflow-layers default of 90,000 stops (pages plus the stand-in stops on long links), so a Flow map of about 5,000 pages with 3 links per page (about 158,000 stops) was refused with the "too big" message and never drew. `MAX_STOPS = 250000` is now passed as `maxVertices` to the Flow, Down, Spine and Lanes calls (Sankey, arc and matrix are untouched). Layouts below the old limit are unchanged: the limit only decides what is refused.
+
+**Method.** `bench/stops-limit.js`: the app's engine from main against the new one, a first Flow layout (fold off) in a FRESH page, taking turns, 3 pages per version, medians; main-thread milliseconds, lower is better. Generator "moderate" maps, about 3 links per page. "Refused" is the old plain message. `test/stops-limit.test.js` (Node, pass/fail only) checks 5,000 pages build, Spine and Down take 4,000, and 8,000 pages (about 367,000 stops) are still refused in plain words.
+
+| First Flow layout (ms) | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| 3,000 pages (just under the old limit), old to new | 241 to 237 | 497 to 503 | 237 to 247 | 236 to 225 |
+| 5,000 pages (about 158,000 stops), old to new | refused to 576 | refused to 837 | refused to 561 | refused to 513 |
+| 6,500 pages (about 255,000 stops), old to new | refused to 922 | refused to 1,584 | refused to 897 | refused to 837 |
+| 8,000 pages (about 367,000 stops), old to new | refused to refused | refused to refused | refused to refused | refused to refused |
+
+Heap after the layout (Chromium only, MB, lower is better): 72 at 5,000 pages, 180 at 6,500 pages; 250,000 stops was chosen so a phone has room.
+
+**Plain reading.** Maps of 5,000 to about 6,500 pages (with folding off) now draw in 0.5 to 1.6 s where they never drew; maps below the old limit take the same time (3,000 pages: 0.96 to 1.04 of before, noise). Bigger maps are still refused, in plain words. The page file grows by a few bytes.
+
 ## Reproduce
 
 ```
@@ -1610,6 +1627,7 @@ node move-alt.js chromium                             # or: firefox, webkit, epi
 node longtasks.js chromium                            # or: firefox, webkit, epiphany; the long stretches of a run, step by step (NFM_METHOD=webgl2, NFM_STEP)
 node drop.js chromium                                 # or: firefox, webkit, epiphany; the drop after moving an item with the links packed, the build before against this one (section 34)
 node layers-alt.js chromium                           # or: firefox, webkit, epiphany; the Flow layout with the older netflow-layers against the newer (section 35); layers-same.js is the all-views same-layout gate (Node)
+node stops-limit.js chromium                           # or: firefox, webkit, epiphany; the stops limit raised, old engine from main against the new (section 36)
 node first-move.js chromium                           # or: firefox, webkit, epiphany; the first move of an item with the links packed, the build before against this one (section 33)
 node sankey-alt.js chromium                           # or: firefox, webkit, epiphany; netflow-sankey 2.2.1 against 2.3.0 in the app's own build (section 31)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)

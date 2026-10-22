@@ -1,0 +1,46 @@
+{
+ "version": "chromium 155.0.8059.39",
+ "reps": 3,
+ "rows": [
+  {
+   "n": 3000,
+   "old": 240.89999999990687,
+   "oldErr": null,
+   "nw": 237.30000000004657,
+   "newErr": null,
+   "nodes": 2999,
+   "oldHeap": 73.32214736938477,
+   "newHeap": 74.27903747558594
+  },
+  {
+   "n": 5000,
+   "old": "refused",
+   "oldErr": "too big for a layered drawing (158053 st",
+   "nw": 575.5999999998603,
+   "newErr": null,
+   "nodes": 4999,
+   "oldHeap": 104.69722270965576,
+   "newHeap": 72.06923484802246
+  },
+  {
+   "n": 6500,
+   "old": "refused",
+   "oldErr": "too big for a layered drawing (249800 st",
+   "nw": 921.8999999999069,
+   "newErr": null,
+   "nodes": 6500,
+   "oldHeap": 123.75744152069092,
+   "newHeap": 180.31659698486328
+  },
+  {
+   "n": 8000,
+   "old": "refused",
+   "oldErr": "too big for a layered drawing (366647 st",
+   "nw": "refused",
+   "newErr": "too big for a layered drawing (366647 st",
+   "nodes": 0,
+   "oldHeap": 31.649314880371094,
+   "newHeap": 54.48402786254883
+  }
+ ]
+}
