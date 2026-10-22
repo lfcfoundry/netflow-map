@@ -1,0 +1,28 @@
+{
+ "version": "Epiphany 46.5",
+ "reps": 3,
+ "rows": [
+  {
+   "arr": "stress",
+   "n": 30000,
+   "js": 826,
+   "wasm": 780,
+   "ratio": 1.06,
+   "diff": 0,
+   "used": {
+    "calls": 48
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 60000,
+   "js": 1889,
+   "wasm": 1910,
+   "ratio": 1.02,
+   "diff": 0,
+   "used": {
+    "calls": 104
+   }
+  }
+ ]
+}

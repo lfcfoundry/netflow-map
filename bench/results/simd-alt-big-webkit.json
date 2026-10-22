@@ -1,0 +1,28 @@
+{
+ "version": "MiniBrowser 2.52.6",
+ "reps": 3,
+ "rows": [
+  {
+   "arr": "stress",
+   "n": 30000,
+   "js": 910,
+   "wasm": 807,
+   "ratio": 1.1,
+   "diff": 0,
+   "used": {
+    "calls": 48
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 60000,
+   "js": 1928,
+   "wasm": 1853,
+   "ratio": 1.04,
+   "diff": 0,
+   "used": {
+    "calls": 104
+   }
+  }
+ ]
+}

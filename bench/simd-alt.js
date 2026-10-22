@@ -30,6 +30,6 @@ async function inPage(arg) {
   const rows = await D.page.evaluate(inPage, { texts, reps, arrs, sizes }); const version = D.version; await D.close();
   console.log('\n' + version + ' (median of ' + reps + ' alternating pairs after one warm-up pair; milliseconds, lower is better; ratio = one-pair time / SIMD time, above 1 means SIMD is faster)\n\n| arrangement | items | one pair ms | SIMD ms | ratio (higher is better) | largest position difference |\n|---|---|---|---|---|---|');
   rows.forEach((r) => console.log(`| ${r.arr} | ${r.n.toLocaleString('en-US')} moderate | ${r.js} | ${r.wasm} | ${r.ratio} | ${r.diff} |`));
-  fs.writeFileSync(path.join(__dirname, 'results', 'simd-alt-' + which + '.json'), JSON.stringify({ version, reps, rows }, null, 1));
+  fs.writeFileSync(path.join(__dirname, 'results', 'simd-alt-' + (process.env.NFM_TAG ? process.env.NFM_TAG + '-' : '') + which + '.json'), JSON.stringify({ version, reps, rows }, null, 1));
   process.exit(0);
 })();

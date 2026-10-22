@@ -1,0 +1,54 @@
+{
+ "version": "chromium 155.0.8059.39",
+ "reps": 5,
+ "rows": [
+  {
+   "n": 60,
+   "nodes": 60,
+   "oldFirst": 7.099999999976717,
+   "newFirst": 7.399999999906868,
+   "oldAgain": 4.899999999906868,
+   "newAgain": 4.799999999930151,
+   "oldLater": 3.300000000046566,
+   "newLater": 3.299999999930151,
+   "same": true,
+   "wasm": true
+  },
+  {
+   "n": 300,
+   "nodes": 300,
+   "oldFirst": 19.70000000006985,
+   "newFirst": 21.100000000093132,
+   "oldAgain": 15.599999999976717,
+   "newAgain": 15.5,
+   "oldLater": 12.400000000023283,
+   "newLater": 12.199999999953434,
+   "same": true,
+   "wasm": true
+  },
+  {
+   "n": 1000,
+   "nodes": 1000,
+   "oldFirst": 72.30000000004657,
+   "newFirst": 71.69999999995343,
+   "oldAgain": 63.300000000046566,
+   "newAgain": 63.5,
+   "oldLater": 59.800000000046566,
+   "newLater": 53.199999999953434,
+   "same": true,
+   "wasm": true
+  },
+  {
+   "n": 3000,
+   "nodes": 3000,
+   "oldFirst": 391.0999999999767,
+   "newFirst": 378.9000000000233,
+   "oldAgain": 370.4000000000233,
+   "newAgain": 361.80000000004657,
+   "oldLater": 368,
+   "newLater": 351.89999999990687,
+   "same": true,
+   "wasm": true
+  }
+ ]
+}

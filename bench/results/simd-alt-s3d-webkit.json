@@ -1,0 +1,39 @@
+{
+ "version": "MiniBrowser 2.52.6",
+ "reps": 5,
+ "rows": [
+  {
+   "arr": "stress3d",
+   "n": 3000,
+   "js": 47,
+   "wasm": 47,
+   "ratio": 0.95,
+   "diff": 0,
+   "used": {
+    "calls": 0
+   }
+  },
+  {
+   "arr": "stress3d",
+   "n": 10000,
+   "js": 112,
+   "wasm": 114,
+   "ratio": 0.98,
+   "diff": 0,
+   "used": {
+    "calls": 0
+   }
+  },
+  {
+   "arr": "stress3d",
+   "n": 30000,
+   "js": 380,
+   "wasm": 380,
+   "ratio": 1,
+   "diff": 0,
+   "used": {
+    "calls": 0
+   }
+  }
+ ]
+}

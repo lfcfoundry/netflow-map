@@ -872,6 +872,43 @@ var NFMScene = (function () {
   }
 
   /* ---------------------------------------------------------------- network view (2D with a fisheye lens, or 3D with a camera) */
+  var FAST_MOVE_MIN = 600;
+  /** Moving items by hand on a big flat map: S.moveNodes(moves) puts the dots, icons, names and straight links of the moved items where they now belong, in place, and says what changed ({dots, curves}: lists of positions in S.dots and S.curves), so the page can send just those to the graphics card instead of building and sending the whole picture for every mouse move. Returns null when this picture cannot do it (a link that is not one plain straight piece, an arrow). The picture's outer box, pick grid and packed link store are left as they were: the page builds the picture again once the item is let go. moves: [[position in L.nodes, x, y], ...]. */
+  function attachMove(S, L, FM, recs, idxOf) {
+    var adj = null, ok = null;
+    function prepare() {
+      var cs = S.curves, n = L.nodes.length, cnt = new Int32Array(n + 1), j, c, a, b;
+      for (j = 0; j < cs.length; j++) {
+        c = cs[j]; if (!(c.line && !c.dash && !c.arrow && c.w1 === undefined && c.P.length === 8)) return false;
+        a = idxOf.get(c.from); b = idxOf.get(c.to); if (a === undefined || b === undefined) return false; cnt[a + 1]++; cnt[b + 1]++;
+      }
+      for (j = 0; j < n; j++) cnt[j + 1] += cnt[j];
+      var fill = cnt.slice(0, n), list = new Int32Array(cnt[n]), ends = new Int32Array(cs.length * 2);
+      for (j = 0; j < cs.length; j++) { c = cs[j]; a = idxOf.get(c.from); b = idxOf.get(c.to); ends[j * 2] = a; ends[j * 2 + 1] = b; list[fill[a]++] = j; list[fill[b]++] = j; }
+      adj = { start: cnt, list: list, ends: ends }; return true;
+    }
+    S.moveNodes = function (moves) {
+      if (ok === null) ok = prepare();
+      if (!ok) return null;
+      var dots = new Set(), curves = new Set(), i, q, k, mv, n, rec, pr, r, d, ic, lb, j, c;
+      for (i = 0; i < moves.length; i++) {
+        mv = moves[i]; q = mv[0]; n = L.nodes[q]; pr = recs[q]; if (!n || !pr || pr.hide) continue;
+        n.cx = mv[1]; n.cy = mv[2]; pr.px = n.cx; pr.py = n.cy; r = pr.r; rec = FM.box[q]; rec.x = n.cx - r; rec.y = n.cy - r;
+        if (FM.dot[q] >= 0) { d = S.dots[FM.dot[q]]; d.cx = n.cx; d.cy = n.cy; dots.add(FM.dot[q]); }
+        if (FM.chk[q] >= 0) { d = S.dots[FM.chk[q]]; d.cx = n.cx + r * 0.72; d.cy = n.cy - r * 0.72; dots.add(FM.chk[q]); }
+        if (FM.ico[q] >= 0) { ic = S.icons[FM.ico[q]]; ic.cx = n.cx; ic.cy = n.cy; }
+        lb = FM.lab[q]; if (lb) { lb.x = n.cx; lb.y = n.cy + r + 11; }
+        for (k = adj.start[q]; k < adj.start[q + 1]; k++) curves.add(adj.list[k]);
+      }
+      curves.forEach(function (j) {
+        c = S.curves[j]; var s = L.nodes[adj.ends[j * 2]], t = L.nodes[adj.ends[j * 2 + 1]], sr = recs[adj.ends[j * 2]].r, tr = recs[adj.ends[j * 2 + 1]].r;
+        var dx = t.cx - s.cx, dy = t.cy - s.cy, dd = Math.sqrt(dx * dx + dy * dy) || 1, ex = t.cx - dx / dd * tr, ey = t.cy - dy / dd * tr, sx = s.cx + dx / dd * sr, sy = s.cy + dy / dd * sr;
+        var P = c.P; P[0] = sx; P[1] = sy; P[2] = sx + (ex - sx) / 3; P[3] = sy + (ey - sy) / 3; P[4] = sx + 2 * (ex - sx) / 3; P[5] = sy + 2 * (ey - sy) / 3; P[6] = ex; P[7] = ey;
+        if (c.bb !== undefined) c.bb = [Math.min(sx, ex) - 12, Math.min(sy, ey) - 12, Math.max(sx, ex) + 12, Math.max(sy, ey) + 12];
+      });
+      return { dots: dots, curves: curves };
+    };
+  }
   function networkScene(X) {
     var S = X.S, L = X.L, T = X.T, o = X.o, lab = X.lab, addNode = X.addNode, fillOf = X.fillOf, valCol = X.valCol, gcol = X.gcol;
     var m = L.edges.length, arrows = m <= 500, a = X.autoA, n3 = !!L.is3d, cam = o.cam || { yaw: 0.6, pitch: 0.35, persp: 2.4 }, lens = !n3 && o.lens && o.lens.r > 0 ? o.lens : null;
@@ -950,11 +987,13 @@ var NFMScene = (function () {
       if (ST && ST.idxOf) idxOf = ST.idxOf; else { idxOf = new Map(); L.nodes.forEach(function (n, q) { idxOf.set(n.id, q); }); }
       if (ST) { ST.rk = rk; ST.idxOf = idxOf; }
     }
+    /* What moving one item by hand needs (see S.moveNodes below): where each item's dot, choke dot, icon and name sit in the lists. Only for a big flat map of plain straight links with no arrows, hulls, group names or fisheye, where building the whole picture again for every mouse move is the slow part. */
+    var FM = !n3 && !lens && !o.hulls && m >= FAST_MOVE_MIN && !X.LC.groups.show && !ST ? { dot: new Int32Array(L.nodes.length).fill(-1), chk: new Int32Array(L.nodes.length).fill(-1), ico: new Int32Array(L.nodes.length).fill(-1), lab: new Array(L.nodes.length), box: new Array(L.nodes.length) } : null;
     var topN = X.LC.items.topN, recOf = n3 && ST ? new Int32Array(L.nodes.length).fill(-1) : null, dotOf = recOf ? new Int32Array(L.nodes.length).fill(-1) : null;
     /* one item's name under it: the same call for a normal picture and for a turn frame */
     var emitLabel = function (n, q, np, rec, px, py, r, f, fd) {
       var rnk = rk[q], showTop = topN && rnk < topN, fill = n3 ? alpha(np.fill, np.fill[3] * fd) : np.fill;
-      lab(px, py + r + 11 * (n3 ? f : 1), np.text, 11 * (n3 ? Math.max(0.7, f) : 1), np.col || X.labColor(n, fill), { node: rec.i, minK: showTop ? 0.05 : 0.22 * (1 + rnk / 35), bold: rnk < 8 });
+      return lab(px, py + r + 11 * (n3 ? f : 1), np.text, 11 * (n3 ? Math.max(0.7, f) : 1), np.col || X.labColor(n, fill), { node: rec.i, minK: showTop ? 0.05 : 0.22 * (1 + rnk / 35), bold: rnk < 8 });
     };
     list.forEach(function (p) {
       var n = p.n, st = n._st, r = p.r; if (p.hide) return;
@@ -966,11 +1005,15 @@ var NFMScene = (function () {
         if (ST) ST.nodes[q] = np;
       }
       var fill = n3 ? alpha(np.fill, np.fill[3] * fd) : np.fill, kind = np.kind, replace = np.replace;
+      if (FM) { FM.dot[q] = S.dots.length; FM.box[q] = rec; }
       S.dots.push({ cx: p.px, cy: p.py, r: r, fill: replace ? alpha(fill, 0.15) : fill, stroke: np.stroke, sw: np.sw, layer: 1, node: rec.i, kind: kind });
-      if (n.choke) S.dots.push({ cx: p.px + r * 0.72, cy: p.py - r * 0.72, r: Math.max(2.5, r * 0.3), fill: T.gold, stroke: alpha(T.box, 0.9), sw: 1, layer: 1, node: rec.i });
+      if (n.choke) { if (FM) FM.chk[q] = S.dots.length; S.dots.push({ cx: p.px + r * 0.72, cy: p.py - r * 0.72, r: Math.max(2.5, r * 0.3), fill: T.gold, stroke: alpha(T.box, 0.9), sw: 1, layer: 1, node: rec.i }); }
+      if (FM) FM.ico[q] = S.icons.length;
       X.addIcon(n, rec, p.px, p.py, r);
-      emitLabel(n, q, np, rec, p.px, p.py, r, p.f, fd);
+      if (FM && FM.ico[q] === S.icons.length) FM.ico[q] = -1;
+      var lbl = emitLabel(n, q, np, rec, p.px, p.py, r, p.f, fd); if (FM) FM.lab[q] = lbl;
     });
+    if (FM) attachMove(S, L, FM, recs, idxOf);
     if (recOf && o.rig && S.icons.length === 0 && m >= (o.rigMin === undefined ? RIG_MIN_LINKS : o.rigMin)) {
       if (ST.rig === undefined) ST.rig = makeRig(L, ST, T, idxOf, rk);
       if (ST.rig) attachTurn(X, ST.rig, { recOf: recOf, dotOf: dotOf, np: ST.nodes, idxOf: idxOf, rk: rk, emitLabel: emitLabel, cam: cam, R3: R3, topN: topN });
