@@ -342,6 +342,25 @@ async function open() {
   }
   await ev(() => NFM.manager().use('auto'));
 
+  /* moving items by hand on a big flat map takes the in-place way (only the touched dots and links are sent) and draws exactly what building the whole picture again draws */
+  await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(1500, 4, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'circle' }); });
+  await D.wait(() => !NFM.pending() && NFM.state.scene && typeof NFM.state.scene.moveNodes === 'function', null, 60000);
+  for (const be of ['canvas2d', 'webgl2', 'webgpu']) {
+    const r = await ev(async (be) => {
+      const m = NFM.manager(); if (be !== 'canvas2d') m.canary[be] = { ok: true }; await m.use(be); if (m.r.name !== be) return { err: 'n/a' };
+      const frames = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(res))));
+      await frames(); const L = NFM.state.L, pick = [5, 77, 400, 1200].map((i) => L.nodes[i]);
+      const list = pick.map((n, k) => [n.nodeId || n.id, n.cx + 150 + k * 40, n.cy - 120 + k * 25]);
+      const shot = async (key) => { const z = NFM.state.scene, v = { k: 0.5, tx: NFM.state.stageW / 2 - list[0][1] * 0.5, ty: NFM.state.stageH / 2 - list[0][2] * 0.5 }; NFM.state.view = v; m.r.draw(v); const s = m.r.snapshot(); await m.r.flush(); window.__px.keep[key] = s; };
+      const a = NFM.moveItems(list); await frames(); await shot('mv_fast_' + be);
+      const sc1 = NFM.state.scene; NFM.moveItems(list, true); await frames(); await frames(); await shot('mv_full_' + be);
+      return { fast: a.fast, rebuilt: NFM.state.scene !== sc1 };
+    }, be);
+    if (r.err) { say(strict ? false : null, `${be} item moves: ${r.err}`); continue; }
+    const c = await ev(([k, b]) => window.__px.cmp(k, b), ['mv_fast_' + be, 'mv_full_' + be]);
+    say(r.fast && r.rebuilt && c.same && c.mean === 0, `${be}: moving 4 items on a 1,500-item map takes the in-place way and draws exactly what a full rebuild draws (mean difference ${c.mean.toFixed(3)}/255)`);
+  }
+
   /* the app's own steps as an example, and the tuning test's question */
   await ev(() => NFM.showTab('data')); await set('#examples', 'itself'); await click('#b-example');
   await D.wait(() => NFM.state.graph.nodes.length === 26, null, 20000);

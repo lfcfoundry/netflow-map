@@ -1,0 +1,27 @@
+{
+ "version": "MiniBrowser 2.52.6",
+ "items": 10000,
+ "moves": 30,
+ "res": {
+  "webgl2": {
+   "inPlace": 18.00000000000182,
+   "rebuild": 49.99999999999909,
+   "worst": [
+    24.99999999999818,
+    139
+   ],
+   "fastOk": true,
+   "links": 31026
+  },
+  "canvas2d": {
+   "inPlace": 36.00000000001455,
+   "rebuild": 70,
+   "worst": [
+    45.999999999992724,
+    88
+   ],
+   "fastOk": true,
+   "links": 31026
+  }
+ }
+}

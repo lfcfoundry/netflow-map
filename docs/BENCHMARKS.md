@@ -1388,7 +1388,7 @@ Hop error (lower is truer), old → new, the same in all four browsers to within
 
 ## 26. Two-pair SIMD sweeps for the Distances layouts (2026-10-19)
 
-**What.** The Distances sweep (wasm/stress.c, `sweepsv`) now works on two pairs of items at a time, one pair per lane of a 128-bit WebAssembly register, whenever two neighbors in the shuffled order share no item (otherwise that pair runs alone, as before). Doing two untouching pairs side by side gives exactly what doing them one after the other gives, so the picture is the same to the last digit (largest position difference 0 in every run). It is used up to 20,000 items (`stressWasm.simdMax`); above that it gained nothing, so the older one-pair sweep is kept. The wasm file grows from 8,013 to 9,199 bytes (page file +1.6 KB).
+**What.** The Distances sweep (wasm/stress.c, `sweepsv`) now works on two pairs of items at a time, one pair per lane of a 128-bit WebAssembly register, whenever two neighbors in the shuffled order share no item (otherwise that pair runs alone, as before). Doing two untouching pairs side by side gives exactly what doing them one after the other gives, so the picture is the same to the last digit (largest position difference 0 in every run). It was first limited to 20,000 items; section 29 measured 30,000 and 60,000 items and found 2 to 10% gains with no cell worse, so the limit is gone. The wasm file grows from 8,013 to 9,199 bytes (page file +1.6 KB).
 
 **Method.** One page per browser; one-pair and two-pair sweeps alternate (one pair, two pair, one pair, ...); one untimed pair first, then 7 timed pairs; cells are one-pair → two-pair medians in milliseconds (lower is better) and the middle ratio (one-pair time / two-pair time, higher is better).
 
@@ -1453,6 +1453,76 @@ Hop error (lower is truer), old → new, the same in all four browsers to within
 
 **Plain reading.** The fast copy opens in about the same time as the plain page (within 17 ms; in GNOME Web it measured 14 ms faster, which is noise) and 1.6 to 2.2 times faster than the LZMA copy (ungoogled-chromium 155 152 to 70 ms, Firefox 158 187 to 116 ms, WebKitGTK 2.52.6 145 to 66 ms, GNOME Web 46.5 158 to 81 ms). The price is 43,948 bytes (13.7%) more than the LZMA copy; it is still 62% smaller than the plain page. The full browser test passes on the fast copy in ungoogled-chromium (176 checks), and all four browsers open it with the app running. The loader writes raw bytes, so the copy works when opened from the computer; a page served by a host that sends charset=utf-8 needs the base64 form from `pack.py`.
 
+## 29. Two-pair SIMD above 20,000 items; Distances 3D with SIMD tried and not kept (2026-10-19)
+
+**What.** (1) The two-pair Distances sweep (section 26) no longer stops at 20,000 items. (2) A two-pair version of the Distances 3D sweep (`sweepsv3`: three coordinates per item, same pairing rule, positions identical to the last digit in every run) was written and measured. It gave no gain in the four browsers (0.95 to 1.08 times, middle about 1.0), so it is not built into the app; the source is kept in `bench/experiments/sweepsv3.c` so nobody has to write it again.
+
+**Method.** `bench/simd-alt.js`, one page per browser, one-pair and two-pair alternating, one untimed pair first. Medians in milliseconds (lower is better); ratio = one-pair time / two-pair time (higher is better, above 1 means SIMD is faster). Whole-build times, because that is what a person waits for. 5 pairs for 3D, 3 pairs for the big flat maps. Browsers: ungoogled-chromium 155.0.8059.39-1 / Firefox 158.0 / WebKitGTK 2.52.6 / GNOME Web 46.5.
+
+| Flat Distances, moderate map | Chromium | Firefox | WebKitGTK | GNOME Web |
+|---|---|---|---|---|
+| 30,000 items: one-pair ms → two-pair ms (ratio) | 755 → 715 (1.07) | 867 → 838 (1.04) | 910 → 807 (1.10) | 826 → 780 (1.06) |
+| 60,000 items | 1751 → 1681 (1.04) | 1970 → 1880 (1.06) | 1928 → 1853 (1.04) | 1889 → 1910 (1.02) |
+
+| Distances 3D, moderate map (ratio, higher is better) | Chromium | Firefox | WebKitGTK | GNOME Web |
+|---|---|---|---|---|
+| 3,000 items | 1.00 | 0.97 | 0.95 | 1.00 |
+| 10,000 items | 1.03 | 0.96 | 0.98 | 0.96 |
+| 30,000 items | 0.98 | 1.08 | 1.00 | 1.04 |
+
+**Reading it.** Flat Distances: a small gain (2 to 10%) in all eight cells, none worse, so the 20,000-item limit is removed. Distances 3D: the numbers scatter around 1.0 (four cells are 3 to 5% slower, three are 3 to 8% faster), which is no gain, so plain WebAssembly stays for 3D. Not measured: other map shapes.
+
+## 30. Moving an item by hand changes only what moved (2026-10-19)
+
+**What.** Dragging an item on a flat Network map of 600 links or more (no lens, no hulls, no group names, every link a plain straight line) used to rebuild the whole picture on every mouse move. Now `S.moveNodes` (src/scene.js) moves the item's dot, choke dot, icon, label box and its links in the scene, and the renderer (src/render.js `patch`) rewrites only those dots and links in the graphics buffers (WebGL 2 `bufferSubData`, WebGPU `writeBuffer`; up to 4,000 changes, else a full upload). The pick grid and the packed link store are left stale during the drag and rebuilt once when the item is let go. Smaller maps, 3D, lenses and curved or arrowed links take the old path.
+
+**Method.** `bench/move-alt.js`: a 10,000-item, 31,026-link Network map in a fresh page, 30 moves each way, in place and rebuild taking turns, main-thread milliseconds only (scene build, upload, draw call), medians; lower is better. Ratio = rebuild / in place (higher is better). `bench/longtasks.js` lists the long stretches (over 50 ms) of a run step by step.
+
+| Main-thread ms per move, WebGL | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| in place (new) | 3.4 | 3.0 | 18.0 | 19.0 |
+| rebuild everything (before) | 50.8 | 106.0 | 50.0 | 59.0 |
+| ratio (higher is better) | 14.9 | 35.3 | 2.8 | 3.1 |
+| worst of 30, in place / before | 8 / 84 | 10 / 208 | 25 / 139 | 31 / 147 |
+
+| Main-thread ms per move, Canvas 2D fallback | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| in place / before | 248 / 271 | 155 / 217 | 36 / 70 | 39 / 70 |
+
+**Pictures.** The browser test moves 1,500 items, then rebuilds from scratch and compares the two pictures in Canvas 2D, WebGL 2 and WebGPU: 100% identical (mean difference 0.000/255) in all four browsers. A Node test (`test/move-nodes.test.js`) compares dots, curves, labels, icons and node boxes exactly against a fresh build after 4 rounds of moves.
+
+**Plain reading.** Chromium and Firefox now fit a move under the 8 ms line (3.4 and 3.0 ms, worst of 30 at 8 and 10 ms). In the two WebKit browsers 18 to 19 ms remains, which is the drawing itself, the same as before; a real-device run will show the true number. The Canvas 2D fallback is limited by painting 31,000 links, which no scene change fixes. In a 30-step drag in Chromium: 29 full rebuilds and 477 MB sent to the graphics card became 1 rebuild (on letting go) and 24 MB.
+
+## 31. netflow-sankey 2.3.0 (WebAssembly order search) in the app (2026-10-19)
+
+**What.** Vendored netflow-sankey 2.2.1 replaced by 2.3.0 (JS-modules PR 93, main 6b261e9): the order search runs as WebAssembly with plain JavaScript as the backup, and the module starts compiling it as soon as its script loads. The app's page security rules already allow it (`'wasm-unsafe-eval'`).
+
+**Method.** `bench/sankey-alt.js`: the app's own Sankey build in a FRESH page per measurement, 2.2.1 and 2.3.0 taking turns, 5 pairs, medians in milliseconds (lower is better; ratio = old / new, higher is better). "First" = the first Sankey right after the module loads (WebAssembly compiled on the spot); "after a moment" = a Sankey after the page has been open long enough for the early compile to finish (the usual case: the user picks Sankey after the page is open). The layout digest of 2.2.1 and 2.3.0 matched in every run in all four browsers.
+
+| Story size, ms old → new (ratio) | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| 1,000 nodes, first | 72 → 72 (1.01) | 89 → 94 (0.95) | 75 → 74 (1.01) | 75 → 78 (0.96) |
+| 1,000 nodes, after a moment | 60 → 53 (1.12) | 100 → 95 (1.05) | 54 → 55 (0.98) | 52 → 54 (0.96) |
+| 3,000 nodes, first | 391 → 379 (1.03) | 433 → 433 (1.00) | 381 → 387 (0.98) | 386 → 386 (1.00) |
+| 3,000 nodes, after a moment | 368 → 352 (1.05) | 411 → 405 (1.01) | 376 → 371 (1.01) | 364 → 368 (0.99) |
+
+**Plain reading.** No gain you can measure in Netflow Map at 60 to 3,000 nodes: ratios scatter between 0.93 and 1.12 (at 60 and 300 nodes the layout takes 3 to 28 ms, so a 1 ms wobble is 5 to 30%). The pictures are identical. The module's own benchmark shows its gains on denser charts than the app builds. Full per-size rows: `bench/results/sankey-alt-<browser>.json`.
+
+## 32. The LZMA copy opens sooner with the decoder that compiles early (2026-10-19)
+
+**What.** `tools/lzma-pack/pack.py` from JS-modules main 6b261e9 (decoders 1.3.0, compile early) packs `index.packed.html`: the small WebAssembly decoder is compiled on another thread while the page starts. The previous packer used a plain JavaScript decoder.
+
+**Method.** `bench/startup.js` with a seventh argument: the same page packed by the previous packer (JS-modules 6be2ada) and by the new one, opened from a file in turn with the plain and fast copies, 9 timed opens after one untimed, medians in milliseconds (lower is better). "App object exists" is when the app can be used; "ready" adds two drawn frames.
+
+| LZMA copy, ready (ms) | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| previous packer | 140 | 183 | 144 | 151 |
+| compile-early packer | 106 | 155 | 111 | 122 |
+| ratio (higher is better) | 1.32 | 1.18 | 1.30 | 1.24 |
+| app object exists, previous → new | 133 → 101 | 154 → 128 | 113 → 88 | 120 → 96 |
+
+Size: 327,339 → 331,896 bytes (+4,557, 1.4% larger; higher is worse). The plain page is 997,825 bytes (was 974,757), the fast copy 376,020 (was 365,772) and the LZMA copy 331,896 (was 321,824); most of the growth is item moves (section 30) and the 2.3.0 Sankey module.
+
 ## Reproduce
 
 ```
@@ -1470,7 +1540,10 @@ node force2d-alt.js chromium                          # or: firefox, webkit, epi
 node simd-alt.js chromium                             # or: firefox, webkit, epiphany; one-pair against two-pair SIMD sweeps, alternating (section 26)
 node saved-alt.js chromium                            # or: firefox, webkit, epiphany; plain build, first open and second open of saved layouts (section 27)
 node storage-probe.js chromium                        # or: firefox, webkit, epiphany; does the browser's storage work from a file page, and compiled WebAssembly cannot be stored (section 27)
-node startup.js chromium                              # or: firefox, webkit, epiphany; how long the plain, fast and LZMA copies take to open (section 28)
+node startup.js chromium                              # or: firefox, webkit, epiphany; how long the plain, fast and LZMA copies take to open; add a seventh argument (an older packer's LZMA copy) to take turns with it (sections 28 and 32)
+node move-alt.js chromium                             # or: firefox, webkit, epiphany; moving items in place against rebuilding (section 30)
+node longtasks.js chromium                            # or: firefox, webkit, epiphany; the long stretches of a run, step by step (NFM_METHOD=webgl2, NFM_STEP)
+node sankey-alt.js chromium                           # or: firefox, webkit, epiphany; netflow-sankey 2.2.1 against 2.3.0 in the app's own build (section 31)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)
 node ../test/force3d.test.js                      # 3D force: hop error at 3,000 items, not flat, robust cases (section 20)
 node ../test/distances3d.test.js                  # Distances 3D: truth, same every run, multilevel switch, odd inputs (section 23)

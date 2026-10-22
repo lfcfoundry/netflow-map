@@ -1,0 +1,27 @@
+{
+ "version": "firefox/158.0",
+ "items": 10000,
+ "moves": 30,
+ "res": {
+  "webgl2": {
+   "inPlace": 3,
+   "rebuild": 106,
+   "worst": [
+    10,
+    208
+   ],
+   "fastOk": true,
+   "links": 31026
+  },
+  "canvas2d": {
+   "inPlace": 155,
+   "rebuild": 217,
+   "worst": [
+    164,
+    263
+   ],
+   "fastOk": true,
+   "links": 31026
+  }
+ }
+}

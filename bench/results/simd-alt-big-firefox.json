@@ -1,0 +1,28 @@
+{
+ "version": "firefox/158.0",
+ "reps": 3,
+ "rows": [
+  {
+   "arr": "stress",
+   "n": 30000,
+   "js": 867,
+   "wasm": 838,
+   "ratio": 1.04,
+   "diff": 0,
+   "used": {
+    "calls": 48
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 60000,
+   "js": 1970,
+   "wasm": 1880,
+   "ratio": 1.06,
+   "diff": 0,
+   "used": {
+    "calls": 104
+   }
+  }
+ ]
+}

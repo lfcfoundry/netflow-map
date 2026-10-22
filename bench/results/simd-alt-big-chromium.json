@@ -1,0 +1,28 @@
+{
+ "version": "chromium 155.0.8059.39",
+ "reps": 3,
+ "rows": [
+  {
+   "arr": "stress",
+   "n": 30000,
+   "js": 755,
+   "wasm": 715,
+   "ratio": 1.07,
+   "diff": 0,
+   "used": {
+    "calls": 48
+   }
+  },
+  {
+   "arr": "stress",
+   "n": 60000,
+   "js": 1751,
+   "wasm": 1681,
+   "ratio": 1.04,
+   "diff": 0,
+   "used": {
+    "calls": 104
+   }
+  }
+ ]
+}
