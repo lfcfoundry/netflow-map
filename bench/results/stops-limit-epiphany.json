@@ -1,0 +1,46 @@
+{
+ "version": "Epiphany 46.5",
+ "reps": 3,
+ "rows": [
+  {
+   "n": 3000,
+   "old": 236,
+   "oldErr": null,
+   "nw": 225,
+   "newErr": null,
+   "nodes": 2999,
+   "oldHeap": 0,
+   "newHeap": 0
+  },
+  {
+   "n": 5000,
+   "old": "refused",
+   "oldErr": "too big for a layered drawing (158053 st",
+   "nw": 513.0000000000001,
+   "newErr": null,
+   "nodes": 4999,
+   "oldHeap": 0,
+   "newHeap": 0
+  },
+  {
+   "n": 6500,
+   "old": "refused",
+   "oldErr": "too big for a layered drawing (249800 st",
+   "nw": 837,
+   "newErr": null,
+   "nodes": 6500,
+   "oldHeap": 0,
+   "newHeap": 0
+  },
+  {
+   "n": 8000,
+   "old": "refused",
+   "oldErr": "too big for a layered drawing (366647 st",
+   "nw": "refused",
+   "newErr": "too big for a layered drawing (366647 st",
+   "nodes": 0,
+   "oldHeap": 0,
+   "newHeap": 0
+  }
+ ]
+}
