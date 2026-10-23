@@ -6,7 +6,7 @@ Owner: JNFoo ("JNFoo"). He is not a programmer. He wants plain words, real measu
 
 ## 1. The question this work answers
 
-Netflow Map (`https://github.com/lfcfoundry/netflow-map`, one self-contained `index.html` built from `src/`) draws 3D networks of 100,000 items and about 300,000 links. On the owner's laptop (Firefox 159, Windows, Ryzen 7 8845HS, Radeon 780M) turning, zooming and dragging already hold 60 FPS at 100,000 items, because the picture is uploaded to the graphics card once (the "rig": `makeRig`, `attachTurn`, `S.turnTo`, `drawRig` in `src/scene.js` and `src/app/30-map.js`).
+Netflow Map (`https://github.com/lfcfoundry/netflow-map`, one self-contained `index.html` built from `src/`) draws 3D networks of 100,000 items and about 300,000 links. On the owner's laptop (Firefox 159, Windows, integrated graphics) turning, zooming and dragging already hold 60 FPS at 100,000 items, because the picture is uploaded to the graphics card once (the "rig": `makeRig`, `attachTurn`, `S.turnTo`, `drawRig` in `src/scene.js` and `src/app/30-map.js`).
 
 What hurts is MEMORY and the peak while building a new picture. The owner has another context building a general JS-object compressor (`memory-compression` and `memory-compression-jso` in `https://github.com/lfcfoundry/JS-modules`) and asked whether it can shrink what Netflow Map keeps in memory. This file is the result of testing it on the REAL layout and scene, not a synthetic list.
 
