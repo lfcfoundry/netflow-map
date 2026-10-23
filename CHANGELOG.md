@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Each build is stamped
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## October 23
+
+- **2026.10.23.0007** Flow, Down, Spine and Lanes layouts are 4 to 24% faster again (netflow-layers 1.4.0; the pictures are exactly the same in 576 of 576 comparisons). First layout of a 3,000-page map (lower is better): Chromium 237 to 216 ms, Firefox 272 to 244, WebKitGTK 218 to 188, GNOME Web 213 to 194. Fixed: clicking an item on the old picture while new data was still being laid out could show "cannot read properties of undefined" in the details panel. A new random-use test (12,000 random pans, zooms, setting changes, item moves and file loads in the four browsers) found it and now finds nothing.
+
 ## October 22
 
 - **2026.10.22.2121** Panning and zooming a big map with the basic (Canvas 2D) drawing is much smoother. While the camera moves, the last picture is slid and scaled instead of drawn again, and the sharp picture is drawn again a moment after you stop; at rest it is exactly the same as before. On a 1,500-item Sankey map, panning goes from 14 to 60 frames a second in Chromium, 23 to 60 in Firefox, and 2 to 28 and 2 to 22 in the two WebKit browsers; Flow and Network maps gain as much. Also new: hidden Save speed report and Save error log buttons (five quick taps in the top-left corner open them; nothing is sent anywhere), and the memory-compression piece is now version 2.3.4. The page opens in the same time as before.

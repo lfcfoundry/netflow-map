@@ -985,6 +985,12 @@ async function open() {
     }
   } catch (e) { say(false, 'Canvas 2D panning stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  /* selecting an item that is gone (a click on the old picture while new data is still being laid out) is ignored instead of throwing in the details panel */
+  try {
+    const r = await ev(() => { let threw = '', sel = -1; try { NFM.setSel(['no such item']); sel = NFM.state.sel.size; } catch (e) { threw = String(e && e.message || e); } return { threw, sel }; });
+    say(!r.threw && r.sel === 0, 'selecting an item that is no longer in the data is ignored' + (r.threw ? ' (threw: ' + r.threw + ')' : ''));
+  } catch (e) { say(false, 'selecting a missing item stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
   /* hidden speed and error buttons (shared field-report): five quick taps in the top-left corner open them; the report lists the layout and scene build times; the page raising a test error shows in the error log */
   try {
     for (let i = 0; i < 5; i++) { await D.click(20, 20); await settle(60); }
