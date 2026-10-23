@@ -595,9 +595,11 @@
   async function runAll() {
     if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; $('show').style.display = 'none'; $('show').innerHTML = '<h2>The 3D map, turning</h2>'; previews.length = 0; hands = {}; document.querySelector('main').classList.remove('fin'); doneSteps = 0; if (params.get('only')) { var keep = STEPS.filter(function (x) { return x.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }); if (keep.length) { STEPS.length = 0; keep.forEach(function (x) { STEPS.push(x); }); } } total = STEPS.length; setBar(); t0Run = now(); startClock();
     delete ctx.gpuLine;
-    for (var i = 0; i < STEPS.length; i++) {
-      setStatus('Step ' + (i + 1) + ' of ' + STEPS.length + ': ' + STEPS[i].name + '…'); await yieldUI();
-      try { await STEPS[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(STEPS[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
+    var steps = params.get('only') ? STEPS.filter(function (st) { return st.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }) : STEPS;   /* ?only=links runs just the step whose name has those letters (about 2 minutes instead of the whole test) */
+    total = steps.length; doneSteps = 0;
+    for (var i = 0; i < steps.length; i++) {
+      setStatus('Step ' + (i + 1) + ' of ' + steps.length + ': ' + steps[i].name + '…'); await yieldUI();
+      try { await steps[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(steps[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
       doneSteps = i + 1; setBar();
     }
     if (!ctx.gpuLine) setGpuLine(null, true);
