@@ -952,6 +952,14 @@ async function open() {
     say(!r.skip && r.busyBefore && /^rejected: .*(stopped|canceled)/i.test(r.first || '') && !r.busyAfter && r.mode === 'page' && r.second === 'built', 'a worker that dies in the middle of a job: the job fails in plain words, the engine is free again, and later maps are built on the page: ' + JSON.stringify(r)); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  /* hidden speed and error buttons (shared field-report): five quick taps in the top-left corner open them; the report lists the layout and scene build times; the page raising a test error shows in the error log */
+  try {
+    for (let i = 0; i < 5; i++) { await D.click(20, 20); await settle(60); }
+    await settle(200);
+    const fr = await ev(async () => { const R = window.NFMReport; if (!R) return { none: true }; const o = { open: R.isOpen(), btns: [...document.querySelectorAll('button')].map((x) => x.textContent).filter((t) => /^Save (speed report|error log)$/.test(t)), speed: R.speedText() }; R.close(); return o; });
+    say(!fr.none && fr.open && fr.btns.length === 2 && /layout [\d,]+ items/.test(fr.speed) && /first-screen/.test(fr.speed), 'five taps in the top-left corner open Save speed report and Save error log, and the speed report lists the first screen and the layout times' + (fr.speed ? '' : ' (no report)') + (process.env.NFM_DEBUG_FR ? ' ' + JSON.stringify({ o: fr.open, b: fr.btns, s: String(fr.speed).slice(-500) }) : ''));
+  } catch (e) { say(false, 'the hidden speed and error buttons stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
   say(errs.length === 0, 'no errors in the console' + (errs.length ? ': ' + errs.slice(0, 4).join(' | ') : ''));
   const pol = await ev(async () => {   // after the console check on purpose: a refused fetch is logged. (A page policy does not hold the test's own evaluate to the eval rule, so the eval refusal is not tested here; WebAssembly under the policy is covered by the two helper-thread checks above.)
     const o = {}; const m = document.querySelector('meta[http-equiv="Content-Security-Policy"]'); o.meta = m ? m.content : '';

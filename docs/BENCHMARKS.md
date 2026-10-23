@@ -1605,6 +1605,23 @@ Heap after the layout (Chromium only, MB, lower is better): 72 at 5,000 pages, 1
 
 **Plain reading.** Maps of 5,000 to about 6,500 pages (with folding off) now draw in 0.5 to 1.6 s where they never drew; maps below the old limit take the same time (3,000 pages: 0.96 to 1.04 of before, noise). Bigger maps are still refused, in plain words. The page file grows by a few bytes.
 
+## 37. Hidden speed and error buttons (field-report 1.0.1) and a look at memory-compression 2.3.2 (2026-10-22)
+
+**What.** `vendor/field-report.js` is an exact copy of JS-modules field-report 1.0.1 (main 528c7b9). Five quick taps in the top-left corner of the page open **Save speed report** and **Save error log**: one small Markdown file each, nothing leaves the device. It starts first (`src/field-report-start.js`) so start-up errors are caught. The report lists start-up steps (first paint, first-screen, engine-ready), every layout time (`layout N items`), every scene build, the browser's own long tasks in Chromium, and the device. The module's frame loop is OFF (`frames: false`): Chromium idle page, 10 s, busy time 0.8 ms without the loop and 126 to 150 ms with it (about 1.3% of the main thread, and it keeps the page awake), so the verdict line says "not enough frames"; use Speed test in the app for frame numbers. The built page drops the module's header comment (it quotes a script tag); the vendored file stays an exact copy.
+
+**Start-up.** `bench/startup.js` (plain page from main against the new plain page, 15 opens each, medians; milliseconds, lower is better), "ready" (two frames after the app object exists), old to new: Chromium 155 82 to 82, Firefox 158 112 to 114, WebKitGTK 2.52.6 67 to 68, GNOME Web 46.5 101 to 95. All inside the 5% speed guard. Sizes: plain page 1,001,501 to 1,014,390 bytes (+12,889, +1.3%), fast copy 377,627 to 383,052, LZMA copy 328,472 to 332,664 (size ceilings suspended).
+
+**memory-compression 2.3.2 was NOT adopted (the app stays on 2.0.3).** `bench/park-alt.js` runs the idle layout park (`src/layout-park.js`) with each module version in a FRESH page, taking turns, 59,999 links (three 25,000-row chunks, fast mode), medians of 7 pages (Chromium 21), milliseconds, lower is better, old (2.0.3) to new (2.3.2):
+
+| Step | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| Pack the list (park) | 87.7 to 82.4 | 101 to 107 | 82 to 79 | 77 to 78 |
+| First read of one link | 2.5 to 2.4 | 8 to 7 | 5 to 5 | 5 to 5 |
+| Read the whole list back (wake) | 21.2 to 31.0 | 55 to 55 | 33 to 34 | 35 to 32 |
+| Packed bytes | 85,285 to 85,285 | same | same | same |
+
+**Plain reading.** The new module gives the park nothing (same size, same pack time) and reading the whole list back is about 46% slower in Chromium (21 pages per version; an earlier 7-page run: 21.6 to 36.4), so the bump would break the speed guard; the finding went to the module's owners. The pager (new in 2.2.0) is not used: the park already opens one 25,000-row chunk for a single link in 2.4 to 8 ms, under the 8 ms rule. image-decode is not used (the app only shows 96 px icons, decoded off the main thread already); pcodec-js is not used (the app stores no number columns).
+
 ## Reproduce
 
 ```
@@ -1628,6 +1645,7 @@ node longtasks.js chromium                            # or: firefox, webkit, epi
 node drop.js chromium                                 # or: firefox, webkit, epiphany; the drop after moving an item with the links packed, the build before against this one (section 34)
 node layers-alt.js chromium                           # or: firefox, webkit, epiphany; the Flow layout with the older netflow-layers against the newer (section 35); layers-same.js is the all-views same-layout gate (Node)
 node stops-limit.js chromium                           # or: firefox, webkit, epiphany; the stops limit raised, old engine from main against the new (section 36)
+node park-alt.js chromium                              # or: firefox, webkit, epiphany; the idle layout park with the older memory-compression against the newer (section 37)
 node first-move.js chromium                           # or: firefox, webkit, epiphany; the first move of an item with the links packed, the build before against this one (section 33)
 node sankey-alt.js chromium                           # or: firefox, webkit, epiphany; netflow-sankey 2.2.1 against 2.3.0 in the app's own build (section 31)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)
