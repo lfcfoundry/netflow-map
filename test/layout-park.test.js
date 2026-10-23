@@ -37,3 +37,19 @@ function same(a, b) { assert.deepStrictEqual(b, a); }
   assert.strictEqual(T.parkNow(), true); same({ from: 'a', to: 'b' }, T.edgeAt(0)); same([{ from: 'a', to: 'b' }], T.edges);
   console.log('layout park: all checks passed');
 })();
+(async function () {
+  const L = { edges: mkEdges(60000), n: 1, m: 60000 }, copy = structuredClone(L.edges);
+  Park.attach(L, { delay: 1, min: 1 });
+  assert.strictEqual(await L.wakeAsync(), false, 'nothing parked: nothing to wake');
+  assert.strictEqual(L.parkNow(), true);
+  assert.strictEqual(await L.wakeAsync(), true, 'woken in slices');
+  assert.strictEqual(L.parked(), false);
+  same(copy, L.edges);
+  assert.strictEqual(L.parkNow(), true);
+  const p = L.wakeAsync(), p2 = L.wakeAsync();
+  assert.strictEqual(p, p2, 'a second call while waking shares the first');
+  const e = L.edges;   /* a read in the middle wakes everything at once, as before */
+  assert.strictEqual(await p, false, 'the sliced wake gives way to the read');
+  same(copy, e); assert.strictEqual(L.edges, e, 'one array, no second copy swapped in');
+  console.log('layout park: sliced wake checks passed');
+})();

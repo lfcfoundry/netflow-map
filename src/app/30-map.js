@@ -234,6 +234,10 @@ function keepPacked(sc) {
   var L0 = S.L;
   if (L0 && window.NFMPark) NFMPark.attach(L0, { delay: 4000, min: 20000, alive: function () { return S.L === L0; }, hold: function () { return SIM.st === 'running' || !!DOTS.raf; } });
 }
+/** A parked link list is brought back in slices (L.wakeAsync) as soon as the person reaches for a control or key, so a rebuild that follows finds the links ready instead of opening them all in one block. Panning and zooming the picture do not need the list and are left alone. */
+function wakeParked() { var L = S.L; if (L && L.parked && L.parked() && L.wakeAsync) L.wakeAsync(); }
+document.addEventListener('pointerdown', function (e) { var st = $('stage'); if (!st || !st.contains(e.target)) wakeParked(); }, true);
+document.addEventListener('keydown', wakeParked, true);
 function editKey(sc) {
   var ed = S.V.key.edits || {}; if (!sc.legend) return;
   if (ed.__title) sc.legendTitle = ed.__title;
@@ -266,6 +270,7 @@ function scheduleScene(camOnly) {
   sceneCamOnly = sceneCamOnly && camOnly === true; if (sceneQueued) return; sceneQueued = true;
   requestAnimationFrame(function () {
     sceneQueued = false; if (!S.L) return;
+    if (S.L.parked && S.L.parked() && S.L.wakeAsync) { sceneQueued = true; S.L.wakeAsync().then(function () { sceneQueued = false; if (S.L && S.L.parked()) S.L.wake(); scheduleScene(sceneCamOnly); }); return; }
     var r = mgr && mgr.r, sc = S.scene;
     /* a big 3D map that is only being turned: the graphics card already holds the items and links, so just give it the new angle (see turnTo in scene.js) */
     if (sceneCamOnly && S.L.is3d && sc && sc.turnTo && r && r.rigOK && !sc.noTurn) { sc.turnTo(S.V.cam, S.view.k * 2); requestDraw(); armSettle(); return; }

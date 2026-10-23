@@ -43,6 +43,28 @@
       });
       views = {}; K = null; packed = false; touch(); schedule();
     }
+    /* The same wake in slices that never hold the page long (MemoryCompression.unpackAsync opens each 25,000-link piece a column at a time): a promise for true when the objects are back, false when nothing was parked, a read woke it first, or this copy has no unpackAsync. A read in the meantime still wakes everything at once, as before. */
+    var waking = null;
+    function wakeAsync() {
+      if (!packed) return Promise.resolve(false);
+      if (!MC.unpackAsync) return Promise.resolve(false);
+      if (waking) return waking;
+      var K0 = K, ks = names('edges'), out = new Array(cnt.edges), at = 0;
+      function step(i) {
+        if (i >= ks.length) return Promise.resolve();
+        return MC.unpackAsync(K0[ks[i]]).then(function (part) {
+          if (K !== K0) throw new Error('woken by a read');
+          for (var j = 0; j < part.length; j++) out[at++] = part[j];
+          return step(i + 1);
+        });
+      }
+      waking = step(0).then(function () {
+        waking = null;
+        if (!packed || K !== K0) return false;
+        live.edges = out; views = {}; K = null; packed = false; touch(); schedule(); return true;
+      }, function () { waking = null; return false; });
+      return waking;
+    }
     function read(k) { if (packed) wake(); touch(); return live[k]; }
     function write(k, v) { if (packed) wake(); touch(); live[k] = v; }
     function one(k, i) {
@@ -100,6 +122,7 @@
     Object.defineProperty(L, 'parked', { configurable: true, enumerable: false, value: function () { return packed; } });
     Object.defineProperty(L, 'edgeAt', { configurable: true, enumerable: false, value: function (i) { return one('edges', i); } });
     Object.defineProperty(L, 'parkNow', { configurable: true, enumerable: false, value: parkNow });
+    Object.defineProperty(L, 'wakeAsync', { configurable: true, enumerable: false, value: wakeAsync });
     Object.defineProperty(L, 'wake', { configurable: true, enumerable: false, value: wake });
     Object.defineProperty(L, 'parkBytes', { configurable: true, enumerable: false, value: function () { var t = 0, nm; if (packed) for (nm in K) t += K[nm].length; return t; } });
     schedule();
