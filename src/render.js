@@ -292,7 +292,7 @@ var NFMRender = (function () {
           ctx.beginPath(); ctx.moveTo(r.x0, r.y0a); ctx.bezierCurveTo(r.xm, r.y0a, r.xm, r.y1a, r.x1, r.y1a); ctx.lineTo(r.x1, r.y1b); ctx.bezierCurveTo(r.xm, r.y1b, r.xm, r.y0b, r.x0, r.y0b); ctx.closePath(); ctx.fill();
         });
         ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
-        S.curves.forEach(function (c) {
+        (S.eachCurveView ? S.eachCurveView : S.curves.forEach.bind(S.curves)).call(S, function (c) {
           var bb = c.bb; if (bb[0] > vx1 || bb[2] < vx0 || bb[1] > vy1 || bb[3] < vy0) return;
           var P = c.P, a = (c.a === undefined ? 1 : c.a) * c.color[3], col = css([c.color[0], c.color[1], c.color[2], 1]);
           ctx.globalAlpha = a; ctx.strokeStyle = col; ctx.lineWidth = Math.max(c.w, 1.4 / k);
