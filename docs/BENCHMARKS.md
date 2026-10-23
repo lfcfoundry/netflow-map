@@ -1681,9 +1681,28 @@ Put a new picture of N straight links on the card (building the arrays and sendi
 
 Data sent (all browsers): 2.3 / 22.9 / 68.7 MB to 0.3 / 3.4 / 10.3 MB. Pictures: mean difference 0.000 of 255 and 0.000% of pixels off in every browser and size.
 
-Redrawing, in software drawing (the test machine has no card the browsers use here), milliseconds at 100,000 links: Chromium 54 to 1,091, Firefox 5 to 12, WebKitGTK 4 to 11, GNOME Web 4 to 12; the per-link set-up of instanced drawing is paid in the processor there. So the app decides on the card it runs on: the first time a network of 2,000+ straight links comes, `probe()` draws 50,000 short links both ways far out of view (so only the vertex work and the per-link set-up count) and keeps the 9-number way only when it is no more than 5% and 1 ms slower. Probe results on this machine (9 numbers vs six corners, ms): Chromium 518 to 530 vs 11 to 12, Firefox 6 vs 2 to 3, WebKitGTK 5 to 6 vs 2, GNOME Web 5 vs 2: the old way was kept in all four, so the shipped page draws exactly as before here. On real cards the lab (`/mnt/project-files/webgpu-research/`) measured the 9-number way faster: midrange phone (Android 17, Chrome) repeat draw at 300,000 links 28.7 to 20.1 ms, upload and first draw 77.7 to 25.9; laptop (Firefox 159, Radeon 780M) 34 to 25 and 162 to 43; picture 100.00%. The tester (`bench/netflow-map-tester.html`, step "Straight links on the card") repeats this on any card and records what the app chose.
+Redrawing, in software drawing (the test machine has no card the browsers use here), milliseconds at 100,000 links: Chromium 54 to 1,091, Firefox 5 to 12, WebKitGTK 4 to 11, GNOME Web 4 to 12; the per-link set-up of instanced drawing is paid in the processor there. So the app decides on the card it runs on: the first time a network of 2,000+ straight links comes, `probe()` draws 50,000 short links both ways far out of view (so only the vertex work and the per-link set-up count) and keeps the 9-number way only when it is no more than 5% and 1 ms slower. Probe results on this machine (9 numbers vs six corners, ms): Chromium 518 to 530 vs 11 to 12, Firefox 6 vs 2 to 3, WebKitGTK 5 to 6 vs 2, GNOME Web 5 vs 2: the old way was kept in all four, so the shipped page draws exactly as before here. On real cards the lab (`/mnt/project-files/webgpu-research/`) measured the 9-number way faster: midrange phone (Android 17, Chrome) repeat draw at 300,000 links 28.7 to 20.1 ms, upload and first draw 77.7 to 25.9; laptop with integrated graphics (Firefox 159) 34 to 25 and 162 to 43; picture 100.00%. The tester (`bench/netflow-map-tester.html`, step "Straight links on the card") repeats this on any card and records what the app chose.
 
 Not measured: a real card inside this app (only the lab's synthetic links on those two devices); the change is draw-side only, no layout result changes. Checks: 185 / 173 / 173 / 173 (one new: both ways give the same picture, also after a move, the probe's pick matches its numbers, and a map with arrows or curves keeps the old way).
+
+On real cards, inside the app's own check (the tester's step "Straight links on the card", 2026-10-23; 9 numbers against six corners; lower is better): 300,000 links put on the card, midrange phone (Android 17, Chrome) 109.8 to 28.3 ms, laptop with integrated graphics (Firefox 159) 139 to 58 ms; redraw 20.1 to 19.6 and 15 to 15 ms; picture difference 0; the app's own pick test chose the 9 numbers on both (1.9 against 2.0 ms and 1 against 1 ms). Checked by hand by the owner before merge (PR 43).
+
+## 41. The Force arrangement on the graphics card (2026-10-23)
+
+`src/gpustress.js` `forceRounds`, `src/engine-client.js` `buildForce`, `src/engine.js` `FORCE_EXT`: for the Force arrangement of a piece of 20,000+ items (the piece the engine would run 60 rounds of repulsion, springs and gravity on), the card runs the same rounds (all-pairs repulsion in 256-item tiles, then springs, gravity and the move per item, positions staying on the card, one read back) and the engine goes on with its own clean-up. A short timing decides per device: after two rounds the run is stopped unless the whole run would take under 80% of the engine's own time (about 5 microseconds an item a round, measured at 100,000 and 200,000 items on both devices). Any problem or a slower card: the engine does it as before. The picture is saved under no key (never mixed with the processor's saved pictures).
+
+Lab results (`bench/netflow-map-force-card.html`, 2026-10-23; whole layout, engine against card, higher "faster" is better; truth lower is truer, all within 0.001 of each other):
+
+| Items | Links | Engine (s) | Laptop with integrated graphics, card (s) | faster | Midrange phone, card (s) | faster |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 29,773 | 3.3 / 2.4 | 1.2 | 2.8x | 0.9 | 2.6x |
+| 100,000 | 299,709 | 26.2 / 24.2 | 5.6 | 4.7x | 42.4 | 0.6x |
+| 200,000 | 599,521 | 57.5 / 66.0 | 29.4 | 2.0x | stopped at a projected 190.7 s | none |
+
+(Engine times are the laptop run / the phone run.) Truth: 0.256, 0.210, 0.199 on both; crossings per sampled link and touching pairs after the engine's push-apart equal within noise. The 10,000 row is below the app's 20,000 floor; the app uses the card above it, where the phone's own timing refuses.
+
+End to end in the app's client (`bench/force-app.js`, Chromium 155, 3,000 items, software card so only the path is checked): the card path is taken, mean link length 535.5 against 535.7, and a card judged too slow falls back to the engine's identical picture. Hook test: `test/force-card-hook.test.js`.
+
 
 ## Reproduce
 

@@ -4,7 +4,7 @@ Copyright (c) 2026 LFC Foundry. MIT License. Written 2026-10-17 (US Eastern) for
 
 > **Update 2026-10-17:** the repository moved to `https://github.com/lfcfoundry/netflow-map` and the product is now called **Netflow Map**. This file is the handoff as it was written, so it keeps the old name and the old address.
 
-Owner: JNFoo ("JNFoo", GitHub user `JNFoo`). He is not a programmer. He wants world-class visuals and smooth 3D at 3,000 to 100,000+ items. His laptop: Firefox 159 on Windows, Ryzen 7 8845HS, Radeon 780M. Phone: midrange Android 17 phone (Chrome). No iOS or Safari target.
+Owner: JNFoo ("JNFoo", GitHub user `JNFoo`). He is not a programmer. He wants world-class visuals and smooth 3D at 3,000 to 100,000+ items. His laptop: Firefox 159 on Windows, integrated graphics. Phone: midrange Android 17 phone (Chrome). No iOS or Safari target.
 
 ## 0. What I could and could not verify (read first)
 

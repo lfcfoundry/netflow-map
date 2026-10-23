@@ -12,11 +12,22 @@ var NFMEngineClient = (function () {
     var E = API.E, i;
     switch (d.type) {
       case 'build': {
-        var gp = d.opts && d.opts.gpuPicture;   // a finished picture of the big piece, made on the graphics card: the engine goes on with its own clean-up
+        var gp = d.opts && d.opts.gpuPicture, fp = d.opts && d.opts.forcePicture;   // a finished picture of the big piece, made on the graphics card: the engine goes on with its own clean-up
+        if (fp) {   // the Force rounds were done on the card
+          var o3 = Object.assign({}, d.opts); delete o3.forcePicture;
+          E.forceExt.external = function (X, k, pairs, mass, rounds) { if (k !== fp.k || pairs.length !== fp.pairs) return false; for (var q = 0; q < 2 * k; q++) X[q] = fp.X[q]; return true; };
+          try { return E.build(st.G, o3); } finally { E.forceExt.external = null; }
+        }
         if (!gp) return E.build(st.G, d.opts);
         var o2 = Object.assign({}, d.opts); delete o2.gpuPicture;
         E.stressTuning.external = function (X, k) { if (k !== gp.k) return false; for (var q = 0; q < 2 * k; q++) X[q] = gp.X[q]; return true; };
         try { return E.build(st.G, o2); } finally { E.stressTuning.external = null; }
+      }
+      case 'forcePiece': {   // the start, springs and masses of the big piece, found by running the build up to its Force rounds
+        var fc = null;
+        E.forceExt.external = function (X, k, pairs, mass, rounds) { if (fc || k < d.min) return false; fc = { k: k, X: Float64Array.from(X), pairs: Int32Array.from(pairs), mass: Float64Array.from(mass), iters: rounds, K: 130 * 0.55 }; throw new Error('nfm-captured'); };
+        try { E.build(st.G, d.opts); } catch (err) { if (!fc) throw err; } finally { E.forceExt.external = null; }
+        return { forcePiece: fc };
       }
       case 'gpuPiece': {   // the hop structure of the big piece (what the graphics card needs), found by running the build up to that point
         var cap = null;
@@ -156,7 +167,7 @@ var NFMEngineClient = (function () {
     if (this.parkTimer) { clearTimeout(this.parkTimer); this.parkTimer = null; }
     return new Promise(function (resolve, reject) {
       self.queues = self.queues || {};
-      var key = type === 'build' || type === 'compare' || type === 'gpuPiece' || type === 'layoutKey' ? 'view' : type;
+      var key = type === 'build' || type === 'compare' || type === 'gpuPiece' || type === 'forcePiece' || type === 'layoutKey' ? 'view' : type;
       if (self.queues[key]) self.queues[key].reject(new Error('superseded'));
       self.queues[key] = { type: type, opts: opts, extra: extra || {}, resolve: resolve, reject: reject };
       self.pump();
@@ -254,9 +265,35 @@ var NFMEngineClient = (function () {
     }
     return this.buildBig(opts, tok, E);
   };
+  /** The Force arrangement of a big map: the card does the rounds when its own timing says it beats the engine on this device, the engine does the rest. Any problem: the processor does it as before. */
+  Client.prototype.buildForce = function (opts, onPreview, tok, Tn, wantSave) {
+    var self = this, FM = this.forceMin || 20000, plain = function () { if (tok !== self.buildTok) throw new Error('superseded'); return self.buildPlain(opts, onPreview, tok, Tn, wantSave, true); };
+    return this.cardProbe().then(function (card) {
+      if (tok !== self.buildTok) throw new Error('superseded');
+      if (card.state !== 'ready' || !card.force) return plain();
+      return self.run('forcePiece', opts, { min: FM }).then(function (r) {
+        if (tok !== self.buildTok) throw new Error('superseded');
+        var cap = r.L && r.L.forcePiece;
+        if (!cap) return plain();
+        var t0 = Date.now();
+        /* the engine's own time for these rounds is about 5 microseconds an item a round on every device measured (phone and laptop, 100,000 and 200,000 items); the card has to be clearly faster */
+        return card.force(cap, { budgetMs: cap.k * cap.iters * (self.forceCost || 0.004) }).then(function (res) {
+          if (tok !== self.buildTok) throw new Error('superseded');
+          if (!res || res.error || res.stopped) { self.forceWhy = res && (res.error || (res.stopped ? 'slower than the engine on this device' : '')) || 'no answer'; if (res && res.error && /lost|adapter|memory/i.test(res.error)) self.forceOff = true; return plain(); }
+          var o2 = Object.assign({}, opts, { forcePicture: { k: cap.k, pairs: cap.pairs.length, X: res.X } });
+          return self.run('build', o2).then(function (b) { b.cardForce = { ms: Date.now() - t0, k: cap.k, rounds: cap.iters, info: card.info }; self.forceWhy = ''; return b; });
+        });
+      });
+    }).catch(function (err) {
+      if (err && err.message === 'superseded') throw err;
+      self.forceWhy = String(err && err.message || err).slice(0, 160); self.forceOff = true;
+      return plain();
+    });
+  };
   /** The ordinary build: a big Network map first gets a rough picture, then the finished build. wantSave asks the engine to hand back the finished picture so the page can keep it. */
-  Client.prototype.buildPlain = function (opts, onPreview, tok, Tn, wantSave) {
+  Client.prototype.buildPlain = function (opts, onPreview, tok, Tn, wantSave, noCard) {
     var self = this;
+    if (!noCard && opts && opts.view === 'network' && opts.arrange === 'force' && !opts.previewOnly && this.graph && this.graph.nodes.length >= (this.forceMin || 20000) && !this.forceOff && !this.cardOff && !(this.tune && this.tune.card && this.tune.card.use === false) && !(this.card && this.card.state !== 'ready') && typeof NFMGpuStress !== 'undefined') return this.buildForce(opts, onPreview, tok, Tn, wantSave);
     if (wantSave) opts = Object.assign({}, opts, { wantSave: true });
     /* A big Network map first gets a rough picture (the start of the layout, grown back but not yet polished or cleaned of touching items), handed to onPreview; the finished build follows and continues from it. */
     if (!onPreview || !Tn || !opts || opts.view !== 'network' || opts.arrange !== 'stress' || !this.graph || this.graph.nodes.length < Tn.previewMin) return this.run('build', opts);

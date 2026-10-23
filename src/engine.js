@@ -1163,6 +1163,8 @@ var NFMEngine = (function () {
   }
 
   /* Tuning knobs for the flat Force arrangement (the benchmark may change them; the app never does). stressMin and stressMax: pieces of at least stressMin and under stressMax items start from the Distances picture (stressMin 0 = never; at 30,000 items the timings in the four browsers were mixed on dense maps, so bigger pieces keep the old start); polish: force rounds after it. */
+  /* The graphics card may do the Force rounds of a big piece (see engine-client.js): external(X, k, pairs, mass, rounds) fills X and returns true, or returns false to let the engine do them. */
+  var FORCE_EXT = { external: null };
   var FORCE2 = { stressMin: 5000, stressMax: 20000, polish: 40, polishHi: 3, polishLo: 0.05 };
   /* Tuning knobs for the closeness arrangement. */
   var CLOSE = { epochs: 150, neg: 10, a: 1, b: 1, clip: 4, fromStress: 1, alpha0: 0.25 };
@@ -1508,10 +1510,10 @@ var NFMEngine = (function () {
   /** The fingerprint the page looks the saved picture up by (null when this build's picture cannot be saved: not the Network view, or a picture from the graphics card). */
   function layoutKey(graph, o) {
     o = o || {};
-    if (o.view !== 'network' || STRESS.external || o.gpuPicture || o.previewOnly) return null;
+    if (o.view !== 'network' || STRESS.external || FORCE_EXT.external || o.gpuPicture || o.forcePicture || o.previewOnly) return null;
     if (layoutCodeHash === null) layoutCodeHash = fnv(fnv(fnv(fnv(fnv(0x811c9dc5, LAYOUT_EPOCH), networkLayout.toString()), stressComponent.toString()), forceSim.toString()), clearOverlaps.toString());
     var oo = {}, h1 = 2166136261, h2 = 0x9747b28c, i, c, str;
-    Object.keys(o).sort().forEach(function (k) { if (!/^(saved|wantSave|saveKey|previewOnly|gpuPicture)$/.test(k)) oo[k] = o[k]; });
+    Object.keys(o).sort().forEach(function (k) { if (!/^(saved|wantSave|saveKey|previewOnly|gpuPicture|forcePicture)$/.test(k)) oo[k] = o[k]; });
     str = JSON.stringify([LAYOUT_EPOCH, layoutCodeHash, STRESS, FORCE2, CLOSE, oo, graph]);
     for (i = 0; i < str.length; i++) { c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619) >>> 0; h2 = Math.imul(h2 + c + 1, 0xcc9e2d51) >>> 0; h2 ^= h2 >>> 15; }
     return LAYOUT_EPOCH + ':' + graph.nodes.length + ':' + h1.toString(36) + h2.toString(36);
@@ -1575,7 +1577,10 @@ var NFMEngine = (function () {
           if (FORCE2.stressMin && k >= FORCE2.stressMin && k < FORCE2.stressMax) {   // big maps start from the Distances picture (so far-apart items start far apart, and its multilevel start and WebAssembly do the heavy part), then a few gentle force rounds
             stressComponent(X, k, members, adj, locArr, root, EDGE, rnd);
             forceSim(X, k, 2, lpairs, lmass, FORCE2.polish, EDGE * 0.55, rnd, FORCE2.polishHi, FORCE2.polishLo);
-          } else forceSim(X, k, 2, lpairs, lmass, k <= 1000 ? 220 : k <= 5000 ? 240 : k <= 12000 ? 120 : 60, EDGE * 0.55, rnd);
+          } else {
+            var frounds = k <= 1000 ? 220 : k <= 5000 ? 240 : k <= 12000 ? 120 : 60;
+            if (!(FORCE_EXT.external && FORCE_EXT.external(X, k, lpairs, lmass, frounds))) forceSim(X, k, 2, lpairs, lmass, frounds, EDGE * 0.55, rnd);
+          }
         } else {
           var rpar = new Map([[root, -1]]), rkids = new Map(), rdep = new Map([[root, 0]]), rq = [root], rleaf = new Map(), rcount = [];
           for (var rh = 0; rh < rq.length; rh++) { var ru = rq[rh]; rkids.set(ru, []); adj[ru].forEach(function (w) { if (!rpar.has(w)) { rpar.set(w, ru); rdep.set(w, rdep.get(ru) + 1); rkids.get(ru).push(w); rq.push(w); } }); }
@@ -2224,7 +2229,7 @@ var NFMEngine = (function () {
 
   return {
     MAP_W: MAP_W, MAP_H: MAP_H, VIEWS: VIEWS, TASKS: TASKS, prepare: prepare, importance: importance, flowExact: flowExact, flowSim: flowSim, absorb: absorb, endClasses: endClasses, spread: spread, seedsOf: seedsOf,
-    layoutKey: layoutKey, separateGroups: separateGroups, mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressWasm: STRESS_WASM, separate: separate, forceWasm: FORCE_WASM, stressTuning: STRESS, force3dTuning: FORCE3, force2dTuning: FORCE2,
+    layoutKey: layoutKey, separateGroups: separateGroups, mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressWasm: STRESS_WASM, separate: separate, forceWasm: FORCE_WASM, stressTuning: STRESS, forceExt: FORCE_EXT, force3dTuning: FORCE3, force2dTuning: FORCE2,
     communities: communities, metrics: metrics, taskScore: taskScore, build: build, compare: compare, bfs: bfs, mapCrossPairs: mapCrossPairs, mapPlaceLine: mapPlaceLine, autoStart: autoStart
   };
 })();
