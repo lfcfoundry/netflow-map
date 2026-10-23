@@ -1,0 +1,69 @@
+{
+ "version": "Epiphany 46.5",
+ "rounds": 5,
+ "res": {
+  "10000": {
+   "pick": {
+    "chose": false,
+    "probe": {
+     "inst": 5,
+     "corners": 2
+    }
+   },
+   "oldSet": 2,
+   "instSet": 1,
+   "oldDraw": 2,
+   "instDraw": 2,
+   "oldAgain": 1.0000000000001137,
+   "instAgain": 2,
+   "mb": [
+    2.288818359375,
+    0.34332275390625
+   ],
+   "mean": 0,
+   "badPct": 0
+  },
+  "100000": {
+   "pick": {
+    "chose": false,
+    "probe": {
+     "inst": 5.000000000000227,
+     "corners": 2
+    }
+   },
+   "oldSet": 11,
+   "instSet": 3,
+   "oldDraw": 4,
+   "instDraw": 12,
+   "oldAgain": 4,
+   "instAgain": 12,
+   "mb": [
+    22.88818359375,
+    3.4332275390625
+   ],
+   "mean": 0,
+   "badPct": 0
+  },
+  "300000": {
+   "pick": {
+    "chose": false,
+    "probe": {
+     "inst": 5,
+     "corners": 2
+    }
+   },
+   "oldSet": 35,
+   "instSet": 10,
+   "oldDraw": 11,
+   "instDraw": 32,
+   "oldAgain": 10,
+   "instAgain": 33,
+   "mb": [
+    68.66455078125,
+    10.2996826171875
+   ],
+   "mean": 0,
+   "badPct": 0
+  }
+ }
+}

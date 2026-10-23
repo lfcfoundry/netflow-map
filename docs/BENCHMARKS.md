@@ -1667,6 +1667,24 @@ Nothing is over 5% slower: the one cell below 1 (WebKitGTK, 1,000 pages, after a
 
 **Parked.** A version that builds the new picture in pieces (a few milliseconds at a time, old picture on screen) was measured and left out: on a 10,000-item Network map in Chromium with WebGL 2 the longest hold after a setting change went from 51 to 56 ms to 32 to 38 ms and the new picture showed about 45 ms later, because the swap (picture to the graphics card) is untouched. Patch, test and bench: `project files: netflow-map/slicing-2026.10.23/`. Next lever: build links straight into reusable typed arrays (80 MB allocated per rebuild).
 
+## 40. Straight links on the card as 9 numbers (2026-10-23)
+
+`src/render.js`, WebGL 2 only: a network of nothing but plain straight links (no arrows, ribbons or hulls) is sent as two end points, a half width and a color (9 numbers, 36 bytes) a link; `GL_INST_VS` builds the quad with `gl_VertexID` (an instanced `TRIANGLE_STRIP` of 4). Before it was six corner records of 10 numbers (240 bytes). Same fragment shader, same blending, same draw order. Patching a moved item rewrites its 36 bytes. `bench/inst-links.js` takes turns between the two ways in one page per browser (5 rounds, medians, main-thread milliseconds, lower is better); `bench/results/inst-links-*.json`.
+
+Put a new picture of N straight links on the card (building the arrays and sending them):
+
+| Links | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+| ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 3.1 to 2.2 | 3.0 to 2.0 | 2.0 to 1.0 | 2.0 to 1.0 |
+| 100,000 | 23.8 to 7.9 | 26 to 8 | 12 to 3 | 11 to 3 |
+| 300,000 | 66.1 to 20.2 | 86 to 31 | 37 to 12 | 35 to 10 |
+
+Data sent (all browsers): 2.3 / 22.9 / 68.7 MB to 0.3 / 3.4 / 10.3 MB. Pictures: mean difference 0.000 of 255 and 0.000% of pixels off in every browser and size.
+
+Redrawing, in software drawing (the test machine has no card the browsers use here), milliseconds at 100,000 links: Chromium 54 to 1,091, Firefox 5 to 12, WebKitGTK 4 to 11, GNOME Web 4 to 12; the per-link set-up of instanced drawing is paid in the processor there. So the app decides on the card it runs on: the first time a network of 2,000+ straight links comes, `probe()` draws 50,000 short links both ways far out of view (so only the vertex work and the per-link set-up count) and keeps the 9-number way only when it is no more than 5% and 1 ms slower. Probe results on this machine (9 numbers vs six corners, ms): Chromium 518 to 530 vs 11 to 12, Firefox 6 vs 2 to 3, WebKitGTK 5 to 6 vs 2, GNOME Web 5 vs 2: the old way was kept in all four, so the shipped page draws exactly as before here. On real cards the lab (`project files: webgpu-research/`) measured the 9-number way faster: midrange phone (Android 17, Chrome) repeat draw at 300,000 links 28.7 to 20.1 ms, upload and first draw 77.7 to 25.9; laptop (Firefox 159, (graphics)) 34 to 25 and 162 to 43; picture 100.00%. The tester (`bench/netflow-map-tester.html`, step "Straight links on the card") repeats this on any card and records what the app chose.
+
+Not measured: a real card inside this app (only the lab's synthetic links on those two devices); the change is draw-side only, no layout result changes. Checks: 185 / 173 / 173 / 173 (one new: both ways give the same picture, also after a move, the probe's pick matches its numbers, and a map with arrows or curves keeps the old way).
+
 ## Reproduce
 
 ```
@@ -1713,6 +1731,7 @@ sh gif-profile.sh firefox /tmp/out.jsonl             # GIF phase timings (instru
 node ../test/archive.test.js && node --expose-gc ../test/fuzz.test.js 70   # zips, Excel, graph files; random and hostile input
 node ../test/fuzz.browser.js chromium 30            # or: firefox
 node wasm/exp.js                                    # WebAssembly experiment (sweep.c is built with clang, see its header)
+node inst-links.js chromium                          # straight links as 9 numbers against six corners (also firefox, webkit, epiphany; section 40)
 node run.js chromium limits                          # about 15 minutes per browser
 node report.js                                       # all tables, from bench/results/*.jsonl
 node stress-tune.js moderate 10000 before '{}'       # Node-only side by side of stress settings

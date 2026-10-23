@@ -331,6 +331,35 @@ async function open() {
   else say(kept.keptB && kept.keptA && kept.oldB && kept.oldA && kept.fresh && kept.differ, 'WebGPU with kept buffers draws exactly the same pictures as new buffers each time (small over big, big over small, old way, new renderer): ' + JSON.stringify(kept));
   await ev(() => NFM.manager().use('auto'));
 
+  /* WebGL 2 builds each plain straight link from 9 numbers (two end points, half width, color) in the vertex shader; the picture must be the one the six-corner records give, also after items are moved and for a scene that has to keep the old path */
+  const inst = await ev(async () => {
+    const m = NFM.manager(); m.canary.webgl2 = { ok: true };
+    try { await m.use('webgl2'); } catch (e) { return { err: e.message }; }
+    if (m.r.name !== 'webgl2' || !m.r.instLinks) return { err: 'not available here (fell back to ' + m.r.name + ')' };
+    const A = NFM.state.scene, v = { k: 0.6, tx: 20, ty: 20 };
+    const D = A.dots, straight = [];
+    for (let i = 0; i + 1 < D.length && straight.length < 400; i++) for (let j = 1; j < 4 && i + j < D.length; j++) { const p = D[i], q = D[i + j]; straight.push({ P: [p.cx, p.cy, p.cx, p.cy, q.cx, q.cy, q.cx, q.cy], w: 1 + (i % 4) * 0.7, color: [0.2 + (i % 5) * 0.15, 0.4, 0.8 - (i % 3) * 0.2, 0.55 + (j % 3) * 0.15], a: i % 7 === 0 ? 0.4 : undefined, line: true, dash: 0, arrow: false, edge: straight.length, from: 0, to: 0 }); }
+    const S1 = Object.assign({}, A, { curves: straight, ribbons: [], polys: [], curveView: undefined, curveCount: undefined });
+    const shot = async (r, sc, key) => { r.setScene(sc); r.draw(v); const s = r.snapshot(); await r.flush(); window.__px.keep[key] = s; };
+    const r = m.r; r.instLinks(false); await shot(r, S1, 'iOld'); const oldUsed = r.usesInst();
+    r.instLinks(true); await shot(r, S1, 'iNew'); const newUsed = r.usesInst();
+    const c = window.__px.cmp('iNew', 'iOld');
+    let moved = null;
+    if (straight.length) {   /* the first link's far end moved by 40 px: patched in place and rebuilt from scratch must agree */
+      const c0 = straight[0]; c0.P[6] += 40; c0.P[7] += 25;
+      const dirty = { dots: new Set(), curves: new Set([0]) }, patched = r.patch(S1, dirty); r.draw(v); const s = r.snapshot(); await r.flush(); window.__px.keep.iPatch = s;
+      await shot(r, S1, 'iFresh'); moved = { patched, cmp: window.__px.cmp('iPatch', 'iFresh') };
+      c0.P[6] -= 40; c0.P[7] -= 25;
+    }
+    r.instLinks(null); const big = []; for (let i = 0; i < 2100; i++) big.push(straight[i % straight.length]);
+    r.setScene(Object.assign({}, S1, { curves: big })); const pr = r.instProbe, chose = r.usesInst(), probeOk = !!pr && chose === (pr.inst <= pr.corners * 1.05 + 1);   /* a big enough network of straight links measures both ways once and takes the faster */
+    r.setScene(A); const mixedUsed = r.usesInst(), hasOther = A.curves.some((q) => !(q.line && !q.dash && q.P.length === 8 && !q.arrow)) || A.ribbons.length > 0 || (A.polys && A.polys.length > 0);
+    return { probeOk, probe: pr, links: straight.length, oldUsed, newUsed, mean: c.mean, bad: c.bad, same: c.same, moved, mixedUsed, hasOther };
+  });
+  if (inst.err) say(strict ? false : null, 'WebGL 2 straight links from 9 numbers: ' + inst.err);
+  else say(inst.links > 0 && !inst.oldUsed && inst.newUsed && inst.probeOk && inst.same && inst.mean <= 0.5 && inst.bad < 0.005 && (!inst.moved || (inst.moved.patched && inst.moved.cmp.same && inst.moved.cmp.mean <= 0.5 && inst.moved.cmp.bad < 0.005)) && (!inst.hasOther || !inst.mixedUsed), 'WebGL 2 straight links built from 9 numbers each draw the picture the six-corner records give (also after a move, and a map with arrows or curves keeps the old path): ' + JSON.stringify(inst));
+  await ev(() => NFM.manager().use('auto'));
+
   /* styled shapes, icons and group blobs draw the same in every backend */
   await ev(() => { NFM.state.V.rules = [{ id: 1, target: 'nodes', on: true, when: { type: 'all' }, set: { shape: 'hexagon', scale: 1.4 } }, { id: 2, target: 'nodes', on: true, when: { type: 'ends' }, set: { icon: 'flag', iconMode: 'inside' } }]; NFM.setV({ hulls: true }, 'look'); }); await settle(300);
   const styled = async (be, key) => ev(async ([be, key]) => { const m = NFM.manager(); if (be !== 'canvas2d') m.canary[be] = { ok: true }; await m.use(be); if (m.r.name !== be) return { err: 'n/a' }; NFM.state.view = { k: 0.9, tx: 40, ty: 40 }; m.r.draw(NFM.state.view); const s = m.r.snapshot(); await m.r.flush(); window.__px.keep[key] = s; return {}; }, [be, key]);
