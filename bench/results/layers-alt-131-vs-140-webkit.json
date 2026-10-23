@@ -1,0 +1,28 @@
+{
+ "version": "MiniBrowser 2.52.6",
+ "reps": 11,
+ "rows": [
+  {
+   "n": 1000,
+   "nodes": 1000,
+   "oldFirst": 40,
+   "newFirst": 37,
+   "oldAgain": 39,
+   "newAgain": 37,
+   "oldLater": 26,
+   "newLater": 27,
+   "same": true
+  },
+  {
+   "n": 3000,
+   "nodes": 2999,
+   "oldFirst": 218,
+   "newFirst": 188,
+   "oldAgain": 227,
+   "newAgain": 194,
+   "oldLater": 185.0000000000001,
+   "newLater": 151,
+   "same": true
+  }
+ ]
+}
