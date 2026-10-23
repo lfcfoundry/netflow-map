@@ -467,10 +467,69 @@ var NFMGpuStress = (function () {
       var maxItems = Math.min(40000, Math.floor(Math.sqrt(Math.min(dv.limits.maxStorageBufferBindingSize, dv.limits.maxBufferSize))));
       var card = { state: 'ready', max: maxItems, info: dv.info, testMs: Math.round(now() - t0), prof: null };
       card.layout = function (piece) { return layout(dv, piece.off, piece.nbr, piece.k, piece.edge || 130, Object.assign({ verify: true }, recommend(piece.k, card.prof))); };
+      card.force = function (piece, opt) { return forceRounds(dv, piece, opt || {}).catch(function (err) { return { error: String(err && err.message || err).slice(0, 160) }; }); };
       card.layoutWith = function (piece, o) { return layout(dv, piece.off, piece.nbr, piece.k, piece.edge || 130, Object.assign({ verify: true }, o)); };   // for the tuning test: explicit settings
       return card;
     } catch (err) { return { state: 'none', why: String(err && err.message || err).slice(0, 160) }; }
   }
+
+  /* ---- Force rounds on the card (the Force arrangement of a big map): repulsion over all pairs in tiles, then springs + gravity + the move for every item, positions staying on the card for every round, one read back at the end. Same numbers as the engine's Force round (wasm/force.c). ---- */
+  function csr(pairs, k) {   /* springs as a compressed adjacency list from the engine's list of linked pairs */
+    var off = new Uint32Array(k + 1), m = pairs.length >> 1, i, j;
+    for (j = 0; j < m; j++) { off[pairs[2 * j] + 1]++; off[pairs[2 * j + 1] + 1]++; }
+    for (i = 0; i < k; i++) off[i + 1] += off[i];
+    var nbr = new Uint32Array(off[k]), at = off.slice(0, k);
+    for (j = 0; j < m; j++) { var a = pairs[2 * j], b = pairs[2 * j + 1]; nbr[at[a]++] = b; nbr[at[b]++] = a; }
+    return { off: off, nbr: nbr };
+  }
+  var WGSL_REPEL = '\nstruct U { n: u32, k2: f32, off: u32, p: u32 }\n@group(0) @binding(0) var<storage, read> pos: array<vec4<f32>>;\n@group(0) @binding(1) var<storage, read_write> frc: array<vec2<f32>>;\n@group(0) @binding(2) var<uniform> u: U;\nvar<workgroup> tile: array<vec4<f32>, 256>;\n' +
+      '@compute @workgroup_size(256)\nfn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {\n  let i = (wid.x + u.off) * 256u + lid.x;\n  var me = vec4<f32>(0.0);\n  if (i < u.n) { me = pos[i]; }\n  var f = vec2<f32>(0.0);\n  var base = 0u;\n  loop {\n    if (base >= u.n) { break; }\n    let j = base + lid.x;\n    if (j < u.n) { tile[lid.x] = pos[j]; } else { tile[lid.x] = vec4<f32>(0.0); }\n    workgroupBarrier();\n' +
+      '    for (var q = 0u; q < 256u; q++) {\n      let o = tile[q];\n      let d = me.xy - o.xy;\n      let d2 = max(dot(d, d), 0.000001);\n      f += d * (o.z * me.z * u.k2 / d2);\n    }\n    workgroupBarrier();\n    base += 256u;\n  }\n  if (i < u.n) { frc[i] = f; }\n}\n';
+    var WGSL_MOVE = '\nstruct U { n: u32, k: f32, temp: f32, p: u32 }\n@group(0) @binding(0) var<storage, read> pos: array<vec4<f32>>;\n@group(0) @binding(1) var<storage, read> frc: array<vec2<f32>>;\n@group(0) @binding(2) var<storage, read> off: array<u32>;\n@group(0) @binding(3) var<storage, read> nbr: array<u32>;\n@group(0) @binding(4) var<storage, read_write> outp: array<vec4<f32>>;\n@group(0) @binding(5) var<uniform> u: U;\n' +
+      '@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\n  let i = gid.x;\n  if (i >= u.n) { return; }\n  let p = pos[i];\n  var f = frc[i];\n  for (var e = off[i]; e < off[i + 1u]; e++) {\n    let d = pos[nbr[e]].xy - p.xy;\n    var dist = length(d);\n    if (dist == 0.0) { dist = 0.000001; }\n    f += d * (dist / u.k);\n  }\n  f -= p.xy * 0.02 * p.z;\n  var mag = length(f);\n  if (mag == 0.0) { mag = 0.000000001; }\n  let step = min(mag, u.temp) / mag;\n  outp[i] = vec4<f32>(p.xy + f * step, p.z, 0.0);\n}\n';
+  
+    /** The Force arrangement of one big piece on the card. S = { k, X (start, Float64 2k), mass, pairs (Int32 pairs), iters, K }, opt = { budgetMs: stop after two rounds when the whole run would take longer (the engine's own time, with a margin), pairsPerJob }. Returns { X (Float64 2k), ms } or { stopped, projectedMs } or { error }. */
+  async function forceRounds(dev, S, opt) {
+      var k = S.k, P = csr(S.pairs, k), K = S.K;
+      var d = dev.device, GB = GPUBufferUsage, n = k, iters = S.iters, t0 = now(), ms = {};
+      d.pushErrorScope('validation'); d.pushErrorScope('out-of-memory');
+      var mk = function (size, usage, data) { var b = d.createBuffer({ size: Math.max(16, size), usage: usage }); if (data) d.queue.writeBuffer(b, 0, data); return b; };
+      var msum = 0, i; for (i = 0; i < n; i++) msum += S.mass[i]; var mn = msum > 0 ? n / msum : 1;
+      var pos4 = new Float32Array(n * 4); for (i = 0; i < n; i++) { pos4[i * 4] = S.X[i * 2]; pos4[i * 4 + 1] = S.X[i * 2 + 1]; pos4[i * 4 + 2] = S.mass[i] * mn; }
+      var bufA = mk(n * 16, GB.STORAGE | GB.COPY_DST | GB.COPY_SRC, pos4), bufB = mk(n * 16, GB.STORAGE | GB.COPY_DST | GB.COPY_SRC), frc = mk(n * 8, GB.STORAGE), bOff = mk((n + 1) * 4, GB.STORAGE | GB.COPY_DST, P.off), bNbr = mk(P.nbr.length * 4, GB.STORAGE | GB.COPY_DST, P.nbr);
+      var rb = d.createBuffer({ size: n * 16, usage: GB.MAP_READ | GB.COPY_DST });
+      var mkMod = function (code) { return d.createShaderModule({ code: code }); };
+      var pRep = await d.createComputePipelineAsync({ layout: 'auto', compute: { module: mkMod(WGSL_REPEL), entryPoint: 'main' } }), pMov = await d.createComputePipelineAsync({ layout: 'auto', compute: { module: mkMod(WGSL_MOVE), entryPoint: 'main' } });
+      ms.setup = now() - t0;
+      var totalWG = Math.ceil(n / 256), chunkWG = Math.max(1, Math.min(totalWG, Math.floor((opt.pairsPerJob || 1.5e9) / (n * 256)))), chunks = Math.ceil(totalWG / chunkWG);
+      var uni = d.createBuffer({ size: (chunks + iters) * 256, usage: GB.UNIFORM | GB.COPY_DST }), ub = new ArrayBuffer((chunks + iters) * 256), ud = new DataView(ub);
+      var K2 = K * K;
+      for (var c = 0; c < chunks; c++) { ud.setUint32(c * 256, n, true); ud.setFloat32(c * 256 + 4, K2, true); ud.setUint32(c * 256 + 8, c * chunkWG, true); }
+      var temp0 = K * 2, tempN = K * 0.02;
+      for (var r = 0; r < iters; r++) { var o = (chunks + r) * 256, temp = temp0 * Math.pow(tempN / temp0, r / Math.max(1, iters - 1)); ud.setUint32(o, n, true); ud.setFloat32(o + 4, K, true); ud.setFloat32(o + 8, temp, true); }
+      d.queue.writeBuffer(uni, 0, ub);
+      var slot = function (s) { return { buffer: uni, offset: s * 256, size: 16 }; };
+      var bgRep = [0, 1].map(function (par) { return Array.apply(null, Array(chunks)).map(function (_, c2) { return d.createBindGroup({ layout: pRep.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: par ? bufB : bufA } }, { binding: 1, resource: { buffer: frc } }, { binding: 2, resource: slot(c2) }] }); }); });
+      var bgMov = [];
+      for (r = 0; r < iters; r++) { var par = r & 1; bgMov.push(d.createBindGroup({ layout: pMov.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: par ? bufB : bufA } }, { binding: 1, resource: { buffer: frc } }, { binding: 2, resource: { buffer: bOff } }, { binding: 3, resource: { buffer: bNbr } }, { binding: 4, resource: { buffer: par ? bufA : bufB } }, { binding: 5, resource: slot(chunks + r) }] })); }
+      await d.queue.onSubmittedWorkDone(); ms.upload = now() - t0 - ms.setup;
+      var tr = now(), roundMs = null;
+      for (r = 0; r < iters; r++) {
+        for (c = 0; c < chunks; c++) { var e1 = d.createCommandEncoder(), p1 = e1.beginComputePass(); p1.setPipeline(pRep); p1.setBindGroup(0, bgRep[r & 1][c]); p1.dispatchWorkgroups(Math.min(chunkWG, totalWG - c * chunkWG)); p1.end(); d.queue.submit([e1.finish()]); }
+        var e2 = d.createCommandEncoder(), p2 = e2.beginComputePass(); p2.setPipeline(pMov); p2.setBindGroup(0, bgMov[r]); p2.dispatchWorkgroups(Math.ceil(n / 64)); p2.end(); d.queue.submit([e2.finish()]);
+        if (r === 1) {   /* two rounds in: how long the whole thing will take (the first includes warming up) */
+          await d.queue.onSubmittedWorkDone(); roundMs = (now() - tr) / 2; if (roundMs * iters > opt.budgetMs) { [bufA, bufB, frc, bOff, bNbr, rb, uni].forEach(function (b) { b.destroy(); }); try { await d.popErrorScope(); await d.popErrorScope(); } catch (x) { /* closed */ } return { stopped: true, roundMs: roundMs, projectedMs: roundMs * iters }; }
+        }
+      }
+      await d.queue.onSubmittedWorkDone(); ms.rounds = now() - tr;
+      var fin = iters & 1 ? bufB : bufA, te = now(), enc = d.createCommandEncoder(); enc.copyBufferToBuffer(fin, 0, rb, 0, n * 16); d.queue.submit([enc.finish()]); await rb.mapAsync(GPUMapMode.READ);
+      var out = new Float32Array(rb.getMappedRange().slice(0)); rb.unmap(); ms.read = now() - te; ms.total = now() - t0;
+      var oom = await d.popErrorScope(), val = await d.popErrorScope();
+      [bufA, bufB, frc, bOff, bNbr, rb, uni].forEach(function (b) { b.destroy(); });
+      if (oom || val) return { error: (oom ? 'out of memory: ' + oom.message : 'error: ' + val.message).slice(0, 160) };
+      var X = new Float64Array(n * 2); for (i = 0; i < n; i++) { X[i * 2] = out[i * 4]; X[i * 2 + 1] = out[i * 4 + 1]; }
+      return { X: X, ms: ms, chunks: chunks, perRoundMs: ms.rounds / iters };
+    }
 
   /** The same steps on the CPU in 64-bit numbers from the same start, for the correctness check (small k only). D: k*stride bytes. */
   function majCpu(X0, D, k, stride, EDGE, steps, omega) {
@@ -486,6 +545,6 @@ var NFMGpuStress = (function () {
     }
     return cur;
   }
-  return { pivotStart: pivotStart, getDevice: getDevice, layout: layout, majCpu: majCpu, sgdCpu: sgdCpu, recommend: recommend, probe: probe, sane: sane, stress: stress, settings: settings, sgdSchedule: sgdSchedule, permFor: permFor, need: need };
+  return { forceRounds: forceRounds, pivotStart: pivotStart, getDevice: getDevice, layout: layout, majCpu: majCpu, sgdCpu: sgdCpu, recommend: recommend, probe: probe, sane: sane, stress: stress, settings: settings, sgdSchedule: sgdSchedule, permFor: permFor, need: need };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMGpuStress;
