@@ -375,7 +375,7 @@ function requestDraw() {
       armSettle();
     }
     if (tsc && tsc.turn && tsc.turn.on && S.view.k > tsc.turn.kmax) tsc.turnTo(tsc.turn.cam, S.view.k * 2);   /* zoomed in: more names can be seen */
-    if (mgr && mgr.r && S.scene) { try { mgr.r.draw({ k: S.view.k, tx: S.view.tx, ty: S.view.ty, invalidate: requestDraw }); } catch (err) { mgr.log.push('draw: ' + err.message); } }
+    if (mgr && mgr.r && S.scene) { try { mgr.r.draw({ k: S.view.k, tx: S.view.tx, ty: S.view.ty, invalidate: requestDraw, moved: mv }); } catch (err) { mgr.log.push('draw: ' + err.message); } }
     drawInk(); renderMinimap();
   });
 }

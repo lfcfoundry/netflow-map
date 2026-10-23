@@ -2,7 +2,7 @@
  * memory-compression.js: keep big data packed in memory (bytes, typed arrays, big lists of plain JavaScript objects) and bring it back exactly, fast. One file.
  * Part of JS-modules, https://github.com/lfcfoundry/JS-modules
  * Copyright (c) 2026 LFC Foundry. MIT License (see LICENSE at the repository root).
- * Version 2.0.3 (API 2)
+ * Version 2.3.4 (API 2)
  *
  * What it gives you (plain JavaScript, no dependencies, works offline, one file; sets MemoryCompression, and MemoryCompressionJSO as the object layer alone)
  *  - pack(value) / unpack(bytes) / view(bytes) on MemoryCompression choose the layer by themselves: bytes and typed arrays go through the packing core (as memory-compression 1.x did),
@@ -1106,6 +1106,8 @@
     };
 
     // ---------------------------------------------------------------- bit packing (values below 2^32)
+    var KWC = null;                                                               // the wasm helper while pack() or unpack() runs with it allowed (a block of 1,024 numbers or more uses it)
+    function kal(x) { return (x + 15) & ~15; }
     function bwOf(maxv) { return maxv <= 0 ? 0 : 32 - Math.clz32(maxv >>> 0) + (maxv > 4294967295 ? 99 : 0); }
     function bpWrite(w, a, n, bw) {
       var words, o, pos = 0, i, v, idx, off;
@@ -1117,6 +1119,34 @@
         pos += bw;
       }
       w.bytes(new Uint8Array(o.buffer, 0, Math.ceil(n * bw / 8)));
+    }
+    function bpWriteF(w, a, base, n, bw) {       // a: Float64Array of whole numbers; writes a[i] - base in bw bits each (the wasm helper when it is on)
+      var kw = KWC, aP, oP, bytes;
+      if (kw && n >= 1024 && bw > 0 && bw <= 32) {
+        aP = kw.base; oP = kal(aP + n * 8); bytes = Math.ceil(n * bw / 8);
+        if (kwRoom(oP + (Math.ceil(n * bw / 32) + 1) * 4 - kw.base + 64)) {
+          new Float64Array(kw.mem.buffer, aP, n).set(a);
+          kw.x.bp_pack(aP, n, base, bw, oP);
+          w.bytes(new Uint8Array(kw.mem.buffer, oP, bytes)); return;
+        }
+      }
+      var res = new Uint32Array(n), i; for (i = 0; i < n; i++) res[i] = a[i] - base;
+      bpWrite(w, res, n, bw);
+    }
+    function bpReadF(r, n, bw, base) {            // n values of bw bits, each plus base, as doubles
+      var kw = KWC, out, res, i, bytes, sP, oP, src;
+      if (bw > 32) pfail('bad bit width');
+      if (!bw) { out = new Float64Array(n); if (base) out.fill(base); return out; }
+      if (kw && n >= 1024) {
+        bytes = Math.ceil(n * bw / 8); sP = kw.base; oP = kal(sP + bytes + 16);
+        if (kwRoom(oP + n * 8 - kw.base + 64)) {
+          src = r.bytes(bytes);
+          new Uint8Array(kw.mem.buffer, sP, bytes + 8).fill(0, bytes).set(src);
+          kw.x.bp_unpack(sP, n, bw, base, oP);
+          out = new Float64Array(n); out.set(new Float64Array(kw.mem.buffer, oP, n)); return out;
+        }
+      }
+      res = bpRead(r, n, bw); out = new Float64Array(n); for (i = 0; i < n; i++) out[i] = res[i] + base; return out;
     }
     function bpRead(r, n, bw) {
       var out = new Uint32Array(n), bytes, src, tmp, mask, pos = 0, i, idx, off, v;
@@ -1134,7 +1164,19 @@
 
     // ---------------------------------------------------------------- rANS entropy coding of bytes (static table, 12-bit frequencies)
     var SB = 12, M = 1 << SB, RL = 1 << 23;
-    function ransEncode(syms, freq, cum) {
+    function ransEncode(syms, freq, cum) {                     // the bytes (a view; use them before the next call); wasm helper for 1,024 symbols and up
+      var kw = KWC, n = syms.length, sP, fP, oP, cap, len;
+      if (kw && n >= 1024) {
+        cap = n * 2 + 64; sP = kw.base; fP = kal(sP + n); oP = kal(fP + 512);
+        if (kwRoom(oP + cap + 16 - kw.base + 64)) {
+          new Uint8Array(kw.mem.buffer, sP, n).set(syms); new Uint16Array(kw.mem.buffer, fP, 256).set(freq);
+          len = kw.x.rans_enc(sP, n, fP, oP, cap);
+          return new Uint8Array(kw.mem.buffer, oP + cap - len, len);
+        }
+      }
+      return ransEncodeJS(syms, freq, cum);
+    }
+    function ransEncodeJS(syms, freq, cum) {
       var out = new Uint8Array(syms.length * 2 + 64), p = out.length, x = RL, i, s, f, xm, q, k, xmax = new Float64Array(256), inv = new Float64Array(256);
       for (s = 0; s < 256; s++) if (freq[s]) { xmax[s] = ((RL >>> SB) << 8) * freq[s]; inv[s] = 1 / freq[s]; }
       for (i = syms.length - 1; i >= 0; i--) {
@@ -1148,6 +1190,18 @@
       return out.subarray(p);
     }
     function ransDecode(bytes, n, freq, cum, slot) {
+      var kw = KWC, len = bytes.length, sP, fP, oP, out;
+      if (kw && n >= 1024 && len >= 4 && len <= n * 2 + 64) {
+        sP = kw.base; fP = kal(sP + len + 16); oP = kal(fP + 512);
+        if (kwRoom(oP + n + 16 - kw.base + 64)) {
+          new Uint8Array(kw.mem.buffer, sP, len).set(bytes); new Uint16Array(kw.mem.buffer, fP, 256).set(freq);
+          if (kw.x.rans_dec(sP, len, n, fP, oP, 0) < 0) pfail('bad entropy data');
+          out = new Uint8Array(n); out.set(new Uint8Array(kw.mem.buffer, oP, n)); return out;
+        }
+      }
+      return ransDecodeJS(bytes, n, freq, cum, slot);
+    }
+    function ransDecodeJS(bytes, n, freq, cum, slot) {
       var out = new Uint8Array(n), len = bytes.length, p = 4, x, i, m, s;
       if (len < 4) pfail('bad entropy data');
       x = (bytes[0] | bytes[1] << 8 | bytes[2] << 16 | bytes[3] << 24) >>> 0;
@@ -1179,13 +1233,45 @@
 
     // ---------------------------------------------------------------- whole numbers (a Float64Array of whole numbers, each below 2^52 in size)
     var IS = { RAW: 0, CONST: 1, FOR: 2, DELTA: 3, RLE: 4, DICT: 5, PFOR: 6, DIV: 7, ENT: 8 }, MAX_DEPTH = 4;
-    function range(a) { var mn = Infinity, mx = -Infinity, i, v; for (i = 0; i < a.length; i++) { v = a[i]; if (v < mn) mn = v; if (v > mx) mx = v; } return [mn, mx]; }
+    var STAT = null;                                                              // the smallest, the largest and "all whole numbers" of the block isIntegral just looked at (same array object)
+    function statsOf(kw, a) {                                                     // one pass in the wasm helper for a block of 1,024 numbers or more; null when it cannot
+      var n = a.length, aP = kw.base, mP = kal(aP + n * 8), ok, mm;
+      if (!kwRoom(mP + 16 - kw.base + 64)) return null;
+      new Float64Array(kw.mem.buffer, aP, n).set(a); ok = kw.x.block_stats(aP, n, mP); mm = new Float64Array(kw.mem.buffer, mP, 2);
+      return (STAT = { a: a, mn: mm[0], mx: mm[1], ok: ok === 1 });
+    }
+    function range(a) { var mn = Infinity, mx = -Infinity, i, v; if (STAT && STAT.a === a) return [STAT.mn, STAT.mx]; for (i = 0; i < a.length; i++) { v = a[i]; if (v < mn) mn = v; if (v > mx) mx = v; } return [mn, mx]; }
     function distinctFew(a, k) {      // true when the first 256 values hold more than k different ones
       var m = new Set(), i, n = Math.min(a.length, 256);
       for (i = 0; i < n; i++) { m.add(a[i]); if (m.size > k) return true; }
       return false;
     }
     function gapsOf(pos) { var g = new Float64Array(pos.length), prev = -1, k; for (k = 0; k < pos.length; k++) { g[k] = pos[k] - prev - 1; prev = pos[k]; } return g; }
+    function deltaOf(a, n, d) {        // d[i - 1] = zigzag(a[i] - a[i - 1]); returns the largest
+      var kw = KWC, aP, dP, i, x, y = 0;
+      if (kw && n >= 1024) {
+        aP = kw.base; dP = kal(aP + n * 8);
+        if (kwRoom(dP + n * 8 - kw.base + 64)) {
+          new Float64Array(kw.mem.buffer, aP, n).set(a); y = kw.x.delta_enc(aP, n, dP);
+          d.set(new Float64Array(kw.mem.buffer, dP, n - 1)); return y;
+        }
+      }
+      for (i = 1; i < n; i++) { x = a[i] - a[i - 1]; x = x < 0 ? -2 * x - 1 : 2 * x; d[i - 1] = x; if (x > y) y = x; }
+      return y;
+    }
+    function undeltaOf(d, n, c0) {    // out[0] = c0; out[i] = out[i - 1] + unzigzag(d[i - 1])
+      var kw = KWC, dP, oP, out = new Float64Array(n), i, c = c0, z;
+      if (kw && n >= 1024) {
+        dP = kw.base; oP = kal(dP + n * 8);
+        if (kwRoom(oP + n * 8 - kw.base + 64)) {
+          new Float64Array(kw.mem.buffer, dP, n - 1).set(d); kw.x.delta_dec(dP, n - 1, c0, oP);
+          out.set(new Float64Array(kw.mem.buffer, oP, n)); return out;
+        }
+      }
+      out[0] = c0;
+      for (i = 1; i < n; i++) { z = d[i - 1]; c += z % 2 ? -(z + 1) / 2 : z / 2; out[i] = c; }
+      return out;
+    }
     function encIntWith(sch, a, depth, opt, mm, bound) {      // bytes, or null when this way does not apply (mm: the smallest and largest value, when the caller already has them)
       var n = a.length, w = new Wr(), mn, mx, rng, bw, res, i, mm, d, g, x, y, t, vals, runs, j, m, keys, codes, q, lim, pos, hi, low, sh, div, syms, cnt, freq, cum, rb, hist, seen;
       w.u8(sch);
@@ -1195,12 +1281,13 @@
       if (sch === IS.CONST) { if (mn !== mx) return null; w.zi(mn); return w.out(); }
       if (sch === IS.FOR) {
         rng = mx - mn; if (rng > 4294967295) return null;
-        bw = bwOf(rng); res = new Uint32Array(n); for (i = 0; i < n; i++) res[i] = a[i] - mn;
-        w.zi(mn); w.u8(bw); bpWrite(w, res, n, bw); return w.out();
+        bw = bwOf(rng);
+        w.zi(mn); w.u8(bw); bpWriteF(w, a, mn, n, bw); return w.out();
       }
       if (sch === IS.ENT) {
         rng = mx - mn; if (rng >= 549755813888 || n < 64) return null;
         bw = rng < 1 ? 0 : Math.floor(Math.log2(rng)) + 1; sh = Math.max(0, bw - 8); div = Math.pow(2, sh);
+        if (bound && n * sh / 8 > bound) return null;                      // the low bits alone are already bigger than the best so far: it cannot win
         syms = new Uint8Array(n); low = new Uint32Array(n); cnt = new Uint32Array(256);
         for (i = 0; i < n; i++) { x = a[i] - mn; y = Math.floor(x / div); syms[i] = y; low[i] = x - y * div; cnt[y]++; }
         if (bound) {                                                         // a quick estimate first: if the entropy coder cannot get under the best size so far, it is not run
@@ -1214,7 +1301,7 @@
       if (depth <= 0) return null;
       if (sch === IS.DELTA) {
         if (n < 4) return null;
-        d = new Float64Array(n - 1); y = 0; for (i = 1; i < n; i++) { x = a[i] - a[i - 1]; x = x < 0 ? -2 * x - 1 : 2 * x; d[i - 1] = x; if (x > y) y = x; }
+        d = new Float64Array(n - 1); y = deltaOf(a, n, d);
         if (depth < 2 && bwOf(y) > bwOf(mx - mn) && distinctFew(d, 64)) return null;       // wider than the values themselves and never repeating: differences cannot help
         w.zi(a[0]); w.bytes(encInts(d, depth - 1, opt)); return w.out();
       }
@@ -1251,6 +1338,7 @@
         hist = new Uint32Array(34);                                                // how many values need 0, 1, 2 ... 32 bits (33: more than 32)
         for (i = 0; i < n; i++) { x = res[i]; hist[x > 4294967295 ? 33 : x <= 0 ? 0 : 32 - Math.clz32(x)]++; }
         q = Math.floor(n * 0.92) + 1; x = 0; for (bw = 0; bw < 33; bw++) { x += hist[bw]; if (x >= q) break; }   // the narrowest width that holds at least 92% of the values
+        if (bound && Math.ceil(n * bw / 8) >= bound) return null;                  // the packed low parts alone are not smaller than the best so far: it cannot win
         lim = bw >= 32 ? 4294967295 : Math.pow(2, bw) - 1; pos = []; hi = []; low = new Uint32Array(n);
         for (i = 0; i < n; i++) {
           if (res[i] > lim) { pos.push(i); hi.push(Math.floor(res[i] / (lim + 1))); low[i] = res[i] % (lim + 1); } else low[i] = res[i];
@@ -1290,7 +1378,7 @@
       if (depth > MAX_DEPTH) pfail('data nested too deep');
       if (sch === IS.RAW) { for (i = 0; i < n; i++) out[i] = r.f64(); return out; }
       if (sch === IS.CONST) { out.fill(r.zi()); return out; }
-      if (sch === IS.FOR) { mn = r.zi(); bw = r.u8(); res = bpRead(r, n, bw); for (i = 0; i < n; i++) out[i] = res[i] + mn; return out; }
+      if (sch === IS.FOR) { mn = r.zi(); bw = r.u8(); return bpReadF(r, n, bw, mn); }
       if (sch === IS.ENT) {
         mn = r.zi(); sh = r.u8(); if (sh > 40) pfail('bad shift'); t = readTable(r); rl = r.vi();
         syms = ransDecode(r.bytes(rl), n, t.freq, t.cum, t.slot); low = bpRead(r, n, sh); div = Math.pow(2, sh);
@@ -1299,9 +1387,8 @@
       }
       if (sch === IS.DELTA) {
         if (n < 1) pfail('bad column');
-        out[0] = r.zi(); d = decInts(r, n - 1, depth + 1); c = out[0];
-        for (i = 1; i < n; i++) { z = d[i - 1]; c += z % 2 ? -(z + 1) / 2 : z / 2; out[i] = c; }
-        return out;
+        c = r.zi(); d = decInts(r, n - 1, depth + 1);
+        return undeltaOf(d, n, c);
       }
       if (sch === IS.DIV) { b = r.zi(); g = r.vi(); d = decInts(r, n, depth + 1); for (i = 0; i < n; i++) out[i] = d[i] * g + b; return out; }
       if (sch === IS.RLE) {
@@ -1319,8 +1406,7 @@
       }
       if (sch === IS.PFOR) {
         mn = r.zi(); bw = r.u8(); ne = r.vi(); if (ne > n || bw > 31) pfail('bad outliers');
-        low = bpRead(r, n, bw); gaps = decInts(r, ne, depth + 1); hi = decInts(r, ne, depth + 1); lim1 = Math.pow(2, bw);
-        for (i = 0; i < n; i++) out[i] = low[i] + mn;
+        out = bpReadF(r, n, bw, mn); gaps = decInts(r, ne, depth + 1); hi = decInts(r, ne, depth + 1); lim1 = Math.pow(2, bw);
         p = -1; for (k = 0; k < ne; k++) { p += gaps[k] + 1; if (!(p >= 0 && p < n)) pfail('bad outlier position'); out[p] += hi[k] * lim1; }
         return out;
       }
@@ -1357,9 +1443,20 @@
       u32a[HI] = h; u32a[LO] = l; return f64a[0];
     }
     function encALP(a, depth, opt) {       // decimals as whole numbers; a value that is NOT exactly a decimal is stored as its distance in last-place steps from the decimal guess
-      var n = a.length, ef = alpParams(a), e = ef[0], f = ef[1], ints = new Float64Array(n), pos = [], near = [], raw = [], last = 0, i, v, d, code, d0, r, w;
-      for (i = 0; i < n; i++) {
-        v = a[i]; d = alpTry(v, e, f);
+      var n = a.length, ef = alpParams(a), e = ef[0], f = ef[1], ints = new Float64Array(n), pos = [], near = [], raw = [], last = 0, i, v, d, code, d0, r, w, kw = KWC, ex = null, xi = 0, aP, iP, pP;
+      if (kw && n >= 1024) {                                                  // the exact decimals in the wasm helper; only the rows that are not exact are looked at here
+        aP = kw.base; iP = kal(aP + n * 8); pP = kal(iP + n * 8);
+        if (kwRoom(pP + n * 4 - kw.base + 64)) {
+          new Float64Array(kw.mem.buffer, aP, n).set(a);
+          xi = kw.x.alp_enc(aP, n, F10[e], F10[f], iP, pP);
+          if (xi * 2 > n) return null;
+          ints.set(new Float64Array(kw.mem.buffer, iP, n)); ex = new Uint32Array(kw.mem.buffer, pP, xi).slice(); xi = 0;
+        }
+      }
+      for (var ii = 0, cntx = ex ? ex.length : n; ii < cntx; ii++) {
+        i = ex ? ex[ii] : ii;
+        v = a[i]; d = ex ? null : alpTry(v, e, f);
+        if (ex) last = i > 0 ? ints[i - 1] : 0;
         if (d !== null) { ints[i] = d; last = d; continue; }
         pos.push(i); code = 0; d0 = Math.round(v * F10[e] / F10[f]) + 0;              // + 0 turns -0 into +0 so the encoder and the decoder guess the same value
         if (isFinite(d0) && Math.abs(d0) <= MAXI) {
@@ -1485,7 +1582,53 @@
     }
     function planeModes(planes, n) { var pms = [], b; for (b = 0; b < 8; b++) pms.push(planeMode(planes[b], n)); return pms; }
     function estOf(pms) { var e = 0, b; for (b = 0; b < 8; b++) e += pms[b].est; return e; }
-    function encPlanes(a) {                // byte planes of the doubles (like OpenZL's transpose_split); the variant is chosen on a quarter of the block, then each plane's way by estimate
+    function planeModeK(kw, pP, n, cP, dP) {      // planeMode with the counting in the wasm helper (counts at cP and cP + 1024, differences at dP)
+      var cnt, cd, i, used = 0, e2, e3;
+      kw.x.plane_stats(pP, n, cP, cP + 1024, dP);
+      cnt = new Uint32Array(kw.mem.buffer, cP, 256); cd = new Uint32Array(kw.mem.buffer, cP + 1024, 256);
+      for (i = 0; i < 256; i++) if (cnt[i]) used++;
+      if (used === 1) return { mode: 1, est: 2 };
+      e2 = entropyOf(cnt, n); e3 = entropyOf(cd, n);
+      if (Math.min(e2, e3) >= n) return { mode: 0, est: n + 1 };
+      return e3 < e2 ? { mode: 3, est: e3 + 1, c: cd.slice() } : { mode: 2, est: e2 + 1, c: cnt.slice() };
+    }
+    function encPlanesK(a, kw) {           // the same as encPlanes, with the splitting, counting and entropy coding in the wasm helper; null when its memory cannot be had
+      var n = a.length, sub = n > 4096 ? sampleOf(a) : a, m = sub.length, mx = Math.max(n, m), cap = n * 2 + 64, subP = kw.base, aP, plP, dP, cP, fP, oP, end, variant, v0 = [], v1 = [], spm, pms = [], b, i, w, v, pm, c, freq, p, len, body, u8, fq;
+      aP = sub === a ? subP : kal(subP + m * 8); plP = kal(aP + (sub === a ? 0 : n * 8) + (sub === a ? m * 8 : 0)); dP = kal(plP + 8 * mx); cP = kal(dP + mx + 16); fP = kal(cP + 2048); oP = kal(fP + 512); end = oP + cap + 16;
+      if (!kwRoom(end - kw.base + 64)) return null;
+      new Float64Array(kw.mem.buffer, subP, m).set(sub);
+      if (sub !== a) new Float64Array(kw.mem.buffer, aP, n).set(a);
+      kw.x.planes_split(subP, m, 0, plP); for (b = 0; b < 8; b++) v0.push(planeModeK(kw, plP + b * m, m, cP, dP));
+      kw.x.planes_split(subP, m, 1, plP); for (b = 0; b < 8; b++) v1.push(planeModeK(kw, plP + b * m, m, cP, dP));
+      variant = estOf(v1) < estOf(v0) ? 1 : 0; spm = variant ? v1 : v0;
+      kw.x.planes_split(aP, n, variant, plP);
+      u8 = new Uint8Array(kw.mem.buffer);
+      for (b = 0; b < 8; b++) {
+        if (sub === a) pms.push(spm[b]);
+        else if (spm[b].mode === 1) { v = u8[plP + b * n]; for (i = 1; i < n && u8[plP + b * n + i] === v; i++); pms.push(i < n ? planeModeK(kw, plP + b * n, n, cP, dP) : spm[b]); }
+        else pms.push(planeModeK(kw, plP + b * n, n, cP, dP));
+      }
+      fq = new Uint16Array(kw.mem.buffer, fP, 256);
+      w = new Wr(); w.u8(variant);
+      for (b = 0; b < 8; b++) {
+        pm = pms[b]; p = plP + b * n; c = new Wr();
+        if (pm.mode === 1) { c.u8(1); c.u8(u8[p]); w.bytes(c.out()); continue; }
+        if (pm.mode === 0) { c.u8(0); c.bytes(u8.subarray(p, p + n)); w.bytes(c.out()); continue; }
+        freq = normFreq(pm.c, n); fq.set(freq);
+        if (pm.mode === 3) kw.x.plane_stats(p, n, cP, cP + 1024, dP);                         // the differences again, into dP
+        writeTable(c, freq);
+        len = kw.x.rans_enc(pm.mode === 3 ? dP : p, n, fP, oP, cap); c.vi(len); c.bytes(new Uint8Array(kw.mem.buffer, oP + cap - len, len));
+        if (c.n + 1 >= n) { c = new Wr(); c.u8(0); c.bytes(u8.subarray(p, p + n)); w.bytes(c.out()); continue; }
+        body = c.out(); c = new Wr(); c.u8(pm.mode); c.bytes(body); w.bytes(c.out());
+      }
+      return w.out();
+    }
+    function encPlanes(a) {
+      var kw = KWC, got;
+      if (kw && a.length >= 1024) { got = encPlanesK(a, kw); if (got) return got; }
+      return encPlanesJS(a);
+    }
+    function encPlanesJS(a) {                // byte planes of the doubles (like OpenZL's transpose_split); the variant is chosen on a quarter of the block, then each plane's way by estimate
       var n = a.length, sub = n > 4096 ? sampleOf(a) : a, m = sub.length, v0, v1, variant, spm, planes, pms = [], b, w, i, v;
       v0 = planeModes(splitPlanes(sub, m, 0), m); v1 = planeModes(splitPlanes(sub, m, 1), m);
       variant = estOf(v1) < estOf(v0) ? 1 : 0; spm = variant ? v1 : v0;
@@ -1498,7 +1641,43 @@
       w = new Wr(); w.u8(variant); for (b = 0; b < 8; b++) w.bytes(planeBytes(planes[b], n, pms[b]));
       return w.out();
     }
+    function decPlanesK(r, n, kw) {        // the same as decPlanes, with the entropy decoding and the joining of the planes in the wasm helper; null when its memory cannot be had
+      var planesP = kw.base, outP = kal(planesP + 8 * n), freqP = kal(outP + 8 * n), srcP = kal(freqP + 512), cap = n * 2 + 64, variant, b, mode, u8, fq, bm, i, tot, v, rl, sub, out, dst, t;
+      if (!kwRoom(srcP + cap + 16 - kw.base + 64)) return null;
+      variant = r.u8(); if (variant > 1) pfail('bad column');
+      u8 = new Uint8Array(kw.mem.buffer); fq = new Uint16Array(kw.mem.buffer, freqP, 256);
+      for (b = 0; b < 8; b++) {
+        mode = r.u8(); dst = planesP + b * n;
+        if (mode === 1) { u8.fill(r.u8(), dst, dst + n); continue; }
+        if (mode === 0) { u8.set(r.bytes(n), dst); continue; }
+        if (mode !== 2 && mode !== 3) pfail('bad column');
+        bm = r.bytes(32); fq.fill(0); tot = 0;                                              // the frequency table, checked: it must add up to exactly 4096
+        for (i = 0; i < 256; i++) if ((bm[i >> 3] >> (i & 7)) & 1) { v = r.vi() + 1; tot += v; if (tot > M) pfail('bad frequencies'); fq[i] = v; }
+        if (tot !== M) pfail('bad frequencies');
+        rl = r.vi(); sub = r.bytes(rl);
+        if (rl > cap) {                                                                     // longer than any packer here writes: the plain way
+          t = tablesOf(fq); v = ransDecode(sub, n, t.freq, t.cum, t.slot);
+          if (mode === 3) for (i = 1; i < n; i++) v[i] = (v[i - 1] + v[i]) & 255;
+          u8.set(v, dst); continue;
+        }
+        u8.set(sub, srcP);
+        if (kw.x.rans_dec(srcP, rl, n, freqP, dst, mode === 3 ? 1 : 0) < 0) pfail('bad entropy data');
+      }
+      kw.x.planes_join(planesP, n, variant, outP);
+      out = new Float64Array(n); out.set(new Float64Array(kw.mem.buffer, outP, n));
+      return out;
+    }
+    function tablesOf(freq) {           // cum and slot tables for a frequency table that adds up to 4096
+      var cum = new Uint16Array(257), slot = new Uint8Array(M), i;
+      for (i = 0; i < 256; i++) { cum[i + 1] = cum[i] + freq[i]; slot.fill(i, cum[i], cum[i + 1]); }
+      return { freq: Uint16Array.from(freq), cum: cum, slot: slot };
+    }
     function decPlanes(r, n) {
+      var kw = KWC, p0 = r.p, got;
+      if (kw && n >= 1024) { got = decPlanesK(r, n, kw); if (got) return got; r.p = p0; }
+      return decPlanesJS(r, n);
+    }
+    function decPlanesJS(r, n) {
       var variant = r.u8(), planes = [], b, mode, t, p, rl, i, lo, hi, pl = 0, ph = 0, out = new Float64Array(n), o32, p0, p1, p2, p3, p4, p5, p6, p7;
       if (variant > 1) pfail('bad column');
       for (b = 0; b < 8; b++) {
@@ -1521,7 +1700,7 @@
 
     // ---------------------------------------------------------------- one block of numbers, and a whole column
     var CS = { INTS: 0, ALP: 1, RD: 2, RAWF: 3, FDICT: 4, PLANES: 5 }, CHUNK = 8192, NAMES = ['INTS', 'ALP', 'RD', 'RAWF', 'FDICT', 'PLANES'];
-    function isIntegral(a) { var i, v; for (i = 0; i < a.length; i++) { v = a[i]; if (!(Math.abs(v) < MAXI) || Math.floor(v) !== v || (v === 0 && 1 / v < 0)) return false; } return true; }
+    function isIntegral(a) { var i, v, st; if (KWC && a.length >= 1024 && (st = statsOf(KWC, a))) return st.ok; for (i = 0; i < a.length; i++) { v = a[i]; if (!(Math.abs(v) < MAXI) || Math.floor(v) !== v || (v === 0 && 1 / v < 0)) return false; } return true; }
     function rawDoubles(a) { var w = new Wr(), i; w.need(a.length * 8); for (i = 0; i < a.length; i++) w.f64(a[i]); return w.out(); }
     function encChunk(a, depth, opt, only) {      // only: the ways that won earlier blocks of this column; given on most blocks so the others are not tried
       var cands = [], best = null, bs = -1, k, e, w;
@@ -1562,7 +1741,12 @@
     // pack(values, opts): values is a Float64Array (or any array of numbers). opts.sample (default true): choose each block's top way on a quarter of it, which is much faster;
     // opts.noEntropy: leave out the byte-coded ways (used to give a general compressor something it can still shrink); opts.labels: an array that receives one label per block.
     function pack(values, opts) {
-      var a = values instanceof Float64Array ? values : Float64Array.from(values), n = a.length, o = { sample: !(opts && opts.sample === false), noEntropy: !!(opts && opts.noEntropy) }, w = new Wr(), i, part, k = 0, won = [], wonInts = [], full;
+      KWC = opts && opts.wasm === false ? null : kwGet(); STAT = null;
+      try { return packRun(values, opts); } finally { KWC = null; STAT = null; }
+    }
+    function packRun(values, opts) {
+      var a = values instanceof Float64Array ? values : Float64Array.from(values), n = a.length, o = { sample: !(opts && opts.sample === false), noEntropy: !!(opts && opts.noEntropy) }, w = new Wr(), i, part, k = 0, won = [], wonInts = [], full, H = opts && opts.hint;
+      if (H) { k = H.k || 0; won = H.won || (H.won = []); wonInts = H.wonInts || (H.wonInts = []); }       // opts.hint: what won for this column in earlier packs; a pack then counts on as if its blocks came after those
       w.vi(n); w.vi(CHUNK);
       for (i = 0; i < n; i += CHUNK) {
         k++; full = !(k > 2 && k % 4 !== 0 && won.length);
@@ -1573,10 +1757,15 @@
         w.vi(part.length); w.bytes(part);
         if (opts && opts.labels) opts.labels.push(describe(part));
       }
+      if (H) H.k = k;
       return w.out();
     }
     // unpack(bytes, count): the Float64Array, exactly as it was packed. count is checked against the data. Damaged or cut data throws an Error whose message starts with MemoryCompressionJSO:.
-    function unpack(bytes, count) {
+    function unpack(bytes, count, wasm) {
+      KWC = wasm === false ? null : kwGet();
+      try { return unpackRun(bytes, count); } finally { KWC = null; }
+    }
+    function unpackRun(bytes, count) {
       var r = new Rd(bytes), n = r.vi(), c = r.vi(), out, i, len, c2;
       if (n !== count || c < 1 || c > 1048576) pfail('the data does not match the column');
       out = new Float64Array(n);
@@ -1609,9 +1798,11 @@
   var P10 = [1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000, 10000000000];
   // Generated loops need new Function. It is not even tried (so a page that forbids it logs no blocked-eval error) when the page sets MEMORY_COMPRESSION_NO_EVAL = true
   // before this file loads, or has a <meta> Content-Security-Policy whose script-src (else default-src) lacks 'unsafe-eval'. A CSP sent as a header cannot be read from a page: use the switch there.
-  function evalForbidden() {
+  function evalForbidden() { return policyLacks(["'unsafe-eval'"], true); }
+  function wasmForbidden() { return policyLacks(["'unsafe-eval'", "'wasm-unsafe-eval'"], false); }
+  function policyLacks(tokens, useSwitch) {      // true when a <meta> policy's script-src (else default-src) has none of the tokens (or, for eval, the global switch is set)
     var g = typeof globalThis !== 'undefined' ? globalThis : typeof self !== 'undefined' ? self : undefined, m, i, c, parts, j, d, s;
-    if (g && g.MEMORY_COMPRESSION_NO_EVAL === true) return true;
+    if (useSwitch && g && g.MEMORY_COMPRESSION_NO_EVAL === true) return true;
     try {
       m = g && g.document && g.document.querySelectorAll ? g.document.querySelectorAll('meta[http-equiv]') : [];
       for (i = 0; i < m.length; i++) {
@@ -1622,7 +1813,7 @@
           if (/^script-src(\s|$)/.test(c) && s === null) s = c; else if (/^default-src(\s|$)/.test(c) && d === null) d = c;
         }
         c = s !== null ? s : d;
-        if (c !== null && c.indexOf("'unsafe-eval'") < 0) return true;
+        if (c !== null && !tokens.some(function (t) { return c.indexOf(t) >= 0; })) return true;
       }
     } catch (e) { /* no page, or no access: go on to the real test */ }
     return false;
@@ -1653,6 +1844,13 @@
   function genStore(sig, f) { if (GEN_COUNT >= GEN_LIMIT) { GEN_CACHE = {}; LEARNED = {}; GEN_COUNT = 0; } GEN_CACHE[sig] = f; GEN_COUNT++; }
 
   function jfail(m) { throw new Error('MemoryCompressionJSO: ' + m); }
+  // The same bytes as TEXT_ENC.encode(s). Plain ASCII text (the usual case) is written with encodeInto into a buffer of exactly its length, which is several times faster than encode() in V8; anything else falls back.
+  function utf8(s) {
+    var n = s.length, out, r;
+    if (n < 1024) return TEXT_ENC.encode(s);
+    out = new Uint8Array(n); r = TEXT_ENC.encodeInto(s, out);
+    return r.read === n && r.written === n ? out : TEXT_ENC.encode(s);
+  }
   function wellFormed(s) { return typeof s.isWellFormed === 'function' ? s.isWellFormed() : !RE_LONE.test(s); }
 
   // ---- byte streams
@@ -1774,6 +1972,7 @@
     this.path = '';
     this.mcOpts = { mode: this.mode }; if (this.level !== undefined) this.mcOpts.level = this.level;
     if (opts && opts.wasm === false) this.mcOpts.wasm = false;
+    this.hints = opts && opts.hints && typeof opts.hints === 'object' ? opts.hints : null;         // what won for each column in earlier packs of the same kind of list (pager pages): later packs try those ways first
     this.blobBytes = 0;
   }
   Enc.prototype.blob = function (t, name, pre) {      // t: a typed array. Raw when tiny, else packed by the core when that is smaller (pre: that packed form, when the caller already made it)
@@ -1992,17 +2191,17 @@
     var a = PK, small = this.mode === 'small', best, z = 0, p, ne, probe, got, got0, plain, tryNe = true, i;
     try {
       if (src.length >= 32768) {                    // a long column is first tried on its first 8,192 numbers; if the chooser gains under 5% there, the rest is not tried
-        probe = src.subarray(0, 8192); got = got0 = a.pack(probe, { sample: true });
+        probe = src.subarray(0, 8192); got = got0 = a.pack(probe, { sample: true, wasm: this.mcOpts.wasm });
         if (small) { p = MC.pack(got, this.mcOpts); if (p.length < got.length) got = p; }
         plain = MC.pack(probe, this.mcOpts);
         if (got.length > plain.length * 0.95) return null;
         if (small) {                                // the second pass (no entropy coding, then deflate) is only worth its time when it comes close on the same 8,192 numbers
-          ne = a.pack(probe, { sample: true, noEntropy: true });
+          ne = a.pack(probe, { sample: true, noEntropy: true, wasm: this.mcOpts.wasm });
           if (ne.length === got0.length) { for (i = 0; i < ne.length && ne[i] === got0[i]; i++); tryNe = i < ne.length; }   // the very same bytes: the second pass would only repeat the first
           if (tryNe) { p = MC.pack(ne, this.mcOpts); tryNe = p.length < got.length * 1.02; }
         }
       }
-      best = a.pack(src, { sample: true });
+      best = a.pack(src, { sample: true, wasm: this.mcOpts.wasm, hint: this.hints ? (this.hints[this.path] || (this.hints[this.path] = {})) : null });
       if (small) {
         p = MC.pack(best, this.mcOpts); if (p.length < best.length) { best = p; z = 1; }
         if (tryNe) { ne = a.pack(src, { sample: true, noEntropy: true }); p = MC.pack(ne, this.mcOpts); if (p.length < best.length) { best = p; z = 1; } }
@@ -2085,7 +2284,7 @@
     if (total > 67108864) return null;
     joined = vals.join('');
     if (!wellFormed(joined)) return { lens: lens, joined: joined, bytes: null, ascii: false };
-    bytes = TEXT_ENC.encode(joined);
+    bytes = utf8(joined);
     return { lens: lens, joined: joined, bytes: bytes, ascii: bytes.length === total };
   }
   // Strings that follow a pattern ('user' + number + '@example.org', '2025-03-05T04:15:00Z', 'Item 7 flow'): the text between the numbers is kept
@@ -2104,7 +2303,7 @@
     return lits;
   }
   // ---- the pattern scan: JavaScript below, and the same loop in WebAssembly (wasm/jso-kernels.c) when the page allows it
-  var TRIE_NODES = 1024, KERNELS_B64 = /*KW:BEGIN*/'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'/*KW:END*/, KW = null, KW_STATE = 0;
+  var TRIE_NODES = 1024, KERNELS_B64 = /*KW:BEGIN*/'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'/*KW:END*/, KW = null, KW_STATE = 0;
   function b64bytes(t) {
     var bin = typeof atob === 'function' ? atob(t) : Buffer.from(t, 'base64').toString('binary'), u = new Uint8Array(bin.length), i;
     for (i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
@@ -2116,11 +2315,17 @@
     KW_STATE = 2;
     try {
       if (typeof WebAssembly !== 'object' || !KERNELS_B64) return null;
-      inst = new WebAssembly.Instance(new WebAssembly.Module(b64bytes(KERNELS_B64)), {});
+      inst = new WebAssembly.Instance(KW_MOD || new WebAssembly.Module(b64bytes(KERNELS_B64)), {});
       KW = { x: inst.exports, mem: inst.exports.memory, base: (inst.exports.__heap_base.value + 15) & ~15 }; KW_STATE = 1;
     } catch (e) { KW = null; }
     return KW;
   }
+  // Compiling starts when this file loads, in the background, so the first pack or unpack that wants the helper finds it ready (compiling it on the spot costs about 1 to 4 ms on the page's own
+  // thread). Not started when a <meta> policy would refuse it (no error is logged for a page that forbids WebAssembly). If it is not ready yet when needed, it is compiled on the spot as before.
+  var KW_MOD = null;
+  (function () {
+    try { if (typeof WebAssembly === 'object' && typeof WebAssembly.compile === 'function' && KERNELS_B64 && !wasmForbidden()) WebAssembly.compile(b64bytes(KERNELS_B64)).then(function (m) { KW_MOD = m; }, function () {}); } catch (e) { /* no helper: the plain code runs */ }
+  })();
   function kwRoom(bytes) {                          // makes sure the helper's memory holds `bytes` after its base; false if it cannot (or it would be too big to keep)
     var need = KW.base + bytes, have = KW.mem.buffer.byteLength;
     if (need > 134217728) return false;
@@ -2251,6 +2456,7 @@
     }
     return g === 3 ? [cY, cM, cD] : g === 5 ? [cY, cM, cD, cH, cI] : g === 6 ? [cY, cM, cD, cH, cI, cS] : [cY, cM, cD, cH, cI, cS, cF];
   }
+  var TRIE_JS = null;
   Enc.prototype.template = function (vals, n, pre) {
     var b = pre.bytes, lens = pre.lens, lits0 = tplOf(vals[0]), R, tpls, j, t, i, widths, L, c = this.ctl, nt, total = b.length, tr, kw = null, buf, off, at;
     var next, term, slotsAll, tid, minL, maxL, lead, out, bb, ll, row, p, r, g, ts;
@@ -2272,7 +2478,8 @@
       }
     }
     if (!kw) {
-      next = new Int16Array(TRIE_NODES * 257); term = new Int8Array(TRIE_NODES); bb = b; ll = lens; tid = new Uint8Array(n); slotsAll = new Float64Array(n * R);
+      if (!TRIE_JS) TRIE_JS = [new Int16Array(TRIE_NODES * 257), new Int8Array(TRIE_NODES)];       // the tree is only read while scanning and every node is cleared when it is made, so one pair serves every column
+      next = TRIE_JS[0]; term = TRIE_JS[1]; bb = b; ll = lens; tid = new Uint8Array(n); slotsAll = new Float64Array(n * R);
       minL = new Int32Array(R); maxL = new Int32Array(R); lead = new Uint8Array(R); out = new Uint32Array(2);
     }
     minL.fill(99); maxL.fill(0); lead.fill(0);
@@ -2509,7 +2716,7 @@
       piece = bounds.length === 2 ? vals : vals.slice(bounds[i], bounds[i + 1]);
       c.varint(bounds[i + 1] - bounds[i]);
       joined = piece.join('');
-      if (wellFormed(joined)) { c.u8(0); bytes = TEXT_ENC.encode(joined); c.varint(bytes.length); this.blob(bytes, 'text'); }
+      if (wellFormed(joined)) { c.u8(0); bytes = utf8(joined); c.varint(bytes.length); this.blob(bytes, 'text'); }
       else { c.u8(1); u = new Uint16Array(joined.length); for (j = 0; j < joined.length; j++) u[j] = joined.charCodeAt(j); c.varint(u.length); this.blob(u, 'text'); }
     }
   };
@@ -3013,7 +3220,7 @@
         if (!PK.available()) jfail('this file stores a number column with the number picker, which needs a little-endian machine');
         try {
           if (k) a = MC.unpack(a, { maxSize: m * 64 + n * 16 + 4096, wasm: this.wasm });
-          t = PK.unpack(a, n);
+          t = PK.unpack(a, n, this.wasm);
         } catch (err) { jfail('an adaptive number column is damaged'); }
         if (!(t instanceof Float64Array) || t.length !== n) jfail('an adaptive number column is damaged');
         if (e > 0) { p = P10[e]; a = new Float64Array(n); for (i = 0; i < n; i++) a[i] = t[i] / p; t = a; }
@@ -3070,7 +3277,7 @@
         m = c.varint(); this.spend(m); this.spend(n); if (m > n || m < 2) jfail('bad dictionary column');
         d = this.rawStrings(m); k = c.u8(); e = c.varint(); if (k > 1) jfail('bad dictionary column');
         t = this.bl.take(e);
-        try { if (k) t = MC.unpack(t, { maxSize: e * 64 + n * 16 + 4096, wasm: this.wasm }); t = PK.unpack(t, n); } catch (err) { jfail('a dictionary column is damaged'); }
+        try { if (k) t = MC.unpack(t, { maxSize: e * 64 + n * 16 + 4096, wasm: this.wasm }); t = PK.unpack(t, n, this.wasm); } catch (err) { jfail('a dictionary column is damaged'); }
         a = new (m <= 256 ? Uint8Array : m <= 65536 ? Uint16Array : Uint32Array)(n);
         for (i = 0; i < n; i++) { if (!(t[i] >= 0 && t[i] < m)) jfail('dictionary index out of range'); a[i] = t[i]; }
         return new Col(n, 2, a, d);
@@ -3308,6 +3515,57 @@
   };
   var ZEROS = '000000000000000';
   function pad(v, w) { var s = '' + v; return s.length >= w ? s : ZEROS.substring(0, w - s.length) + s; }
+  // Slots that are table lookups (kind 1) and sit side by side are merged into one lookup: the row's combination of their values is one number (mixed radix), and its
+  // text is made once per combination that shows up (a month, a day and an hour is at most 12 * 28 * 24 combinations however many rows there are). A row then costs one lookup instead
+  // of a join of several pieces. Only for one pattern, at most 65,536 combinations, and at most 4 per row. Returns the merged slots, or null when nothing can be merged.
+  function mixInto(idx, a, lo, span, n) {                          // one loop per kind of array, so each loop sees one type
+    var i;
+    if (a instanceof Uint8Array) for (i = 0; i < n; i++) idx[i] = idx[i] * span + (a[i] - lo);
+    else if (a instanceof Uint16Array) for (i = 0; i < n; i++) idx[i] = idx[i] * span + (a[i] - lo);
+    else if (a instanceof Int32Array) for (i = 0; i < n; i++) idx[i] = idx[i] * span + (a[i] - lo);
+    else if (a instanceof Float64Array) for (i = 0; i < n; i++) idx[i] = idx[i] * span + (a[i] - lo);
+    else for (i = 0; i < n; i++) idx[i] = idx[i] * span + (a[i] - lo);
+  }
+  function templateRun(n, L, R, widths, kinds, arrs, tabs, los) {
+    var j0 = -1, j1 = -1, P = 1, cnt = 0, j, span, other = false, idx, T, make, k, r;
+    for (j = 0; j < R; j++) {
+      if (kinds[j] === 1) {
+        span = tabs[j].length;
+        if (j0 < 0) { j0 = j1 = j; P = span; cnt = 1; }
+        else if (!other && P * span <= 65536 && P * span <= 4 * n) { P *= span; j1 = j; cnt++; }
+        else other = true;
+      } else if (kinds[j] !== 3) { if (j0 >= 0 && !other) other = true; else if (j0 < 0) other = true; }
+    }
+    if (cnt < 2 || P > 4 * n) return null;
+    idx = new Uint16Array(n);
+    for (j = j0; j <= j1; j++) if (kinds[j] === 1) mixInto(idx, arrs[j], los[j], tabs[j].length, n);
+    T = new Array(P).fill('');
+    make = function (x) {
+      var vals = [], d, sp, q, str;
+      for (q = j1; q >= j0; q--) { if (kinds[q] === 1) { sp = tabs[q].length; d = x % sp; x = (x - d) / sp; vals[q] = tabs[q][d]; } else vals[q] = tabs[q]; }
+      str = vals[j0];
+      for (q = j0 + 1; q <= j1; q++) str += L[q] + vals[q];
+      return str;
+    };
+    for (k = 0; k < n; k++) { r = idx[k]; if (T[r] === '') T[r] = make(r); }
+    // the slots after the merged ones that vary (or any slot that is not a constant outside the run) keep their own place; if nothing varies outside, the text around is folded in too
+    for (j = 0; j < R; j++) if ((j < j0 || j > j1) && kinds[j] !== 3) { other = true; break; }
+    var nl = [], nw = [], nk = [], na = [], nt = [], nlo = [];
+    if (!other) {
+      var pre = L[0], post = '', q2;
+      for (q2 = 0; q2 < j0; q2++) pre += tabs[q2] + L[q2 + 1];
+      pre = j0 > 0 ? pre : L[0];
+      post = L[j1 + 1];
+      for (q2 = j1 + 1; q2 < R; q2++) post += tabs[q2] + L[q2 + 1];
+      if (pre || post) for (k = 0; k < P; k++) if (T[k] !== '') T[k] = pre + T[k] + post;
+      return { lits: ['', ''], R: 1, widths: [0], kinds: [1], arrs: [idx], tabs: [T], los: [0] };
+    }
+    for (j = 0; j < j0; j++) { nl.push(L[j]); nw.push(widths[j]); nk.push(kinds[j]); na.push(arrs[j]); nt.push(tabs[j]); nlo.push(los[j]); }
+    nl.push(L[j0]); nw.push(0); nk.push(1); na.push(idx); nt.push(T); nlo.push(0);
+    for (j = j1 + 1; j < R; j++) { nl.push(L[j]); nw.push(widths[j]); nk.push(kinds[j]); na.push(arrs[j]); nt.push(tabs[j]); nlo.push(los[j]); }
+    nl.push(L[R]);
+    return { lits: nl, R: nk.length, widths: nw, kinds: nk, arrs: na, tabs: nt, los: nlo };
+  }
   // The strings come back as literal + number + literal ...; a column of numbers that spans few values is turned into text once and looked up.
   function buildTemplate(n, tpls, R, widths, tid, cols) {
     var nt = tpls.length, out = new Array(n), kinds = [], arrs = [], tabs = [], los = [], lits, j, t, i, a, lo, hi, x, k, sig, f, v;
@@ -3321,6 +3579,7 @@
         kinds[j] = 1; tabs[j] = v; los[j] = lo;
       } else if (widths[j]) kinds[j] = 2;
     }
+    if (nt === 1 && (j = templateRun(n, tpls[0], R, widths, kinds, arrs, tabs, los))) { tpls = [j.lits]; R = j.R; widths = j.widths; kinds = j.kinds; arrs = j.arrs; tabs = j.tabs; los = j.los; }
     sig = 'p' + nt + '|' + R + '|' + kinds.join('') + '|' + widths.join(',') + '|' + JSON.stringify(tpls);
     f = GEN_CACHE[sig];
     if (!f) {
@@ -3811,10 +4070,234 @@
     return { bytes: bytes.length, packMs: Math.round(best * 100) / 100, unpackMs: Math.round(bestU * 100) / 100, format: bytes[2], parts: rep };
   }
 
+  // ================================================================ pager: a long list kept packed in pages, opened one page at a time and let go of when memory is tight
+  // pager(list, opts) packs the list in pages of opts.pageRows (default 2,048) rows. get(i) opens only the page that holds row i (a page opens in about 1 to 3 ms); a page that was only read
+  // leaves memory for free (its packed bytes stay); an edited page is packed again first. opts.livePages (default 4) is how many opened pages may stay in memory, opts.readAhead (default true)
+  // opens the next page in the background when rows are read in order, opts.auto (default true) steps the live pages down when the page's heap is close to its limit; every other
+  // option is a pack option (mode, wasm ...) used for each page. Objects handed out by get() belong to their page: after that page leaves memory and comes back they are new objects,
+  // so call changed(i) or set(i, value) for a row you changed. Shared objects between pages (refs) are not kept.
+  // a store for spilled pages in the browser's IndexedDB: put(key, bytes), get(key), remove(key) all return promises (opts.spill can also be any object with these three)
+  function idbStore(name) {
+    var dbp = null;
+    function db() {
+      if (!dbp) dbp = new Promise(function (resolve, reject) {
+        var rq;
+        if (typeof indexedDB === 'undefined') { reject(new Error('MemoryCompressionJSO: this environment has no IndexedDB')); return; }
+        rq = indexedDB.open(name || 'memory-compression-spill', 1);
+        rq.onupgradeneeded = function () { rq.result.createObjectStore('pages'); };
+        rq.onsuccess = function () { resolve(rq.result); }; rq.onerror = function () { reject(rq.error); };
+      });
+      return dbp;
+    }
+    function run(mode, f) {
+      return db().then(function (d) {
+        return new Promise(function (resolve, reject) {
+          var tx = d.transaction('pages', mode), rq = f(tx.objectStore('pages'));
+          tx.oncomplete = function () { resolve(rq && rq.result); }; tx.onerror = tx.onabort = function () { reject(tx.error); };
+        });
+      });
+    }
+    return {
+      put: function (key, bytes) { return run('readwrite', function (st) { return st.put(bytes, key); }); },
+      get: function (key) { return run('readonly', function (st) { return st.get(key); }).then(function (v) { if (!v) throw new Error('MemoryCompressionJSO: a spilled page is missing from storage'); return v instanceof Uint8Array ? v : new Uint8Array(v.buffer || v); }); },
+      remove: function (key) { return run('readwrite', function (st) { return st.delete(key); }); }
+    };
+  }
+  // pager.plan(list, opts): picks pageRows, livePages and mode for a list from the size of its rows and the device's memory, and says why. A page is sized to about 512 KB of live objects (256 KB when
+  // the device reports 2 or 3 GB, 128 KB below 2 GB), between 512 and 2,048 rows, so a page opens in about the same time (0.3 to 1.5 ms) whatever the rows hold. The live pages
+  // are given about 2 MB (1 MB at 2 or 3 GB, 512 KB below 2 GB), between 2 and 8 pages. The mode stays fast unless the packed list alone would take more than a tenth of the page's memory
+  // (opts.heapBytes, else the browser's heap limit, else 512 MB for each GB of device memory), then it is balanced (15 to 17% smaller packed, pages open 1.3 to 2.2 times slower). opts.deviceMemory overrides the reading.
+  function pagerPlan(list, opts) {
+    var o = opts || {}, n = list.length, h = heapInfo(), gb = o.deviceMemory || h.deviceMemoryGB || 4, step = n > 64 ? n / 64 : 1, sample = [], i, per, target, rows, live, budget, heap, packedEst, mode = 'fast', why;
+    for (i = 0; i < n && sample.length < 64; i += step) sample.push(list[Math.floor(i)]);
+    per = sample.length ? Math.max(8, estimateBytes(sample) / sample.length) : 64;
+    target = gb >= 4 ? 524288 : gb >= 2 ? 262144 : 131072;
+    rows = Math.max(512, Math.min(2048, Math.round(target / per / 256) * 256));
+    live = Math.max(2, Math.min(8, Math.round((gb >= 4 ? 2097152 : gb >= 2 ? 1048576 : 524288) / (rows * per))));
+    heap = o.heapBytes || h.jsHeapLimit || gb * 536870912; packedEst = n * per / 7;
+    if (packedEst > heap / 10) mode = 'balanced';
+    why = 'about ' + Math.round(per) + ' bytes a row, ' + gb + ' GB device, a page of ' + rows + ' rows is about ' + Math.round(rows * per / 1024) + ' KB' + (mode === 'balanced' ? ', packed list over a tenth of the memory budget' : '');
+    return { pageRows: n <= rows * 1.5 ? Math.max(1, n) : rows, livePages: live, mode: mode, bytesPerRow: Math.round(per), why: why };
+  }
+  function pagerAuto(list, opts) {       // pageRows, livePages and mode set to 'auto' are filled in by pager.plan
+    var o = opts || {}, a = o.pageRows === 'auto' || o.livePages === 'auto' || o.mode === 'auto', pl, k, c;
+    if (!a || !Array.isArray(list)) return o;
+    pl = pagerPlan(list, o); c = {};
+    for (k in o) c[k] = o[k];
+    if (o.pageRows === 'auto') c.pageRows = pl.pageRows;
+    if (o.livePages === 'auto') c.livePages = pl.livePages;
+    if (o.mode === 'auto') c.mode = pl.mode;
+    return c;
+  }
+  function pager(list, opts) {
+    var store, uid = Math.random().toString(36).slice(2, 10), o = pagerAuto(list, opts), rows = o.pageRows > 0 ? Math.floor(o.pageRows) : 2048, n = list.length, np = Math.ceil(n / rows), pages = new Array(np), maxLive = o.livePages >= 0 ? Math.floor(o.livePages) : 4,
+      ahead = o.readAhead !== false, auto = o.auto !== false, live = 0, clock = 0, lastPage = -2, level = 0, packOpts = {}, k, p, st = { pageIns: 0, pageOuts: 0, repacks: 0, hits: 0 }, P, factor = 1;
+    packOpts.hints = {};                         // each column remembers which number ways won on earlier pages (every 4th pack still tries them all)
+    for (k in o) if (k !== 'pageRows' && k !== 'livePages' && k !== 'readAhead' && k !== 'auto' && k !== 'onPressure' && k !== 'background' && k !== 'sliceMs' && k !== 'spill' && k !== 'spillAt' && k !== 'onError' && k !== 'deviceMemory' && k !== 'heapBytes') packOpts[k] = o[k];
+    if (!Array.isArray(list)) jfail('pager() needs an array');
+    store = o.spill ? (o.spill === true ? idbStore() : o.spill) : null;
+    function pkey(i) { return uid + ':' + i; }
+    function fail(x) { if (typeof o.onError === 'function') o.onError(x); }
+    function packPage(i) { return pack(list.slice(i * rows, Math.min(n, (i + 1) * rows)), packOpts); }
+    for (p = 0; p < np; p++) {
+      if (o.background) pages[p] = { bytes: null, rows: Math.min(rows, n - p * rows), value: list.slice(p * rows, Math.min(n, (p + 1) * rows)), dirty: true, used: 0, heap: 0, disk: false, stored: false };     // opened as they are; packed a slice at a time by settle()
+      else pages[p] = { bytes: packPage(p), rows: Math.min(rows, n - p * rows), value: undefined, dirty: false, used: 0, heap: 0, disk: false, stored: false };
+    }
+    if (o.background) live = np;
+    list = null;                                  // the pager keeps no reference to the caller's array: the caller can let go of it
+    function limit() { return level >= 2 ? 0 : level === 1 ? maxLive >> 1 : maxLive; }
+    function pageOut(e) {
+      if (e.value === undefined) return;
+      if (e.dirty) { e.bytes = pack(e.value, packOpts); e.rows = e.value.length; e.dirty = false; e.disk = false; st.repacks++; }
+      e.value = undefined; live--; st.pageOuts++;
+    }
+    function pageOutClean(e) { if (live > limit() && e.value !== undefined && !e.dirty) { e.value = undefined; live--; st.pageOuts++; } }
+    function makeRoom(keep, room) {              // opens room pages' worth of space: the least recently used live pages go, except keep
+      var best, i, e;
+      while (live > Math.max(0, limit() - room)) {
+        best = null;
+        for (i = 0; i < np; i++) { e = pages[i]; if (e.value !== undefined && i !== keep && (!best || e.used < best.used)) best = e; }
+        if (!best) return;
+        pageOut(best);
+      }
+    }
+    function checkHeap() {
+      var h = heapInfo(), lv = 0;
+      if (h.usedJSHeap && h.jsHeapLimit) lv = h.usedJSHeap >= h.jsHeapLimit * 0.8 ? 2 : h.usedJSHeap >= h.jsHeapLimit * 0.6 ? 1 : 0;
+      if (lv !== level) { level = lv; if (typeof o.onPressure === 'function') o.onPressure(lv, P.memory()); }
+    }
+    function open(i) {                           // the rows of page i, opened now if they are not
+      var e = pages[i];
+      if (e.value === undefined) {
+        if (!e.bytes) jfail('page ' + i + ' is on disk: use await load(' + (i * rows) + ') or getAsync(' + (i * rows) + ') first');
+        if (auto && (st.pageIns & 15) === 0) checkHeap();
+        makeRoom(i, 1);
+        e.value = unpack(e.bytes, packOpts); live++; st.pageIns++;
+        e.heap = e.value.length ? Math.round(estimateBytes(e.value) * factor) : 0;
+      } else st.hits++;
+      e.used = ++clock; return e.value;
+    }
+    function ahead1(i, d) {                      // d is 1 for a forward sweep and -1 for a backward one
+      var j = i + d;
+      if (j >= 0 && j < np && pages[j].value === undefined && limit() > 1) later(function () {
+        var e = pages[j];
+        if (!e || e.value !== undefined || limit() <= 1) return;
+        if (e.bytes) open(j); else if (store) P.load(j * rows).catch(fail);        // a spilled page is fetched from storage
+      });
+    }
+    function row(i) { if (!(i >= 0 && i < n)) jfail('row ' + i + ' is outside the list of ' + n); return i; }
+    P = {
+      get length() { return n; },
+      get: function (i) {                       // the object at row i (opens its page if needed)
+        var pi, v;
+        if (!(i >= 0 && i < n)) return undefined;
+        pi = (i / rows) | 0; v = open(pi)[i - pi * rows];
+        if (ahead && (pi === lastPage + 1 || pi === lastPage - 1)) ahead1(pi, pi > lastPage ? 1 : -1);
+        lastPage = pi; return v;
+      },
+      range: function (from, to) {              // rows from to to - 1 as an array
+        var out = [], i, pi, v;
+        from = Math.max(0, from | 0); to = Math.min(n, to === undefined ? n : to | 0);
+        for (i = from; i < to; i += v.length) { pi = (i / rows) | 0; v = open(pi); v = v.slice(i - pi * rows, Math.min(v.length, to - pi * rows)); out.push.apply(out, v); }
+        return out;
+      },
+      each: function (fn, eopts) {              // a promise: fn(objects, firstRow) for each page in order, the page free in between; pages that were closed are closed again (spilled pages are read from storage)
+        var pi = 0, ms = eopts && eopts.sliceMs > 0 ? eopts.sliceMs : 8;
+        return new Promise(function (resolve, reject) {
+          function run() {
+            var t0 = performance.now(), e, v;
+            try {
+              while (pi < np) {
+                e = pages[pi];
+                if (e.value === undefined && !e.bytes) {            // on disk: fetch, use, forget
+                  store.get(pkey(pi)).then(function (b) { fn(unpack(b, packOpts), pi * rows); pi++; later(run); }).catch(reject); return;
+                }
+                v = e.value !== undefined ? e.value : unpack(e.bytes, packOpts);
+                fn(v, pi * rows); pi++;
+                if (pi < np && performance.now() - t0 >= ms) { later(run); return; }
+              }
+            } catch (x) { reject(x); return; }
+            resolve(n);
+          }
+          later(run);
+        });
+      },
+      set: function (i, value) { var pi = (row(i) / rows) | 0, e = pages[pi]; open(pi)[i - pi * rows] = value; e.dirty = true; },
+      changed: function (i) { var pi = (row(i) / rows) | 0; open(pi); pages[pi].dirty = true; },       // call after changing an object from get() in place
+      push: function (value) {                  // adds a row at the end
+        var last = pages[np - 1], v;
+        if (!last || last.rows >= rows) { last = { bytes: null, rows: 0, value: [], dirty: true, used: ++clock, heap: 0, disk: false, stored: false }; pages[np++] = last; live++; makeRoom(np - 1, 0); }
+        v = open(np - 1); v.push(value); last.rows = v.length; last.dirty = true; n++; return n;
+      },
+      flush: function () { var i, e; for (i = 0; i < np; i++) { e = pages[i]; if (e.dirty && e.value !== undefined) { e.bytes = pack(e.value, packOpts); e.rows = e.value.length; e.dirty = false; e.disk = false; st.repacks++; } } },
+      trim: function (keep) {                   // lets pages go until at most keep (default: the current limit) stay open
+        var want = keep >= 0 ? keep : limit(), best, i, e;
+        while (live > want) {
+          best = null;
+          for (i = 0; i < np; i++) { e = pages[i]; if (e.value !== undefined && (!best || e.used < best.used)) best = e; }
+          if (!best) break;
+          pageOut(best);
+        }
+        return live;
+      },
+      release: function () { return P.trim(0); },
+      pressure: function (lv) { level = lv > 0 ? (lv > 1 ? 2 : 1) : 0; P.trim(); if (level === 2 && store && o.spillAt !== false) P.spill().catch(fail); return level; },        // 0 = normal, 1 = half the live pages, 2 = none kept
+      load: function (i) {                      // a promise of row i's page opened (fetched from storage first if it was spilled); then get() works for every row of that page
+        var pi = (row(i) / rows) | 0, e = pages[pi];
+        if (e.value !== undefined || e.bytes) { open(pi); return Promise.resolve(P); }
+        return store.get(pkey(pi)).then(function (b) { e.bytes = b; e.disk = true; open(pi); return P; });
+      },
+      getAsync: function (i) { return i >= 0 && i < n ? P.load(i).then(function () { return P.get(i); }) : Promise.resolve(undefined); },
+      spill: function (sopts) {                 // a promise: moves the packed bytes of every closed, unedited page to storage (a page already there only drops its memory copy); { all: true } closes the open pages first
+        var i = 0, jobs = [], e;
+        if (!store) return Promise.reject(new Error('MemoryCompressionJSO: pager() was made without the spill option'));
+        if (sopts && sopts.all) P.trim(0);
+        function one(pi, pe) {
+          var b = pe.bytes;
+          if (pe.disk) { pe.bytes = null; return Promise.resolve(); }
+          return store.put(pkey(pi), b).then(function () { pe.stored = true; if (pe.bytes === b && pe.value === undefined) { pe.bytes = null; pe.disk = true; } });
+        }
+        for (; i < np; i++) { e = pages[i]; if (e.value === undefined && e.bytes && !e.dirty) jobs.push(one(i, e)); }
+        return Promise.all(jobs).then(function () { return P; });
+      },
+      dispose: function () { var i, jobs = []; if (store) for (i = 0; i < np; i++) if (pages[i].stored) { pages[i].stored = false; pages[i].disk = false; jobs.push(store.remove(pkey(i))); }; return Promise.all(jobs).then(function () { return P; }); },
+      settle: function (sliceMs) {              // a promise: packs every edited page (and, with background: true, every page) a slice of about sliceMs (default 8) at a time, then lets pages go down to the limit
+        var i = 0, ms = sliceMs > 0 ? sliceMs : o.sliceMs > 0 ? o.sliceMs : 8;
+        return new Promise(function (resolve, reject) {
+          function run() {
+            var t0 = performance.now(), e, t1, cost = 0;                     // a page is only started when the slice has room for as long as the last one took
+            try {
+              while (i < np) {
+                e = pages[i];
+                if (e.dirty && e.value !== undefined) {
+                  t1 = performance.now(); if (t1 - t0 + cost > ms && t1 > t0 + 0.01 && cost > 0) { later(run); return; }
+                  e.bytes = pack(e.value, packOpts); e.rows = e.value.length; e.dirty = false; e.disk = false; st.repacks++; pageOutClean(e); cost = Math.max(cost, performance.now() - t1);
+                }
+                i++;
+              }
+              P.trim();
+            } catch (x) { reject(x); return; }
+            resolve(P);
+          }
+          later(run);
+        });
+      },
+      calibrate: function (f) { if (f === undefined) return factor; factor = f; return factor; },
+      memory: function () {
+        var packed = 0, heap = 0, dirty = 0, spilled = 0, i, e;
+        for (i = 0; i < np; i++) { e = pages[i]; packed += e.bytes ? e.bytes.length : 0; if (!e.bytes && e.disk) spilled++; if (e.value !== undefined) heap += e.heap; if (e.dirty) dirty++; }
+        return { rows: n, pages: np, pageRows: rows, open: live, dirty: dirty, packed: packed, openHeap: heap, spilled: spilled, level: level, pageIns: st.pageIns, pageOuts: st.pageOuts, repacks: st.repacks, hits: st.hits };
+      }
+    };
+    if (o.background) P.ready = P.settle();
+    return P;
+  }
+  pager.plan = pagerPlan;
+
   var jso = {
     pack: pack, unpack: unpack, view: view, freeBuffers: freeBuffers,
     ready: MC.ready, accelerated: MC.accelerated,
-    keeper: keeper, heap: heapInfo, profile: profile, estimateBytes: estimateBytes,
+    keeper: keeper, pager: pager, heap: heapInfo, profile: profile, estimateBytes: estimateBytes,
     core: MC, picker: PK
   };
 
@@ -3854,7 +4337,7 @@
   for (key in MC) unified[key] = MC[key];                                                     // lz4Compress, deflate, inflate, zlib, gzip, shuffle, crc32 ... as in memory-compression 1.x
   unified.pack = autoPack; unified.unpack = autoUnpack; unified.view = autoView;
   unified.layerOf = layerOf;
-  unified.freeBuffers = freeBuffers; unified.keeper = keeper; unified.heap = heapInfo; unified.profile = profile; unified.estimateBytes = estimateBytes;
+  unified.freeBuffers = freeBuffers; unified.keeper = keeper; unified.pager = pager; unified.heap = heapInfo; unified.profile = profile; unified.estimateBytes = estimateBytes;
   unified.core = MC; unified.objects = jso; unified.jso = jso; unified.picker = PK;
   return unified;
 });

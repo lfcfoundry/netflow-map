@@ -952,6 +952,39 @@ async function open() {
     say(!r.skip && r.busyBefore && /^rejected: .*(stopped|canceled)/i.test(r.first || '') && !r.busyAfter && r.mode === 'page' && r.second === 'built', 'a worker that dies in the middle of a job: the job fails in plain words, the engine is free again, and later maps are built on the page: ' + JSON.stringify(r)); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  /* Canvas 2D panning and zooming of a slow-to-draw map slides the last full picture, then draws the real one again when the camera stops: at rest the picture is exactly the full draw (0.000/255), the slid picture in between stays close, and the settle draw is asked for */
+  try {
+    await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(1500, 4, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'circle' }); });
+    await D.wait(() => !NFM.pending() && NFM.state.scene, null, 60000);
+    const r = await ev(async () => {
+      const m = NFM.manager(); await m.use('canvas2d'); if (m.r.name !== 'canvas2d' || !m.r.fastMove) return { err: 'n/a' };
+      const frames = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))), W = NFM.state.stageW, H = NFM.state.stageH;
+      const keep = async (key) => { const sn = m.r.snapshot(); await m.r.flush(); window.__px.keep[key] = sn; };
+      await frames(); const v1 = { k: 0.6, tx: 30, ty: 20 }, v2 = { k: 0.6, tx: 30 + 36, ty: 20 + 15 }, v3 = { k: 0.66, tx: 30 - 20, ty: 20 - 8 };
+      let settleAsked = 0; const inv = () => { settleAsked++; };
+      m.r.fastMove(true);
+      m.r.draw(v1);   /* a full draw: the kept picture */
+      for (let i = 1; i <= 6; i++) m.r.draw({ k: v1.k, tx: v1.tx + (v2.tx - v1.tx) * i / 6, ty: v1.ty + (v2.ty - v1.ty) * i / 6, moved: true, invalidate: inv });
+      await keep('pan_slid');
+      await new Promise((res) => setTimeout(res, 260)); const asked = settleAsked;   /* 140 ms after the last moving draw */
+      m.r.draw(v2); await keep('pan_rest');   /* what the settle draw does: a full draw, not marked as moved */
+      m.r.fastMove(false); m.r.draw(v2); await keep('pan_full');
+      m.r.fastMove(true); m.r.draw(v1);
+      for (let i = 1; i <= 6; i++) m.r.draw({ k: v1.k + (v3.k - v1.k) * i / 6, tx: v1.tx + (v3.tx - v1.tx) * i / 6, ty: v1.ty + (v3.ty - v1.ty) * i / 6, moved: true, invalidate: inv });
+      await keep('zoom_slid'); m.r.draw(v3); await keep('zoom_rest'); m.r.fastMove(false); m.r.draw(v3); await keep('zoom_full');
+      m.r.fastMove(null); m.r.draw(v1); m.r.draw({ k: v1.k, tx: v1.tx + 9, ty: v1.ty, moved: true, invalidate: inv }); await keep('small_default');   /* a small, fast map: drawn in full by default */
+      m.r.draw({ k: v1.k, tx: v1.tx + 9, ty: v1.ty }); await keep('small_full');
+      return { asked, W, H };
+    });
+    if (r.err) say(null, 'Canvas 2D panning: ' + r.err);
+    else {
+      const rest = await ev(() => window.__px.cmp('pan_rest', 'pan_full')), zrest = await ev(() => window.__px.cmp('zoom_rest', 'zoom_full')), slid = await ev(() => window.__px.cmp('pan_slid', 'pan_full')), zslid = await ev(() => window.__px.cmp('zoom_slid', 'zoom_full')), dflt = await ev(() => window.__px.cmp('small_default', 'small_full'));
+      say(rest.same && rest.mean === 0 && zrest.same && zrest.mean === 0 && r.asked >= 1, `Canvas 2D after a pan and a zoom: the picture at rest is exactly the full draw (${rest.mean.toFixed(3)} and ${zrest.mean.toFixed(3)}/255) and the redraw was asked for ${r.asked} time(s)`);
+      say(slid.bad < 0.12 && zslid.bad < 0.2, `Canvas 2D while the camera moves: the slid picture stays close to the full draw (${(slid.bad * 100).toFixed(1)}% far off after a 36 px pan, ${(zslid.bad * 100).toFixed(1)}% after a zoom)`);
+      say(dflt.same && dflt.mean === 0, 'Canvas 2D on a map that draws fast: moving the camera still draws in full (0.000/255)');
+    }
+  } catch (e) { say(false, 'Canvas 2D panning stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
   /* hidden speed and error buttons (shared field-report): five quick taps in the top-left corner open them; the report lists the layout and scene build times; the page raising a test error shows in the error log */
   try {
     for (let i = 0; i < 5; i++) { await D.click(20, 20); await settle(60); }

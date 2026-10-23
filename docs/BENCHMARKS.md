@@ -1605,22 +1605,48 @@ Heap after the layout (Chromium only, MB, lower is better): 72 at 5,000 pages, 1
 
 **Plain reading.** Maps of 5,000 to about 6,500 pages (with folding off) now draw in 0.5 to 1.6 s where they never drew; maps below the old limit take the same time (3,000 pages: 0.96 to 1.04 of before, noise). Bigger maps are still refused, in plain words. The page file grows by a few bytes.
 
-## 37. Hidden speed and error buttons (field-report 1.0.1) and a look at memory-compression 2.3.2 (2026-10-22)
+## 37. Hidden speed and error buttons (field-report 1.0.1) and memory-compression 2.0.3 to 2.3.4 (2026-10-22)
 
-**What.** `vendor/field-report.js` is an exact copy of JS-modules field-report 1.0.1 (main 528c7b9). Five quick taps in the top-left corner of the page open **Save speed report** and **Save error log**: one small Markdown file each, nothing leaves the device. It starts first (`src/field-report-start.js`) so start-up errors are caught. The report lists start-up steps (first paint, first-screen, engine-ready), every layout time (`layout N items`), every scene build, the browser's own long tasks in Chromium, and the device. The module's frame loop is OFF (`frames: false`): Chromium idle page, 10 s, busy time 0.8 ms without the loop and 126 to 150 ms with it (about 1.3% of the main thread, and it keeps the page awake), so the verdict line says "not enough frames"; use Speed test in the app for frame numbers. The built page drops the module's header comment (it quotes a script tag); the vendored file stays an exact copy.
+**What.** `vendor/field-report.js` is an exact copy of JS-modules field-report 1.0.1 (main 528c7b9). Five quick taps in the top-left corner of the page open **Save speed report** and **Save error log**: one small Markdown file each, nothing leaves the device. It starts first (`src/field-report-start.js`) so start-up errors are caught. The report lists start-up steps (first paint, first-screen, engine-ready), every layout time (`layout N items`), every scene build, the browser's own long tasks in Chromium, and the device. The module's frame loop is OFF (`frames: false`): Chromium idle page, 10 s, busy time 0.8 ms without the loop and 126 to 150 ms with it (about 1.3% of the main thread, and it keeps the page awake), so the verdict line says "not enough frames". The built page drops the module's header comment (it quotes a script tag); the vendored file stays an exact copy. `vendor/memory-compression.js` is now an exact copy of JS-modules memory-compression 2.3.4 (was 2.0.3).
 
-**Start-up.** `bench/startup.js` (plain page from main against the new plain page, 15 opens each, medians; milliseconds, lower is better), "ready" (two frames after the app object exists), old to new: Chromium 155 82 to 82, Firefox 158 112 to 114, WebKitGTK 2.52.6 67 to 68, GNOME Web 46.5 101 to 95. All inside the 5% speed guard. Sizes: plain page 1,001,501 to 1,014,390 bytes (+12,889, +1.3%), fast copy 377,627 to 383,052, LZMA copy 328,472 to 332,664 (size ceilings suspended).
+**Start-up.** `bench/startup.js` (plain page from main against the new plain page; medians; milliseconds, lower is better), "ready" (two frames after the app object exists), old to new. Chromium 155 83 to 83 (15 opens), Firefox 158 99 to 102 (41 opens; DOMContentLoaded 70 to 73), WebKitGTK 2.52.6 68 to 68, GNOME Web 46.5 103 to 97 (15 opens). All inside the 5% speed guard (Firefox +3%). Sizes: plain page 1,001,501 to 1,038,320 bytes (+36,819, +3.7%: field-report +12.9 KB, memory-compression +23.9 KB), fast copy 377,627 to 392,548, LZMA copy 328,472 to 340,887 (size ceilings suspended).
 
-**memory-compression 2.3.2 was NOT adopted (the app stays on 2.0.3).** `bench/park-alt.js` runs the idle layout park (`src/layout-park.js`) with each module version in a FRESH page, taking turns, 59,999 links (three 25,000-row chunks, fast mode), medians of 7 pages (Chromium 21), milliseconds, lower is better, old (2.0.3) to new (2.3.2):
+**memory-compression 2.3.4 in the idle layout park.** `bench/park-alt.js` runs the park (`src/layout-park.js`) with each module version in a FRESH page, taking turns, 59,999 links (three 25,000-row chunks, fast mode), medians (Chromium 15 pages, others 9), milliseconds, lower is better, 2.0.3 to 2.3.4:
 
 | Step | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
 |---|---|---|---|---|
-| Pack the list (park) | 87.7 to 82.4 | 101 to 107 | 82 to 79 | 77 to 78 |
-| First read of one link | 2.5 to 2.4 | 8 to 7 | 5 to 5 | 5 to 5 |
-| Read the whole list back (wake) | 21.2 to 31.0 | 55 to 55 | 33 to 34 | 35 to 32 |
+| Pack the list (park) | 90.7 to 85.5 | 99 to 101 | 81 to 78 | 77 to 77 |
+| First read of one link | 2.5 to 2.6 | 5 to 4 | 6 to 5 | 5 to 6 |
+| Read the whole list back (wake) | 23.3 to 29.9 (varies run to run, see below) | 58 to 59 | 32 to 34 | 37 to 33 |
 | Packed bytes | 85,285 to 85,285 | same | same | same |
 
-**Plain reading.** The new module gives the park nothing (same size, same pack time) and reading the whole list back is about 46% slower in Chromium (21 pages per version; an earlier 7-page run: 21.6 to 36.4), so the bump would break the speed guard; the finding went to the module's owners. The pager (new in 2.2.0) is not used: the park already opens one 25,000-row chunk for a single link in 2.4 to 8 ms, under the 8 ms rule. image-decode is not used (the app only shows 96 px icons, decoded off the main thread already); pcodec-js is not used (the app stores no number columns).
+**A first reading was wrong.** A first run with 2.3.2 showed reading the list back 46% slower in Chromium (21.2 to 31.0 ms) and I held the bump back. The module's owners could not reproduce it. Six more Chromium runs of 25 pages per version with 2.0.3 against 2.3.4, the order swapped between runs, gave (2.0.3 / 2.3.4, ms) 22.0 / 32.1, 29.6 / 32.3, 33.7 / 21.1, 31.7 / 30.7, 31.6 / 32.7, 21.2 / 31.2: the whole run lands near 21 ms or near 32 ms whichever version is in it, and the medians of the six runs are level (2.0.3 30.6, 2.3.4 31.9). Reading the list back in Chromium therefore varies by the state of the machine from run to run, not by module version; the 2.3.2 runs (2.3.2 = 30.0, 21.3, 29.4, 25.6 against 2.0.3 = 33.1, 33.4, 33.7, 22.3) show the same two levels. Pack, first read and size are level; the bump is adopted because the project rule is to adopt the newest module and nothing measured against it.
+
+**Not used.** The pager (new in 2.2.0): the park already opens one 25,000-row chunk for a single link in 2.5 to 6 ms, under the 8 ms rule. image-decode: the app only shows 96 px icons. pcodec-js: the app stores no number columns.
+
+## 38. Canvas 2D: panning and zooming a slow-to-draw map slides the last picture (2026-10-22)
+
+**What.** The Canvas 2D drawer (`createCanvas2D` in `src/render.js`) used to draw every shape again on each frame of a pan or zoom. When the last full draw was slow (over 16 ms of drawing calls) or the frames come slowly (a gap over 40 ms during motion), it now keeps the picture from the last full draw, slides and scales it to the new camera while the camera moves (a few milliseconds per frame, labels and icons are still drawn each frame), and draws the real picture again 140 ms after the camera stops. Maps that draw fast are drawn in full as before. WebGL 2 and WebGPU drawing are untouched.
+
+**Pictures.** At rest the picture is exactly the full draw: `test/browser.test.js` pans and zooms a 1,500-item Network map through the slid frames and the settle draw, then compares with a full draw at the same camera: 0.000/255 in all four browsers; the slid picture mid-motion stays close (under 12% of pixels far off after a 36 px pan); a map that draws fast is still drawn in full. The redraw is asked for after the last moving frame.
+
+**Method.** `bench/pan-alt.js`: the older page (main before this change) against the newer one, Canvas 2D forced, a scripted camera for 2 s per frame step (zoom in and out, or a back-and-forth pan), a FRESH page each time, taking turns, median of 5 pages per version; FPS (higher is better) and the 95th-percentile gap between frames in ms (lower is better), 1,500 or 5,000 items (`bigNetwork(N, 6, 7)`).
+
+| Pan FPS, old to new | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| Sankey, 1,500 items | 13.8 to 60.0 | 23.3 to 60.5 | 1.7 to 28.5 | 1.7 to 22.2 |
+| Flow, 1,500 items | 22.1 to 60.0 | 33.2 to 60.5 | 4.3 to 28.7 | 4.2 to 21.8 |
+| Network, 5,000 items | 12.9 to 60.0 | 19.0 to 60.5 | 2.8 to 28.3 | 2.8 to 22.1 |
+
+| Zoom FPS, old to new | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 | GNOME Web 46.5 |
+|---|---|---|---|---|
+| Sankey, 1,500 items | 13.4 to 60.0 | 23.0 to 60.5 | 1.8 to 20.5 | 1.8 to 15.8 |
+| Flow, 1,500 items | 21.5 to 60.0 | 29.5 to 60.5 | 4.4 to 23.8 | 4.3 to 19.0 |
+| Network, 5,000 items | 12.1 to 60.0 | 17.5 to 60.2 | 2.6 to 21.2 | 2.6 to 16.9 |
+
+95th-percentile gap while panning, old to new (ms, lower is better): Chromium Sankey 83 to 17, Flow 50 to 17, Network 83 to 17; Firefox 51 to 17, 33 to 17, 67 to 17; WebKitGTK 613 to 43, 268 to 39, 443 to 40; GNOME Web 606 to 53, 296 to 51, 442 to 51.
+
+**Plain reading.** On the Canvas 2D fallback, panning and zooming big maps goes from 2 to 33 FPS to 16 to 60 FPS (the 60 in Chromium and Firefox is the screen's limit). While the camera moves the shapes are the last picture slid or scaled (edges that were off screen show the background until the camera stops, and a zoom is briefly soft); 140 ms after it stops the picture is the exact full draw. In these test browsers the app picks Canvas 2D by design because their WebGL runs on the processor; on a real graphics chip WebGL 2 draws instead and is unchanged. The page grows by about 900 bytes.
 
 ## Reproduce
 
@@ -1646,6 +1672,7 @@ node drop.js chromium                                 # or: firefox, webkit, epi
 node layers-alt.js chromium                           # or: firefox, webkit, epiphany; the Flow layout with the older netflow-layers against the newer (section 35); layers-same.js is the all-views same-layout gate (Node)
 node stops-limit.js chromium                           # or: firefox, webkit, epiphany; the stops limit raised, old engine from main against the new (section 36)
 node park-alt.js chromium                              # or: firefox, webkit, epiphany; the idle layout park with the older memory-compression against the newer (section 37)
+node pan-alt.js chromium                               # or: firefox, webkit, epiphany; panning and zooming with Canvas 2D, older page against newer (section 38)
 node first-move.js chromium                           # or: firefox, webkit, epiphany; the first move of an item with the links packed, the build before against this one (section 33)
 node sankey-alt.js chromium                           # or: firefox, webkit, epiphany; netflow-sankey 2.2.1 against 2.3.0 in the app's own build (section 31)
 node closeness-pow.js chromium; node sim-sparse.js chromium   # the two plain-JavaScript speed-ups, against the previous commit (section 21)

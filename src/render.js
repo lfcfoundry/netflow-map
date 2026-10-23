@@ -221,14 +221,39 @@ var NFMRender = (function () {
   function createCanvas2D(host, hooks) {
     var H = makeHost(host), ctx = H.main.getContext('2d', { alpha: false }), S = null, W = 1, Hh = 1, dpr = 1;
     if (!ctx) throw new Error('no 2D canvas');
+    /* Moving the camera over a map that is slow to draw: the picture kept from the last full draw is slid and scaled to the new camera (a few ms), and the real picture is drawn again 140 ms after the camera stops, so at rest the picture is exactly what a full draw gives. Only used when the last full draw took over FAST_MS (a small map is always drawn in full). */
+    var FAST_MS = 16, SETTLE_MS = 140, cache = null, cacheScene = null, cacheW = 0, cacheH = 0, fullView = null, fullFresh = false, lastFullMs = 0, settleT = 0, fastForce = null, lastDrawAt = 0, slowMotion = false;
+    function fastDraw(view) {
+      var sc = view.k / fullView.k;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = css(S.theme.bg); ctx.fillRect(0, 0, H.main.width, H.main.height);
+      ctx.drawImage(cache, dpr * (view.tx - sc * fullView.tx), dpr * (view.ty - sc * fullView.ty), cacheW * sc, cacheH * sc);
+      drawLabels(H.ctx2, S, view, W, Hh, dpr);
+      fullFresh = false;
+      settleT = setTimeout(function () { settleT = 0; if (view.invalidate) view.invalidate(); }, SETTLE_MS);
+    }
+    function tryFast(view) {
+      if (!view.moved || !fullView || fastForce === false || (fastForce !== true && lastFullMs <= FAST_MS && !slowMotion)) return false;
+      if (fullFresh) {   /* the canvas still holds the last full picture: keep it */
+        if (!cache) cache = document.createElement('canvas');
+        if (cache.width !== H.main.width || cache.height !== H.main.height) { cache.width = H.main.width; cache.height = H.main.height; }
+        cache.getContext('2d').drawImage(H.main, 0, 0); cacheScene = S; cacheW = H.main.width; cacheH = H.main.height;
+      } else if (!cache || cacheScene !== S || cacheW !== H.main.width || cacheH !== H.main.height) return false;
+      fastDraw(view); return true;
+    }
     var out = {
       name: 'canvas2d', label: 'Canvas 2D',
       patch: function (s) { return s === S; },   /* nothing is kept on a card: the next draw reads the scene as it now is */
-      setScene: function (s) { S = s; if (S) S.curves.forEach(function (c) { if (c.bb === undefined) { var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (var i = 0; i < c.P.length; i += 2) { x0 = Math.min(x0, c.P[i]); x1 = Math.max(x1, c.P[i]); y0 = Math.min(y0, c.P[i + 1]); y1 = Math.max(y1, c.P[i + 1]); } c.bb = [x0 - 12, y0 - 12, x1 + 12, y1 + 12]; } }); },
+      fastMove: function (v) { fastForce = v; },   /* test hook: true always slides the kept picture while the camera moves, false never, null by speed */
+      setScene: function (s) { S = s; fullFresh = false; cacheScene = null; slowMotion = false; if (S) S.curves.forEach(function (c) { if (c.bb === undefined) { var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (var i = 0; i < c.P.length; i += 2) { x0 = Math.min(x0, c.P[i]); x1 = Math.max(x1, c.P[i]); y0 = Math.min(y0, c.P[i + 1]); y1 = Math.max(y1, c.P[i + 1]); } c.bb = [x0 - 12, y0 - 12, x1 + 12, y1 + 12]; } }); },
       resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
       draw: function (view) {
         if (!S) return;
-        var k = view.k, vx0 = -view.tx / k, vy0 = -view.ty / k, vx1 = (W - view.tx) / k, vy1 = (Hh - view.ty) / k;
+        if (settleT) { clearTimeout(settleT); settleT = 0; }
+        var tNow = performance.now(); if (view.moved && lastDrawAt && tNow - lastDrawAt > 40 && tNow - lastDrawAt < 400) slowMotion = true;   /* the browser finishes the drawing later, so the call itself looked cheap but the frames come slowly */
+        lastDrawAt = tNow;
+        if (tryFast(view)) return;
+        var t00 = tNow, k = view.k, vx0 = -view.tx / k, vy0 = -view.ty / k, vx1 = (W - view.tx) / k, vy1 = (Hh - view.ty) / k;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.fillStyle = css(S.theme.bg); ctx.fillRect(0, 0, H.main.width, H.main.height);
         ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * view.tx, dpr * view.ty);
@@ -281,6 +306,7 @@ var NFMRender = (function () {
         });
         ctx.globalAlpha = 1;
         drawLabels(H.ctx2, S, view, W, Hh, dpr);
+        lastFullMs = performance.now() - t00; fullView = { k: view.k, tx: view.tx, ty: view.ty }; fullFresh = true;
       },
       flush: function () { return Promise.resolve(); },
       snapshot: function () { return ctx.getImageData(0, 0, H.main.width, H.main.height); },
