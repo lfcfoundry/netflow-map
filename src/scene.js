@@ -224,6 +224,20 @@ var NFMScene = (function () {
     };
     /* one link for reading at once (the renderer's changed links): the live object when the list is not packed, otherwise a single object filled in again on every call, so it makes no garbage; do not keep it */
     var VIEW = { P: [0, 0, 0, 0, 0, 0, 0, 0], color: [0, 0, 0, 0], w: 0, a: undefined };
+    /* every link for drawing with Canvas 2D without waking the packed list: the live objects when it is not packed, otherwise one object filled in again for each link (valid only inside the callback), so a picture drawn from a packed list makes no per-link objects */
+    var V2 = { P: [0, 0, 0, 0, 0, 0, 0, 0], color: [0, 0, 0, 0], bb: [0, 0, 0, 0], w: 0, a: undefined, dash: 0, arrow: false, line: false, edge: -1, from: null, to: null };
+    S.eachCurveView = function (fn) {
+      var v = V2, i, k, o, q, f, n, x0, y0, x1, y1;
+      if (!pk) { objs.forEach(fn); return; }
+      for (i = 0, n = pk.M; i < n; i++) {
+        o = i * 8; q = i * 4; f = pk.FL[i];
+        for (k = 0; k < 8; k++) v.P[k] = pk.P[o + k]; for (k = 0; k < 4; k++) v.color[k] = pk.COL[q + k];
+        if (f & 16) { x0 = Math.min(v.P[0], v.P[2], v.P[4], v.P[6]); x1 = Math.max(v.P[0], v.P[2], v.P[4], v.P[6]); y0 = Math.min(v.P[1], v.P[3], v.P[5], v.P[7]); y1 = Math.max(v.P[1], v.P[3], v.P[5], v.P[7]); v.bb[0] = x0; v.bb[1] = y0; v.bb[2] = x1; v.bb[3] = y1; }
+        else { v.bb[0] = pk.BB[q]; v.bb[1] = pk.BB[q + 1]; v.bb[2] = pk.BB[q + 2]; v.bb[3] = pk.BB[q + 3]; }
+        v.w = pk.W[i]; v.a = (f & 8) ? undefined : pk.A[i]; v.dash = pk.DASH[i]; v.arrow = !!(f & 1); v.line = !!(f & 2); v.edge = pk.EDGE[i];
+        fn(v, i);
+      }
+    };
     S.curveView = function (i) {
       var v = VIEW, o, q, k;
       if (!pk) return objs[i];
@@ -1234,8 +1248,11 @@ var NFMScene = (function () {
     S.icons.forEach(function (ic) { ic.a = ic.node >= 0 && S.nodes[ic.node] ? S.nodes[ic.node].a : 1; });
     S.labels.forEach(function (l) { l.a = l.node >= 0 && S.nodes[l.node] ? S.nodes[l.node].a : (l.edge !== undefined && S.curves.length ? 1 : 1); });
     S.curves.forEach(function (c) {
-      remember(c, ['w', 'color']);
       var on = selE && c.edge >= 0 && selE.has(c.edge);
+      if (!c.base) {   /* a link nobody has changed yet is its own base: no saved copy until it is first lit (100,000 items: 13 MB less garbage a picture) */
+        if (!on) { c.a = edgeBright(c) ? 1 : 0.08; return; }
+        remember(c, ['w', 'color']);
+      }
       c.w = on ? Math.max(c.base.w * 1.8, c.base.w + 2) : c.base.w;
       c.color = on ? S.theme.accent : c.base.color;
       c.a = on ? 1 : (edgeBright(c) ? 1 : 0.08);
