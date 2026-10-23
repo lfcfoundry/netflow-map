@@ -1,0 +1,37 @@
+{
+ "version": "firefox/158.0",
+ "reps": 9,
+ "edges": 59999,
+ "rows": [
+  {
+   "k": "park",
+   "old": 99,
+   "nw": 101
+  },
+  {
+   "k": "first",
+   "old": 5,
+   "nw": 4
+  },
+  {
+   "k": "same",
+   "old": 0,
+   "nw": 0
+  },
+  {
+   "k": "other",
+   "old": 2,
+   "nw": 2
+  },
+  {
+   "k": "wake",
+   "old": 58,
+   "nw": 59
+  },
+  {
+   "k": "bytes",
+   "old": 85285,
+   "nw": 85285
+  }
+ ]
+}

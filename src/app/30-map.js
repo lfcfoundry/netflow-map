@@ -107,6 +107,7 @@ function refreshMap(reason, force) {
     /* the chosen links are remembered by the original links they stand for, so they stay the same links when the view or arrangement draws them as other arrows */
     var origSel = null; if (S.selEdges.size && S.L) { origSel = new Set(); S.selEdges.forEach(function (i) { var oe = S.L.edges[i]; if (oe && oe.orig) for (var q = 0; q < oe.orig.length; q++) origSel.add(oe.orig[q]); }); }
     S.L = res.L; S.ms = res.ms; S.totalMs = performance.now() - t0;
+    if (window.NFMReport && !rough) window.NFMReport.time('layout ' + nfmt(S.graph.nodes.length) + ' items', S.totalMs);   /* the hidden speed report lists the slowest jobs */
     if (S.selEdges.size) S.selEdges = origSel && origSel.size ? edgesFromOrig(origSel) : new Set();
     var hadCard = !!S.cardUsed; S.cardUsed = res.card || null; if (hadCard !== !!S.cardUsed || (client && client.cardWhy)) renderMapUI();
     if (S.L.is3d === false) S.L.is3d = false;
@@ -251,6 +252,7 @@ function makeScene(fit) {
   S.scene = NFMScene.make(S.L, so0);
   editKey(S.scene); keepPacked(S.scene);
   S.sceneMs = performance.now() - t0;
+  if (window.NFMReport) window.NFMReport.time('scene build', S.sceneMs);
   applyStyle(true);
   if (mgr && mgr.r) mgr.r.setScene(S.scene);
   if (fit) fitView(true); else requestDraw();
@@ -373,7 +375,7 @@ function requestDraw() {
       armSettle();
     }
     if (tsc && tsc.turn && tsc.turn.on && S.view.k > tsc.turn.kmax) tsc.turnTo(tsc.turn.cam, S.view.k * 2);   /* zoomed in: more names can be seen */
-    if (mgr && mgr.r && S.scene) { try { mgr.r.draw({ k: S.view.k, tx: S.view.tx, ty: S.view.ty, invalidate: requestDraw }); } catch (err) { mgr.log.push('draw: ' + err.message); } }
+    if (mgr && mgr.r && S.scene) { try { mgr.r.draw({ k: S.view.k, tx: S.view.tx, ty: S.view.ty, invalidate: requestDraw, moved: mv }); } catch (err) { mgr.log.push('draw: ' + err.message); } }
     drawInk(); renderMinimap();
   });
 }
