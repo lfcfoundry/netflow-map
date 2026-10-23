@@ -1712,6 +1712,10 @@ Step A, `style()` in `src/scene.js`: a link nobody has lit yet is its own base, 
 
 Draw time, taking turns inside one page with a pixel read after each draw (`bench/canvas-draw-ab.js`, 93,232 links, 9 turns, median; lower is better): Chromium 155 older way 780 ms, newer way 780 (ratio 1.00); Firefox 158 490 vs 476 (0.97); WebKitGTK 2.52.6 7,167 vs 7,142 (1.00); GNOME Web 46.5 7,173 vs 7,142 (1.00). So the packed read costs no draw time. Step C (links built straight into the packed arrays) was built and measured (Chromium, Canvas 2D, 100,000 items: one rebuild allocates 146 to 64 MB) and then set aside on the owner's choice; the patch is kept in the shared folder.
 
+## 43. Waking a parked link list without holding the page (2026-10-23, memory-compression 2.3.4 to 2.4.9)
+
+`bench/park-wake.js`, 100,000 items (311,667 links, 13 pieces of 25,000), median of 5, page held while the parked list comes back (ms, lower is better). Reading `L.edges` wakes everything at once: Chromium 155 222 to 125, Firefox 158 273 to 101, WebKitGTK 2.52.6 207 to 101, GNOME Web 46.5 190 to 125 (the vendored module 2.3.4 to 2.4.9). New `L.wakeAsync()` opens each piece a column at a time (`unpackAsync`): the longest hold is 34 / 14 / 19 / 23 ms, and the list is ready after 140 / 171 / 117 / 125 ms. The page asks for it when a control or key is touched (not when the picture is panned or zoomed) and before a queued picture rebuild; a read in the meantime still wakes everything at once, as before. Cost: the page is 30 KB larger (1,028 to 1,058 KB). Checks 186 / 174 / 174 / 174. Not done (the brief says it does not pay): packing saved layouts. To re-time when module briefs 2.4.10 and 2.4.11 land.
+
 ## Reproduce
 
 ```
