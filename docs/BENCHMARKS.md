@@ -1648,6 +1648,25 @@ Heap after the layout (Chromium only, MB, lower is better): 72 at 5,000 pages, 1
 
 **Plain reading.** On the Canvas 2D fallback, panning and zooming big maps goes from 2 to 33 FPS to 16 to 60 FPS (the 60 in Chromium and Firefox is the screen's limit). While the camera moves the shapes are the last picture slid or scaled (edges that were off screen show the background until the camera stops, and a zoom is briefly soft); 140 ms after it stops the picture is the exact full draw. In these test browsers the app picks Canvas 2D by design because their WebGL runs on the processor; on a real graphics chip WebGL 2 draws instead and is unchanged. The page grows by about 900 bytes.
 
+
+## 39. netflow-layers 1.3.1 to 1.4.0, a selection fix and the fuzz-kit round (2026-10-22)
+
+**What.** `vendor/netflow-layers.js` is now an exact copy of JS-modules netflow-layers 1.4.0 (placement and crossing counting read typed arrays; the `lane` option is called once per stop and must be pure, and the app's `Math.max(0, laneOfBox[n.id])` is). `bench/layers-same.js`: 576 layouts compared with 1.3.1, 0 different (12 too big for both and refused alike). `vendor/field-report.js` is 1.0.2 (the reported version number was the only change). `NFM.setSel` now ignores items that are no longer in the data. A click on the old picture while new data was still being laid out named such an item and the details panel threw "cannot read label" (and kept showing the error text); found by fuzz-kit, the same in all four browsers, older than this build.
+
+**First Flow layout, milliseconds, lower is better (median of 11 fresh pages per version, taking turns; ratio = old / new, higher is better).**
+
+| Map | Chromium | Firefox | WebKitGTK | GNOME Web |
+|---|---|---|---|---|
+| 1,000 pages, first layout | 49 to 47 (1.04) | 59 to 52 (1.13) | 40 to 37 (1.08) | 44 to 38 (1.16) |
+| 3,000 pages, first layout | 237 to 216 (1.10) | 272 to 244 (1.11) | 218 to 188 (1.16) | 213 to 194 (1.10) |
+| 3,000 pages, layout after a moment | 196 to 184 (1.06) | 245 to 208 (1.18) | 185 to 151 (1.23) | 190 to 153 (1.24) |
+
+Nothing is over 5% slower: the one cell below 1 (WebKitGTK, 1,000 pages, after a moment, 26 to 27 ms) is one whole millisecond of the browser's timer. Raw runs: `bench/results/layers-alt-131-vs-140-*.json`.
+
+**Fuzz-kit round (new standard check).** `tools/fuzz-kit/` is an exact copy of JS-modules fuzz-kit 1.3.3 (runner, engine, `webkit-driver` beside it); `test/fuzz-kit/netflow-adapter.js` drives the page's own handle with random pans, wheel zooms, zoom calls, view, arrangement, color, line-width, curve and label changes, tab changes, item moves and drops, selections, built-in examples, big generated networks, and good, damaged and junk files. Invariants: the camera numbers are real, a built map has a scene, no `NaN`/`undefined`/`[object ...]` text, no error. `sh tools/fuzz-kit/run-netflow.sh [chrome|firefox|webkitgtk|epiphany|all] [seeds] [ops]` (default 1-12 seeds of 250 operations). First round: the select bug above (and some findings from the adapter's own bad ids, fixed in the adapter). Final build: 12 seeds x 250 operations in each of the four browsers, 0 findings (wall time 117 s Chromium, 125 s Firefox, 383 s WebKitGTK, 407 s GNOME Web).
+
+**Parked.** A version that builds the new picture in pieces (a few milliseconds at a time, old picture on screen) was measured and left out: on a 10,000-item Network map in Chromium with WebGL 2 the longest hold after a setting change went from 51 to 56 ms to 32 to 38 ms and the new picture showed about 45 ms later, because the swap (picture to the graphics card) is untouched. Patch, test and bench: `/mnt/project-files/netflow-map/slicing-2026.10.23/`. Next lever: build links straight into reusable typed arrays (80 MB allocated per rebuild).
+
 ## Reproduce
 
 ```

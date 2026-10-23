@@ -329,6 +329,7 @@ function toggleChapter(key, on) {
 }
 function setSel(ids, opts) {
   opts = opts || {};
+  ids = ids.filter(function (id) { return S.byId.has(id); });   /* a click on the old picture while new data is still being laid out names an item that is no longer there */
   if (ids.length && revealPages(ids)) { S.sel = new Set(ids); S.selEdges = new Set(); }
   S.sel = new Set(ids); S.selEdges = new Set(opts.edges || []); S.ring = null;
   applyStyle(); renderDetails(); renderSelbar();
