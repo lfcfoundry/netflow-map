@@ -6,7 +6,9 @@
   var E = NFMEngine, C = NFMColumns, I = NFMImport, K = NFMCheck, GEN = NFMGen, G = NFMGpuStress;
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
-  var params = new URLSearchParams(location.search), QUICK = params.has('quick');
+  var DEFAULT_ONLY = '';   /* the links-only file is this page with 'links' here, so a phone needs no address suffix */
+  var params = new URLSearchParams(location.search); if (DEFAULT_ONLY && !params.has('only')) params.set('only', DEFAULT_ONLY);
+  var QUICK = params.has('quick');
   var VERSION = '__VERSION__', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
