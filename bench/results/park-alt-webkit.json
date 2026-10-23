@@ -1,0 +1,37 @@
+{
+ "version": "MiniBrowser 2.52.6",
+ "reps": 9,
+ "edges": 59999,
+ "rows": [
+  {
+   "k": "park",
+   "old": 80.99999999999994,
+   "nw": 78
+  },
+  {
+   "k": "first",
+   "old": 6,
+   "nw": 5
+  },
+  {
+   "k": "same",
+   "old": 0,
+   "nw": 0
+  },
+  {
+   "k": "other",
+   "old": 2,
+   "nw": 2
+  },
+  {
+   "k": "wake",
+   "old": 32,
+   "nw": 34
+  },
+  {
+   "k": "bytes",
+   "old": 85285,
+   "nw": 85285
+  }
+ ]
+}
