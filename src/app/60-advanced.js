@@ -65,6 +65,7 @@ function deviceCard() {
       S.checkResult = r;
     }).catch(function (err) { mount(out, h('div', { class: 'verdict limited' }, 'The check itself ran into a problem: ' + err.message)); }).then(function () { btn.disabled = false; });
   });
-  return h('div', { class: 'card' }, [h('h2', null, 'Check this device'), h('p', { class: 'muted small', style: { margin: 0 } }, 'One button. It tries each way of drawing on a sample map and tells you which works best here.'), h('div', { class: 'row' }, [btn, field('Drawing method', method)]), out]);
+  return h('div', { class: 'card' }, [h('h2', null, 'Check this device'), h('p', { class: 'muted small', style: { margin: 0 } }, 'One button. It tries each way of drawing on a sample map and tells you which works best here.'), h('div', { class: 'row' }, [btn, field('Drawing method', method)]), out,
+    h('p', { class: 'muted small', style: { margin: '10px 0 0' } }, 'What to expect, as measured. Straight links go onto the graphics card about 2 to 4 times faster than the older way on a laptop with integrated graphics and on a midrange phone (Android, Chrome). The Force arrangement of a map of 20,000 or more items uses the graphics card only when a quick timing on this device says it is faster: on a laptop with integrated graphics it was 2 to 5 times faster (100,000 items: about 5 times); on a midrange phone the card is slower than the processor above roughly 10,000 items, so the processor does it. The picture is the same either way.')]);
 }
 var APP_VERSION = '@@VERSION@@';
