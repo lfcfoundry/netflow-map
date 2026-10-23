@@ -1,0 +1,69 @@
+{
+ "version": "firefox/158.0",
+ "rounds": 5,
+ "res": {
+  "10000": {
+   "pick": {
+    "chose": false,
+    "probe": {
+     "inst": 6,
+     "corners": 3
+    }
+   },
+   "oldSet": 3,
+   "instSet": 2,
+   "oldDraw": 3,
+   "instDraw": 2,
+   "oldAgain": 1,
+   "instAgain": 2,
+   "mb": [
+    2.288818359375,
+    0.34332275390625
+   ],
+   "mean": 0,
+   "badPct": 0
+  },
+  "100000": {
+   "pick": {
+    "chose": false,
+    "probe": {
+     "inst": 6,
+     "corners": 2
+    }
+   },
+   "oldSet": 26,
+   "instSet": 8,
+   "oldDraw": 11,
+   "instDraw": 12,
+   "oldAgain": 5,
+   "instAgain": 12,
+   "mb": [
+    22.88818359375,
+    3.4332275390625
+   ],
+   "mean": 0,
+   "badPct": 0
+  },
+  "300000": {
+   "pick": {
+    "chose": false,
+    "probe": {
+     "inst": 6,
+     "corners": 3
+    }
+   },
+   "oldSet": 86,
+   "instSet": 31,
+   "oldDraw": 34,
+   "instDraw": 34,
+   "oldAgain": 13,
+   "instAgain": 32,
+   "mb": [
+    68.66455078125,
+    10.2996826171875
+   ],
+   "mean": 0,
+   "badPct": 0
+  }
+ }
+}

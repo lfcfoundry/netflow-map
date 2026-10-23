@@ -48,23 +48,39 @@ var NFMRender = (function () {
     for (i = 0; i < 18; i += 3) { mesh[o++] = V[i]; mesh[o++] = V[i + 1]; mesh[o++] = nx; mesh[o++] = ny; mesh[o++] = hw; mesh[o++] = V[i + 2]; mesh[o++] = r0; mesh[o++] = r1; mesh[o++] = r2; mesh[o++] = r3; }
     return o;
   }
-  var PATCH = new Float32Array(MESH_STRIDE * 6), PATCH_MAX = 4000;
+  /** A plain straight link as the 9 numbers the card builds its quad from (two end points, half width, color): 36 bytes where the six corner records are 240. */
+  function instRec(out, o, c) {
+    var a = c.a === undefined ? 1 : c.a, col = c.color, P = c.P;
+    out[o] = P[0]; out[o + 1] = P[1]; out[o + 2] = P[6]; out[o + 3] = P[7]; out[o + 4] = c.w / 2; out[o + 5] = col[0]; out[o + 6] = col[1]; out[o + 7] = col[2]; out[o + 8] = col[3] * a;
+  }
+  var INST_STRIDE = 9, INSTBUF = null, EMPTY = new Float32Array(0);
+  var PATCH = new Float32Array(MESH_STRIDE * 6), PATCH_MAX = 4000, PATCH_I = new Float32Array(INST_STRIDE);
   /** Rewrites just the dots and links that were moved (dirty = {dots, curves}: sets of positions in S.dots and S.curves) straight into the graphics-memory buffers. write(which, byteOffset, Float32Array) does the send. False when the picture is not laid out so that this works (then the page sends it all). */
   function patchBuffers(S, T, dirty, write) {
     if (!T || !T.uni || !dirty || T.nDots !== S.dots.length || T.nCurves !== (S.curveCount ? S.curveCount() : S.curves.length) || dirty.dots.size + dirty.curves.size > PATCH_MAX) return false;
     var dr = new Float32Array(SHAPE_STRIDE), cs = S.curveView ? null : S.curves;
     dirty.dots.forEach(function (i) { dotRec(dr, S.dots[i]); write('front', (T.dot0 + i) * SHAPE_STRIDE * 4, dr); });
-    dirty.curves.forEach(function (j) { segRec(PATCH, 0, cs ? cs[j] : S.curveView(j)); write('mesh', j * 6 * MESH_STRIDE * 4, PATCH); });
+    if (T.inst) dirty.curves.forEach(function (j) { instRec(PATCH_I, 0, cs ? cs[j] : S.curveView(j)); write('inst', j * INST_STRIDE * 4, PATCH_I); });
+    else dirty.curves.forEach(function (j) { segRec(PATCH, 0, cs ? cs[j] : S.curveView(j)); write('mesh', j * 6 * MESH_STRIDE * 4, PATCH); });
     return true;
   }
   /** Turns a scene into flat arrays: back shapes, mesh (lines, arrows, ribbons), front shapes. a = item alpha from restyle. */
-  function tessellate(S) {
+  function tessellate(S, opts) {
     var back = [], front = [], i;
     var shape = function (list, cx, cy, hw, hh, rad, kind, sw, fill, stroke, a) {
       list.push(cx, cy, hw, hh, rad, kind, sw, 0, fill[0], fill[1], fill[2], fill[3] * a, stroke[0], stroke[1], stroke[2], stroke[3] * a);
     };
     S.rects.forEach(function (r) { shape(r.layer === 0 ? back : front, r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, Math.min(r.r, r.w / 2, r.h / 2), 0, r.sw, r.fill, r.stroke, r.a === undefined ? 1 : r.a); });
     S.dots.forEach(function (d) { var k = d.kind === undefined ? 1 : d.kind; shape(front, d.cx, d.cy, d.r, d.r, k === 0 ? Math.min(3, d.r) : d.r, k, d.sw, d.fill, d.stroke, d.a === undefined ? 1 : d.a); });
+    /* a network of nothing but plain straight links (no arrows, ribbons or hulls) can go to the card as 9 numbers a link, the quad built by its vertex shader (opts.inst, WebGL 2); anything else keeps the corner records below */
+    var uni = !S.ribbons.length && !(S.polys && S.polys.length) && S.curves.every(function (c) { return isSeg(c) && !c.arrow; }), dot0 = 0;
+    S.rects.forEach(function (r) { if (r.layer !== 0) dot0++; });
+    if (opts && opts.inst && uni && S.curves.length) {
+      var nI = S.curves.length, needI = nI * INST_STRIDE;
+      if (!INSTBUF || INSTBUF.length < needI) INSTBUF = new Float32Array(needI + (needI >> 2));
+      for (i = 0; i < nI; i++) instRec(INSTBUF, i * INST_STRIDE, S.curves[i]);
+      return { back: new Float32Array(back), front: new Float32Array(front), mesh: EMPTY, inst: INSTBUF.subarray(0, needI), nInst: nI, nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: 0, uni: true, dot0: dot0, nDots: S.dots.length, nCurves: nI };
+    }
     /* mesh */
     var verts = 0, plan = [];
     S.ribbons.forEach(function (r) { var n = Math.max(10, Math.min(40, Math.ceil(Math.abs(r.x1 - r.x0) / 10))); plan.push(r); verts += n * 6; });
@@ -121,8 +137,6 @@ var NFMRender = (function () {
       if (c.arrow) { var t = NFMScene.arrowTri(c); for (i = 0; i < 3; i++) put(t[i * 2], t[i * 2 + 1], 0, 0, -1, 0, col, a); }
     });
     /* where things sit, so an item that was moved can be rewritten in place (see patchBuffers): every link a plain straight piece, none with an arrow, no ribbons or hulls, so link j starts at vertex 6 * j */
-    var uni = !S.ribbons.length && !(S.polys && S.polys.length) && S.curves.every(function (c) { return isSeg(c) && !c.arrow; }), dot0 = 0;
-    S.rects.forEach(function (r) { if (r.layer !== 0) dot0++; });
     return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE, uni: uni, dot0: dot0, nDots: S.dots.length, nCurves: S.curves.length };
   }
   /** Cuts a polyline into dashes: kind 1 = dots, 2 = short dashes, 3 = long dashes. Returns a list of flat polylines. */
@@ -332,6 +346,12 @@ var NFMRender = (function () {
     'uniform vec4 uV;uniform vec2 uRes;out vec4 vC;out float vSide;out float vHw;out float vSolid;\n' +
     'void main(){float solid=aHS.x<0.?1.:0.;float hw=max(aHS.x,.7/uV.x);vec2 w=aP+aN*aHS.y*hw*(1.-solid);vec2 px=w*uV.x+uV.yz;\n' +
     'gl_Position=vec4(px.x/uRes.x*2.-1.,1.-px.y/uRes.y*2.,0.,1.);vC=aC;vSide=aHS.y;vHw=hw*uV.x;vSolid=solid;}';
+  /* the same quad from one instance (two end points, half width, color) and gl_VertexID 0..3 of a TRIANGLE_STRIP: corner = end (VertexID >= 2) and side (even = -1, odd = +1), the very numbers segRec writes, so the fragment shader below and the picture are the same */
+  var GL_INST_VS = '#version 300 es\nprecision highp float;layout(location=0) in vec4 iP;layout(location=1) in vec4 iHC;layout(location=2) in float iA;\n' +
+    'uniform vec4 uV;uniform vec2 uRes;out vec4 vC;out float vSide;out float vHw;out float vSolid;\n' +
+    'void main(){int v=gl_VertexID;vec2 a=iP.xy,b=iP.zw;vec2 t=b-a;float d=length(t);if(d==0.)d=1.;vec2 n=vec2(-t.y,t.x)/d;\n' +
+    'float side=((v&1)==0)?-1.:1.;float hw=max(iHC.x,.7/uV.x);vec2 w=(v>=2?b:a)+n*side*hw;vec2 px=w*uV.x+uV.yz;\n' +
+    'gl_Position=vec4(px.x/uRes.x*2.-1.,1.-px.y/uRes.y*2.,0.,1.);vC=vec4(iHC.yzw,iA);vSide=side;vHw=hw*uV.x;vSolid=0.;}';
   var GL_MESH_FS = '#version 300 es\nprecision highp float;in vec4 vC;in float vSide;in float vHw;in float vSolid;out vec4 o;\n' +
     'void main(){float cov=vSolid>.5?1.:clamp(vHw-abs(vSide)*vHw+.5,0.,1.);o=vec4(vC.rgb*vC.a,vC.a)*cov;}';
 
@@ -385,7 +405,51 @@ var NFMRender = (function () {
       layout.forEach(function (a) { gl.enableVertexAttribArray(a[0]); gl.vertexAttribPointer(a[0], a[1], gl.FLOAT, false, a[3], a[2] * 4); if (divisor) gl.vertexAttribDivisor(a[0], 1); });
       gl.bindVertexArray(null); return vao;
     };
-    var bBack = gl.createBuffer(), bFront = gl.createBuffer(), bMesh = gl.createBuffer();
+    var bBack = gl.createBuffer(), bFront = gl.createBuffer(), bMesh = gl.createBuffer(), bInst = gl.createBuffer(), pI = null, uI = null, vaoInst = null, instOn = null;
+    /* plain straight links as 9 numbers each (see GL_INST_VS); if the program does not build, the corner-record path below is used as before */
+    try {
+      pI = glProgram(gl, GL_INST_VS, GL_MESH_FS); uI = { v: gl.getUniformLocation(pI, 'uV'), r: gl.getUniformLocation(pI, 'uRes') };
+      vaoInst = gl.createVertexArray(); gl.bindVertexArray(vaoInst); gl.bindBuffer(gl.ARRAY_BUFFER, bInst);
+      [[0, 4, 0], [1, 4, 4], [2, 1, 8]].forEach(function (a) { gl.enableVertexAttribArray(a[0]); gl.vertexAttribPointer(a[0], a[1], gl.FLOAT, false, INST_STRIDE * 4, a[2] * 4); gl.vertexAttribDivisor(a[0], 1); });
+      gl.bindVertexArray(null);
+    } catch (e) { pI = null; if (hooks && hooks.onError) hooks.onError('webgl2', 'straight links on the card: ' + e.message); }
+    /* Whether 9-number links are faster on this card is measured once, the first time a big enough network of straight links comes (as gpustress does for the 3D turn): 50,000 short random links drawn both ways far out of view (so only the vertex stage and the one-instance-per-link set-up are measured, not the pixels) into a small off-screen picture, each read back to wait for the card; the new way is kept unless it is more than 5% (and 1 ms) slower. A card that draws in software, where the shader does the extra work on the processor, takes the old way. instOn: null = not measured yet, true/false = decided (instLinks sets it by hand for the tests). */
+    var probe = function () {
+      var fb = null, rb = null;
+      try {
+        var N = 50000, rnd = 7, r = function () { rnd = (rnd * 1664525 + 1013904223) >>> 0; return rnd / 4294967296; };
+        var inst = new Float32Array(N * INST_STRIDE), mesh = new Float32Array(N * 6 * MESH_STRIDE), c = { P: [0, 0, 0, 0, 0, 0, 0, 0], w: 1.5, color: [0.3, 0.4, 0.8, 0.6], a: 1 };
+        for (var i = 0; i < N; i++) { var x = r() * 400, y = r() * 400; c.P[0] = c.P[2] = x; c.P[1] = c.P[3] = y; c.P[4] = c.P[6] = x + (r() - 0.5) * 30; c.P[5] = c.P[7] = y + (r() - 0.5) * 30; c.w = 1 + (i % 4) * 0.5; instRec(inst, i * INST_STRIDE, c); segRec(mesh, i * 6 * MESH_STRIDE, c); }
+        var tI = gl.createBuffer(), tM = gl.createBuffer(); up(tI, inst); up(tM, mesh);
+        var vI = gl.createVertexArray(); gl.bindVertexArray(vI); gl.bindBuffer(gl.ARRAY_BUFFER, tI);
+        [[0, 4, 0], [1, 4, 4], [2, 1, 8]].forEach(function (a) { gl.enableVertexAttribArray(a[0]); gl.vertexAttribPointer(a[0], a[1], gl.FLOAT, false, INST_STRIDE * 4, a[2] * 4); gl.vertexAttribDivisor(a[0], 1); });
+        var vM = mkVao([[0, 2, 0, 40], [1, 2, 2, 40], [2, 2, 4, 40], [3, 4, 6, 40]], tM, false);
+        fb = gl.createFramebuffer(); rb = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, rb); gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, 512, 512); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, rb);
+        var px = new Uint8Array(4), prevVp = gl.getParameter(gl.VIEWPORT);
+        gl.viewport(0, 0, 512, 512); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        var run = function (way, tx) {
+          gl.clearColor(1, 1, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+          var t0 = performance.now();
+          if (way) { gl.useProgram(pI); gl.uniform4f(uI.v, 1, tx, 0, 0); gl.uniform2f(uI.r, 512, 512); gl.bindVertexArray(vI); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, N); }
+          else { gl.useProgram(pM); gl.uniform4f(uM.v, 1, tx, 0, 0); gl.uniform2f(uM.r, 512, 512); gl.bindVertexArray(vM); gl.drawArrays(gl.TRIANGLES, 0, N * 6); }
+          gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          return performance.now() - t0;
+        };
+        run(true, 0); run(false, 0);   /* the first of each includes compiling and moving data */
+        var a = [0, 0, 0], b = [0, 0, 0]; for (var k = 0; k < 3; k++) { a[k] = run(true, -9000); b[k] = run(false, -9000); }
+        a.sort(function (p, q) { return p - q; }); b.sort(function (p, q) { return p - q; });
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(prevVp[0], prevVp[1], prevVp[2], prevVp[3]); gl.bindVertexArray(null);
+        gl.deleteFramebuffer(fb); gl.deleteRenderbuffer(rb); gl.deleteBuffer(tI); gl.deleteBuffer(tM); gl.deleteVertexArray(vI); gl.deleteVertexArray(vM);
+        out.instProbe = { inst: a[1], corners: b[1] };
+        return a[1] <= b[1] * 1.05 + 1;   /* the clock is whole milliseconds in some browsers */
+      } catch (e) { try { gl.bindFramebuffer(gl.FRAMEBUFFER, null); } catch (x) { /* gone */ } return false; }
+    };
+    var tess = function (s) {
+      var want = false;
+      if (pI && s && s.curves.length) { if (instOn === null && s.curves.length >= 2000) instOn = probe(); want = instOn === true; }
+      return tessellate(s, want ? { inst: true } : null);
+    };
+    var send = function () { up(bBack, T.back); up(bFront, T.front); if (T.inst) up(bInst, T.inst); else up(bMesh, T.mesh); };
     var sl = [[0, 4, 0, 64], [1, 4, 4, 64], [2, 4, 8, 64], [3, 4, 12, 64]], vaoBack = mkVao(sl, bBack, true), vaoFront = mkVao(sl, bFront, true);
     var vaoMesh = mkVao([[0, 2, 0, 40], [1, 2, 2, 40], [2, 2, 4, 40], [3, 4, 6, 40]], bMesh, false);
     var T = null, S = null, W = 1, Hh = 1, dpr = 1;
@@ -446,11 +510,14 @@ var NFMRender = (function () {
     var info = (function () { try { var e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : ''; } catch (x) { return ''; } })();
     var out = {
       name: 'webgl2', label: 'WebGL 2', device: info,
-      setScene: function (s) { S = s; T = s ? tessellate(s) : null; if (T) { up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
-      restyle: function () { if (S && !(S.turn && S.turn.on)) { T = tessellate(S); up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
+      setScene: function (s) { S = s; T = s ? tess(s) : null; if (T) send(); },
+      restyle: function () { if (S && !(S.turn && S.turn.on)) { T = tess(S); send(); } },
+      /* test hook: false draws straight links from the six corner records as before (the pictures must match), true from 9 numbers each; takes effect from the next setScene */
+      instLinks: function (on) { instOn = on === null ? null : !!on; },
+      usesInst: function () { return !!(T && T.nInst); },
       patch: function (s, dirty) {
         if (s !== S || (S.turn && S.turn.on)) return false;
-        return patchBuffers(S, T, dirty, function (which, at, data) { var b = which === 'front' ? bFront : bMesh; gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferSubData(gl.ARRAY_BUFFER, at, data); });
+        return patchBuffers(S, T, dirty, function (which, at, data) { var b = which === 'front' ? bFront : which === 'inst' ? bInst : bMesh; gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferSubData(gl.ARRAY_BUFFER, at, data); });
       },
       rigPrepare: rigPrepare, rigOK: false,
       /* Puts a big 3D map on the card ahead of the first drag: the item and link textures are uploaded and each rig program is used once, drawing nothing (a zero-size scissor), so the driver finishes compiling and moving data now instead of during the first turn. */
@@ -479,6 +546,7 @@ var NFMRender = (function () {
         if (S.turn && S.turn.on && S.rig && RG) { drawRig(view); if (!(out.rigDebug && out.rigDebug.noNames)) drawLabels(H.ctx2, S, view, W, Hh, dpr); return; }
         var shapes = function (vao, n) { if (!n) return; gl.useProgram(pS); gl.uniform4f(uS.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uS.r, W, Hh); gl.bindVertexArray(vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n); };
         shapes(vaoBack, T.nBack);
+        if (T.nInst) { gl.useProgram(pI); gl.uniform4f(uI.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uI.r, W, Hh); gl.bindVertexArray(vaoInst); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, T.nInst); }
         if (T.nMesh) { gl.useProgram(pM); gl.uniform4f(uM.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uM.r, W, Hh); gl.bindVertexArray(vaoMesh); gl.drawArrays(gl.TRIANGLES, 0, T.nMesh); }
         shapes(vaoFront, T.nFront);
         gl.bindVertexArray(null);

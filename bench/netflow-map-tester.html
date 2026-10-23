@@ -21,7 +21,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--card);color:va
 .gpuline{margin:-8px 0 14px;padding:8px 12px;border:1px solid var(--line);border-left-width:4px;border-radius:8px;background:var(--card);font-weight:600}.gpuline.ok{border-left-color:var(--ok)}.gpuline.warn{border-left-color:var(--warn)}
 </style></head><body><main>
 <h1>Netflow Map Tester</h1>
-<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.18.1220.</p>
+<p class="sub">Runs by itself when this page opens. It takes a few minutes. Leave this tab in front and let it finish; nothing is sent anywhere. Version 2026.10.23.0814.</p>
 <p class="gpuline" id="gpuline">Checking for WebGPU…</p>
 <div id="top"><div class="bar"><i id="barfill"></i></div><div class="statrow"><div id="status">Starting…</div><div id="clock" title="Time since the run started">⏱ 0:00</div><div id="fpsnow" title="The FPS this page is really drawing right now (the page's own screen refresh rate)">— FPS</div></div></div>
 <div id="out"></div>
@@ -1751,7 +1751,7 @@ var NFMImport = (function () {
  * netflow-layers.js: lay out a graph in rows (a Sugiyama-style layered drawing): top to bottom or left to right, with long links as tags, story order, a column for the pages every route passes, and tall maps cut into columns. No dependencies.
  * Part of JS-modules, https://github.com/lfcfoundry/JS-modules
  * Copyright (c) 2026 LFC Foundry. MIT License (see LICENSE at the repository root).
- * Version 1.2.0 (API 1)
+ * Version 1.4.0 (API 1)
  *
  *   var R = NetflowLayers.layout({ nodes: [{ id: "start", w: 140, h: 44 }, { id: "a", w: 140, h: 44 }], edges: [{ from: "start", to: "a" }], root: "start" }, { dir: "TB" });
  *   svgElement.innerHTML = NetflowLayers.toSvg(R);          // or draw R.nodes and R.edges yourself (see README)
@@ -1850,7 +1850,10 @@ var NFMImport = (function () {
    *   better: true    crossing reduction with the middle value and neighbor swaps on big maps too,
    *   bundle: true    links that start at the same page share one run of stops (as far as the longest goes); links that end at the same page and are
    *                   alone at their start share one run from the end upward,
-   *   wrapRows: R     a tall map is cut every R rows into columns side by side (links between columns become tags).
+   *   wrapRows: R     a tall map is cut every R rows into columns side by side (links between columns become tags),
+   *   spread: 'wide'  more room for wide screens and more like a tree: siblings get more space on the sideways axis (2.4 times the gap top to bottom, 1.4 times left to right),
+   *                   the space between rows is 1.7 times as wide left to right (unchanged top to bottom), and a box that leads to several boxes sits over the middle of them
+   *                   instead of over their weighted average. 'tight' (or nothing) is the old picture exactly.
    */
   function layered(G, opts) {
     opts = opts || {};
@@ -1914,40 +1917,51 @@ var NFMImport = (function () {
     }
     var L = [], vert = [];
     var addV = function (rec, k) { rec.layer = k; rec.idx = vert.length; vert.push(rec); (L[k] = L[k] || []).push(rec); return rec; };
-    G.nodes.forEach(function (n) { n.v = addV({ id: n.id, node: n, dummy: false }, layer[n.id]); });
-    var links = [];
+    /* a box's own stop and a link's run of stand-in stops are kept in side lists (not as fields of the caller's objects, which would have to be deleted again: deleting a field makes every object slow) */
+    var nodeIx = {}, chains = new Array(G.edges.length);
+    G.nodes.forEach(function (n, ni) { nodeIx[n.id] = ni; addV({ id: n.id, node: n, dummy: false }, layer[n.id]); });
+    var lkA = [], lkB = [], lkW = [];   // the stand-in links, three lists side by side (from, to, weight)
+    var addLink = function (a, b, w) { lkA.push(a); lkB.push(b); lkW.push(w); };
     G.edges.forEach(function (e, ei0) {
-      var a = byNode[e.from], b = byNode[e.to], la = layer[e.from], lb = layer[e.to];
-      e.chain = [];
+      var a = vert[nodeIx[e.from]], b = vert[nodeIx[e.to]], la = layer[e.from], lb = layer[e.to], chain = chains[ei0] = [];
       if (e.from === e.to) { e.kind = 'self'; return; }
       if (la === lb) { e.kind = 'flat'; return; }
       if (tagged(la, lb)) { e.kind = 'tag'; e.tagFwd = lb > la; return; }
       e.kind = lb > la ? 'fwd' : 'back';
       var bm = bundle ? bundle.mode[ei0] : null;
       if (bm) {
-        var tn = byNode[topOf(e)], bn = byNode[botOf(e)], lt = Math.min(la, lb), lbm = Math.max(la, lb), nd = lbm - lt - 1, part;
+        var tid = topOf(e), bid = botOf(e), tv = vert[nodeIx[tid]], bv = vert[nodeIx[bid]], lt = Math.min(la, lb), lbm = Math.max(la, lb), nd = lbm - lt - 1, part;
         if (bm === 'top') {
-          var tr = bundle.topTrunk[tn.id] || (bundle.topTrunk[tn.id] = []);
-          while (tr.length < nd) { var dd = addV({ dummy: true, edge: e }, lt + 1 + tr.length); links.push([tr.length ? tr[tr.length - 1] : tn.v, dd, tr.length ? 8 : 2]); tr.push(dd); }
-          part = tr.slice(0, nd); links.push([tr[nd - 1], bn.v, 2]);
+          var tr = bundle.topTrunk[tid] || (bundle.topTrunk[tid] = []);
+          while (tr.length < nd) { var dd = addV({ dummy: true, edge: e }, lt + 1 + tr.length); addLink(tr.length ? tr[tr.length - 1] : tv, dd, tr.length ? 8 : 2); tr.push(dd); }
+          part = tr.slice(0, nd); addLink(tr[nd - 1], bv, 2);
         } else {
-          var tb = bundle.botTrunk[bn.id] || (bundle.botTrunk[bn.id] = []);
-          while (tb.length < nd) { var d3 = addV({ dummy: true, edge: e }, lbm - 1 - tb.length); links.push([d3, tb.length ? tb[tb.length - 1] : bn.v, tb.length ? 8 : 2]); tb.push(d3); }
-          part = tb.slice(0, nd).reverse(); links.push([tn.v, tb[nd - 1], 2]);
+          var tb = bundle.botTrunk[bid] || (bundle.botTrunk[bid] = []);
+          while (tb.length < nd) { var d3 = addV({ dummy: true, edge: e }, lbm - 1 - tb.length); addLink(d3, tb.length ? tb[tb.length - 1] : bv, tb.length ? 8 : 2); tb.push(d3); }
+          part = tb.slice(0, nd).reverse(); addLink(tv, tb[nd - 1], 2);
         }
-        e.chain = lb > la ? part : part.reverse();
+        chains[ei0] = lb > la ? part : part.reverse();
         return;
       }
-      var lo = Math.min(la, lb), hi = Math.max(la, lb), prevV = (lb > la ? a : b).v;
+      var lo = Math.min(la, lb), hi = Math.max(la, lb), prevV = lb > la ? a : b;
       for (var k = lo + 1; k < hi; k++) {
         var d = addV({ dummy: true, edge: e }, k);
-        e.chain.push(d); links.push([prevV, d, prevV.dummy ? 8 : 2]); prevV = d;
+        chain.push(d); addLink(prevV, d, prevV.dummy ? 8 : 2); prevV = d;
       }
-      links.push([prevV, (lb > la ? b : a).v, prevV.dummy ? 2 : 1]);
-      if (e.kind === 'back') e.chain.reverse();
+      addLink(prevV, lb > la ? b : a, prevV.dummy ? 2 : 1);
+      if (e.kind === 'back') chain.reverse();
     });
-    var up = vert.map(function () { return []; }), down = vert.map(function () { return []; });
-    links.forEach(function (l) { down[l[0].idx].push([l[1], l[2]]); up[l[1].idx].push([l[0], l[2]]); });
+    /* the neighbors of every stop, as flat lists: neighbors of stop i are idx[off[i] .. off[i + 1] - 1] with weights w[...], in the order the links were made */
+    var nV = vert.length, nLk = lkA.length;
+    var csr = function (from, to, extra) {
+      var off = new Int32Array(nV + 1), idx = new Int32Array(nLk), w = new Float64Array(nLk), i, f;
+      for (i = 0; i < nLk; i++) off[from(i).idx + 1]++;
+      for (i = 0; i < nV; i++) off[i + 1] += off[i];
+      var fill = off.slice(0, nV);
+      for (i = 0; i < nLk; i++) { f = from(i).idx; idx[fill[f]] = to(i).idx; w[fill[f]++] = lkW[i]; }
+      return { off: off, idx: idx, w: w };
+    };
+    var up = csr(function (i) { return lkB[i]; }, function (i) { return lkA[i]; }), down = csr(function (i) { return lkA[i]; }, function (i) { return lkB[i]; });
     var nL = L.length;
     for (var k0 = 0; k0 < nL; k0++) L[k0] = L[k0] || [];
     /* depth-first rank without recursion */
@@ -1975,45 +1989,71 @@ var NFMImport = (function () {
         v.key = v.dummy ? (dfsRank[v.edge.from] + dfsRank[v.edge.to]) / 2 / rn : (prev[v.id] !== undefined ? prev[v.id] : dfsRank[v.id] / rn);
       });
     });
+    /* place in its row, lane and average neighbor place of every stop in flat lists by stop number (v.pos is kept in step for the code after the rows are final) */
+    var posA = new Int32Array(nV), laneA = new Float64Array(nV), baryA = new Float64Array(nV);
+    vert.forEach(function (v) { laneA[v.idx] = laneOf(v); });
     L.forEach(function (list) {
-      list.sort(function (a, b) { return laneOf(a) - laneOf(b) || a.key - b.key; });
-      list.forEach(function (v, i) { v.pos = i; });
+      list.sort(function (a, b) { return laneA[a.idx] - laneA[b.idx] || a.key - b.key; });
+      list.forEach(function (v, i) { v.pos = i; posA[v.idx] = i; });
     });
+    /* crossings between row k and row k+1 on flat number lists (the same count as mapCrossPairs gives): each link is one number, upper place * K + lower place, sorted as numbers */
+    var maxSeg = 0, maxLen = 0;
+    L.forEach(function (list) { var m = 0; list.forEach(function (u) { m += down.off[u.idx + 1] - down.off[u.idx]; }); if (m > maxSeg) maxSeg = m; if (list.length > maxLen) maxLen = list.length; });
+    var keyBuf = new Float64Array(maxSeg), fen = new Int32Array(maxLen + 2);
     var crossBetween = function (k) {
-      var segs = [];
-      L[k].forEach(function (u) { down[u.idx].forEach(function (d) { segs.push([u.pos, d[0].pos]); }); });
-      return mapCrossPairs(segs);
+      var K = L[k + 1].length + 1, n = 0, list = L[k], i, j, t;
+      for (i = 0; i < list.length; i++) { var u = list[i], base = posA[u.idx] * K; for (j = down.off[u.idx]; j < down.off[u.idx + 1]; j++) keyBuf[n++] = base + posA[down.idx[j]]; }
+      if (n < 2) return 0;
+      var keys = keyBuf.subarray(0, n); keys.sort();
+      fen.fill(0, 0, K + 1);
+      var c = 0, done = 0, hi = K + 1;
+      for (i = 0; i < n;) {
+        var a = Math.floor(keys[i] / K);
+        for (j = i; j < n && Math.floor(keys[j] / K) === a; j++) {
+          var q = 0;
+          for (t = keys[j] - a * K + 1; t > 0; t -= t & -t) q += fen[t];
+          c += done - q;
+        }
+        for (var m = i; m < j; m++) { for (t = keys[m] - a * K + 1; t < hi; t += t & -t) fen[t]++; done++; }
+        i = j;
+      }
+      return c;
     };
     var totalCross = function () { var c = 0; for (var k = 0; k + 1 < nL; k++) c += crossBetween(k); return c; };
     var snapshot = function () { return L.map(function (list) { return list.slice(); }); };
     var best = snapshot(), bestC = totalCross();
     var medianNow = false;
+    var scratch = new Int32Array(Math.max(1, nLk));   // for the middle value of a stop's neighbor places
     var sweep = function (k, nb) {
-      L[k].forEach(function (v) {
-        var ns = nb[v.idx];
-        if (medianNow && ns.length) { var ps = ns.map(function (o) { return o[0].pos; }).sort(function (a, b) { return a - b; }), mid = ps.length >> 1; v.bary = ps.length % 2 ? ps[mid] : (ps[mid - 1] + ps[mid]) / 2; }
-        else v.bary = ns.length ? ns.reduce(function (s, o) { return s + o[0].pos; }, 0) / ns.length : v.pos;
-      });
-      L[k].sort(function (a, b) { return laneOf(a) - laneOf(b) || a.bary - b.bary || a.pos - b.pos; });
-      L[k].forEach(function (v, i) { v.pos = i; });
+      var list = L[k], i, j, lo, hi;
+      for (i = 0; i < list.length; i++) {
+        var v = list[i], a = nb.off[v.idx], z = nb.off[v.idx + 1], cnt = z - a;
+        if (medianNow && cnt) {
+          for (j = 0; j < cnt; j++) { var pv = posA[nb.idx[a + j]], q = j - 1; while (q >= 0 && scratch[q] > pv) { scratch[q + 1] = scratch[q]; q--; } scratch[q + 1] = pv; }
+          var mid = cnt >> 1; baryA[v.idx] = cnt % 2 ? scratch[mid] : (scratch[mid - 1] + scratch[mid]) / 2;
+        } else if (cnt) { var sum = 0; for (j = a; j < z; j++) sum += posA[nb.idx[j]]; baryA[v.idx] = sum / cnt; }
+        else baryA[v.idx] = posA[v.idx];
+      }
+      list.sort(function (a, b) { return laneA[a.idx] - laneA[b.idx] || baryA[a.idx] - baryA[b.idx] || posA[a.idx] - posA[b.idx]; });
+      for (i = 0; i < list.length; i++) { list[i].pos = i; posA[list[i].idx] = i; }
     };
     var transpose = function (k) {
-      var improved = true, guard = 0;
+      var improved = true, guard = 0, before, after;
+      var tally = function (ax, bx, nb) {
+        for (var p = nb.off[ax]; p < nb.off[ax + 1]; p++) for (var q = nb.off[bx]; q < nb.off[bx + 1]; q++) {
+          var x = posA[nb.idx[p]], y = posA[nb.idx[q]];
+          if (x > y) before++; else if (x < y) after++;
+        }
+      };
       while (improved && guard++ < 8) {
         improved = false;
         for (var i = 0; i + 1 < L[k].length; i++) {
           var a = L[k][i], b = L[k][i + 1];
-          if (laneOf(a) !== laneOf(b)) continue;
-          var before = 0, after = 0;
-          var tally = function (ea, eb) {
-            for (var p = 0; p < ea.length; p++) for (var q = 0; q < eb.length; q++) {
-              var x = ea[p][0].pos, y = eb[q][0].pos;
-              if (x > y) before++; else if (x < y) after++;
-            }
-          };
-          if (k + 1 < nL) tally(down[a.idx], down[b.idx]);
-          if (k > 0) tally(up[a.idx], up[b.idx]);
-          if (after < before) { a.pos = i + 1; b.pos = i; L[k][i] = b; L[k][i + 1] = a; improved = true; }
+          if (laneA[a.idx] !== laneA[b.idx]) continue;
+          before = 0; after = 0;
+          if (k + 1 < nL) tally(a.idx, b.idx, down);
+          if (k > 0) tally(a.idx, b.idx, up);
+          if (after < before) { a.pos = i + 1; b.pos = i; posA[a.idx] = i + 1; posA[b.idx] = i; L[k][i] = b; L[k][i + 1] = a; improved = true; }
         }
       }
     };
@@ -2027,33 +2067,60 @@ var NFMImport = (function () {
       var c = totalCross();
       if (c < bestC) { bestC = c; best = snapshot(); }
     }
-    best.forEach(function (list, k) { L[k] = list; list.forEach(function (v, i) { v.pos = i; }); });
+    best.forEach(function (list, k) { L[k] = list; list.forEach(function (v, i) { v.pos = i; posA[v.idx] = i; }); });
     var across = function (v) { return v.dummy ? 0 : LR ? v.node.h : v.node.w; };
-    var gapN = opts.gapNode !== undefined ? opts.gapNode : LR ? 22 : 28, gapD = 12;
+    var wide = opts.spread === 'wide', gapN = (opts.gapNode !== undefined ? opts.gapNode : LR ? 22 : 28) * (wide ? (LR ? 1.4 : 2.4) : 1), gapD = 12 * (wide ? (LR ? 1.3 : 2) : 1);
     var gapOf = function (a, b) { return (across(a) + across(b)) / 2 + (a.dummy || b.dummy ? gapD : gapN) + (opts.lane && laneOf(a) !== laneOf(b) ? 40 : 0); };
+    /* the place of every stop and the gap before it live in flat lists by stop number; the gap before a stop never changes once the rows are final */
+    var cA = new Float64Array(nV), gapBefore = new Float64Array(nV), chokeA = new Uint8Array(nV);
     L.forEach(function (list) {
       var c2 = 0;
-      list.forEach(function (v, i) { if (i) c2 += gapOf(list[i - 1], v); v.c = c2; });
+      list.forEach(function (v, i) { if (i) { gapBefore[v.idx] = gapOf(list[i - 1], v); c2 += gapBefore[v.idx]; } cA[v.idx] = c2; });
     });
-    var isChoke = function (v) { return !v.dummy && opts.spine && v.node.choke; };
+    vert.forEach(function (v) { if (!v.dummy && opts.spine && v.node.choke) chokeA[v.idx] = 1; });
+    /* the row placement on flat number lists: the same arithmetic as mapPlaceLine, in the same order, with no list made per row */
+    var P = { want: new Float64Array(maxLen), wt: new Float64Array(maxLen), gaps: new Float64Array(maxLen), off: new Float64Array(maxLen), bs: new Float64Array(maxLen), bw: new Float64Array(maxLen), bn: new Int32Array(maxLen), out: new Float64Array(maxLen) };
     var placeLayer = function (list, nb) {
-      if (!list.length) return;
-      var want = [], wt = [], gaps = [];
-      list.forEach(function (v, i) {
-        var ns = nb[v.idx], s = 0, sw = 0;
-        ns.forEach(function (o) { s += o[0].c * o[1]; sw += o[1]; });
-        if (isChoke(v)) { want.push(0); wt.push(1000); }
-        else { want.push(sw ? s / sw : v.c); wt.push(sw ? sw + (v.dummy ? 2 : 0) : 0.2); }
-        if (i) gaps.push(gapOf(list[i - 1], v));
-      });
-      var xs = mapPlaceLine(want, wt, gaps);
-      list.forEach(function (v, i) { v.c = xs[i]; });
+      var n = list.length, want = P.want, wt = P.wt, gaps = P.gaps, off = P.off, bs = P.bs, bw = P.bw, bn = P.bn, out = P.out, nbOff = nb.off, nbIdx = nb.idx, nbW = nb.w, i, j;
+      if (!n) return;
+      for (i = 0; i < n; i++) {
+        var v = list[i], vi = v.idx, na = nbOff[vi], nz = nbOff[vi + 1], s = 0, sw = 0;
+        for (j = na; j < nz; j++) { s += cA[nbIdx[j]] * nbW[j]; sw += nbW[j]; }
+        if (chokeA[vi]) { want[i] = 0; wt[i] = 1000; }
+        else {
+          var mid = sw ? s / sw : cA[vi];
+          if (wide && sw && !v.dummy && nz - na > 1) { var lo = Infinity, hi = -Infinity; for (j = na; j < nz; j++) { lo = Math.min(lo, cA[nbIdx[j]]); hi = Math.max(hi, cA[nbIdx[j]]); } mid = (lo + hi) / 2; }   // wide: over the middle of its neighbors, like a tree
+          want[i] = mid; wt[i] = sw ? sw + (v.dummy ? 2 : 0) : 0.2;
+        }
+        if (i) gaps[i - 1] = gapBefore[vi];
+      }
+      off[0] = 0;
+      for (i = 1; i < n; i++) off[i] = off[i - 1] + gaps[i - 1];
+      var m = 0;
+      for (i = 0; i < n; i++) {
+        bs[m] = wt[i] * (want[i] - off[i]); bw[m] = wt[i]; bn[m] = 1; m++;
+        while (m > 1 && bs[m - 2] / bw[m - 2] > bs[m - 1] / bw[m - 1]) { m--; bs[m - 1] += bs[m]; bw[m - 1] += bw[m]; bn[m - 1] += bn[m]; }
+      }
+      var at = 0;
+      for (var bi = 0; bi < m; bi++) { var val = bs[bi] / bw[bi]; for (var kk = 0; kk < bn[bi]; kk++, at++) out[at] = val + off[at]; }
+      for (i = 1; i < n; i++) if (out[i] < out[i - 1] + gaps[i - 1]) out[i] = out[i - 1] + gaps[i - 1];
+      for (i = 0; i < n; i++) cA[list[i].idx] = out[i];
     };
-    var both = vert.map(function (_, i) { return up[i].concat(down[i]); });
+    var both = (function () {   // up neighbors first, then down neighbors, for each stop
+      var off = new Int32Array(nV + 1), idx = new Int32Array(2 * nLk), w = new Float64Array(2 * nLk), at = 0, i, j;
+      for (i = 0; i < nV; i++) {
+        off[i] = at;
+        for (j = up.off[i]; j < up.off[i + 1]; j++) { idx[at] = up.idx[j]; w[at++] = up.w[j]; }
+        for (j = down.off[i]; j < down.off[i + 1]; j++) { idx[at] = down.idx[j]; w[at++] = down.w[j]; }
+      }
+      off[nV] = at;
+      return { off: off, idx: idx, w: w };
+    })();
     for (var it2 = 0; it2 < (big ? 3 : 8); it2++) {
       for (var k4 = 1; k4 < nL; k4++) placeLayer(L[k4], it2 % 3 === 2 ? both : up);
       for (var k5 = nL - 2; k5 >= 0; k5--) placeLayer(L[k5], it2 % 3 === 2 ? both : down);
     }
+    vert.forEach(function (v) { v.c = cA[v.idx]; });
     var lanes = [];
     if (opts.lane) {
       var ext = {};
@@ -2069,7 +2136,7 @@ var NFMImport = (function () {
       });
       vert.forEach(function (v) { v.c += shift[laneOf(v)]; });
     }
-    var gapL = opts.gapLayer !== undefined ? opts.gapLayer : LR ? 80 : 64, depthOf = [], at2 = 0;
+    var gapL = (opts.gapLayer !== undefined ? opts.gapLayer : LR ? 80 : 64) * (wide && LR ? 1.7 : 1), depthOf = [], at2 = 0;
     for (var k6 = 0; k6 < nL; k6++) {
       var mm = 0;
       L[k6].forEach(function (v) { if (!v.dummy) mm = Math.max(mm, LR ? v.node.w : v.node.h); });
@@ -2100,7 +2167,7 @@ var NFMImport = (function () {
       n.y = LR ? pad + acrossC - n.h / 2 : pad + along - n.h / 2;
     });
     lanes = lanes.map(function (l) { return { lane: l.lane, from: pad + l.from - minC, to: pad + l.to - minC }; });
-    G.edges.forEach(function (e) { e.pts = e.chain.map(function (v) { return [v.x, v.y]; }); });
+    G.edges.forEach(function (e, ei) { e.pts = chains[ei].map(function (v) { return [v.x, v.y]; }); });
     var W = 0, H = 0;
     G.nodes.forEach(function (n) { W = Math.max(W, n.x + n.w); H = Math.max(H, n.y + n.h); });
     vert.forEach(function (v) { if (v.dummy) { W = Math.max(W, v.x); H = Math.max(H, v.y); } });
@@ -2108,8 +2175,7 @@ var NFMImport = (function () {
     var ord = {};
     L.forEach(function (list) { list.forEach(function (v) { if (!v.dummy) ord[v.id] = (v.pos + 0.5) / list.length; }); });
     var pos = {};
-    G.nodes.forEach(function (n) { pos[n.id] = n; delete n.v; });
-    G.edges.forEach(function (e) { delete e.chain; });
+    G.nodes.forEach(function (n) { pos[n.id] = n; });
     var ruler = depthOf.map(function (dm, k) { var b = wrapR ? Math.floor(k / wrapR) : 0; return { at: pad + dm[0] + dm[1] / 2 - bY[b], edge: pad + (wrapR && bLo[b] !== undefined ? bLo[b] - minC + bX[b] : 0) }; });
     var kinds = { fwd: 0, back: 0, flat: 0, self: 0, tag: 0 };
     var goldTags = 0;
@@ -2126,6 +2192,7 @@ var NFMImport = (function () {
     var edges = graph.edges.map(function (e) { var c = {}; for (var k in e) c[k] = e[k]; if (c.count === undefined) c.count = 1; return c; });
     var G = { nodes: nodes, edges: edges };
     var base = { dir: opts.dir === 'TB' ? 'TB' : 'LR', root: graph.root, prev: opts.prev, spine: !!opts.spine, rows: opts.rows === 'story' ? 'story' : undefined, tagLen: opts.tagLen > 1 ? opts.tagLen : 0, better: !!opts.better, bundle: !!opts.bundle };
+    if (opts.spread === 'wide') base.spread = 'wide';
     if (opts.gapNode !== undefined) base.gapNode = opts.gapNode;
     if (opts.gapLayer !== undefined) base.gapLayer = opts.gapLayer;
     if (opts.maxVertices !== undefined) base.maxVertices = opts.maxVertices;
@@ -2190,7 +2257,7 @@ var NFMImport = (function () {
     return out.join('\n');
   }
 
-  return { version: '1.2.0', layout: layout, toSvg: toSvg, layered: layered, mapPlaceLine: mapPlaceLine, mapCrossPairs: mapCrossPairs };
+  return { version: '1.4.0', layout: layout, toSvg: toSvg, layered: layered, mapPlaceLine: mapPlaceLine, mapCrossPairs: mapCrossPairs };
 }));
 
 /* ---- src/engine.js ---- */
@@ -2211,8 +2278,9 @@ var NFMImport = (function () {
 var NFMEngine = (function () {
   'use strict';
   var C = typeof NFMColumns !== 'undefined' ? NFMColumns : require('./columns.js');
-  var SK = typeof NFMSankey !== 'undefined' ? NFMSankey : (typeof require === 'function' ? require('./sankey.js') : null);
+  var SK = typeof NetflowSankey !== 'undefined' ? NetflowSankey : (typeof require === 'function' ? require('../vendor/netflow-sankey.js') : null);
   var MAP_W = 176, MAP_H = 56;
+  var MAX_STOPS = 250000;   /* the largest layered drawing (pages plus the stand-in stops on long links) the Flow, Down, Spine and Lanes views will build; the module's own limit is 90,000. About 6,500 pages of a 3-links-per-page map: layout 0.6 s in the worker, 100 MB */
   var LN10 = Math.LN10;
 
   /* ---------------------------------------------------------------- small tools */
@@ -3111,9 +3179,22 @@ var NFMEngine = (function () {
     }
   }
 
+  /** separateSparse's passes in WebAssembly (wasm/stress.c, separate_sparse). X is written only at the end. */
+  function separateSparseWasm(mod, X, k, rads, passes) {
+    var ex = new WebAssembly.Instance(mod, {}).exports, mem = ex.memory, n = X.length, cap = 16; while (cap < 2 * k) cap *= 2;
+    var ptr = wasmLayout(ex, [n * 8, k * 8, k * 4 + 4, cap * 8, cap * 4]);
+    new Float64Array(mem.buffer, ptr[0], n).set(X); new Float64Array(mem.buffer, ptr[1], k).set(rads);
+    var r = ex.separate_sparse(ptr[0], k, ptr[1], passes, ptr[2], ptr[3], ptr[4], cap);
+    X.set(new Float64Array(mem.buffer, ptr[0], n));
+    return r;
+  }
   function separateSparse(X, k, dim, rad, passes) {   // the same job on a hash grid, for pictures too spread out for a plain grid
     var cell = 90, next = new Int32Array(k), head = new Map(), rads = new Float64Array(k), i;
     for (i = 0; i < k; i++) rads[i] = rad(i);
+    var wm = dim === 2 && STRESS_WASM.on && k >= STRESS_WASM.minItems ? wasmLoad(STRESS_WASM) : null;
+    if (wm) {   // the WebAssembly build of the passes below: the same positions to the last digit; any trouble falls through to JavaScript with X untouched
+      try { var sr = separateSparseWasm(wm, X, k, rads, passes || 30); STRESS_WASM.sparseCalls++; return !!sr; } catch (err) { STRESS_WASM.error = String(err && err.message || err); }
+    }
     for (var pass = 0; pass < (passes || 30); pass++) {
       head.clear(); var moved = false;
       for (i = 0; i < k; i++) { var key = (Math.floor(X[i * dim] / cell) + 4096) * 8192 + Math.floor(X[i * dim + 1] / cell) + 4096; var h0 = head.get(key); next[i] = h0 === undefined ? -1 : h0; head.set(key, i); }
@@ -3151,8 +3232,8 @@ var NFMEngine = (function () {
    * WebAssembly rule at all (this page has none); if it does, only 'wasm-unsafe-eval' is needed. `on = false` turns it off, `used()` says whether it ran. */
   var FORCE_WASM = { b64: /*WASM:force:BEGIN*/'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'/*WASM:force:END*/, mod: null, tried: false, on: true, minItems: 150, calls: 0, error: '', rnd: null };
   /* The stress layout's pair building, shuffle and sweeps, and the overlap push-apart, in WebAssembly (wasm/stress.c, same rules as the Force module above). Pairs are kept as a Uint16 hop code
-   * (10 bytes a pair instead of 16, the same numbers). `on = false` turns it off; `calls` and `sepCalls` count the runs; `error` says why the last try stayed on JavaScript. */
-  var STRESS_WASM = { b64: /*WASM:stress:BEGIN*/'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'/*WASM:stress:END*/, mod: null, tried: false, on: true, minItems: 150, calls: 0, sepCalls: 0, pairs: 0, error: '' };
+   * (10 bytes a pair instead of 16, the same numbers). `on = false` turns it off; `minItems`, `min3d` (Distances 3D) and `minClose` (Closeness) are the smallest sizes that use it (the timings in the four browsers showed a small loss below them); `calls`, `calls3` (Distances 3D), `closeCalls`, `sparseCalls` and `sepCalls` count the runs; `error` says why the last try stayed on JavaScript. */
+  var STRESS_WASM = { b64: /*WASM:stress:BEGIN*/'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'/*WASM:stress:END*/, mod: null, tried: false, on: true, minItems: 150, min3d: 3000, minClose: 20000, simd: true, calls: 0, calls3: 0, closeCalls: 0, sepCalls: 0, sparseCalls: 0, pairs: 0, error: '' };
   /* Compiles a module's embedded bytes once. Null (and `error` filled in) when WebAssembly is missing, blocked by the page rule, too big to compile on the main thread in some browsers, or broken: callers then stay on JavaScript. */
   function wasmLoad(W) {
     if (!W.tried) {
@@ -3271,7 +3352,7 @@ var NFMEngine = (function () {
     if (arr === 'force') return { text: 'Springs pull linked items together while everything pushes apart: the classic network picture.', offer: '', secs: 0 };
     return { text: '', offer: '', secs: 0 };
   }
-  var ARRANGE_NAMES = { stress: 'Distances (stress)', closeness: 'Closeness (nearest are linked)', stressBest: 'Distances, best quality (slower)', force: 'Force (springs)', circle: 'Circle', rings: 'Rings by importance', groups: 'Group clusters', radial: 'Radial tree', grid: 'Grid', force3d: '3D force', sphere: 'Sphere', stack: 'Stacked group planes' };
+  var ARRANGE_NAMES = { stress: 'Distances (stress)', closeness: 'Closeness (nearest are linked)', stressBest: 'Distances, best quality (slower)', force: 'Force (springs)', circle: 'Circle', rings: 'Rings by importance', groups: 'Group clusters', radial: 'Radial tree', grid: 'Grid', force3d: '3D force', stress3d: 'Distances 3D (stress)', sphere: 'Sphere', stack: 'Stacked group planes' };
   function arrangeAll(kind, nodes, adj, size, rnd, EDGE) {
     var k = nodes.length, i, dim = /3d|sphere|stack/.test(kind) ? 3 : 2, X = new Float64Array(k * dim);
     var deg = nodes.map(function (n, ix) { return adj[ix].length; });
@@ -3344,6 +3425,8 @@ var NFMEngine = (function () {
     }
   }
 
+  /* Tuning knobs for the flat Force arrangement (the benchmark may change them; the app never does). stressMin and stressMax: pieces of at least stressMin and under stressMax items start from the Distances picture (stressMin 0 = never; at 30,000 items the timings in the four browsers were mixed on dense maps, so bigger pieces keep the old start); polish: force rounds after it. */
+  var FORCE2 = { stressMin: 5000, stressMax: 20000, polish: 40, polishHi: 3, polishLo: 0.05 };
   /* Tuning knobs for the closeness arrangement. */
   var CLOSE = { epochs: 150, neg: 10, a: 1, b: 1, clip: 4, fromStress: 1, alpha0: 0.25 };
 
@@ -3362,6 +3445,10 @@ var NFMEngine = (function () {
     var s = (rnd() * 4294967296) | 0 || 1;
     function nextInt(n) { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) / 4294967296 * n) | 0; }
     var a = C.a, b = C.b, bOne = b === 1, clip = C.clip, epochs = k <= 20000 ? C.epochs : k <= 100000 ? 60 : 20, neg = k <= 20000 ? C.neg : 5;   // big pieces: fewer rounds and fewer pushes
+    var wm = STRESS_WASM.on && bOne && k >= STRESS_WASM.minClose ? wasmLoad(STRESS_WASM) : null;
+    if (wm) {   // the rounds below in WebAssembly (wasm/stress.c, closeness): the same positions to the last digit; any trouble leaves U as it was and the JavaScript runs
+      try { closenessWasm(wm, U, k, ea, eb, nE, s, epochs, neg, a, b, clip, C.alpha0); STRESS_WASM.closeCalls++; epochs = 0; } catch (err) { STRESS_WASM.error = String(err && err.message || err); }
+    }
     for (ep = 0; ep < epochs; ep++) {
       var alpha = C.alpha0 * (1 - ep / epochs);
       for (e = 0; e < nE; e++) {
@@ -3650,8 +3737,17 @@ var NFMEngine = (function () {
     var need = off + 65536, mem = ex.memory; if (mem.buffer.byteLength < need) mem.grow(Math.ceil((need - mem.buffer.byteLength) / 65536));
     return ptr;
   }
-  /** stressComponent's pair building, shuffle and sweeps in WebAssembly. Returns true when X holds the finished picture, false when this piece needs the JavaScript (a hop count over 511, a full pair list); X is written only at the end. */
-  function stressWasm(mod, X, k, off, nbr, EDGE, seed, full, nPiv, near, rootL, cap, tmax, T, eta0) {
+  /** The Closeness rounds in WebAssembly. U is written back only at the end. */
+  function closenessWasm(mod, U, k, ea, eb, nE, seed, epochs, neg, a, b, clip, alpha0) {
+    var ex = new WebAssembly.Instance(mod, {}).exports, mem = ex.memory, ptr = wasmLayout(ex, [U.length * 8, nE * 4 + 4, nE * 4 + 4]);
+    new Float64Array(mem.buffer, ptr[0], U.length).set(U);
+    var ia = new Int32Array(mem.buffer, ptr[1], nE), ib = new Int32Array(mem.buffer, ptr[2], nE);
+    for (var e = 0; e < nE; e++) { ia[e] = ea[e]; ib[e] = eb[e]; }
+    ex.closeness(ptr[0], k, ptr[1], ptr[2], nE, seed >>> 0, epochs, neg, a, b, clip, alpha0);
+    U.set(new Float64Array(mem.buffer, ptr[0], U.length));
+  }
+  /** stressComponent's (and, with dim 3, stress3d's) pair building, shuffle and sweeps in WebAssembly. Returns true when X holds the finished picture, false when this piece needs the JavaScript (a hop count over 511, a full pair list); X is written only at the end. */
+  function stressWasm(mod, X, k, off, nbr, EDGE, seed, full, nPiv, near, rootL, cap, tmax, T, eta0, dim) {
     var ex = new WebAssembly.Instance(mod, {}).exports, mem = ex.memory, n = X.length;
     var ptr = wasmLayout(ex, [n * 8, (k + 1) * 4, nbr.length * 4 + 4, cap * 4, cap * 4, cap * 2, k * 4, k * 4 + 4, k * 4, k * 4, k * 4, 8, tmax * 8, 4096, 4096]);
     new Float64Array(mem.buffer, ptr[0], n).set(X); new Int32Array(mem.buffer, ptr[1], k + 1).set(off); new Int32Array(mem.buffer, ptr[2], nbr.length).set(nbr);
@@ -3659,12 +3755,29 @@ var NFMEngine = (function () {
     var cnt = ex.build(k, ptr[1], ptr[2], ptr[3], ptr[4], ptr[5], cap, full ? 0 : 1, nPiv, near, rootL, T.pivW && T.pivW !== 1 ? 1 : 0, ptr[6], ptr[7], ptr[8], ptr[9], ptr[10], ptr[11]);
     if (cnt < 0) return false;
     STRESS_WASM.pairs = cnt;
-    var maxD = new Int32Array(mem.buffer, ptr[11], 1)[0], wMin = 1 / (maxD * maxD), etaMax = eta0 || 1 / wMin, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
+    var maxD = new Int32Array(mem.buffer, ptr[11], 1)[0], wMin = 1 / (maxD * maxD), etaMax = eta0 || (dim === 3 ? maxD * maxD : 1 / wMin), etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
     ex.shuffle(ptr[3], ptr[4], ptr[5], cnt, seed >>> 0);
     var et = new Float64Array(mem.buffer, ptr[12], tmax); for (var t = 0; t < tmax; t++) et[t] = etaMax * Math.exp(-lambda * t);
-    ex.sweeps(ptr[0], ptr[3], ptr[4], ptr[5], ptr[13], ptr[14], cnt, ptr[12], tmax);
+    (dim === 3 ? ex.sweeps3 : STRESS_WASM.simd && ex.sweepsv ? ex.sweepsv : ex.sweeps)(ptr[0], ptr[3], ptr[4], ptr[5], ptr[13], ptr[14], cnt, ptr[12], tmax);
     X.set(new Float64Array(mem.buffer, ptr[0], n));
     return true;
+  }
+
+  /* Saved layouts (the page keeps finished Network pictures in the browser's own storage so a second open of the same map skips the layout). The key is a 106-bit fingerprint of everything
+   * the layout can read: the data, the options of the build, the tuning numbers and the text of the layout code itself, so a changed map, option or method never reuses an old picture.
+   * It is made from the data as it comes in (no start of a build needed), which costs about 16 ms for 10,000 items. */
+  var LAYOUT_EPOCH = 'nfm-layout-2', layoutCodeHash = null;
+  function fnv(h, s) { for (var i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0; return h; }
+  /** The fingerprint the page looks the saved picture up by (null when this build's picture cannot be saved: not the Network view, or a picture from the graphics card). */
+  function layoutKey(graph, o) {
+    o = o || {};
+    if (o.view !== 'network' || STRESS.external || o.gpuPicture || o.previewOnly) return null;
+    if (layoutCodeHash === null) layoutCodeHash = fnv(fnv(fnv(fnv(fnv(0x811c9dc5, LAYOUT_EPOCH), networkLayout.toString()), stressComponent.toString()), forceSim.toString()), clearOverlaps.toString());
+    var oo = {}, h1 = 2166136261, h2 = 0x9747b28c, i, c, str;
+    Object.keys(o).sort().forEach(function (k) { if (!/^(saved|wantSave|saveKey|previewOnly|gpuPicture)$/.test(k)) oo[k] = o[k]; });
+    str = JSON.stringify([LAYOUT_EPOCH, layoutCodeHash, STRESS, FORCE2, CLOSE, oo, graph]);
+    for (i = 0; i < str.length; i++) { c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619) >>> 0; h2 = Math.imul(h2 + c + 1, 0xcc9e2d51) >>> 0; h2 ^= h2 >>> 15; }
+    return LAYOUT_EPOCH + ':' + graph.nodes.length + ':' + h1.toString(36) + h2.toString(36);
   }
 
   /**
@@ -3696,6 +3809,17 @@ var NFMEngine = (function () {
     exactNow = arr === 'stressBest' || !!opts.exact;
     if (arr === 'stressBest') arr = 'stress';
     if (arr !== 'stress' && arr !== 'force' && arr !== 'radial' && arr !== 'closeness') return globalNetwork(arr, nodes, G, adj, size, rnd, EDGE, idxOf);
+    var lk = opts.saveKey || null, sv = opts.saved;
+    if (lk && sv && !opts.previewOnly && sv.key === lk && sv.xy && sv.xy.length === nb * 2) {   // the same map was laid out before: put every item where it was
+      for (i = 0; i < nb; i++) {
+        var sd = nodes[i], sz0 = size(sd);
+        sd.w = sd.h = sz0; sd.x = sv.xy[i * 2]; sd.y = sv.xy[i * 2 + 1]; sd.shape = 'dot'; sd.layer = 0; sd.cx = sd.x + sz0 / 2; sd.cy = sd.y + sz0 / 2;
+      }
+      var pos0 = {};
+      nodes.forEach(function (nd) { pos0[nd.id] = nd; });
+      G.edges.forEach(function (ed) { ed.kind = ed.from === ed.to ? 'self' : 'fwd'; ed.pts = []; });
+      return { kind: 'network', dir: 'none', nodes: nodes, edges: G.edges, pos: pos0, order: {}, width: sv.width, height: sv.height, crossings: 0, arrange: arr, is3d: false, rough: !!sv.rough, fromSaved: true };
+    }
     var packs = [], roughAny = false;
     comps.forEach(function (members) {
       var k = members.length, loc = new Map();
@@ -3711,7 +3835,10 @@ var NFMEngine = (function () {
         if (arr === 'force') {
           var lpairs = [], lmass = new Float64Array(k);
           members.forEach(function (g, li) { lmass[li] = 1 + Math.sqrt(adj[g].length); adj[g].forEach(function (w) { var lw = loc.get(w); if (lw > li) lpairs.push(li, lw); }); });
-          forceSim(X, k, 2, lpairs, lmass, k <= 1000 ? 220 : k <= 5000 ? 240 : k <= 12000 ? 120 : 60, EDGE * 0.55, rnd);
+          if (FORCE2.stressMin && k >= FORCE2.stressMin && k < FORCE2.stressMax) {   // big maps start from the Distances picture (so far-apart items start far apart, and its multilevel start and WebAssembly do the heavy part), then a few gentle force rounds
+            stressComponent(X, k, members, adj, locArr, root, EDGE, rnd);
+            forceSim(X, k, 2, lpairs, lmass, FORCE2.polish, EDGE * 0.55, rnd, FORCE2.polishHi, FORCE2.polishLo);
+          } else forceSim(X, k, 2, lpairs, lmass, k <= 1000 ? 220 : k <= 5000 ? 240 : k <= 12000 ? 120 : 60, EDGE * 0.55, rnd);
         } else {
           var rpar = new Map([[root, -1]]), rkids = new Map(), rdep = new Map([[root, 0]]), rq = [root], rleaf = new Map(), rcount = [];
           for (var rh = 0; rh < rq.length; rh++) { var ru = rq[rh]; rkids.set(ru, []); adj[ru].forEach(function (w) { if (!rpar.has(w)) { rpar.set(w, ru); rdep.set(w, rdep.get(ru) + 1); rkids.get(ru).push(w); rq.push(w); } }); }
@@ -3768,11 +3895,17 @@ var NFMEngine = (function () {
     var pos = {};
     nodes.forEach(function (nd) { pos[nd.id] = nd; });
     G.edges.forEach(function (ed) { ed.kind = ed.from === ed.to ? 'self' : 'fwd'; ed.pts = []; });
-    return { kind: 'network', dir: 'none', nodes: nodes, edges: G.edges, pos: pos, order: {}, width: W + 60, height: H + 60, crossings: 0, arrange: arr, is3d: false, rough: roughAny };
+    var outL = { kind: 'network', dir: 'none', nodes: nodes, edges: G.edges, pos: pos, order: {}, width: W + 60, height: H + 60, crossings: 0, arrange: arr, is3d: false, rough: roughAny };
+    if (lk && opts.wantSave && !roughAny && !opts.previewOnly) {   // handed back so the page can keep it (typed numbers: x then y for every item, in order)
+      var xy = new Float64Array(nb * 2);
+      for (i = 0; i < nb; i++) { xy[i * 2] = nodes[i].x; xy[i * 2 + 1] = nodes[i].y; }
+      outL.saveLayout = { key: lk, xy: xy, width: outL.width, height: outL.height, rough: false };
+    }
+    return outL;
   }
 
   /* Tuning knobs for the 3D force arrangement (the benchmark may change them; the app never does). */
-  var FORCE3 = { fullMax: 700, pivMin: 24, pivMax: 150, pivBudget: 250000, pivW: 1, near: 40, nearBig: 24, iters: 20, old: false, polish: null, polishHi: 3, polishLo: 0.05 };   // polish: force steps after the stress start (null = by size)
+  var FORCE3 = { fullMax: 700, pivMin: 24, pivMax: 150, pivBudget: 250000, pivW: 1, near: 40, nearBig: 24, iters: 20, old: false, polish: null, polishHi: 3, polishLo: 0.05, ml: 1, mlMin: 700, mlCoarse: 700, mlEta: 0.2, mlIters: 5, mlJitter: 0.3, mlPiv: 6, mlNear: 6 };   // polish: force steps after the stress start (null = by size); ml*: the multilevel start of Distances 3D (not used by 3D force)
 
   /** One sweep of stress gradient descent in 3D over the pairs as they lie in memory (forward or backward). */
   function sgdSweep3(X, pa, pb, pd, pw, cnt, eta, back) {
@@ -3790,8 +3923,29 @@ var NFMEngine = (function () {
    * Same method as the flat Distances layout (pivot items far apart + links + a few near neighbors, weights 1/hops^2, stochastic
    * gradient descent that cools), carried to three dimensions. X holds 3 numbers per item and is changed in place.
    */
-  function stress3d(X, k, off, nbr, EDGE, rnd) {
-    var T = FORCE3, full = k <= T.fullMax, i, j, h, u, w, m2 = off[k];
+  function fitScale3(X, k, off, nbr, EDGE) {   // fitScale in three dimensions
+    var dist = new Int32Array(k), queue = new Int32Array(k), num = 0, den = 0, ns = Math.min(8, k), s, t;
+    for (s = 0; s < ns; s++) {
+      var src = Math.floor(s * k / ns); dist.fill(-1); dist[src] = 0; queue[0] = src;
+      var h = 0, tl = 1;
+      while (h < tl) { var u = queue[h++]; for (var e = off[u]; e < off[u + 1]; e++) { var w = nbr[e]; if (dist[w] < 0) { dist[w] = dist[u] + 1; queue[tl++] = w; } } }
+      for (t = 0; t < k; t += 3) if (t !== src && dist[t] > 0) { var ex = Math.hypot(X[3 * src] - X[3 * t], X[3 * src + 1] - X[3 * t + 1], X[3 * src + 2] - X[3 * t + 2]) / (dist[t] * EDGE); num += ex; den += ex * ex; }
+    }
+    return den > 0 && num > 0 ? num / den : 1;
+  }
+  function stress3d(X, k, off, nbr, EDGE, rnd, ml, deep) {
+    var T = FORCE3, full = k <= T.fullMax, i, j, h, u, w, m2 = off[k], eta0 = 0, tIters = 0, grown = false;
+    if (ml && T.ml && (deep ? k > T.mlCoarse : k > T.mlMin)) {   // multilevel start (Distances 3D): lay out a half-size copy first (itself multilevel while still big), grow it back, then polish with gentle sweeps
+      var cs = coarsenCsr(k, off, nbr, rnd);
+      if (cs.kc < k * 0.95) {
+        var Xc = new Float64Array(cs.kc * 3);
+        stress3d(Xc, cs.kc, cs.off, cs.nbr, EDGE, rnd, ml, true);
+        var jit = EDGE * T.mlJitter;
+        for (i = 0; i < k; i++) { var pc2 = cs.map[i]; X[3 * i] = Xc[3 * pc2] + (rnd() - 0.5) * jit; X[3 * i + 1] = Xc[3 * pc2 + 1] + (rnd() - 0.5) * jit; X[3 * i + 2] = Xc[3 * pc2 + 2] + (rnd() - 0.5) * jit; }
+        var sc = fitScale3(X, k, off, nbr, EDGE); for (i = 0; i < 3 * k; i++) X[i] *= sc;
+        eta0 = T.mlEta; tIters = T.mlIters; grown = true; full = false;
+      }
+    }
     var dist = new Int32Array(k), queue = new Int32Array(k);
     function bfs(src) {
       dist.fill(-1); dist[src] = 0; queue[0] = src;
@@ -3800,13 +3954,20 @@ var NFMEngine = (function () {
     }
     var near = Math.min(k > 20000 ? T.nearBig : T.near, Math.max(2, Math.floor(4e6 / k)));
     var nPiv = full ? k : Math.min(k, Math.max(4, Math.min(Math.max(T.pivMin, Math.min(T.pivMax, Math.round(T.pivBudget / k))), Math.floor(8e6 / k))));
-    var cap = full ? (k * (k - 1)) / 2 : nPiv * k + m2 / 2 + k * near;
-    var pa = new Int32Array(cap), pb = new Int32Array(cap), pd = new Float32Array(cap), pw = new Float32Array(cap), cnt = 0, maxD = 1, root = 0;
+    if (grown) { nPiv = Math.min(nPiv, T.mlPiv); near = Math.min(near, T.mlNear); }   // polishing a grown-back picture needs far fewer pairs than building one from scratch
+    var cap = full ? (k * (k - 1)) / 2 : nPiv * k + m2 / 2 + k * near, root = 0;
     for (i = 1; i < k; i++) if (off[i + 1] - off[i] > off[root + 1] - off[root]) root = i;
+    var tmax = full ? (k <= 300 ? 30 : 20) : (tIters || T.iters), seed = (rnd() * 4294967296) | 0 || 1;   // the seed is drawn once, before any try, so a try that gives up leaves the JavaScript the same random order
+    var pa, pb, pd, pw, cnt = 0, maxD = 1;
     function add(a, b, d, wm) { if (cnt >= cap) return; pa[cnt] = a; pb[cnt] = b; pd[cnt] = d * EDGE; pw[cnt] = (wm || 1) / (d * d); cnt++; if (d > maxD) maxD = d; }
-    bfs(root);   // start: items in breadth-first order from the best-connected one along a spiral over a sphere, so neighbors begin close
+    if (!grown) bfs(root);   // start: items in breadth-first order from the best-connected one along a spiral over a sphere, so neighbors begin close
     var ga = Math.PI * (3 - Math.sqrt(5)), R0 = EDGE * Math.cbrt(k) * 0.9;
-    for (i = 0; i < k; i++) { var yy = k > 1 ? 1 - 2 * i / (k - 1) : 0, rr0 = Math.sqrt(Math.max(0, 1 - yy * yy)), th0 = i * ga, q0 = queue[i] * 3; X[q0] = R0 * rr0 * Math.cos(th0); X[q0 + 1] = R0 * yy; X[q0 + 2] = R0 * rr0 * Math.sin(th0); }
+    for (i = 0; i < k && !grown; i++) { var yy = k > 1 ? 1 - 2 * i / (k - 1) : 0, rr0 = Math.sqrt(Math.max(0, 1 - yy * yy)), th0 = i * ga, q0 = queue[i] * 3; X[q0] = R0 * rr0 * Math.cos(th0); X[q0 + 1] = R0 * yy; X[q0 + 2] = R0 * rr0 * Math.sin(th0); }
+    var wm = STRESS_WASM.on && k >= STRESS_WASM.min3d ? wasmLoad(STRESS_WASM) : null;
+    if (wm) {   // the WebAssembly build of everything below (wasm/stress.c, sweeps3): the same picture to the last digit; any trouble falls through to JavaScript with X untouched
+      try { if (stressWasm(wm, X, k, off, nbr, EDGE, seed, full, nPiv, near, root, cap, tmax, T, eta0, 3)) { STRESS_WASM.calls3++; return; } } catch (err) { STRESS_WASM.error = String(err && err.message || err); }
+    }
+    pa = new Int32Array(cap); pb = new Int32Array(cap); pd = new Float32Array(cap); pw = new Float32Array(cap);
     if (full) {
       for (i = 0; i < k; i++) { bfs(i); for (j = i + 1; j < k; j++) if (dist[j] > 0) add(i, j, dist[j]); }
     } else {
@@ -3832,8 +3993,8 @@ var NFMEngine = (function () {
         }
       }
     }
-    var tmax = full ? (k <= 300 ? 30 : 20) : T.iters, etaMax = maxD * maxD, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
-    var s = (rnd() * 4294967296) | 0 || 1, t, p, q;
+    var etaMax = eta0 || maxD * maxD, etaMin = 0.1, lambda = Math.log(etaMax / etaMin) / Math.max(1, tmax - 1);
+    var s = seed, t, p, q;
     function nextInt(n) { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) / 4294967296 * n) | 0; }
     for (q = cnt - 1; q > 0; q--) {
       j = nextInt(q + 1);
@@ -3847,7 +4008,7 @@ var NFMEngine = (function () {
    * Start picture for the 3D force arrangement: every connected piece gets its own 3D stress layout (so far-apart items start far apart
    * and the whole is already unfolded), then the pieces are set on a sphere around the biggest one. Returns the 3D positions.
    */
-  function stressStart3d(nb, adj, rnd, EDGE) {
+  function stressStart3d(nb, adj, rnd, EDGE, ml) {
     var X = new Float64Array(nb * 3), comp = new Int32Array(nb).fill(-1), comps = [], i, j, c;
     for (i = 0; i < nb; i++) {
       if (comp[i] >= 0) continue;
@@ -3864,7 +4025,7 @@ var NFMEngine = (function () {
       for (a = 0; a < k; a++) { loc[mem[a]] = a; tot += adj[mem[a]].length; off[a + 1] = tot; }
       var nbr = new Int32Array(tot), Y = new Float64Array(3 * k);
       for (a = 0; a < k; a++) { var ls = adj[mem[a]]; for (b = 0; b < ls.length; b++) nbr[off[a] + b] = loc[ls[b]]; }
-      stress3d(Y, k, off, nbr, EDGE, rnd);
+      stress3d(Y, k, off, nbr, EDGE, rnd, ml);
       var mx = 0, my = 0, mz = 0, r2 = 0;
       for (a = 0; a < k; a++) { mx += Y[3 * a]; my += Y[3 * a + 1]; mz += Y[3 * a + 2]; }
       mx /= k; my /= k; mz /= k;
@@ -3885,7 +4046,9 @@ var NFMEngine = (function () {
   /** Arrangements that place everything at once (no component packing): circle, rings, grid, groups, and the 3D ones. */
   function globalNetwork(arr, nodes, G, adj, size, rnd, EDGE, idxOf) {
     var nb = nodes.length, res, X, dim, i;
-    if (arr === 'force3d') {
+    if (arr === 'stress3d') {   // Distances 3D: the flat Distances method carried to three dimensions, with its multilevel start; no force steps afterwards
+      dim = 3; X = stressStart3d(nb, adj, rnd, EDGE, true);
+    } else if (arr === 'force3d') {
       dim = 3; X = new Float64Array(nb * 3);
       var mass = new Float64Array(nb), pairs = [];
       for (i = 0; i < nb; i++) { mass[i] = 1 + Math.sqrt(adj[i].length); adj[i].forEach(function (w) { if (w > i) pairs.push(i, w); }); }
@@ -4244,7 +4407,7 @@ var NFMEngine = (function () {
     G.nodes.forEach(function (n) { laneOfBox[n.id] = laneIdx.get(cls[n.id]); });
     var root = P.start >= 0 ? G.groupOf[P.start] : undefined, prev = o.prev || undefined, Lr;
     /* optional layered-drawing choices (all off by default, so the picture is the old one): see layered() */
-    var LO = { rows: o.rows === 'story' ? 'story' : undefined, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle };
+    var LO = { rows: o.rows === 'story' ? 'story' : undefined, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
     var withLO = function (x) { return Object.assign(x, LO); };
     /* top to bottom (and the Flow view turned that way): a map more than about twice as tall as wide can be cut into columns (o.wrap) */
     var downLanes = view === 'down' && o.downLanes && laneNames.length > 1;
@@ -4324,7 +4487,7 @@ var NFMEngine = (function () {
 
   return {
     MAP_W: MAP_W, MAP_H: MAP_H, VIEWS: VIEWS, TASKS: TASKS, prepare: prepare, importance: importance, flowExact: flowExact, flowSim: flowSim, absorb: absorb, endClasses: endClasses, spread: spread, seedsOf: seedsOf,
-    separateGroups: separateGroups, mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressWasm: STRESS_WASM, separate: separate, forceWasm: FORCE_WASM, stressTuning: STRESS, force3dTuning: FORCE3,
+    layoutKey: layoutKey, separateGroups: separateGroups, mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressWasm: STRESS_WASM, separate: separate, forceWasm: FORCE_WASM, stressTuning: STRESS, force3dTuning: FORCE3, force2dTuning: FORCE2,
     communities: communities, metrics: metrics, taskScore: taskScore, build: build, compare: compare, bfs: bfs, mapCrossPairs: mapCrossPairs, mapPlaceLine: mapPlaceLine, autoStart: autoStart
   };
 })();
@@ -5931,6 +6094,7 @@ var NFMGpuStress = (function () {
 var NFMScene = (function () {
   'use strict';
   var HEAD = 9;
+  var PICTURE_PAD = 30;   /* empty space kept around the picture */
 
   /* ---------------------------------------------------------------- colors */
   function hex(h, a) {
@@ -6123,6 +6287,33 @@ var NFMScene = (function () {
     S.curveAt = function (i) { return pk ? (i >= 0 && i < pk.M ? makeOne(i) : undefined) : objs[i]; };
     S.eachCurve = function (fn) { var i, n; if (!pk) { objs.forEach(fn); return; } for (i = 0, n = pk.M; i < n; i++) fn(makeOne(i), i); };
     S.curvesPacked = function () { return !!pk; };
+    /* for moving items on a big map without waking the packed list: which two items each link joins (positions in L.nodes; null when a link names an unknown item), whether every link is a plain straight line, whether a link has a box, and a write of one link's line (and box) that goes into whichever form the list is in */
+    S.curveEnds = function (idxOf) {
+      var M = pk ? pk.M : objs.length, out = new Int32Array(M * 2), i, c, a, b;
+      if (pk) { for (i = 0; i < M; i++) { out[i * 2] = pk.FR[i]; out[i * 2 + 1] = pk.TO[i]; } return out; }
+      for (i = 0; i < M; i++) { c = objs[i]; a = idxOf.get(c.from); b = idxOf.get(c.to); if (a === undefined || b === undefined) return null; out[i * 2] = a; out[i * 2 + 1] = b; }
+      return out;
+    };
+    S.curvesStraight = function () {
+      var M = pk ? pk.M : objs.length, i, c;
+      if (pk) { for (i = 0; i < M; i++) if ((pk.FL[i] & 3) !== 2 || pk.DASH[i] !== 0) return false; return true; }
+      for (i = 0; i < M; i++) { c = objs[i]; if (!(c.line && !c.dash && !c.arrow && c.w1 === undefined && c.P.length === 8)) return false; }
+      return true;
+    };
+    /* one link for reading at once (the renderer's changed links): the live object when the list is not packed, otherwise a single object filled in again on every call, so it makes no garbage; do not keep it */
+    var VIEW = { P: [0, 0, 0, 0, 0, 0, 0, 0], color: [0, 0, 0, 0], w: 0, a: undefined };
+    S.curveView = function (i) {
+      var v = VIEW, o, q, k;
+      if (!pk) return objs[i];
+      o = i * 8; q = i * 4; for (k = 0; k < 8; k++) v.P[k] = pk.P[o + k]; for (k = 0; k < 4; k++) v.color[k] = pk.COL[q + k];
+      v.w = pk.W[i]; v.a = (pk.FL[i] & 8) ? undefined : pk.A[i]; return v;
+    };
+    S.curveHasBox = function (i) { return pk ? !(pk.FL[i] & 16) : objs[i].bb !== undefined; };
+    S.setCurveLine = function (i, P, bb) {
+      var k, o, q, c;
+      if (pk) { o = i * 8; for (k = 0; k < 8; k++) pk.P[o + k] = P[k]; if (bb) { q = i * 4; for (k = 0; k < 4; k++) pk.BB[q + k] = bb[k]; } return; }
+      touch++; c = objs[i]; for (k = 0; k < 8; k++) c.P[k] = P[k]; if (bb) c.bb = bb;
+    };
     S.autoPack = function (o) { auto = { delay: o.delay === undefined ? 4000 : o.delay, min: o.min === undefined ? 20000 : o.min, hold: o.hold, alive: o.alive, packed: o.packed }; arm(); };
     /* packs everything now (tests, and callers that want the memory back at once); true when done, false when something is not a plain link */
     S.packNow = function () { if (pk) return true; if (!objs || !objs.length) return false; if (timer) { clearTimeout(timer); timer = 0; } start(); var r = step(job.M); if (r === null) { job = null; refused = touch; return false; } finish(); return true; };
@@ -6250,7 +6441,7 @@ var NFMScene = (function () {
       S.labels.push(l);
       return l;
     };
-    var pad = 30;
+    var pad = PICTURE_PAD;
     var nodeLabel = function (n, rec, size) {
       var maxChars = Math.max(6, Math.floor((n.w - 16) / (size * 0.56))), lines = wrap(tx(n), maxChars, n.sub ? 1 : 2);
       var total = lines.length * (size + 3) + (n.sub ? 12 : 0), y0 = n.y + n.h / 2 - total / 2 + size, col = labColor(n, fillOf(n));
@@ -6614,7 +6805,7 @@ var NFMScene = (function () {
     });
   }
 
-  /* ---------------------------------------------------------------- Sankey pictures from NFMSankey.layout */
+  /* ---------------------------------------------------------------- Sankey pictures from NetflowSankey.layout */
   /** Color of one bar: the person's choice, else by group (each item its own color when there are no groups), else what the color mode says. */
   function sankeyColor(X, n) {
     var T = X.T, st = n._st, cb = X.o.colorBy || 'group', L = X.L;
@@ -6787,6 +6978,54 @@ var NFMScene = (function () {
   }
 
   /* ---------------------------------------------------------------- network view (2D with a fisheye lens, or 3D with a camera) */
+  var FAST_MOVE_MIN = 600;
+  /** Moving items by hand on a big flat map: S.moveNodes(moves) puts the dots, icons, names and straight links of the moved items where they now belong, in place, and says what changed ({dots, curves}: lists of positions in S.dots and S.curves), so the page can send just those to the graphics card instead of building and sending the whole picture for every mouse move. Returns null when this picture cannot do it (a link that is not one plain straight piece, an arrow). The picture's outer box, pick grid and packed link store are left as they were: the page builds the picture again once the item is let go. moves: [[position in L.nodes, x, y], ...]. */
+  function attachMove(S, L, FM, recs, idxOf, pad) {
+    var adj = null, ok = null, LINE = new Array(8);
+    function prepare() {
+      var n = L.nodes.length, cnt = new Int32Array(n + 1), j, a, b, M, ends;
+      if (!S.curveEnds || !S.curvesStraight || !S.curvesStraight()) return false;
+      ends = S.curveEnds(idxOf); if (!ends) return false; M = ends.length >> 1;
+      for (j = 0; j < M; j++) { cnt[ends[j * 2] + 1]++; cnt[ends[j * 2 + 1] + 1]++; }
+      for (j = 0; j < n; j++) cnt[j + 1] += cnt[j];
+      var fill = cnt.slice(0, n), list = new Int32Array(cnt[n]);
+      for (j = 0; j < M; j++) { a = ends[j * 2]; b = ends[j * 2 + 1]; list[fill[a]++] = j; list[fill[b]++] = j; }
+      adj = { start: cnt, list: list, ends: ends }; return true;
+    }
+    S.moveNodes = function (moves) {
+      if (ok === null) ok = prepare();
+      if (!ok) return null;
+      var dots = new Set(), curves = new Set(), i, q, k, mv, n, rec, pr, r, d, ic, lb, j, c;
+      for (i = 0; i < moves.length; i++) {
+        mv = moves[i]; q = mv[0]; n = L.nodes[q]; pr = recs[q]; if (!n || !pr || pr.hide) continue;
+        n.cx = mv[1]; n.cy = mv[2]; pr.px = n.cx; pr.py = n.cy; r = pr.r; rec = FM.box[q]; rec.x = n.cx - r; rec.y = n.cy - r;
+        if (FM.dot[q] >= 0) { d = S.dots[FM.dot[q]]; d.cx = n.cx; d.cy = n.cy; dots.add(FM.dot[q]); }
+        if (FM.chk[q] >= 0) { d = S.dots[FM.chk[q]]; d.cx = n.cx + r * 0.72; d.cy = n.cy - r * 0.72; dots.add(FM.chk[q]); }
+        if (FM.ico[q] >= 0) { ic = S.icons[FM.ico[q]]; ic.cx = n.cx; ic.cy = n.cy; }
+        lb = FM.lab[q]; if (lb) { lb.x = n.cx; lb.y = n.cy + r + 11; }
+        for (k = adj.start[q]; k < adj.start[q + 1]; k++) curves.add(adj.list[k]);
+      }
+      curves.forEach(function (j) {
+        var s = L.nodes[adj.ends[j * 2]], t = L.nodes[adj.ends[j * 2 + 1]], sr = recs[adj.ends[j * 2]].r, tr = recs[adj.ends[j * 2 + 1]].r;
+        var dx = t.cx - s.cx, dy = t.cy - s.cy, dd = Math.sqrt(dx * dx + dy * dy) || 1, ex = t.cx - dx / dd * tr, ey = t.cy - dy / dd * tr, sx = s.cx + dx / dd * sr, sy = s.cy + dy / dd * sr;
+        var P = LINE; P[0] = sx; P[1] = sy; P[2] = sx + (ex - sx) / 3; P[3] = sy + (ey - sy) / 3; P[4] = sx + 2 * (ex - sx) / 3; P[5] = sy + 2 * (ey - sy) / 3; P[6] = ex; P[7] = ey;
+        S.setCurveLine(j, P, S.curveHasBox(j) ? [Math.min(sx, ex) - 12, Math.min(sy, ey) - 12, Math.max(sx, ex) + 12, Math.max(sy, ey) + 12] : null);
+      });
+      return { dots: dots, curves: curves };
+    };
+    /** After the last move (the drop): the outer box of the picture, the pick grid and the link hover index are worked out again for the new places, from the same lists and in the same way as building the picture does, so the whole picture does not have to be built again. False when this picture has parts the quick way does not know (the caller then builds it again). */
+    S.settleMoves = function () {
+      if (S.tagChips || S.ruler || S.polys.length) return false;
+      var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      S.nodes.forEach(function (n) { if (n.x < x0) x0 = n.x; if (n.y < y0) y0 = n.y; if (n.x + n.w > x1) x1 = n.x + n.w; if (n.y + n.h > y1) y1 = n.y + n.h; });
+      S.rects.forEach(function (r) { if (r.x < x0) x0 = r.x; if (r.y < y0) y0 = r.y; if (r.x + r.w > x1) x1 = r.x + r.w; if (r.y + r.h > y1) y1 = r.y + r.h; });
+      S.dots.forEach(function (d) { if (d.cx - d.r < x0) x0 = d.cx - d.r; if (d.cy - d.r < y0) y0 = d.cy - d.r; if (d.cx + d.r > x1) x1 = d.cx + d.r; if (d.cy + d.r > y1) y1 = d.cy + d.r; });
+      if (!isFinite(x0)) { x0 = 0; y0 = 0; x1 = 100; y1 = 100; }
+      S.x0 = x0 - pad; S.y0 = y0 - pad; S.w = x1 - x0 + 2 * pad; S.h = y1 - y0 + 2 * pad;
+      S.gridStale = true; S.eidx = null;
+      return true;
+    };
+  }
   function networkScene(X) {
     var S = X.S, L = X.L, T = X.T, o = X.o, lab = X.lab, addNode = X.addNode, fillOf = X.fillOf, valCol = X.valCol, gcol = X.gcol;
     var m = L.edges.length, arrows = m <= 500, a = X.autoA, n3 = !!L.is3d, cam = o.cam || { yaw: 0.6, pitch: 0.35, persp: 2.4 }, lens = !n3 && o.lens && o.lens.r > 0 ? o.lens : null;
@@ -6865,11 +7104,13 @@ var NFMScene = (function () {
       if (ST && ST.idxOf) idxOf = ST.idxOf; else { idxOf = new Map(); L.nodes.forEach(function (n, q) { idxOf.set(n.id, q); }); }
       if (ST) { ST.rk = rk; ST.idxOf = idxOf; }
     }
+    /* What moving one item by hand needs (see S.moveNodes below): where each item's dot, choke dot, icon and name sit in the lists. Only for a big flat map of plain straight links with no arrows, hulls, group names or fisheye, where building the whole picture again for every mouse move is the slow part. */
+    var FM = !n3 && !lens && !o.hulls && m >= FAST_MOVE_MIN && !X.LC.groups.show && !ST ? { dot: new Int32Array(L.nodes.length).fill(-1), chk: new Int32Array(L.nodes.length).fill(-1), ico: new Int32Array(L.nodes.length).fill(-1), lab: new Array(L.nodes.length), box: new Array(L.nodes.length) } : null;
     var topN = X.LC.items.topN, recOf = n3 && ST ? new Int32Array(L.nodes.length).fill(-1) : null, dotOf = recOf ? new Int32Array(L.nodes.length).fill(-1) : null;
     /* one item's name under it: the same call for a normal picture and for a turn frame */
     var emitLabel = function (n, q, np, rec, px, py, r, f, fd) {
       var rnk = rk[q], showTop = topN && rnk < topN, fill = n3 ? alpha(np.fill, np.fill[3] * fd) : np.fill;
-      lab(px, py + r + 11 * (n3 ? f : 1), np.text, 11 * (n3 ? Math.max(0.7, f) : 1), np.col || X.labColor(n, fill), { node: rec.i, minK: showTop ? 0.05 : 0.22 * (1 + rnk / 35), bold: rnk < 8 });
+      return lab(px, py + r + 11 * (n3 ? f : 1), np.text, 11 * (n3 ? Math.max(0.7, f) : 1), np.col || X.labColor(n, fill), { node: rec.i, minK: showTop ? 0.05 : 0.22 * (1 + rnk / 35), bold: rnk < 8 });
     };
     list.forEach(function (p) {
       var n = p.n, st = n._st, r = p.r; if (p.hide) return;
@@ -6881,11 +7122,15 @@ var NFMScene = (function () {
         if (ST) ST.nodes[q] = np;
       }
       var fill = n3 ? alpha(np.fill, np.fill[3] * fd) : np.fill, kind = np.kind, replace = np.replace;
+      if (FM) { FM.dot[q] = S.dots.length; FM.box[q] = rec; }
       S.dots.push({ cx: p.px, cy: p.py, r: r, fill: replace ? alpha(fill, 0.15) : fill, stroke: np.stroke, sw: np.sw, layer: 1, node: rec.i, kind: kind });
-      if (n.choke) S.dots.push({ cx: p.px + r * 0.72, cy: p.py - r * 0.72, r: Math.max(2.5, r * 0.3), fill: T.gold, stroke: alpha(T.box, 0.9), sw: 1, layer: 1, node: rec.i });
+      if (n.choke) { if (FM) FM.chk[q] = S.dots.length; S.dots.push({ cx: p.px + r * 0.72, cy: p.py - r * 0.72, r: Math.max(2.5, r * 0.3), fill: T.gold, stroke: alpha(T.box, 0.9), sw: 1, layer: 1, node: rec.i }); }
+      if (FM) FM.ico[q] = S.icons.length;
       X.addIcon(n, rec, p.px, p.py, r);
-      emitLabel(n, q, np, rec, p.px, p.py, r, p.f, fd);
+      if (FM && FM.ico[q] === S.icons.length) FM.ico[q] = -1;
+      var lbl = emitLabel(n, q, np, rec, p.px, p.py, r, p.f, fd); if (FM) FM.lab[q] = lbl;
     });
+    if (FM) attachMove(S, L, FM, recs, idxOf, PICTURE_PAD);
     if (recOf && o.rig && S.icons.length === 0 && m >= (o.rigMin === undefined ? RIG_MIN_LINKS : o.rigMin)) {
       if (ST.rig === undefined) ST.rig = makeRig(L, ST, T, idxOf, rk);
       if (ST.rig) attachTurn(X, ST.rig, { recOf: recOf, dotOf: dotOf, np: ST.nodes, idxOf: idxOf, rk: rk, emitLabel: emitLabel, cam: cam, R3: R3, topN: topN });
@@ -7196,14 +7441,53 @@ var NFMRender = (function () {
   var NODBG = {};
   /** A link that is one straight piece with no dashes (the common case on a big network). */
   function isSeg(c) { return c.line && !c.dash && c.P.length === 8; }
+  /** One item's dot as the 16 numbers the shape buffer holds (position, size, shape kind, outline width, fill, outline); the same numbers tessellate writes for every dot. */
+  function dotRec(out, d) {
+    var k = d.kind === undefined ? 1 : d.kind, a = d.a === undefined ? 1 : d.a, f = d.fill, s = d.stroke;
+    out[0] = d.cx; out[1] = d.cy; out[2] = d.r; out[3] = d.r; out[4] = k === 0 ? Math.min(3, d.r) : d.r; out[5] = k; out[6] = d.sw; out[7] = 0;
+    out[8] = f[0]; out[9] = f[1]; out[10] = f[2]; out[11] = f[3] * a; out[12] = s[0]; out[13] = s[1]; out[14] = s[2]; out[15] = s[3] * a;
+  }
+  /** A plain straight link as the 6 corner records (60 numbers) of its quad, written at o in mesh; returns the new o. */
+  function segRec(mesh, o, c) {
+    var a = c.a === undefined ? 1 : c.a, hw = c.w / 2, col = c.color, P = c.P, xa = P[0], ya = P[1], xb = P[6], yb = P[7], tx = xb - xa, ty = yb - ya, d = Math.hypot(tx, ty) || 1, nx = -ty / d, ny = tx / d, i;
+    var r0 = col[0], r1 = col[1], r2 = col[2], r3 = col[3] * a, V = SEG;
+    V[0] = xa; V[1] = ya; V[2] = -1; V[3] = xa; V[4] = ya; V[5] = 1; V[6] = xb; V[7] = yb; V[8] = -1; V[9] = xb; V[10] = yb; V[11] = -1; V[12] = xa; V[13] = ya; V[14] = 1; V[15] = xb; V[16] = yb; V[17] = 1;
+    for (i = 0; i < 18; i += 3) { mesh[o++] = V[i]; mesh[o++] = V[i + 1]; mesh[o++] = nx; mesh[o++] = ny; mesh[o++] = hw; mesh[o++] = V[i + 2]; mesh[o++] = r0; mesh[o++] = r1; mesh[o++] = r2; mesh[o++] = r3; }
+    return o;
+  }
+  /** A plain straight link as the 9 numbers the card builds its quad from (two end points, half width, color): 36 bytes where the six corner records are 240. */
+  function instRec(out, o, c) {
+    var a = c.a === undefined ? 1 : c.a, col = c.color, P = c.P;
+    out[o] = P[0]; out[o + 1] = P[1]; out[o + 2] = P[6]; out[o + 3] = P[7]; out[o + 4] = c.w / 2; out[o + 5] = col[0]; out[o + 6] = col[1]; out[o + 7] = col[2]; out[o + 8] = col[3] * a;
+  }
+  var INST_STRIDE = 9, INSTBUF = null, EMPTY = new Float32Array(0);
+  var PATCH = new Float32Array(MESH_STRIDE * 6), PATCH_MAX = 4000, PATCH_I = new Float32Array(INST_STRIDE);
+  /** Rewrites just the dots and links that were moved (dirty = {dots, curves}: sets of positions in S.dots and S.curves) straight into the graphics-memory buffers. write(which, byteOffset, Float32Array) does the send. False when the picture is not laid out so that this works (then the page sends it all). */
+  function patchBuffers(S, T, dirty, write) {
+    if (!T || !T.uni || !dirty || T.nDots !== S.dots.length || T.nCurves !== (S.curveCount ? S.curveCount() : S.curves.length) || dirty.dots.size + dirty.curves.size > PATCH_MAX) return false;
+    var dr = new Float32Array(SHAPE_STRIDE), cs = S.curveView ? null : S.curves;
+    dirty.dots.forEach(function (i) { dotRec(dr, S.dots[i]); write('front', (T.dot0 + i) * SHAPE_STRIDE * 4, dr); });
+    if (T.inst) dirty.curves.forEach(function (j) { instRec(PATCH_I, 0, cs ? cs[j] : S.curveView(j)); write('inst', j * INST_STRIDE * 4, PATCH_I); });
+    else dirty.curves.forEach(function (j) { segRec(PATCH, 0, cs ? cs[j] : S.curveView(j)); write('mesh', j * 6 * MESH_STRIDE * 4, PATCH); });
+    return true;
+  }
   /** Turns a scene into flat arrays: back shapes, mesh (lines, arrows, ribbons), front shapes. a = item alpha from restyle. */
-  function tessellate(S) {
+  function tessellate(S, opts) {
     var back = [], front = [], i;
     var shape = function (list, cx, cy, hw, hh, rad, kind, sw, fill, stroke, a) {
       list.push(cx, cy, hw, hh, rad, kind, sw, 0, fill[0], fill[1], fill[2], fill[3] * a, stroke[0], stroke[1], stroke[2], stroke[3] * a);
     };
     S.rects.forEach(function (r) { shape(r.layer === 0 ? back : front, r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, Math.min(r.r, r.w / 2, r.h / 2), 0, r.sw, r.fill, r.stroke, r.a === undefined ? 1 : r.a); });
     S.dots.forEach(function (d) { var k = d.kind === undefined ? 1 : d.kind; shape(front, d.cx, d.cy, d.r, d.r, k === 0 ? Math.min(3, d.r) : d.r, k, d.sw, d.fill, d.stroke, d.a === undefined ? 1 : d.a); });
+    /* a network of nothing but plain straight links (no arrows, ribbons or hulls) can go to the card as 9 numbers a link, the quad built by its vertex shader (opts.inst, WebGL 2); anything else keeps the corner records below */
+    var uni = !S.ribbons.length && !(S.polys && S.polys.length) && S.curves.every(function (c) { return isSeg(c) && !c.arrow; }), dot0 = 0;
+    S.rects.forEach(function (r) { if (r.layer !== 0) dot0++; });
+    if (opts && opts.inst && uni && S.curves.length) {
+      var nI = S.curves.length, needI = nI * INST_STRIDE;
+      if (!INSTBUF || INSTBUF.length < needI) INSTBUF = new Float32Array(needI + (needI >> 2));
+      for (i = 0; i < nI; i++) instRec(INSTBUF, i * INST_STRIDE, S.curves[i]);
+      return { back: new Float32Array(back), front: new Float32Array(front), mesh: EMPTY, inst: INSTBUF.subarray(0, needI), nInst: nI, nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: 0, uni: true, dot0: dot0, nDots: S.dots.length, nCurves: nI };
+    }
     /* mesh */
     var verts = 0, plan = [];
     S.ribbons.forEach(function (r) { var n = Math.max(10, Math.min(40, Math.ceil(Math.abs(r.x1 - r.x0) / 10))); plan.push(r); verts += n * 6; });
@@ -7255,14 +7539,12 @@ var NFMRender = (function () {
       var a = c.a === undefined ? 1 : c.a, hw = c.w / 2, col = c.color;
       if (isSeg(c)) {
         /* A plain straight link (every link on a big network): one quad written straight into the buffer, the same numbers the general path gives. */
-        var P = c.P, xa = P[0], ya = P[1], xb = P[6], yb = P[7], tx = xb - xa, ty = yb - ya, d = Math.hypot(tx, ty) || 1, nx = -ty / d, ny = tx / d;
-        var r0 = col[0], r1 = col[1], r2 = col[2], r3 = col[3] * a, V = SEG;
-        V[0] = xa; V[1] = ya; V[2] = -1; V[3] = xa; V[4] = ya; V[5] = 1; V[6] = xb; V[7] = yb; V[8] = -1; V[9] = xb; V[10] = yb; V[11] = -1; V[12] = xa; V[13] = ya; V[14] = 1; V[15] = xb; V[16] = yb; V[17] = 1;
-        for (i = 0; i < 18; i += 3) { mesh[o++] = V[i]; mesh[o++] = V[i + 1]; mesh[o++] = nx; mesh[o++] = ny; mesh[o++] = hw; mesh[o++] = V[i + 2]; mesh[o++] = r0; mesh[o++] = r1; mesh[o++] = r2; mesh[o++] = r3; }
+        o = segRec(mesh, o, c);
       } else if (c.dashed) c.dashed.forEach(function (q) { strip(q, hw, col, a); }); else strip(c.pts, hw, col, a, c.w1 !== undefined ? c.w1 / 2 : undefined);
       if (c.arrow) { var t = NFMScene.arrowTri(c); for (i = 0; i < 3; i++) put(t[i * 2], t[i * 2 + 1], 0, 0, -1, 0, col, a); }
     });
-    return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE };
+    /* where things sit, so an item that was moved can be rewritten in place (see patchBuffers): every link a plain straight piece, none with an arrow, no ribbons or hulls, so link j starts at vertex 6 * j */
+    return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE, uni: uni, dot0: dot0, nDots: S.dots.length, nCurves: S.curves.length };
   }
   /** Cuts a polyline into dashes: kind 1 = dots, 2 = short dashes, 3 = long dashes. Returns a list of flat polylines. */
   function dashPieces(pts, w, kind) {
@@ -7360,13 +7642,39 @@ var NFMRender = (function () {
   function createCanvas2D(host, hooks) {
     var H = makeHost(host), ctx = H.main.getContext('2d', { alpha: false }), S = null, W = 1, Hh = 1, dpr = 1;
     if (!ctx) throw new Error('no 2D canvas');
+    /* Moving the camera over a map that is slow to draw: the picture kept from the last full draw is slid and scaled to the new camera (a few ms), and the real picture is drawn again 140 ms after the camera stops, so at rest the picture is exactly what a full draw gives. Only used when the last full draw took over FAST_MS (a small map is always drawn in full). */
+    var FAST_MS = 16, SETTLE_MS = 140, cache = null, cacheScene = null, cacheW = 0, cacheH = 0, fullView = null, fullFresh = false, lastFullMs = 0, settleT = 0, fastForce = null, lastDrawAt = 0, slowMotion = false;
+    function fastDraw(view) {
+      var sc = view.k / fullView.k;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = css(S.theme.bg); ctx.fillRect(0, 0, H.main.width, H.main.height);
+      ctx.drawImage(cache, dpr * (view.tx - sc * fullView.tx), dpr * (view.ty - sc * fullView.ty), cacheW * sc, cacheH * sc);
+      drawLabels(H.ctx2, S, view, W, Hh, dpr);
+      fullFresh = false;
+      settleT = setTimeout(function () { settleT = 0; if (view.invalidate) view.invalidate(); }, SETTLE_MS);
+    }
+    function tryFast(view) {
+      if (!view.moved || !fullView || fastForce === false || (fastForce !== true && lastFullMs <= FAST_MS && !slowMotion)) return false;
+      if (fullFresh) {   /* the canvas still holds the last full picture: keep it */
+        if (!cache) cache = document.createElement('canvas');
+        if (cache.width !== H.main.width || cache.height !== H.main.height) { cache.width = H.main.width; cache.height = H.main.height; }
+        cache.getContext('2d').drawImage(H.main, 0, 0); cacheScene = S; cacheW = H.main.width; cacheH = H.main.height;
+      } else if (!cache || cacheScene !== S || cacheW !== H.main.width || cacheH !== H.main.height) return false;
+      fastDraw(view); return true;
+    }
     var out = {
       name: 'canvas2d', label: 'Canvas 2D',
-      setScene: function (s) { S = s; if (S) S.curves.forEach(function (c) { if (c.bb === undefined) { var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (var i = 0; i < c.P.length; i += 2) { x0 = Math.min(x0, c.P[i]); x1 = Math.max(x1, c.P[i]); y0 = Math.min(y0, c.P[i + 1]); y1 = Math.max(y1, c.P[i + 1]); } c.bb = [x0 - 12, y0 - 12, x1 + 12, y1 + 12]; } }); },
+      patch: function (s) { return s === S; },   /* nothing is kept on a card: the next draw reads the scene as it now is */
+      fastMove: function (v) { fastForce = v; },   /* test hook: true always slides the kept picture while the camera moves, false never, null by speed */
+      setScene: function (s) { S = s; fullFresh = false; cacheScene = null; slowMotion = false; if (S) S.curves.forEach(function (c) { if (c.bb === undefined) { var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (var i = 0; i < c.P.length; i += 2) { x0 = Math.min(x0, c.P[i]); x1 = Math.max(x1, c.P[i]); y0 = Math.min(y0, c.P[i + 1]); y1 = Math.max(y1, c.P[i + 1]); } c.bb = [x0 - 12, y0 - 12, x1 + 12, y1 + 12]; } }); },
       resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
       draw: function (view) {
         if (!S) return;
-        var k = view.k, vx0 = -view.tx / k, vy0 = -view.ty / k, vx1 = (W - view.tx) / k, vy1 = (Hh - view.ty) / k;
+        if (settleT) { clearTimeout(settleT); settleT = 0; }
+        var tNow = performance.now(); if (view.moved && lastDrawAt && tNow - lastDrawAt > 40 && tNow - lastDrawAt < 400) slowMotion = true;   /* the browser finishes the drawing later, so the call itself looked cheap but the frames come slowly */
+        lastDrawAt = tNow;
+        if (tryFast(view)) return;
+        var t00 = tNow, k = view.k, vx0 = -view.tx / k, vy0 = -view.ty / k, vx1 = (W - view.tx) / k, vy1 = (Hh - view.ty) / k;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.fillStyle = css(S.theme.bg); ctx.fillRect(0, 0, H.main.width, H.main.height);
         ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * view.tx, dpr * view.ty);
@@ -7419,6 +7727,7 @@ var NFMRender = (function () {
         });
         ctx.globalAlpha = 1;
         drawLabels(H.ctx2, S, view, W, Hh, dpr);
+        lastFullMs = performance.now() - t00; fullView = { k: view.k, tx: view.tx, ty: view.ty }; fullFresh = true;
       },
       flush: function () { return Promise.resolve(); },
       snapshot: function () { return ctx.getImageData(0, 0, H.main.width, H.main.height); },
@@ -7444,6 +7753,12 @@ var NFMRender = (function () {
     'uniform vec4 uV;uniform vec2 uRes;out vec4 vC;out float vSide;out float vHw;out float vSolid;\n' +
     'void main(){float solid=aHS.x<0.?1.:0.;float hw=max(aHS.x,.7/uV.x);vec2 w=aP+aN*aHS.y*hw*(1.-solid);vec2 px=w*uV.x+uV.yz;\n' +
     'gl_Position=vec4(px.x/uRes.x*2.-1.,1.-px.y/uRes.y*2.,0.,1.);vC=aC;vSide=aHS.y;vHw=hw*uV.x;vSolid=solid;}';
+  /* the same quad from one instance (two end points, half width, color) and gl_VertexID 0..3 of a TRIANGLE_STRIP: corner = end (VertexID >= 2) and side (even = -1, odd = +1), the very numbers segRec writes, so the fragment shader below and the picture are the same */
+  var GL_INST_VS = '#version 300 es\nprecision highp float;layout(location=0) in vec4 iP;layout(location=1) in vec4 iHC;layout(location=2) in float iA;\n' +
+    'uniform vec4 uV;uniform vec2 uRes;out vec4 vC;out float vSide;out float vHw;out float vSolid;\n' +
+    'void main(){int v=gl_VertexID;vec2 a=iP.xy,b=iP.zw;vec2 t=b-a;float d=length(t);if(d==0.)d=1.;vec2 n=vec2(-t.y,t.x)/d;\n' +
+    'float side=((v&1)==0)?-1.:1.;float hw=max(iHC.x,.7/uV.x);vec2 w=(v>=2?b:a)+n*side*hw;vec2 px=w*uV.x+uV.yz;\n' +
+    'gl_Position=vec4(px.x/uRes.x*2.-1.,1.-px.y/uRes.y*2.,0.,1.);vC=vec4(iHC.yzw,iA);vSide=side;vHw=hw*uV.x;vSolid=0.;}';
   var GL_MESH_FS = '#version 300 es\nprecision highp float;in vec4 vC;in float vSide;in float vHw;in float vSolid;out vec4 o;\n' +
     'void main(){float cov=vSolid>.5?1.:clamp(vHw-abs(vSide)*vHw+.5,0.,1.);o=vec4(vC.rgb*vC.a,vC.a)*cov;}';
 
@@ -7497,7 +7812,51 @@ var NFMRender = (function () {
       layout.forEach(function (a) { gl.enableVertexAttribArray(a[0]); gl.vertexAttribPointer(a[0], a[1], gl.FLOAT, false, a[3], a[2] * 4); if (divisor) gl.vertexAttribDivisor(a[0], 1); });
       gl.bindVertexArray(null); return vao;
     };
-    var bBack = gl.createBuffer(), bFront = gl.createBuffer(), bMesh = gl.createBuffer();
+    var bBack = gl.createBuffer(), bFront = gl.createBuffer(), bMesh = gl.createBuffer(), bInst = gl.createBuffer(), pI = null, uI = null, vaoInst = null, instOn = null;
+    /* plain straight links as 9 numbers each (see GL_INST_VS); if the program does not build, the corner-record path below is used as before */
+    try {
+      pI = glProgram(gl, GL_INST_VS, GL_MESH_FS); uI = { v: gl.getUniformLocation(pI, 'uV'), r: gl.getUniformLocation(pI, 'uRes') };
+      vaoInst = gl.createVertexArray(); gl.bindVertexArray(vaoInst); gl.bindBuffer(gl.ARRAY_BUFFER, bInst);
+      [[0, 4, 0], [1, 4, 4], [2, 1, 8]].forEach(function (a) { gl.enableVertexAttribArray(a[0]); gl.vertexAttribPointer(a[0], a[1], gl.FLOAT, false, INST_STRIDE * 4, a[2] * 4); gl.vertexAttribDivisor(a[0], 1); });
+      gl.bindVertexArray(null);
+    } catch (e) { pI = null; if (hooks && hooks.onError) hooks.onError('webgl2', 'straight links on the card: ' + e.message); }
+    /* Whether 9-number links are faster on this card is measured once, the first time a big enough network of straight links comes (as gpustress does for the 3D turn): 50,000 short random links drawn both ways far out of view (so only the vertex stage and the one-instance-per-link set-up are measured, not the pixels) into a small off-screen picture, each read back to wait for the card; the new way is kept unless it is more than 5% (and 1 ms) slower. A card that draws in software, where the shader does the extra work on the processor, takes the old way. instOn: null = not measured yet, true/false = decided (instLinks sets it by hand for the tests). */
+    var probe = function () {
+      var fb = null, rb = null;
+      try {
+        var N = 50000, rnd = 7, r = function () { rnd = (rnd * 1664525 + 1013904223) >>> 0; return rnd / 4294967296; };
+        var inst = new Float32Array(N * INST_STRIDE), mesh = new Float32Array(N * 6 * MESH_STRIDE), c = { P: [0, 0, 0, 0, 0, 0, 0, 0], w: 1.5, color: [0.3, 0.4, 0.8, 0.6], a: 1 };
+        for (var i = 0; i < N; i++) { var x = r() * 400, y = r() * 400; c.P[0] = c.P[2] = x; c.P[1] = c.P[3] = y; c.P[4] = c.P[6] = x + (r() - 0.5) * 30; c.P[5] = c.P[7] = y + (r() - 0.5) * 30; c.w = 1 + (i % 4) * 0.5; instRec(inst, i * INST_STRIDE, c); segRec(mesh, i * 6 * MESH_STRIDE, c); }
+        var tI = gl.createBuffer(), tM = gl.createBuffer(); up(tI, inst); up(tM, mesh);
+        var vI = gl.createVertexArray(); gl.bindVertexArray(vI); gl.bindBuffer(gl.ARRAY_BUFFER, tI);
+        [[0, 4, 0], [1, 4, 4], [2, 1, 8]].forEach(function (a) { gl.enableVertexAttribArray(a[0]); gl.vertexAttribPointer(a[0], a[1], gl.FLOAT, false, INST_STRIDE * 4, a[2] * 4); gl.vertexAttribDivisor(a[0], 1); });
+        var vM = mkVao([[0, 2, 0, 40], [1, 2, 2, 40], [2, 2, 4, 40], [3, 4, 6, 40]], tM, false);
+        fb = gl.createFramebuffer(); rb = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, rb); gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, 512, 512); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, rb);
+        var px = new Uint8Array(4), prevVp = gl.getParameter(gl.VIEWPORT);
+        gl.viewport(0, 0, 512, 512); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        var run = function (way, tx) {
+          gl.clearColor(1, 1, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+          var t0 = performance.now();
+          if (way) { gl.useProgram(pI); gl.uniform4f(uI.v, 1, tx, 0, 0); gl.uniform2f(uI.r, 512, 512); gl.bindVertexArray(vI); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, N); }
+          else { gl.useProgram(pM); gl.uniform4f(uM.v, 1, tx, 0, 0); gl.uniform2f(uM.r, 512, 512); gl.bindVertexArray(vM); gl.drawArrays(gl.TRIANGLES, 0, N * 6); }
+          gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          return performance.now() - t0;
+        };
+        run(true, 0); run(false, 0);   /* the first of each includes compiling and moving data */
+        var a = [0, 0, 0], b = [0, 0, 0]; for (var k = 0; k < 3; k++) { a[k] = run(true, -9000); b[k] = run(false, -9000); }
+        a.sort(function (p, q) { return p - q; }); b.sort(function (p, q) { return p - q; });
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(prevVp[0], prevVp[1], prevVp[2], prevVp[3]); gl.bindVertexArray(null);
+        gl.deleteFramebuffer(fb); gl.deleteRenderbuffer(rb); gl.deleteBuffer(tI); gl.deleteBuffer(tM); gl.deleteVertexArray(vI); gl.deleteVertexArray(vM);
+        out.instProbe = { inst: a[1], corners: b[1] };
+        return a[1] <= b[1] * 1.05 + 1;   /* the clock is whole milliseconds in some browsers */
+      } catch (e) { try { gl.bindFramebuffer(gl.FRAMEBUFFER, null); } catch (x) { /* gone */ } return false; }
+    };
+    var tess = function (s) {
+      var want = false;
+      if (pI && s && s.curves.length) { if (instOn === null && s.curves.length >= 2000) instOn = probe(); want = instOn === true; }
+      return tessellate(s, want ? { inst: true } : null);
+    };
+    var send = function () { up(bBack, T.back); up(bFront, T.front); if (T.inst) up(bInst, T.inst); else up(bMesh, T.mesh); };
     var sl = [[0, 4, 0, 64], [1, 4, 4, 64], [2, 4, 8, 64], [3, 4, 12, 64]], vaoBack = mkVao(sl, bBack, true), vaoFront = mkVao(sl, bFront, true);
     var vaoMesh = mkVao([[0, 2, 0, 40], [1, 2, 2, 40], [2, 2, 4, 40], [3, 4, 6, 40]], bMesh, false);
     var T = null, S = null, W = 1, Hh = 1, dpr = 1;
@@ -7558,8 +7917,15 @@ var NFMRender = (function () {
     var info = (function () { try { var e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : ''; } catch (x) { return ''; } })();
     var out = {
       name: 'webgl2', label: 'WebGL 2', device: info,
-      setScene: function (s) { S = s; T = s ? tessellate(s) : null; if (T) { up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
-      restyle: function () { if (S && !(S.turn && S.turn.on)) { T = tessellate(S); up(bBack, T.back); up(bFront, T.front); up(bMesh, T.mesh); } },
+      setScene: function (s) { S = s; T = s ? tess(s) : null; if (T) send(); },
+      restyle: function () { if (S && !(S.turn && S.turn.on)) { T = tess(S); send(); } },
+      /* test hook: false draws straight links from the six corner records as before (the pictures must match), true from 9 numbers each; takes effect from the next setScene */
+      instLinks: function (on) { instOn = on === null ? null : !!on; },
+      usesInst: function () { return !!(T && T.nInst); },
+      patch: function (s, dirty) {
+        if (s !== S || (S.turn && S.turn.on)) return false;
+        return patchBuffers(S, T, dirty, function (which, at, data) { var b = which === 'front' ? bFront : which === 'inst' ? bInst : bMesh; gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferSubData(gl.ARRAY_BUFFER, at, data); });
+      },
       rigPrepare: rigPrepare, rigOK: false,
       /* Puts a big 3D map on the card ahead of the first drag: the item and link textures are uploaded and each rig program is used once, drawing nothing (a zero-size scissor), so the driver finishes compiling and moving data now instead of during the first turn. */
       rigWarm: function () {
@@ -7587,6 +7953,7 @@ var NFMRender = (function () {
         if (S.turn && S.turn.on && S.rig && RG) { drawRig(view); if (!(out.rigDebug && out.rigDebug.noNames)) drawLabels(H.ctx2, S, view, W, Hh, dpr); return; }
         var shapes = function (vao, n) { if (!n) return; gl.useProgram(pS); gl.uniform4f(uS.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uS.r, W, Hh); gl.bindVertexArray(vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n); };
         shapes(vaoBack, T.nBack);
+        if (T.nInst) { gl.useProgram(pI); gl.uniform4f(uI.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uI.r, W, Hh); gl.bindVertexArray(vaoInst); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, T.nInst); }
         if (T.nMesh) { gl.useProgram(pM); gl.uniform4f(uM.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uM.r, W, Hh); gl.bindVertexArray(vaoMesh); gl.drawArrays(gl.TRIANGLES, 0, T.nMesh); }
         shapes(vaoFront, T.nFront);
         gl.bindVertexArray(null);
@@ -7765,6 +8132,10 @@ var NFMRender = (function () {
         name: 'webgpu', label: 'WebGPU', device: (r.adapter.info && (r.adapter.info.description || r.adapter.info.device)) || '', software: !!r.adapter.isFallbackAdapter, legacyBuffers: false,
         setScene: function (s) { S = s; if (S) load(); },
         restyle: function () { if (S && !(S.turn && S.turn.on)) load(); },
+        patch: function (s, dirty) {
+          if (s !== S || (S.turn && S.turn.on) || !bufs.front || !bufs.mesh) return false;
+          return patchBuffers(S, T, dirty, function (which, at, data) { device.queue.writeBuffer(bufs[which], at, data.buffer, data.byteOffset, data.byteLength); });
+        },
         rigPrepare: rigPrepare, rigOK: false,
         rigWarm: function () { if (!RW || !S || !S.rig) return false; try { rigSync(); return true; } catch (e) { return false; } },   /* the item and link buffers go to the card now, not during the first turn */
         resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
@@ -8387,7 +8758,7 @@ var NFMProbe = (function () {
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search), QUICK = params.has('quick');
-  var VERSION = '2026.10.18.1220', EDGE = 130;
+  var VERSION = '2026.10.23.0814', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
 
@@ -8824,6 +9195,36 @@ var NFMProbe = (function () {
     draw(); requestAnimationFrame(tick);
   }
   function startPreviews() { /* the previews run their own loop since they were made */ }
+  STEPS.push({ name: 'Straight links on the card', run: async function () {
+    var s = addSection('Straight links on the graphics card (WebGL 2)'), c = await NFMProbe.canary();
+    if (!c.webgl2.ok || (c.webgl2.software && !params.get('softok'))) { s.finish('warn', 'Skipped: no WebGL 2 drawing on a real graphics card here.'); return { level: 'warn', say: 'skipped' }; }
+    var host = document.createElement('div'); host.style.cssText = 'position:fixed;left:-3000px;top:0;width:900px;height:600px'; document.body.appendChild(host);
+    var r; try { r = await NFMRender.createWebGL2(host, {}); } catch (e) { host.remove(); s.finish('warn', 'WebGL 2 could not start: ' + String(e && e.message || e).slice(0, 80)); return { level: 'warn', say: 'no WebGL 2' }; }
+    if (!r.instLinks) { host.remove(); s.finish('warn', 'This build has no 9-number links.'); return { level: 'warn', say: 'old build' }; }
+    r.resize(900, 600, 1);
+    var g = graphFor('moderate', 3000), dg = C.derive(JSON.parse(JSON.stringify(g))), L = E.build(dg, { view: 'network', arrange: 'circle', colorBy: 'group' }), A = NFMScene.make(L, { plan: {}, colorBy: 'group', theme: 'dark' }), D = A.dots, v = { k: 0.6, tx: 20, ty: 20 };
+    var med = function (a) { return a.slice().sort(function (p, q) { return p - q; })[a.length >> 1]; }, sizes = QUICK ? [20000] : [10000, 100000, 300000], rounds = QUICK ? 3 : 5, rows = [], data = [], last = null;
+    s.head = ['Straight links', 'Put on card: six corners (ms)', 'Put on card: 9 numbers (ms)', 'Redraw: six corners (ms)', 'Redraw: 9 numbers (ms)', 'Picture difference (mean / 255)', 'The app chooses (its own test, ms: 9 numbers vs corners)'];
+    for (var zi = 0; zi < sizes.length; zi++) {
+      var N = sizes[zi], links = [], sd = 12345, rnd = function () { return (sd = (sd * 1664525 + 1013904223) >>> 0) / 4294967296; }, i;
+      setStatus('Straight links on the card: ' + N.toLocaleString() + '…'); await yieldUI();
+      for (i = 0; i < N; i++) { var p0 = D[Math.floor(rnd() * D.length)], q0 = D[Math.floor(rnd() * D.length)]; links.push({ P: [p0.cx, p0.cy, p0.cx, p0.cy, q0.cx, q0.cy, q0.cx, q0.cy], w: 1 + (i % 4) * 0.5, color: [0.3, 0.4 + (i % 3) * 0.1, 0.8, 0.5 + (i % 4) * 0.1], line: true, dash: 0, arrow: false, edge: i, from: 0, to: 0 }); }
+      var S1 = Object.assign({}, A, { curves: links, ribbons: [], polys: [], curveView: undefined, curveCount: undefined }), t = { o: { set: [], again: [] }, n: { set: [], again: [] } };
+      var once = async function (on) { r.instLinks(on); var t0 = performance.now(); r.setScene(S1); var t1 = performance.now(); r.draw(v); await r.flush(); var u = []; for (var q = 0; q < 3; q++) { var a0 = performance.now(); r.draw(v); await r.flush(); u.push(performance.now() - a0); } var k = on ? t.n : t.o; k.set.push(t1 - t0); k.again.push(med(u)); };
+      await once(false); await once(true); t.o.set.length = t.o.again.length = t.n.set.length = t.n.again.length = 0;
+      for (var k = 0; k < rounds; k++) { var order = k % 2 ? [true, false] : [false, true]; for (var oi = 0; oi < 2; oi++) await once(order[oi]); await yieldUI(); }
+      r.instLinks(false); r.setScene(S1); r.draw(v); var pa = r.snapshot(); await r.flush(); var ad = new Uint8ClampedArray(pa.data);
+      r.instLinks(true); r.setScene(S1); r.draw(v); var pb = r.snapshot(); await r.flush(); var sum = 0; for (i = 0; i < ad.length; i += 4) sum += (Math.abs(ad[i] - pb.data[i]) + Math.abs(ad[i + 1] - pb.data[i + 1]) + Math.abs(ad[i + 2] - pb.data[i + 2])) / 3;
+      var mean = sum / (ad.length / 4); r.instLinks(null); r.setScene(S1); var chose = r.usesInst(), pr = r.instProbe;
+      last = { n: N, oSet: med(t.o.set), nSet: med(t.n.set), oAgain: med(t.o.again), nAgain: med(t.n.again), mean: mean, chose: chose, probe: pr };
+      rows = [N.toLocaleString(), r1(last.oSet), r1(last.nSet), r1(last.oAgain), r1(last.nAgain), r3(mean), (chose ? '9 numbers' : 'six corners') + (pr ? ' (' + r1(pr.inst) + ' vs ' + r1(pr.corners) + ')' : '')]; s.rows.push(rows); data.push(last);
+    }
+    r.destroy(); host.remove(); ctx.instLinks = data;
+    var faster = last.nAgain <= last.oAgain * 1.05 + 1, same = last.mean < 0.5, level = same ? (faster || !last.chose ? 'ok' : 'warn') : 'bad';
+    var say = !same ? 'The two ways draw different pictures (mean difference ' + r3(last.mean) + ' of 255).' : 'Same picture both ways. At ' + last.n.toLocaleString() + ' links, putting them on the card takes ' + r1(last.nSet) + ' ms instead of ' + r1(last.oSet) + ' ms (lower is better) and a redraw ' + r1(last.nAgain) + ' ms against ' + r1(last.oAgain) + ' ms. The app uses ' + (last.chose ? 'the 9-number way' : 'the six-corner way') + ' on this card.';
+    s.finish(level, say); return { level: level, say: say };
+  } });
+
   STEPS.push({ name: '3D arrangements and turning', run: async function () {
     await steadyProbe('before the 3D tests');
     /* the graphics-card computing tests are over: close their device so the memory they used (up to gigabytes of tables) is free again for the drawing tests. It stayed open for the whole run before, and a few 1.5 to 1.9 second freezes showed up in drawing after it. */
