@@ -1710,7 +1710,7 @@ End to end in the app's client (`bench/force-app.js`, Chromium 155, 3,000 items,
 
 Step A, `style()` in `src/scene.js`: a link nobody has lit yet is its own base, so no saved copy is made: about 4 MB less (137 to 133 on WebGL 2, inside the run-to-run noise of the profile). Step B, `S.eachCurveView` in `src/scene.js` and the Canvas 2D draw in `src/render.js`: Canvas 2D reads a packed list one reused view at a time instead of waking all links into objects: one rebuild allocates 171 to 64 MB, and the page heap once idle is 408 to 305 MB (the list stays packed); reading 93,232 links through the view takes 3.8 ms against 19 ms to unpack them. Pictures: byte for byte equal (new browser check, packed and drawn again; 186 / 174 / 174 / 174 checks).
 
-Not shown: draw times of the software Canvas 2D (SwiftShader) move by several times from run to run (older page three draws 1.8 s in one run, 14.2 s in another), so no steady before/after exists for it; the per-link cost measured above is the number to trust. Step C (links built straight into the packed arrays, est. 59 MB less on WebGL 2) is not built yet.
+Draw time, taking turns inside one page with a pixel read after each draw (`bench/canvas-draw-ab.js`, 93,232 links, 9 turns, median; lower is better): Chromium 155 older way 780 ms, newer way 780 (ratio 1.00); Firefox 158 490 vs 476 (0.97); WebKitGTK 2.52.6 7,167 vs 7,142 (1.00); GNOME Web 46.5 7,173 vs 7,142 (1.00). So the packed read costs no draw time. Step C (links built straight into the packed arrays) was built and measured (Chromium, Canvas 2D, 100,000 items: one rebuild allocates 146 to 64 MB) and then set aside on the owner's choice; the patch is kept in the shared folder.
 
 ## Reproduce
 
