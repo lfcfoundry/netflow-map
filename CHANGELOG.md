@@ -8,6 +8,8 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39,
 
 ## October 23
 
+- **2026.10.23.1716** A big map left alone for a few seconds comes back without holding the page: waking the parked links at 100,000 items holds the page 222 to 34 ms in Chromium, 273 to 14 ms in Firefox, 207 to 19 ms in WebKitGTK and 190 to 23 ms in GNOME Web (lower is better); it also uses memory-compression 2.4.9 (waking all at once alone is 125 / 101 / 101 / 125 ms). The page is 30 KB larger. Nothing drawn changes.
+
 - **2026.10.23.1631** Less memory churn when the picture of a big map is rebuilt with basic (Canvas 2D) drawing: at 100,000 items a rebuild makes 64 MB of short-lived data instead of 171 MB, and the page holds 305 MB once idle instead of 408 MB (lower is better); the picture is identical byte for byte. Drawing with the graphics card (WebGL 2) changes by about 4 MB only.
 
 - **2026.10.23.1021** The Force arrangement of a map with 20,000 or more items can now be done on the graphics card, but only on a device where a quick timing says it is faster. At 100,000 items the whole layout took 26.2 s on the processor and 5.6 s on the card on a laptop with integrated graphics (4.7 times faster, 200,000 items 2.0 times; lower time is better), and the layout is as true (truth score 0.210 for both; lower is truer). A midrange phone (Android, Chrome) was slower on the card at 100,000 items (42.4 s against 24.2 s), so there it keeps using the processor; its timing check costs about two card rounds. Check this device now lists what to expect on each kind of device.
