@@ -8,6 +8,8 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39,
 
 ## October 23
 
+- **2026.10.23.0802** Plain straight links can now go to the graphics card as 9 numbers each instead of 60, the card building each link's quad itself (WebGL 2 only; arrows, curves, dashes and ribbons keep the old way). Putting 100,000 straight links on the card takes 3.0 to 4.0 times less processor time (lower is better): Chromium 23.8 to 7.9 ms, Firefox 26 to 8, WebKitGTK 12 to 3, GNOME Web 11 to 3; the data sent shrinks from 22.9 MB to 3.4 MB, and the pictures are exactly the same (0 of 255 mean difference). The app measures once, on your own card, whether this is faster to draw and keeps the old way when it is not: on the test machine's software drawing it kept the old way in all four browsers, so nothing changes there. Real-card speeds come from the Netflow Map Tester's new "Straight links on the card" step. Tests: 185 / 173 / 173 / 173.
+
 - **2026.10.23.0007** Flow, Down, Spine and Lanes layouts are 4 to 24% faster again (netflow-layers 1.4.0; the pictures are exactly the same in 576 of 576 comparisons). First layout of a 3,000-page map (lower is better): Chromium 237 to 216 ms, Firefox 272 to 244, WebKitGTK 218 to 188, GNOME Web 213 to 194. Fixed: clicking an item on the old picture while new data was still being laid out could show "cannot read properties of undefined" in the details panel. A new random-use test (12,000 random pans, zooms, setting changes, item moves and file loads in the four browsers) found it and now finds nothing.
 
 ## October 22

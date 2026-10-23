@@ -104,7 +104,7 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 
 ## Browsers used in testing
 
-The automated browser test (`node test/browser.test.js`) passes in all four test browsers, one at a time, on build 2026.10.23.0007 (and the random-use round finds nothing in the same four): **Firefox 158.0**, **ungoogled-chromium 155.0.8059.39**, **WebKitGTK 2.52.6** and **GNOME Web (Epiphany) 46.5** (from the "browsers" branch of lfcfoundry/knowledge-base). By hand, the owner has also run the then-and-now tester on a Pixel 7 Pro (Android, Chrome 155) and on a Windows laptop (Ryzen 7 8845HS, Radeon 780M) in Firefox 159. Safari and Windows Chromium builds have not been tested.
+The automated browser test (`node test/browser.test.js`) passes in all four test browsers, one at a time, on build 2026.10.23.0007 (and the random-use round finds nothing in the same four): **Firefox 158.0**, **ungoogled-chromium 155.0.8059.39**, **WebKitGTK 2.52.6** and **GNOME Web (Epiphany) 46.5** (from the "browsers" branch of lfcfoundry/knowledge-base). By hand, the owner has also run the then-and-now tester on a midrange phone (Android 17, Chrome 155) and on a Windows laptop (Ryzen 7 8845HS, Radeon 780M) in Firefox 159. Safari and Windows Chromium builds have not been tested.
 
 ## Benchmarks
 

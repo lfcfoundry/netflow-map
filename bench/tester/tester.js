@@ -6,7 +6,9 @@
   var E = NFMEngine, C = NFMColumns, I = NFMImport, K = NFMCheck, GEN = NFMGen, G = NFMGpuStress;
   var now = function () { return performance.now(); }, r1 = function (v) { return Math.round(v * 10) / 10; }, r3 = function (v) { return Math.round(v * 1000) / 1000; };
   var $ = function (id) { return document.getElementById(id); };
-  var params = new URLSearchParams(location.search), QUICK = params.has('quick');
+  var DEFAULT_ONLY = '';   /* the links-only file is this page with 'links' here, so a phone needs no address suffix */
+  var params = new URLSearchParams(location.search); if (DEFAULT_ONLY && !params.has('only')) params.set('only', DEFAULT_ONLY);
+  var QUICK = params.has('quick');
   var VERSION = '__VERSION__', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
@@ -444,6 +446,36 @@
     draw(); requestAnimationFrame(tick);
   }
   function startPreviews() { /* the previews run their own loop since they were made */ }
+  STEPS.push({ name: 'Straight links on the card', run: async function () {
+    var s = addSection('Straight links on the graphics card (WebGL 2)'), c = await NFMProbe.canary();
+    if (!c.webgl2.ok || (c.webgl2.software && !params.get('softok'))) { s.finish('warn', 'Skipped: no WebGL 2 drawing on a real graphics card here.'); return { level: 'warn', say: 'skipped' }; }
+    var host = document.createElement('div'); host.style.cssText = 'position:fixed;left:-3000px;top:0;width:900px;height:600px'; document.body.appendChild(host);
+    var r; try { r = await NFMRender.createWebGL2(host, {}); } catch (e) { host.remove(); s.finish('warn', 'WebGL 2 could not start: ' + String(e && e.message || e).slice(0, 80)); return { level: 'warn', say: 'no WebGL 2' }; }
+    if (!r.instLinks) { host.remove(); s.finish('warn', 'This build has no 9-number links.'); return { level: 'warn', say: 'old build' }; }
+    r.resize(900, 600, 1);
+    var g = graphFor('moderate', 3000), dg = C.derive(JSON.parse(JSON.stringify(g))), L = E.build(dg, { view: 'network', arrange: 'circle', colorBy: 'group' }), A = NFMScene.make(L, { plan: {}, colorBy: 'group', theme: 'dark' }), D = A.dots, v = { k: 0.6, tx: 20, ty: 20 };
+    var med = function (a) { return a.slice().sort(function (p, q) { return p - q; })[a.length >> 1]; }, sizes = QUICK ? [20000] : [10000, 100000, 300000], rounds = QUICK ? 3 : 5, rows = [], data = [], last = null;
+    s.head = ['Straight links', 'Put on card: six corners (ms)', 'Put on card: 9 numbers (ms)', 'Redraw: six corners (ms)', 'Redraw: 9 numbers (ms)', 'Picture difference (mean / 255)', 'The app chooses (its own test, ms: 9 numbers vs corners)'];
+    for (var zi = 0; zi < sizes.length; zi++) {
+      var N = sizes[zi], links = [], sd = 12345, rnd = function () { return (sd = (sd * 1664525 + 1013904223) >>> 0) / 4294967296; }, i;
+      setStatus('Straight links on the card: ' + N.toLocaleString() + '…'); await yieldUI();
+      for (i = 0; i < N; i++) { var p0 = D[Math.floor(rnd() * D.length)], q0 = D[Math.floor(rnd() * D.length)]; links.push({ P: [p0.cx, p0.cy, p0.cx, p0.cy, q0.cx, q0.cy, q0.cx, q0.cy], w: 1 + (i % 4) * 0.5, color: [0.3, 0.4 + (i % 3) * 0.1, 0.8, 0.5 + (i % 4) * 0.1], line: true, dash: 0, arrow: false, edge: i, from: 0, to: 0 }); }
+      var S1 = Object.assign({}, A, { curves: links, ribbons: [], polys: [], curveView: undefined, curveCount: undefined }), t = { o: { set: [], again: [] }, n: { set: [], again: [] } };
+      var once = async function (on) { r.instLinks(on); var t0 = performance.now(); r.setScene(S1); var t1 = performance.now(); r.draw(v); await r.flush(); var u = []; for (var q = 0; q < 3; q++) { var a0 = performance.now(); r.draw(v); await r.flush(); u.push(performance.now() - a0); } var k = on ? t.n : t.o; k.set.push(t1 - t0); k.again.push(med(u)); };
+      await once(false); await once(true); t.o.set.length = t.o.again.length = t.n.set.length = t.n.again.length = 0;
+      for (var k = 0; k < rounds; k++) { var order = k % 2 ? [true, false] : [false, true]; for (var oi = 0; oi < 2; oi++) await once(order[oi]); await yieldUI(); }
+      r.instLinks(false); r.setScene(S1); r.draw(v); var pa = r.snapshot(); await r.flush(); var ad = new Uint8ClampedArray(pa.data);
+      r.instLinks(true); r.setScene(S1); r.draw(v); var pb = r.snapshot(); await r.flush(); var sum = 0; for (i = 0; i < ad.length; i += 4) sum += (Math.abs(ad[i] - pb.data[i]) + Math.abs(ad[i + 1] - pb.data[i + 1]) + Math.abs(ad[i + 2] - pb.data[i + 2])) / 3;
+      var mean = sum / (ad.length / 4); r.instLinks(null); r.setScene(S1); var chose = r.usesInst(), pr = r.instProbe;
+      last = { n: N, oSet: med(t.o.set), nSet: med(t.n.set), oAgain: med(t.o.again), nAgain: med(t.n.again), mean: mean, chose: chose, probe: pr };
+      rows = [N.toLocaleString(), r1(last.oSet), r1(last.nSet), r1(last.oAgain), r1(last.nAgain), r3(mean), (chose ? '9 numbers' : 'six corners') + (pr ? ' (' + r1(pr.inst) + ' vs ' + r1(pr.corners) + ')' : '')]; s.rows.push(rows); data.push(last);
+    }
+    r.destroy(); host.remove(); ctx.instLinks = data;
+    var faster = last.nAgain <= last.oAgain * 1.05 + 1, same = last.mean < 0.5, level = same ? (faster || !last.chose ? 'ok' : 'warn') : 'bad';
+    var say = !same ? 'The two ways draw different pictures (mean difference ' + r3(last.mean) + ' of 255).' : 'Same picture both ways. At ' + last.n.toLocaleString() + ' links, putting them on the card takes ' + r1(last.nSet) + ' ms instead of ' + r1(last.oSet) + ' ms (lower is better) and a redraw ' + r1(last.nAgain) + ' ms against ' + r1(last.oAgain) + ' ms. The app uses ' + (last.chose ? 'the 9-number way' : 'the six-corner way') + ' on this card.';
+    s.finish(level, say); return { level: level, say: say };
+  } });
+
   STEPS.push({ name: '3D arrangements and turning', run: async function () {
     await steadyProbe('before the 3D tests');
     /* the graphics-card computing tests are over: close their device so the memory they used (up to gigabytes of tables) is free again for the drawing tests. It stayed open for the whole run before, and a few 1.5 to 1.9 second freezes showed up in drawing after it. */
@@ -565,9 +597,11 @@
   async function runAll() {
     if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; $('show').style.display = 'none'; $('show').innerHTML = '<h2>The 3D map, turning</h2>'; previews.length = 0; hands = {}; document.querySelector('main').classList.remove('fin'); doneSteps = 0; if (params.get('only')) { var keep = STEPS.filter(function (x) { return x.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }); if (keep.length) { STEPS.length = 0; keep.forEach(function (x) { STEPS.push(x); }); } } total = STEPS.length; setBar(); t0Run = now(); startClock();
     delete ctx.gpuLine;
-    for (var i = 0; i < STEPS.length; i++) {
-      setStatus('Step ' + (i + 1) + ' of ' + STEPS.length + ': ' + STEPS[i].name + '…'); await yieldUI();
-      try { await STEPS[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(STEPS[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
+    var steps = params.get('only') ? STEPS.filter(function (st) { return st.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }) : STEPS;   /* ?only=links runs just the step whose name has those letters (about 2 minutes instead of the whole test) */
+    total = steps.length; doneSteps = 0;
+    for (var i = 0; i < steps.length; i++) {
+      setStatus('Step ' + (i + 1) + ' of ' + steps.length + ': ' + steps[i].name + '…'); await yieldUI();
+      try { await steps[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(steps[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
       doneSteps = i + 1; setBar();
     }
     if (!ctx.gpuLine) setGpuLine(null, true);
