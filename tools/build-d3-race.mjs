@@ -19,7 +19,7 @@ if (!d3from) throw new Error('D3 pieces not found: run npm install in bench/ or 
 const bundle = esb.buildSync({ entryPoints: [join(root, 'bench/d3race/d3-entry.js')], bundle: true, minify: true, format: 'iife', globalName: 'D3R', platform: 'browser', write: false, nodePaths: [d3from], legalComments: 'none' }).outputFiles[0].text;
 const used = ['d3-force', 'd3-sankey', 'd3-selection', 'd3-array', 'd3-shape', 'd3-path', 'd3-quadtree', 'd3-dispatch', 'd3-timer', 'internmap'];
 const licenses = used.map((p) => `${p} ${JSON.parse(readFileSync(join(d3from, p, 'package.json'), 'utf8')).version}\n${readFileSync(join(d3from, p, 'LICENSE'), 'utf8').trim()}`).join('\n\n----\n\n');
-const files = ['src/columns.js', 'vendor/netflow-layers.js', 'src/engine.js', 'bench/gen.js', 'src/scene.js', 'src/render.js', 'src/probe.js', 'bench/d3race/race.js'];
+const files = ['src/columns.js', 'vendor/netflow-layers.js', 'src/engine.js', 'bench/gen.js', 'vendor/netflow-scene.js', 'src/scene-alias.js', 'src/render.js', 'src/probe.js', 'bench/d3race/race.js'];
 const code = [`/* ---- D3 pieces (d3-force, d3-sankey, d3-selection and what they need); licenses at the bottom of the page ---- */\n${bundle}`].concat(files.map((f) => { const s = clean(rd(f)).replace(/__VERSION__/g, version); if (/<\/script|<!--/i.test(s)) throw new Error(f + ' contains a sequence that would break the page'); return `/* ---- ${f} ---- */\n${s}`; })).join('\n');
 if (/<\/script|<!--/i.test(bundle)) throw new Error('the D3 bundle contains a sequence that would break the page');
 const html = rd('bench/d3race/template.html').replace(/__VERSION__/g, version).replace('__LICENSES__', () => licenses.replace(/&/g, '&amp;').replace(/</g, '&lt;')).replace('__SCRIPTS__', () => code);

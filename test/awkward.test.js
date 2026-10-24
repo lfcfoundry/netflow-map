@@ -1,7 +1,7 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. Awkward-input list: odd numbers and blanks in a table must never crash an importer, the layout or the SVG export, and never put NaN/Infinity into a place, size or picture.
  * Run: node test/awkward.test.js   (about 1 s). "No value" is deliberately NaN in sizeV / colorV / widthV (checked with v === v), so those three are allowed. */
 'use strict';
-const assert = require('assert'), I = require('../src/importers.js'), C = require('../src/columns.js'), E = require('../src/engine.js'), SC = require('../src/scene.js');
+const assert = require('assert'), I = require('../src/importers.js'), C = require('../src/columns.js'), E = require('../src/engine.js'), SC = require('../vendor/netflow-scene.js');
 const weights = ['1', '', 'NaN', 'Infinity', '-Infinity', '-5', '0', '1,234.50', '1e308', '1e-320', '  7  ', '١٢', 'abc', '9007199254740993', '0x10'];
 const rows = ['source,target,weight,cost'];
 weights.forEach((w, i) => rows.push('A' + i + ',B' + i + ',"' + w + '",' + (i % 3 ? '"' + w + '"' : '2')));

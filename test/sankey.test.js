@@ -60,7 +60,7 @@ t('the examples lay out without trouble and draw all their flow', () => {
 t('a big network stays quick', () => { const L = sankey(NFMImport.importDelimited(synth(10, 25, 5, 5), ',').graph), t0 = Date.now(); SK.layout(L); ok(Date.now() - t0 < 1500, 'took ' + (Date.now() - t0) + ' ms'); });
 
 /* ---- the Sankey view inside the app: hand placement, remembered order, the drawing and clicking ---- */
-global.NetflowSankey = SK; const SC = require('../src/scene.js');
+global.NetflowSankey = SK; const SC = require('../vendor/netflow-scene.js');
 const live = (extra) => { const ex = X.LIST.find((x) => x.id === 'states').load(); return E.build(ex.graph, Object.assign({ view: 'sankey', amounts: true, widthBy: 'weight', colorBy: 'group', sk: {} }, extra || {})); };
 t('the engine lays the Sankey picture out with the Sankey layout when asked, and bars come back with positions', () => {
   const L = live(); ok(L.sk && L.sk.bands.length > 5, 'no layout'); ok(L.nodes.every((n) => n.h > 0 && n.w > 0 && isFinite(n.y)), 'bars without a place');
