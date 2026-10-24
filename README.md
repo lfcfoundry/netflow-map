@@ -73,7 +73,7 @@ node test/gif.test.js && node test/sim.test.js   # GIF writer (byte-identical fa
 node bench/overlap.js moderate 1000 3000 5000    # Node only: items left touching, ours against d3-force and ForceAtlas2 (needs bench/npm install)
 node test/oracle.test.mjs            # new engine versus the older story-map package, 40 random stories
 node test/limits.test.js             # a 20,000-page chain, 1,500 stacked diamonds, a 3,000-item network
-sh tools/fuzz-kit/run-netflow.sh all    # random pans, zooms, setting changes, item moves and file loads in the four browsers (12 seeds of 250 operations each, about 17 min; needs puppeteer-core, CHROME and FIREFOX set)
+sh tools/fuzz-kit/run-netflow.sh all    # random pans, zooms, setting changes, item moves and file loads in the three test browsers (12 seeds of 250 operations each, about 10 min; needs puppeteer-core, CHROME and FIREFOX set)
 node test/browser.test.js chromium   # real browser run (see the file header for the browser programs it needs)
 node test/browser.test.js firefox    # add NFM_HEADFUL=1 NFM_STRICT=1 NFM_VK_ICD=<a vk_*_icd.json> under xvfb-run to also run WebGL 2 and WebGPU in Firefox
 sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
