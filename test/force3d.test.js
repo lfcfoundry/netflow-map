@@ -59,13 +59,13 @@ t('3D force: a 2,000-leaf hub and a 3,000-item chain finish and stay finite', ()
   [mk(2001, star), mk(3000, chain)].forEach((g) => { const L = build(g); ok(L.nodes.every((nd) => isFinite(nd.cx) && isFinite(nd.cy) && isFinite(nd.z)), 'non-finite position'); });
 });
 t('turning a 3D map: reusing what each item looks like gives exactly the same picture, only faster to work out', () => {
-  const SC = require('../src/scene.js'), g = GEN.graph('moderate', 800, 11), L = E.build(g, { view: 'network', arrange: 'force3d', colorBy: 'group' }), plan = {};
+  const SC = require('../vendor/netflow-scene.js'), g = GEN.graph('moderate', 800, 11), L = E.build(g, { view: 'network', arrange: 'force3d', colorBy: 'group' }), plan = {};
   const j = (S) => JSON.stringify([S.dots, S.curves.map((c) => [c.P, c.w, c.color, c.arrow]), S.labels.map((l) => [l.x, l.y, l.t, l.size, l.color]), S.nodes.length]);
   SC.make(L, { colorBy: 'group', theme: 'light', plan, cam: { yaw: 0.3, pitch: 0.2, persp: 2.4 } });
   [0.9, 2.0].forEach((yaw) => { const cam = { yaw, pitch: 0.4, persp: 2.4 }; ok(j(SC.make(L, { colorBy: 'group', theme: 'light', plan, cam })) === j(SC.make(L, { colorBy: 'group', theme: 'light', cam })), 'differs at yaw ' + yaw); });
 });
 t('drawing a map: a plain straight link is written as one quad with the same numbers the general path gives, and the shared buffer is safe to reuse', () => {
-  global.NFMScene = require('../src/scene.js'); const R = require('../src/render.js');
+  global.NFMScene = require('../vendor/netflow-scene.js'); const R = require('../src/render.js');
   const line = (x0, y0, x1, y1, col, a) => ({ P: [x0, y0, x0 + (x1 - x0) / 3, y0 + (y1 - y0) / 3, x0 + 2 * (x1 - x0) / 3, y0 + 2 * (y1 - y0) / 3, x1, y1], w: 3, color: col, arrow: false, line: true, a });
   const scene = (curves) => ({ rects: [], dots: [], ribbons: [], polys: [], curves });
   /* the general path (a bent link with two pieces is not a plain segment) gives the reference for a straight one: same endpoints, same normal, same six corners */
@@ -83,7 +83,7 @@ t('drawing a map: a plain straight link is written as one quad with the same num
   ok(b[2] === 0 && b[3] === 1 && b[62] === -1 && b[63] === 0, 'normals of a flat and a tall link');
 });
 t('turning a big 3D map on the card: a new angle gives the same places, paint order, names and link ends as a full picture, and styling carries over', () => {
-  const SC = require('../src/scene.js'), g = GEN.graph('moderate', 1200, 13), L = E.build(g, { view: 'network', arrange: 'force3d', colorBy: 'group' });
+  const SC = require('../vendor/netflow-scene.js'), g = GEN.graph('moderate', 1200, 13), L = E.build(g, { view: 'network', arrange: 'force3d', colorBy: 'group' });
   const base = (cam, extra) => Object.assign({ colorBy: 'group', theme: 'light', cam }, extra);
   const S = SC.make(L, base({ yaw: 0.3, pitch: 0.2, persp: 2.4 }, { plan: {}, rig: true }));
   ok(S.rig && typeof S.turnTo === 'function' && S.rig.m > 1500, 'a big 3D map with plain links can be turned on the card');

@@ -3,7 +3,7 @@
  * engine before these choices existed). */
 'use strict';
 const crypto = require('crypto');
-const E = require('../src/engine.js'), SC = require('../src/scene.js');
+const E = require('../src/engine.js'), SC = require('../vendor/netflow-scene.js');
 let bad = 0;
 const t = (name, fn) => { const t0 = Date.now(); try { const r = fn(); console.log('ok   ' + name + ' (' + (Date.now() - t0) + ' ms)' + (r ? ' ' + r : '')); } catch (e) { bad++; console.log('FAIL ' + name + ': ' + e.message); } };
 const ok = (c, m) => { if (!c) throw new Error(m); };

@@ -22,7 +22,7 @@ Object.defineProperty(global, 'navigator', { value: { gpu: { requestAdapter: asy
 const ctx2d = new Proxy({}, { get: (o, k) => (k in o ? o[k] : () => ({ width: 10 })), set: (o, k, v) => { o[k] = v; return true; } });
 global.document = { createElement: () => ({ style: {}, setAttribute() {}, width: 1, height: 1, getContext: (k) => (k === 'webgpu' ? { configure() {}, getCurrentTexture: () => ({ createView: () => ({}) }) } : ctx2d) }) };
 const host = { textContent: '', appendChild() {} };
-global.NFMScene = require('../src/scene.js');
+global.NFMScene = require('../vendor/netflow-scene.js');
 const NFMRender = require('../src/render.js'), NFMProbe = require('../src/probe.js');
 
 const scene = (n) => ({ theme: { bg: [1, 1, 1, 1] }, rects: [], dots: Array.from({ length: n }, (_, i) => ({ cx: i, cy: i, r: 3, sw: 1, fill: [1, 0, 0, 1], stroke: [0, 0, 0, 1] })), curves: [], ribbons: [], polys: [], labels: [], icons: [], w: 100, h: 100, x0: 0, y0: 0 });

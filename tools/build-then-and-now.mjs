@@ -20,11 +20,11 @@ const oldEngine = ok('old engine', bundle(['bench/then-and-now/first-release/eng
 const oldScene = ok('old scene', bundle(['bench/then-and-now/first-release/scene.js'], 'old-scene'));
 const newEngine = ok('new engine', bundle(['src/columns.js', 'src/pack.js', 'vendor/netflow-sankey.js', 'vendor/netflow-layers.js', 'src/engine.js'], 'new-engine'));
 const mc = ok('memory-compression', min("self.MEMORY_COMPRESSION_NO_EVAL = true;\n" + clean(rd('vendor/memory-compression.js')), 'memory-compression'));
-const newScene = ok('new scene', bundle(['src/scene.js'], 'new-scene'));
+const newScene = ok('new scene', bundle(['vendor/netflow-scene.js', 'src/scene-alias.js'], 'new-scene'));
 /* Each version's drawing code runs on the page inside its own function, so the two versions' NFMScene / NFMRender / NFMProbe never meet (the page allows no eval and no frames). */
 const mainSide = (files, tail, name) => ok(name, min('(function () {\n' + files.map((p) => clean(rd(p))).join('\n') + '\n' + tail + '\n})();', name));
 const oldMain = mainSide(['bench/then-and-now/first-release/scene.js', 'bench/then-and-now/first-release/render.js', 'bench/then-and-now/first-release/probe.js'], 'window.NFMV_old = { Pack: null, Scene: NFMScene, Render: NFMRender, Probe: NFMProbe };', 'old drawing code');
-const newMain = mainSide(['src/pack.js', 'src/scene.js', 'src/render.js', 'src/probe.js'], 'window.NFMV_new = { Pack: NFMPack, Scene: NFMScene, Render: NFMRender, Probe: NFMProbe };', 'new drawing code');
+const newMain = mainSide(['src/pack.js', 'vendor/netflow-scene.js', 'src/scene-alias.js', 'src/render.js', 'src/probe.js'], 'window.NFMV_new = { Pack: NFMPack, Scene: NFMScene, Render: NFMRender, Probe: NFMProbe };', 'new drawing code');
 const examples = ok('examples', clean(rd('src/examples.js')));
 const staticHtml = existsSync(join(root, 'bench/then-and-now/static.html')) ? rd('bench/then-and-now/static.html') : '<p class="mut">(not filled in yet)</p>';
 let html = rd('bench/then-and-now/template.html');
