@@ -8,10 +8,12 @@ var esc = function (s) { return String(s === undefined || s === null ? '' : s).r
 /* DEBOUNCING counts the short (200 ms or less) screen-update delays still waiting, so a test can wait for the real finish instead of a guessed pause. The slow saves (300 ms and up) are not counted. */
 var DEBOUNCING = 0;
 var debounce = function (fn, ms) { var t, p = false, c = ms <= 200; var done = function () { if (p) { p = false; if (c) DEBOUNCING--; } }; var f = function () { var a = arguments, self = this; clearTimeout(t); if (!p) { p = true; if (c) DEBOUNCING++; } t = setTimeout(function () { done(); fn.apply(self, a); }, ms); }; f.now = function () { clearTimeout(t); done(); fn(); }; f.flush = function () { if (p) { clearTimeout(t); done(); fn(); } }; return f; };
+/* TWIN: another open copy is in charge of the saved map, so this copy keeps nothing in the browser (see 63-twin.js) */
+var TWIN = false;
 var LS = {
   get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
-  set: function (k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
-  del: function (k) { try { localStorage.removeItem(k); } catch (e) { /* none */ } }
+  set: function (k, v) { if (TWIN) return true; try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
+  del: function (k) { if (TWIN) return; try { localStorage.removeItem(k); } catch (e) { /* none */ } }
 };
 var nfmt = function (n) { return Number(n).toLocaleString('en-US'); };
 var clamp = function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); };
