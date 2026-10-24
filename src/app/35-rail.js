@@ -301,10 +301,10 @@ function panelLook() {
   var lab = V.lab;
   kids.push(section('Labels', [
     check('Show ' + word('item') + ' labels', lab.items.show, function (on) { setV({ lab: { items: { show: on } } }, 'look'); }),
-    slider('Label size', lab.items.scale, 0.5, 2.5, 0.1, function (x) { lab.items.scale = x; saveView(); scheduleScene(); }, function (x) { return Math.round(x * 100) + '%'; }),
+    slider('Label size', lab.items.scale, 0.5, 2.5, 0.1, function (x) { lab.items.scale = x; saveView(); scheduleScene(false, true); }, function (x) { return Math.round(x * 100) + '%'; }),
     field('Label color', select([['auto', 'Normal'], ['group', 'Match the group'], ['fill', 'Match the ' + word('item') + ' color'], ['value', 'Match the number scale'], ['fixed', 'One color']], lab.items.color, function (v) { setV({ lab: { items: { color: v } } }, 'look'); renderRail(true); })),
     lab.items.color === 'fixed' ? h('input', { type: 'color', value: lab.items.fixed, 'aria-label': 'Label color', onchange: function (e) { setV({ lab: { items: { fixed: e.target.value } } }, 'look'); } }) : null,
-    slider('Always label the top few', lab.items.topN, 0, 100, 1, function (x) { lab.items.topN = x; saveView(); scheduleScene(); }, function (x) { return x ? 'top ' + x : 'off'; }),
+    slider('Always label the top few', lab.items.topN, 0, 100, 1, function (x) { lab.items.topN = x; saveView(); scheduleScene(false, true); }, function (x) { return x ? 'top ' + x : 'off'; }),
     field('Label text adds', select([['', 'Nothing']].concat(colsOf('nodes', ['category', 'number', 'text']).map(function (c) { return [c.key, c.name]; })), V.labelCol || '', function (v) { setV({ labelCol: v }, 'look'); })),
     check('Show link labels', lab.links.show, function (on) { setV({ lab: { links: { show: on } } }, 'look'); }),
     check('Show the number on each link', V.valueLabels, function (on) { setV({ valueLabels: on }, 'look'); }),

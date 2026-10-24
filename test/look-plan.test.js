@@ -1,0 +1,21 @@
+/* Copyright (c) 2026 LFC Foundry. MIT License. Link looks kept between pictures of a flat map (o.lookPlan in src/scene.js): same links as a fresh build, the look is worked out once, and a plan for another map, theme or link count starts over. Pass/fail only. */
+'use strict';
+const E = require('../src/engine.js'), SC = require('../src/scene.js'), EX = require('../src/examples.js');
+const ok = (c, m) => { if (!c) { console.log('FAIL ' + m); process.exit(1); } };
+const L = E.build(EX.bigNetwork(1200, 6, 7), { view: 'network', arrange: 'circle', colorBy: 'group' });
+let calls = 0;
+const opts = (extra) => Object.assign({ colorBy: 'group', theme: 'light', linkStyle: () => { calls++; return null; } }, extra);
+const snap = (S) => JSON.stringify(S.curves.map((c) => [c.P, c.w, c.color, c.arrow, c.line, c.edge, c.dash]));
+const plain = SC.make(L, opts()); const base = calls; ok(base > 500, 'look worked out per link: ' + base);
+const plan = {};
+calls = 0; const a = SC.make(L, opts({ lookPlan: plan })); const first = calls;
+calls = 0; const b = SC.make(L, opts({ lookPlan: plan })); const second = calls;
+ok(first === base, 'first build with a plan costs the same: ' + first + ' vs ' + base);
+ok(second === 0, 'second build reuses every look: ' + second);
+ok(snap(a) === snap(plain) && snap(b) === snap(plain), 'same links as a fresh build');
+calls = 0; SC.make(L, opts({ lookPlan: plan, theme: 'dark' })); ok(calls === base, 'another theme starts over: ' + calls);
+calls = 0; SC.make(L, opts({ lookPlan: plan, theme: 'dark' })); ok(calls === 0, 'and keeps the new looks');
+const L2 = E.build(EX.bigNetwork(800, 6, 7), { view: 'network', arrange: 'circle', colorBy: 'group' });
+calls = 0; SC.make(L2, opts({ lookPlan: plan, theme: 'dark' })); ok(calls > 0, 'another map starts over: ' + calls);
+calls = 0; SC.make(L2, opts({ theme: 'dark' })); ok(calls > 0, 'no plan, no reuse');
+console.log('ok   look plan: ' + base + ' looks once, 0 on the next picture');

@@ -970,6 +970,9 @@ var NFMScene = (function () {
     var P3 = n3 && o.plan ? (o.plan === true ? (L.__plan || (L.__plan = {})) : o.plan) : null, ST = null;
     /* the kept looks are only good for the same theme, palette, color mode and (for the built-in cache on L) label function */
     var planKey = (o.theme || 'light') + '|' + (o.palette || '') + '|' + (o.colorBy || 'group');
+    /* a flat map rebuilt only because items moved or label sizes changed: o.lookPlan (owned by the caller, dropped by every other kind of change) keeps each link's look from the last picture */
+    var LKP = !n3 && !(o.lens && o.lens.r) && o.lookPlan || null, LKA = null;
+    if (LKP) { if (LKP.L !== L || LKP.m !== L.edges.length || LKP.key !== planKey) { LKP.L = L; LKP.m = L.edges.length; LKP.key = planKey; LKP.a = new Array(LKP.m); } LKA = LKP.a; }
     if (P3) { if (P3.L !== L || !P3.net || P3.key !== planKey || (o.plan === true && P3.lf !== o.labelFn)) { P3.L = L; P3.key = planKey; P3.lf = o.labelFn; P3.net = { nodes: new Array(L.nodes.length), edges: new Array(L.edges.length), rk: null, idxOf: null }; } ST = P3.net; }
     var cy3 = Math.cos(cam.yaw), sy3 = Math.sin(cam.yaw), cp3 = Math.cos(cam.pitch), sp3 = Math.sin(cam.pitch), R3 = L.radius3 || 300, D3 = R3 * (cam.persp || 2.4);
     var recs = new Array(L.nodes.length);
@@ -1016,11 +1019,11 @@ var NFMScene = (function () {
     L.edges.forEach(function (e, ei) {
       var s = ef ? (ef[ei] < 0 ? undefined : recs[ef[ei]]) : PN.get(e.from), t = et ? (et[ei] < 0 ? undefined : recs[et[ei]]) : PN.get(e.to);
       if (!s || !t || s === t || s.hide || t.hide) return;
-      var sp = ST ? ST.edges[ei] : undefined;
+      var sp = ST ? ST.edges[ei] : LKA ? LKA[ei] : undefined;
       if (sp === undefined) {
         var same0 = s.n.group && s.n.group === t.n.group, lk0 = X.look(e, ei, { w: Math.min(1 + Math.log2(e.count) * 0.4, 2.5), color: same0 ? alpha(gcol(s.n.group), a + 0.1) : alpha(T.line, a), arrow: arrows });
         sp = lk0.hide ? null : { lk: lk0, txt: X.linkText(e, lk0) };
-        if (ST) ST.edges[ei] = sp;
+        if (ST) ST.edges[ei] = sp; else if (LKA) LKA[ei] = sp;
       }
       if (!sp) return;
       var lk = sp.lk, dx = t.px - s.px, dy = t.py - s.py, d = Math.sqrt(dx * dx + dy * dy) || 1, r = t.r + (arrows ? HEAD * (n3 ? t.f : 1) : 0), ex = t.px - dx / d * r, ey = t.py - dy / d * r;

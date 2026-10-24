@@ -1804,3 +1804,18 @@ Packing is 5 to 28% faster; waking ties. Earlier 2.5.1 and 2.6.0 runs seemed to 
 | 4,999 nodes | 510 to 297 (1.72) | 567 to 328 (1.73) | 390 to 275 (1.42) |
 
 A second layout in the same page and a layout after a moment gain 1.1 to 1.9 times in every cell; nothing is slower. Results are in `bench/results/layers-alt-moderate-*.json`.
+
+## 47. Link looks kept between pictures of a flat map (2026.10.24.1303)
+
+**What.** `networkScene` keeps each link's look in `o.lookPlan` (owned by `src/app/30-map.js`) when the rebuild only follows an item move, a drop or a label-size change. Every other kind of rebuild drops the plan. A plan for another map, theme, palette, color mode or link count starts over. `node test/look-plan.test.js` checks the links equal a fresh build, the second picture does no look work and each of those cases starts over.
+
+**Picture rebuild, 30,000 items, milliseconds (median of 5 to 11 fresh pages per version, lower is better; ratio = old / new).**
+
+| Browser | Rebuild | Longest hold |
+|---|---|---|
+| Chromium 155 | 111 to 90 (1.23) | 122 to 123 (0.99) |
+| Firefox 158 | 127 to 105 (1.21) | 204 to 209 (0.98) |
+| WebKitGTK 2.52.6 | 146 to 132 (1.11) | 360 to 285 (1.26) |
+
+Page tests 186 / 174 / 174 (same as before), fuzz 12 seeds, 3000 ops, no findings, in all three browsers. `bench/rebuild-ab.js` calls the rebuild a drop makes; a plain rebuild with no flag does not use the cache.
+
