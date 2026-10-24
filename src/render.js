@@ -73,12 +73,13 @@ var NFMRender = (function () {
     S.rects.forEach(function (r) { shape(r.layer === 0 ? back : front, r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, Math.min(r.r, r.w / 2, r.h / 2), 0, r.sw, r.fill, r.stroke, r.a === undefined ? 1 : r.a); });
     S.dots.forEach(function (d) { var k = d.kind === undefined ? 1 : d.kind; shape(front, d.cx, d.cy, d.r, d.r, k === 0 ? Math.min(3, d.r) : d.r, k, d.sw, d.fill, d.stroke, d.a === undefined ? 1 : d.a); });
     /* a network of nothing but plain straight links (no arrows, ribbons or hulls) can go to the card as 9 numbers a link, the quad built by its vertex shader (opts.inst, WebGL 2); anything else keeps the corner records below */
-    var uni = !S.ribbons.length && !(S.polys && S.polys.length) && S.curves.every(function (c) { return isSeg(c) && !c.arrow; }), dot0 = 0;
+    var packedSeg = !!(S.curvesPacked && S.curvesPacked() && S.curvesStraight()), nC = packedSeg ? S.curveCount() : S.curves.length;   /* packed straight links are read without making an object each */
+    var uni = !S.ribbons.length && !(S.polys && S.polys.length) && (packedSeg || S.curves.every(function (c) { return isSeg(c) && !c.arrow; })), dot0 = 0;
     S.rects.forEach(function (r) { if (r.layer !== 0) dot0++; });
-    if (opts && opts.inst && uni && S.curves.length) {
-      var nI = S.curves.length, needI = nI * INST_STRIDE;
+    if (opts && opts.inst && uni && nC) {
+      var nI = nC, needI = nI * INST_STRIDE;
       if (!INSTBUF || INSTBUF.length < needI) INSTBUF = new Float32Array(needI + (needI >> 2));
-      for (i = 0; i < nI; i++) instRec(INSTBUF, i * INST_STRIDE, S.curves[i]);
+      if (packedSeg) S.eachCurveView(function (c, j) { instRec(INSTBUF, j * INST_STRIDE, c); }); else for (i = 0; i < nI; i++) instRec(INSTBUF, i * INST_STRIDE, S.curves[i]);
       return { back: new Float32Array(back), front: new Float32Array(front), mesh: EMPTY, inst: INSTBUF.subarray(0, needI), nInst: nI, nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: 0, uni: true, dot0: dot0, nDots: S.dots.length, nCurves: nI };
     }
     /* mesh */
@@ -87,7 +88,7 @@ var NFMRender = (function () {
     var polyTris = 0;
     (S.polys || []).forEach(function (p) { polyTris += p.pts.length / 2; });
     verts += polyTris * 3;
-    S.curves.forEach(function (c) {
+    if (packedSeg) verts += 6 * nC; else S.curves.forEach(function (c) {
       if (isSeg(c)) { verts += 6 + (c.arrow ? 3 : 0); return; }
       var pts = c.pts || (c.pts = bezPts(c.P, c.line));
       c.dashed = c.dash ? dashPieces(pts, c.w, c.dash) : null;
@@ -128,7 +129,7 @@ var NFMRender = (function () {
         put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hb, -1, col, a); put(xa, ya, nr[i * 2], nr[i * 2 + 1], ha, 1, col, a); put(xb, yb, nr[i * 2 + 2], nr[i * 2 + 3], hb, 1, col, a);
       }
     };
-    S.curves.forEach(function (c) {
+    if (packedSeg) S.eachCurveView(function (c) { o = segRec(mesh, o, c); }); else S.curves.forEach(function (c) {
       var a = c.a === undefined ? 1 : c.a, hw = c.w / 2, col = c.color;
       if (isSeg(c)) {
         /* A plain straight link (every link on a big network): one quad written straight into the buffer, the same numbers the general path gives. */
@@ -137,7 +138,7 @@ var NFMRender = (function () {
       if (c.arrow) { var t = NFMScene.arrowTri(c); for (i = 0; i < 3; i++) put(t[i * 2], t[i * 2 + 1], 0, 0, -1, 0, col, a); }
     });
     /* where things sit, so an item that was moved can be rewritten in place (see patchBuffers): every link a plain straight piece, none with an arrow, no ribbons or hulls, so link j starts at vertex 6 * j */
-    return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE, uni: uni, dot0: dot0, nDots: S.dots.length, nCurves: S.curves.length };
+    return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE, uni: uni, dot0: dot0, nDots: S.dots.length, nCurves: nC };
   }
   /** Cuts a polyline into dashes: kind 1 = dots, 2 = short dashes, 3 = long dashes. Returns a list of flat polylines. */
   function dashPieces(pts, w, kind) {
@@ -259,7 +260,7 @@ var NFMRender = (function () {
       name: 'canvas2d', label: 'Canvas 2D',
       patch: function (s) { return s === S; },   /* nothing is kept on a card: the next draw reads the scene as it now is */
       fastMove: function (v) { fastForce = v; },   /* test hook: true always slides the kept picture while the camera moves, false never, null by speed */
-      setScene: function (s) { S = s; fullFresh = false; cacheScene = null; slowMotion = false; if (S) S.curves.forEach(function (c) { if (c.bb === undefined) { var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (var i = 0; i < c.P.length; i += 2) { x0 = Math.min(x0, c.P[i]); x1 = Math.max(x1, c.P[i]); y0 = Math.min(y0, c.P[i + 1]); y1 = Math.max(y1, c.P[i + 1]); } c.bb = [x0 - 12, y0 - 12, x1 + 12, y1 + 12]; } }); },
+      setScene: function (s) { S = s; fullFresh = false; cacheScene = null; slowMotion = false; if (S && !(S.curvesPacked && S.curvesPacked())) S.curves.forEach(function (c) { if (c.bb === undefined) { var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (var i = 0; i < c.P.length; i += 2) { x0 = Math.min(x0, c.P[i]); x1 = Math.max(x1, c.P[i]); y0 = Math.min(y0, c.P[i + 1]); y1 = Math.max(y1, c.P[i + 1]); } c.bb = [x0 - 12, y0 - 12, x1 + 12, y1 + 12]; } }); },
       resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
       draw: function (view) {
         if (!S) return;
@@ -452,7 +453,7 @@ var NFMRender = (function () {
     };
     var tess = function (s) {
       var want = false;
-      if (pI && s && s.curves.length) { if (instOn === null && s.curves.length >= 2000) instOn = probe(); want = instOn === true; }
+      if (pI && s && (s.curveCount ? s.curveCount() : s.curves.length)) { if (instOn === null && (s.curveCount ? s.curveCount() : s.curves.length) >= 2000) instOn = probe(); want = instOn === true; }
       return tessellate(s, want ? { inst: true } : null);
     };
     var send = function () { up(bBack, T.back); up(bFront, T.front); if (T.inst) up(bInst, T.inst); else up(bMesh, T.mesh); };

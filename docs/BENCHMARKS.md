@@ -1819,3 +1819,17 @@ A second layout in the same page and a layout after a moment gain 1.1 to 1.9 tim
 
 Page tests 186 / 174 / 174 (same as before), fuzz 12 seeds, 3000 ops, no findings, in all three browsers. `bench/rebuild-ab.js` calls the rebuild a drop makes; a plain rebuild with no flag does not use the cache.
 
+## 48. Links built straight into flat lists (2026.10.24.1412)
+
+**What.** A flat map of 2,000 or more straight, arrowless links without link rules is built into typed lists (`flatWriter` in `src/scene.js`, taken over by `curveStore` as the packed store) instead of one object per link. Styling, the link hover index and the graphics-card picture lists read the lists directly; anything that reads `S.curves` still gets the objects (the list is unpacked then). `node test/flat-links.test.js` checks the links equal the object build and that styling leaves the lists packed. `bench/picture-same.js` compares the drawn pictures.
+
+**Picture rebuild after an item move, 30,000 items, milliseconds (median of 7 fresh pages per version, lower is better; ratio = old / new).**
+
+| Browser | Rebuild | Longest hold |
+|---|---|---|
+| Chromium 155 | 113 to 91 (1.24) | 152 to 120 (1.27) |
+| Firefox 158 | 330 to 234 (1.41) | 387 to 306 (1.26) |
+| WebKitGTK 2.52.6 | 192 to 161 (1.19) | 416 to 342 (1.22) |
+
+Pictures: 100.000% of pixels the same in all three browsers (3,000 items). Page tests 186 / 174 / 174, fuzz 12 seeds, 3000 ops, no findings, in all three. A first WebKitGTK run was 30% slower because the graphics-card path still unpacked the links; fixed before merging.
+

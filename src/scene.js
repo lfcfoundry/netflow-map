@@ -159,6 +159,8 @@ var NFMScene = (function () {
     if (bs !== undefined) { if (!bs || typeof bs.w !== 'number' || bs.color !== q) return false; for (k in bs) if (k !== 'w' && k !== 'color') return false; }
     return true;
   }
+  /* a big flat map built straight into the packed lists, no object per link (ids = the name of each item in L.nodes order): the view fills it in, curveStore takes it over as S.flatPending */
+  function flatWriter(M, nodeIds) { return { M: M, n: 0, ids: nodeIds, P: new Float32Array(M * 8), BB: new Float32Array(0), COL: new Float32Array(M * 4), W: new Float32Array(M), BW: new Float32Array(M), DASH: new Float32Array(M), A: new Float32Array(M), EDGE: new Int32Array(M), FR: new Int32Array(M), TO: new Int32Array(M), FL: new Uint8Array(M) }; }
   function curveStore(S, L) {
     var objs = S.curves, pk = null, touch = 0, touchedAt = 0, timer = 0, job = null, auto = null, refused = -1, ids = null, idList = null;
     function makeOne(i) {
@@ -202,6 +204,7 @@ var NFMScene = (function () {
       timer = setTimeout(slice, 0); if (timer && timer.unref) timer.unref();
     }
     function arm() { touchedAt = Date.now(); if (auto && !timer && !job && !pk) { timer = setTimeout(tick, auto.delay); if (timer && timer.unref) timer.unref(); } }
+    if (S.flatPending) { pk = S.flatPending; S.flatPending = null; objs = null; }
     Object.defineProperty(S, 'curves', { configurable: true, enumerable: true,
       get: function () { touch++; if (pk) unpack(); arm(); return objs; },
       set: function (v) { touch++; pk = null; job = null; objs = v; arm(); } });
@@ -209,6 +212,7 @@ var NFMScene = (function () {
     S.curveAt = function (i) { return pk ? (i >= 0 && i < pk.M ? makeOne(i) : undefined) : objs[i]; };
     S.eachCurve = function (fn) { var i, n; if (!pk) { objs.forEach(fn); return; } for (i = 0, n = pk.M; i < n; i++) fn(makeOne(i), i); };
     S.curvesPacked = function () { return !!pk; };
+    S.curveFlat = function () { return pk; };   /* the packed lists themselves (null when the links are objects): for loops that must not make an object per link */
     /* for moving items on a big map without waking the packed list: which two items each link joins (positions in L.nodes; null when a link names an unknown item), whether every link is a plain straight line, whether a link has a box, and a write of one link's line (and box) that goes into whichever form the list is in */
     S.curveEnds = function (idxOf) {
       var M = pk ? pk.M : objs.length, out = new Int32Array(M * 2), i, c, a, b;
@@ -503,7 +507,7 @@ var NFMScene = (function () {
       if (n === cap) { cap *= 2; var g = new Float64Array(cap * 4); g.set(sg); sg = g; var h = new Int32Array(cap); h.set(sci); sci = h; }
       sg[n * 4] = ax; sg[n * 4 + 1] = ay; sg[n * 4 + 2] = bx; sg[n * 4 + 3] = by; sci[n++] = ci;
     };
-    S.eachCurve(function (cv, ci) {
+    (S.eachCurveView || S.eachCurve).call(S, function (cv, ci) {
       if (cv.edge === undefined || cv.edge < 0 || cv.dead) return;
       var P = cv.P, m = (P.length - 2) / 6, px = P[0], py = P[1];
       if (cv.line && P.length === 8) { put(ci, px, py, P[6], P[7]); return; }   /* a straight link: the curve at 1 is exactly its last point */
@@ -539,7 +543,7 @@ var NFMScene = (function () {
     for (i = 0; i < off.length - 1; i++) off[i + 1] += off[i];
     ids = new Int32Array(off[off.length - 1]); fill = off.slice(0, off.length - 1);
     for (i = 0; i < n; i++) walk(i);   /* in piece order, so each cell lists its pieces in the order they were found */
-    var maxHw = 0; S.eachCurve(function (cv) { if (cv.loop && cv.w / 2 > maxHw) maxHw = cv.w / 2; });
+    var maxHw = 0; if (!S.curvesPacked()) S.eachCurve(function (cv) { if (cv.loop && cv.w / 2 > maxHw) maxHw = cv.w / 2; });   /* a packed list never holds a loop */
     S.eidx = { cell: cell, n: n, segs: sg.subarray(0, n * 4), sci: sci.subarray(0, n), off: off, ids: ids, c0: c0, c1: c1, r0: r0, r1: r1, cols: cols, mark: new Int32Array(n), stamp: 0, maxHw: maxHw };
     return S.eidx;
   }
@@ -914,7 +918,7 @@ var NFMScene = (function () {
   }
 
   /* ---------------------------------------------------------------- network view (2D with a fisheye lens, or 3D with a camera) */
-  var FAST_MOVE_MIN = 600;
+  var FAST_MOVE_MIN = 600, FLAT_MIN = 2000;
   /** Moving items by hand on a big flat map: S.moveNodes(moves) puts the dots, icons, names and straight links of the moved items where they now belong, in place, and says what changed ({dots, curves}: lists of positions in S.dots and S.curves), so the page can send just those to the graphics card instead of building and sending the whole picture for every mouse move. Returns null when this picture cannot do it (a link that is not one plain straight piece, an arrow). The picture's outer box, pick grid and packed link store are left as they were: the page builds the picture again once the item is let go. moves: [[position in L.nodes, x, y], ...]. */
   function attachMove(S, L, FM, recs, idxOf, pad) {
     var adj = null, ok = null, LINE = new Array(8);
@@ -975,7 +979,7 @@ var NFMScene = (function () {
     if (LKP) { if (LKP.L !== L || LKP.m !== L.edges.length || LKP.key !== planKey) { LKP.L = L; LKP.m = L.edges.length; LKP.key = planKey; LKP.a = new Array(LKP.m); } LKA = LKP.a; }
     if (P3) { if (P3.L !== L || !P3.net || P3.key !== planKey || (o.plan === true && P3.lf !== o.labelFn)) { P3.L = L; P3.key = planKey; P3.lf = o.labelFn; P3.net = { nodes: new Array(L.nodes.length), edges: new Array(L.edges.length), rk: null, idxOf: null }; } ST = P3.net; }
     var cy3 = Math.cos(cam.yaw), sy3 = Math.sin(cam.yaw), cp3 = Math.cos(cam.pitch), sp3 = Math.sin(cam.pitch), R3 = L.radius3 || 300, D3 = R3 * (cam.persp || 2.4);
-    var recs = new Array(L.nodes.length);
+    var recs = new Array(L.nodes.length), nodeIds = new Array(L.nodes.length);
     L.nodes.forEach(function (n, qi) {
       var st = n._st, r = n.w / 2 * (st && st.scale ? st.scale : 1), px = n.cx, py = n.cy, depth = 0, f = 1;
       if (n3) {
@@ -985,8 +989,8 @@ var NFMScene = (function () {
         var dx = px - lens.x, dy = py - lens.y, d = Math.hypot(dx, dy);
         if (d < lens.r && d > 1e-6) { var u = d / lens.r, g = ((lens.d + 1) * u) / (lens.d * u + 1), nd2 = g * lens.r; px = lens.x + dx / d * nd2; py = lens.y + dy / d * nd2; r *= Math.min(2.6, Math.max(1, nd2 / d) * 0.85 + 0.15); }
       }
-      var rec = { n: n, px: px, py: py, r: r, depth: depth, f: f, hide: !!(st && st.hide) };
-      recs[qi] = rec; if (!ST) PN.set(n.id, rec); list.push(rec);
+      var rec = { n: n, px: px, py: py, r: r, depth: depth, f: f, hide: !!(st && st.hide), qi: qi };
+      recs[qi] = rec; nodeIds[qi] = n.id; if (!ST) PN.set(n.id, rec); list.push(rec);
     });
     if (n3) list.sort(function (p, q) { return q.depth - p.depth; });
     var dmin = Infinity, dmax = -Infinity; list.forEach(function (p) { if (p.depth < dmin) dmin = p.depth; if (p.depth > dmax) dmax = p.depth; });
@@ -1016,6 +1020,8 @@ var NFMScene = (function () {
       var cg = new Map(); list.forEach(function (p) { if (p.hide) return; var g = p.n.group || '', c = cg.get(g) || { x: 0, y: 0, k: 0 }; c.x += p.px; c.y += p.py; c.k++; cg.set(g, c); });
       cg.forEach(function (c, g) { if (c.k > 1 && cg.size <= 40) lab(c.x / c.k, c.y / c.k, g || '(no group)', 18 * X.LC.groups.scale, mix(T.fg, gcol(g), 0.5), { bold: true, minK: 0.05, group: g, fixed: true }); });
     }
+    /* a big map of straight, arrowless links goes straight into typed lists (see S.flatLinks) */
+    var FLAT = !n3 && !ST && !arrows && !o.linkStyle && m >= FLAT_MIN ? flatWriter(m, nodeIds) : null;
     L.edges.forEach(function (e, ei) {
       var s = ef ? (ef[ei] < 0 ? undefined : recs[ef[ei]]) : PN.get(e.from), t = et ? (et[ei] < 0 ? undefined : recs[et[ei]]) : PN.get(e.to);
       if (!s || !t || s === t || s.hide || t.hide) return;
@@ -1030,11 +1036,17 @@ var NFMScene = (function () {
       var sx = s.px + dx / d * s.r, sy = s.py + dy / d * s.r, fd = n3 ? (s.fd + t.fd) / 2 : 1;
       var bend = lk.bend || 0, nx = -dy / d * bend * d * 0.5, ny = dx / d * bend * d * 0.5;
       var c1x = sx + (ex - sx) / 3 + nx, c1y = sy + (ey - sy) / 3 + ny, c2x = sx + 2 * (ex - sx) / 3 + nx, c2y = sy + 2 * (ey - sy) / 3 + ny;
-      S.curves.push({ P: [sx, sy, c1x, c1y, c2x, c2y, ex, ey], w: n3 ? lk.w * ((s.f + t.f) / 2) : lk.w, color: n3 ? alpha(lk.color, lk.color[3] * fd) : lk.color, arrow: lk.arrow, line: !bend, tip: lk.arrow ? [t.px - dx / d * t.r, t.py - dy / d * t.r] : undefined, edge: ei, from: e.from, to: e.to, dash: lk.dash });
+      if (FLAT) {
+        var fo = FLAT.n++, fp = fo * 8, fq = fo * 4, fc = lk.color;
+        FLAT.P[fp] = sx; FLAT.P[fp + 1] = sy; FLAT.P[fp + 2] = c1x; FLAT.P[fp + 3] = c1y; FLAT.P[fp + 4] = c2x; FLAT.P[fp + 5] = c2y; FLAT.P[fp + 6] = ex; FLAT.P[fp + 7] = ey;
+        FLAT.COL[fq] = fc[0]; FLAT.COL[fq + 1] = fc[1]; FLAT.COL[fq + 2] = fc[2]; FLAT.COL[fq + 3] = fc[3];
+        FLAT.W[fo] = lk.w; FLAT.DASH[fo] = lk.dash || 0; FLAT.A[fo] = 1; FLAT.EDGE[fo] = ei; FLAT.FR[fo] = s.qi; FLAT.TO[fo] = t.qi; FLAT.FL[fo] = (bend ? 0 : 2) | 8 | 16;
+      } else S.curves.push({ P: [sx, sy, c1x, c1y, c2x, c2y, ex, ey], w: n3 ? lk.w * ((s.f + t.f) / 2) : lk.w, color: n3 ? alpha(lk.color, lk.color[3] * fd) : lk.color, arrow: lk.arrow, line: !bend, tip: lk.arrow ? [t.px - dx / d * t.r, t.py - dy / d * t.r] : undefined, edge: ei, from: e.from, to: e.to, dash: lk.dash });
       var txt = sp.txt;
       if (txt && X.LC.links.show && m < 600) lab((sx + ex) / 2, (sy + ey) / 2 - 4, clip(txt, 24), 10 * X.LC.links.scale, T.muted, { minK: 0.9, edge: ei, bg: true });
       else if (!txt && o.edgeValueLabels && e.widthV === e.widthV && m < 600) lab((sx + ex) / 2, (sy + ey) / 2 - 4, fmtNum(e.widthV), 10 * X.LC.links.scale, T.muted, { minK: 0.7, edge: ei, bg: true });
     });
+    if (FLAT) { FLAT.M = FLAT.n; S.flatPending = FLAT; }   /* curveStore takes it over when the scene is finished */
     var rk, idxOf;
     if (ST && ST.rk) { rk = ST.rk; idxOf = ST.idxOf; }
     else {
@@ -1249,8 +1261,16 @@ var NFMScene = (function () {
     });
     S.dots.forEach(function (d) { if (d.node >= 0 && S.nodes[d.node] && d.r > 4 && d.fill[3] > 0.1 && !d.isMark) ring(d, d.node); d.a = d.node >= 0 && S.nodes[d.node] ? S.nodes[d.node].a : 1; });
     S.icons.forEach(function (ic) { ic.a = ic.node >= 0 && S.nodes[ic.node] ? S.nodes[ic.node].a : 1; });
-    S.labels.forEach(function (l) { l.a = l.node >= 0 && S.nodes[l.node] ? S.nodes[l.node].a : (l.edge !== undefined && S.curves.length ? 1 : 1); });
-    S.curves.forEach(function (c) {
+    S.labels.forEach(function (l) { l.a = l.node >= 0 && S.nodes[l.node] ? S.nodes[l.node].a : (l.edge !== undefined && S.curveCount() ? 1 : 1); });
+    var pkd = S.curveFlat && !(selE && selE.size) ? S.curveFlat() : null;
+    if (pkd) {   /* packed links (a big flat map): the same rule, written straight into the lists */
+      var pA = pkd.A, pFL = pkd.FL, pW = pkd.W, pBW = pkd.BW, pE = pkd.EDGE, pF = pkd.FR, pT = pkd.TO, pI = pkd.ids, pi, pf;
+      for (pi = 0; pi < pkd.M; pi++) {
+        pf = pFL[pi]; if (pf & 4) { pW[pi] = pBW[pi]; pf &= ~4; }
+        pA[pi] = (pE[pi] < 0 || (st.edges ? st.edges.has(pE[pi]) : !focus || (focus.has(pI[pF[pi]]) && focus.has(pI[pT[pi]])))) ? 1 : 0.08;
+        pFL[pi] = pf & ~8;
+      }
+    } else S.curves.forEach(function (c) {
       var on = selE && c.edge >= 0 && selE.has(c.edge);
       if (!c.base) {   /* a link nobody has changed yet is its own base: no saved copy until it is first lit (100,000 items: 13 MB less garbage a picture) */
         if (!on) { c.a = edgeBright(c) ? 1 : 0.08; return; }
