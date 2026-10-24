@@ -2,7 +2,7 @@
  * memory-compression.js: keep big data packed in memory (bytes, typed arrays, big lists of plain JavaScript objects) and bring it back exactly, fast. One file.
  * Part of JS-modules, https://github.com/lfcfoundry/JS-modules
  * Copyright (c) 2026 LFC Foundry. MIT License (see LICENSE at the repository root).
- * Version 2.4.9 (API 2)
+ * Version 2.6.2 (API 2)
  *
  * What it gives you (plain JavaScript, no dependencies, works offline, one file; sets MemoryCompression, and MemoryCompressionJSO as the object layer alone)
  *  - pack(value) / unpack(bytes) / view(bytes) on MemoryCompression choose the layer by themselves: bytes and typed arrays go through the packing core (as memory-compression 1.x did),
@@ -14,7 +14,7 @@
  *    (one per key), not as repeated text, so a list of 300,000 link objects becomes a few megabytes and is rebuilt in tens of milliseconds.
  *  - view(bytes): for a packed array of objects that you keep packed. Read one object (get(i)), one field (field(i, key)) or a whole
  *    column as a typed array (column(key)) without making the other objects. Opens in well under a millisecond: columns are restored
- *    only when first read, and release() lets them go again.
+ *    only when first read, and release() lets them go again. Text columns stay whole (one decoded text plus the row ends, or a pattern and its numbers) and a string is cut or put together when a row is read; a column that is read row after row is turned into its strings in one pass after about n/32 reads (at least 32; lists of up to 16,384 rows), and then costs what a plain column costs. memory().restored counts what the open columns really take.
  *  - Text that follows a pattern ('user' + number + '@example.org', '2025-03-05T04:15:00Z') is stored as the pattern once plus a number
  *    column; a small WebAssembly helper scans big text columns (the plain-JavaScript loop gives the same bytes). pack(x, {patterns: false}) skips it.
  *  - Dates and times written as text ('2025-03-05T04:15:00Z', '2025-03-05', with milliseconds, with a space instead of the T) become one number each and come back as
@@ -37,6 +37,8 @@
  *  - unpackAsync(bytes, opts) (opt-in): a promise for the same value unpack(bytes) gives, without holding the page for the whole open. A long list of same-shape records (2,048 rows or more,
  *    format 2 or newer, no shared objects) is opened one column at a time and its rows are made in slices of about 5 ms, yielding only when a slice has used its time; records inside records, arrays and
  *    coordinate pairs are opened the same way. Anything else is opened as unpack() does. It uses no workers and needs no policy change. Errors come back as a rejected promise. unpack() is unchanged.
+ *    opts.onRows(rows, from, to) (optional): for a long list of records, called after each slice with the array being filled; rows[from] to rows[to - 1] are ready (final), ranges are contiguous and cover the list once.
+ *    Not called for short lists, mixed shapes, other values or lists inside rows. Do not change rows in it. A callback that throws makes the call reject with its error. The returned value is the same array.
  *  - warm(opts) (opt-in): a promise; call it once when the page is idle. It packs and opens one made-up 1,200-row list (nine single-column lists, each pack and each open in a task of its own, about 3 to 10 ms
  *    each) and throws the result away, so the first real pack of a big list skips the engine's cold start. Output and format are unchanged; nothing is stored. It moves about 40 ms of work to idle time.
  *  - The packing core (byte shuffle, delta, LZ4-class and deflate coders, LZ4/deflate/zlib/gzip, crc32) is inside this file and also exported as MemoryCompression.lz4Compress, .deflate and so on.
@@ -848,7 +850,8 @@
     var nChunks = Math.ceil(n / chunk), head = [0x4D, 0x43, 1, engine, inp.type, (w ? 1 : 0) | (opts.check ? 2 : 0)];
     putVar(head, n); putVar(head, chunk);
     if (w) { head.push(w); var mb = (w + 7) >> 3, q; for (q = 0; q < mb; q++) head.push(mask ? mask[q] : 0); }
-    var parts = [Uint8Array.from(head)], total = head.length, i;   // finished pieces are kept apart and joined once at the end, so packing never needs a spare buffer as big as the input
+    var ob = packRoom(head.length + 64), total = 0, i;   // finished pieces are written one after the other into one kept buffer (grown when it is full), then copied out once: two arrays are made per call, not two for every chunk
+    ob.set(head, 0); total = head.length;
     var cmax = Math.min(chunk, n), scratch = w ? new Uint8Array(cmax) : null, ht = null, tmp = null, hb = hashBits(cmax, opts.hashBits);
     var useW = engine === 1 && wasmOn(opts) && wasmRoom(cmax);
     if (engine === 1 && !useW) { ht = new Int32Array(1 << hb); tmp = new Uint8Array(lz4Bound(cmax)); }
@@ -872,13 +875,26 @@
       hdr.length = 0;
       if (pl < clen) { hdr.push(1); putVar(hdr, pl); }
       else { hdr.push(0); putVar(hdr, clen); coded = src.subarray(off, off + clen); pl = clen; }
-      parts.push(Uint8Array.from(hdr)); parts.push(coded.slice(0, pl)); total += hdr.length + pl;
+      if (total + hdr.length + pl + 16 > ob.length) ob = packRoom(total + hdr.length + pl + 16, total);
+      for (i = 0; i < hdr.length; i++) ob[total++] = hdr[i];
+      ob.set(coded.subarray(0, pl), total); total += pl;
     }
-    if (opts.check) { var ck = checksum(src); parts.push(new Uint8Array([ck & 255, (ck >>> 8) & 255, (ck >>> 16) & 255, ck >>> 24])); total += 4; }
-    var out = new Uint8Array(total), p = 0;
-    for (i = 0; i < parts.length; i++) { out.set(parts[i], p); p += parts[i].length; }
+    if (opts.check) { var ck = checksum(src); if (total + 4 > ob.length) ob = packRoom(total + 4, total); ob[total++] = ck & 255; ob[total++] = (ck >>> 8) & 255; ob[total++] = (ck >>> 16) & 255; ob[total++] = ck >>> 24; }
+    var out = ob.slice(0, total);
+    if (ob.length > PACK_KEEP) PACKBUF = null;                    // a very big one is not kept
+    else if (ob.length >= 1048576 && typeof idleHook === 'function') idleHook();   // a big kept one is let go after a quiet spell (the object layer's idle timer, 2 s), or at once by freeBuffers()
     return out;
   }
+  // The buffer pack() writes into: kept between calls so a big pack does not make a pile of short-lived arrays (Firefox pauses to collect them), grown by doubling, dropped when over 8 MB.
+  var PACKBUF = null, PACK_KEEP = 8388608;
+  function packRoom(need, used) {
+    var nb;
+    if (PACKBUF && PACKBUF.length >= need) return PACKBUF;
+    nb = new Uint8Array(Math.max(need, PACKBUF ? PACKBUF.length * 2 : 65536));
+    if (PACKBUF && used) nb.set(PACKBUF.subarray(0, used), 0);
+    PACKBUF = nb; return nb;
+  }
+  function dropPackBuffer() { var k = PACKBUF ? PACKBUF.length : 0; PACKBUF = null; return k; }
 
   function unpack(bytes, opts) {
     opts = opts || {};
@@ -1078,7 +1094,7 @@
     deflate: deflate, inflate: inflate, zlib: zlib, unzlib: unzlib, gzip: gzip, gunzip: gunzip,
     shuffle: shuffle, unshuffle: unshuffle, crc32: crc32, adler32: adler32, checksum: checksum,
     ready: wasmInit, accelerated: function () { return W !== null; },
-    trimMemory: wasmTrim, onGrow: function (f) { idleHook = f; },
+    trimMemory: function () { var r = wasmTrim(); dropPackBuffer(); return r; }, dropPackBuffer: dropPackBuffer, onGrow: function (f) { idleHook = f; },
     DEFAULT_MAX: DEFAULT_MAX, DEFAULT_CHUNK: DEFAULT_CHUNK
   };
   })();
@@ -1330,13 +1346,15 @@
         w.zi(a[0]); w.vi(g); w.bytes(encInts(d, depth - 1, opt)); return w.out();
       }
       if (sch === IS.RLE) {
+        for (i = 1, j = 1; i < n; i++) if (a[i] !== a[i - 1] && ++j * 2 > n) return null;   // count the runs first: too many runs and this way cannot apply
+        if (n && j * 2 > n) return null;
         vals = []; runs = []; i = 0;
         while (i < n) { j = i + 1; while (j < n && a[j] === a[i]) j++; vals.push(a[i]); runs.push(j - i - 1); i = j; if (vals.length * 2 > n) return null; }
         w.vi(vals.length); w.bytes(encInts(Float64Array.from(vals), depth - 1, opt)); w.bytes(encInts(Float64Array.from(runs), depth - 1, opt)); return w.out();
       }
       if (sch === IS.DICT) {
         lim = Math.min(n / 2, 65536);
-        if (mx - mn < 1048576) {                                                      // values in a narrow range: a table indexed by value is much faster than a Map
+        if (mx - mn < Math.max(65536, n * 16)) {                                                      // values in a narrow range: a table indexed by value is much faster than a Map
           seen = new Int32Array(mx - mn + 1); m = 0;
           for (i = 0; i < n; i++) { x = a[i] - mn; if (!seen[x]) { seen[x] = 1; if (++m > lim) return null; } }
           keys = new Float64Array(m); q = 0; for (i = 0; i < seen.length; i++) if (seen[i]) { keys[q] = i + mn; seen[i] = ++q; }
@@ -1351,16 +1369,18 @@
       }
       if (sch === IS.PFOR) {
         if (n < 16) return null;
-        res = new Float64Array(n); for (i = 0; i < n; i++) res[i] = a[i] - mn;
         hist = new Uint32Array(34);                                                // how many values need 0, 1, 2 ... 32 bits (33: more than 32)
-        for (i = 0; i < n; i++) { x = res[i]; hist[x > 4294967295 ? 33 : x <= 0 ? 0 : 32 - Math.clz32(x)]++; }
+        for (i = 0; i < n; i++) { x = a[i] - mn; hist[x > 4294967295 ? 33 : x <= 0 ? 0 : 32 - Math.clz32(x)]++; }
         q = Math.floor(n * 0.92) + 1; x = 0; for (bw = 0; bw < 33; bw++) { x += hist[bw]; if (x >= q) break; }   // the narrowest width that holds at least 92% of the values
         if (bound && Math.ceil(n * bw / 8) >= bound) return null;                  // the packed low parts alone are not smaller than the best so far: it cannot win
-        lim = bw >= 32 ? 4294967295 : Math.pow(2, bw) - 1; pos = []; hi = []; low = new Uint32Array(n);
+        if (bw >= 32) return null;
+        x = 0; for (i = bw + 1; i < 34; i++) x += hist[i];
+        if (!x) return null;                                                       // every value fits the narrow width: no outliers, so this way is plain offset packing
+        lim = Math.pow(2, bw) - 1; pos = []; hi = []; low = new Uint32Array(n);
         for (i = 0; i < n; i++) {
-          if (res[i] > lim) { pos.push(i); hi.push(Math.floor(res[i] / (lim + 1))); low[i] = res[i] % (lim + 1); } else low[i] = res[i];
+          x = a[i] - mn;
+          if (x > lim) { pos.push(i); hi.push(Math.floor(x / (lim + 1))); low[i] = x % (lim + 1); } else low[i] = x;
         }
-        if (!pos.length || bw >= 32) return null;
         w.zi(mn); w.u8(bw); w.vi(pos.length); bpWrite(w, low, n, bw); w.bytes(encInts(gapsOf(pos), depth - 1, opt)); w.bytes(encInts(Float64Array.from(hi), depth - 1, opt)); return w.out();
       }
       return null;
@@ -1376,7 +1396,7 @@
     function encInts(a, depth, opt) {
       var n = a.length, order = INT_ORDER, pick = -1, s, bs = 1e18, e, best = null, i, sub, mm = range(a);
       if (opt.noEntropy) order = order.filter(function (x) { return x !== IS.ENT; });
-      if (opt.prefer && depth === opt.top) {          // most blocks of a column pick the way that won the blocks before; only that way is tried (every 4th block tries all)
+      if (opt.prefer && depth === opt.top) {          // most blocks of a column pick the way that won the blocks before; only that way is tried (every 8th block tries all)
         for (i = 0; i < opt.prefer.length; i++) { e = tryInt(opt.prefer[i], a, depth, opt, mm, best ? best.length : 0); if (e && (!best || e.length < best.length)) best = e; }
         if (best) return best;
       }
@@ -1766,9 +1786,9 @@
       if (H) { k = H.k || 0; won = H.won || (H.won = []); wonInts = H.wonInts || (H.wonInts = []); }       // opts.hint: what won for this column in earlier packs; a pack then counts on as if its blocks came after those
       w.vi(n); w.vi(CHUNK);
       for (i = 0; i < n; i += CHUNK) {
-        k++; full = !(k > 2 && k % 4 !== 0 && won.length);
+        k++; full = !(k > 2 && k % 8 !== 0 && won.length);
         o.prefer = full || !wonInts.length ? null : wonInts; o.top = 2;
-        part = encChunk(a.subarray(i, Math.min(n, i + CHUNK)), 2, o, full ? null : won);   // a block tries every way for the first blocks and every 4th; the rest try only the ways that have won before
+        part = encChunk(a.subarray(i, Math.min(n, i + CHUNK)), 2, o, full ? null : won);   // a block tries every way for the first blocks and every 8th; the rest try only the ways that have won before
         if (won.indexOf(part[0]) < 0 && part[0] !== CS.RAWF) won.push(part[0]);
         if (part[0] === CS.INTS && wonInts.indexOf(part[1]) < 0 && part[1] !== IS.RAW) wonInts.push(part[1]);
         w.vi(part.length); w.bytes(part);
@@ -1858,7 +1878,7 @@
     }
     if (POOL_BYTES > 0) idleSoon();
   }
-  function freeBuffers() { POOL = []; POOL_BYTES = 0; }
+  function freeBuffers() { POOL = []; POOL_BYTES = 0; MC.dropPackBuffer(); }   // also lets go of the output buffer pack() keeps between calls
   // After the last big pack has been quiet for IDLE_MS, the buffer pool is emptied and both WebAssembly helpers give their memory back (a page that packs again simply makes them again, about 1 to 4 ms).
   var IDLE_MS = 2000, idleTimer = null;
   function idleSoon() {
@@ -2995,6 +3015,24 @@
     if (!learned) for (j = 0; j < keys.length; j++) t.push(typeof first[keys[j]] === 'number' ? 'n' : 'a');
     return t;
   }
+  // fixed-arity record splitters for pages that forbid generated code: one function per number of fields (1 to 16), rows from..to, columns filled in place; 0, -1 or -(2 + j)
+  var FIXED_FUSE = [null,
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==1)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==2)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==3)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==4)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==5)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n',k5=ks[5],c5=cols[5],n5=ty[5]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==6)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;v=o[k5];if(n5&&typeof v!=='number')return -7;c5[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n',k5=ks[5],c5=cols[5],n5=ty[5]==='n',k6=ks[6],c6=cols[6],n6=ty[6]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==7)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;v=o[k5];if(n5&&typeof v!=='number')return -7;c5[i]=v;v=o[k6];if(n6&&typeof v!=='number')return -8;c6[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n',k5=ks[5],c5=cols[5],n5=ty[5]==='n',k6=ks[6],c6=cols[6],n6=ty[6]==='n',k7=ks[7],c7=cols[7],n7=ty[7]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==8)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;v=o[k5];if(n5&&typeof v!=='number')return -7;c5[i]=v;v=o[k6];if(n6&&typeof v!=='number')return -8;c6[i]=v;v=o[k7];if(n7&&typeof v!=='number')return -9;c7[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n',k5=ks[5],c5=cols[5],n5=ty[5]==='n',k6=ks[6],c6=cols[6],n6=ty[6]==='n',k7=ks[7],c7=cols[7],n7=ty[7]==='n',k8=ks[8],c8=cols[8],n8=ty[8]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==9)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;v=o[k5];if(n5&&typeof v!=='number')return -7;c5[i]=v;v=o[k6];if(n6&&typeof v!=='number')return -8;c6[i]=v;v=o[k7];if(n7&&typeof v!=='number')return -9;c7[i]=v;v=o[k8];if(n8&&typeof v!=='number')return -10;c8[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n',k5=ks[5],c5=cols[5],n5=ty[5]==='n',k6=ks[6],c6=cols[6],n6=ty[6]==='n',k7=ks[7],c7=cols[7],n7=ty[7]==='n',k8=ks[8],c8=cols[8],n8=ty[8]==='n',k9=ks[9],c9=cols[9],n9=ty[9]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==10)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;v=o[k5];if(n5&&typeof v!=='number')return -7;c5[i]=v;v=o[k6];if(n6&&typeof v!=='number')return -8;c6[i]=v;v=o[k7];if(n7&&typeof v!=='number')return -9;c7[i]=v;v=o[k8];if(n8&&typeof v!=='number')return -10;c8[i]=v;v=o[k9];if(n9&&typeof v!=='number')return -11;c9[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n',k5=ks[5],c5=cols[5],n5=ty[5]==='n',k6=ks[6],c6=cols[6],n6=ty[6]==='n',k7=ks[7],c7=cols[7],n7=ty[7]==='n',k8=ks[8],c8=cols[8],n8=ty[8]==='n',k9=ks[9],c9=cols[9],n9=ty[9]==='n',k10=ks[10],c10=cols[10],n10=ty[10]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==11)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;v=o[k5];if(n5&&typeof v!=='number')return -7;c5[i]=v;v=o[k6];if(n6&&typeof v!=='number')return -8;c6[i]=v;v=o[k7];if(n7&&typeof v!=='number')return -9;c7[i]=v;v=o[k8];if(n8&&typeof v!=='number')return -10;c8[i]=v;v=o[k9];if(n9&&typeof v!=='number')return -11;c9[i]=v;v=o[k10];if(n10&&typeof v!=='number')return -12;c10[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n',k5=ks[5],c5=cols[5],n5=ty[5]==='n',k6=ks[6],c6=cols[6],n6=ty[6]==='n',k7=ks[7],c7=cols[7],n7=ty[7]==='n',k8=ks[8],c8=cols[8],n8=ty[8]==='n',k9=ks[9],c9=cols[9],n9=ty[9]==='n',k10=ks[10],c10=cols[10],n10=ty[10]==='n',k11=ks[11],c11=cols[11],n11=ty[11]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==12)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;v=o[k5];if(n5&&typeof v!=='number')return -7;c5[i]=v;v=o[k6];if(n6&&typeof v!=='number')return -8;c6[i]=v;v=o[k7];if(n7&&typeof v!=='number')return -9;c7[i]=v;v=o[k8];if(n8&&typeof v!=='number')return -10;c8[i]=v;v=o[k9];if(n9&&typeof v!=='number')return -11;c9[i]=v;v=o[k10];if(n10&&typeof v!=='number')return -12;c10[i]=v;v=o[k11];if(n11&&typeof v!=='number')return -13;c11[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n',k5=ks[5],c5=cols[5],n5=ty[5]==='n',k6=ks[6],c6=cols[6],n6=ty[6]==='n',k7=ks[7],c7=cols[7],n7=ty[7]==='n',k8=ks[8],c8=cols[8],n8=ty[8]==='n',k9=ks[9],c9=cols[9],n9=ty[9]==='n',k10=ks[10],c10=cols[10],n10=ty[10]==='n',k11=ks[11],c11=cols[11],n11=ty[11]==='n',k12=ks[12],c12=cols[12],n12=ty[12]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==13)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;v=o[k5];if(n5&&typeof v!=='number')return -7;c5[i]=v;v=o[k6];if(n6&&typeof v!=='number')return -8;c6[i]=v;v=o[k7];if(n7&&typeof v!=='number')return -9;c7[i]=v;v=o[k8];if(n8&&typeof v!=='number')return -10;c8[i]=v;v=o[k9];if(n9&&typeof v!=='number')return -11;c9[i]=v;v=o[k10];if(n10&&typeof v!=='number')return -12;c10[i]=v;v=o[k11];if(n11&&typeof v!=='number')return -13;c11[i]=v;v=o[k12];if(n12&&typeof v!=='number')return -14;c12[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n',k5=ks[5],c5=cols[5],n5=ty[5]==='n',k6=ks[6],c6=cols[6],n6=ty[6]==='n',k7=ks[7],c7=cols[7],n7=ty[7]==='n',k8=ks[8],c8=cols[8],n8=ty[8]==='n',k9=ks[9],c9=cols[9],n9=ty[9]==='n',k10=ks[10],c10=cols[10],n10=ty[10]==='n',k11=ks[11],c11=cols[11],n11=ty[11]==='n',k12=ks[12],c12=cols[12],n12=ty[12]==='n',k13=ks[13],c13=cols[13],n13=ty[13]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==14)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;v=o[k5];if(n5&&typeof v!=='number')return -7;c5[i]=v;v=o[k6];if(n6&&typeof v!=='number')return -8;c6[i]=v;v=o[k7];if(n7&&typeof v!=='number')return -9;c7[i]=v;v=o[k8];if(n8&&typeof v!=='number')return -10;c8[i]=v;v=o[k9];if(n9&&typeof v!=='number')return -11;c9[i]=v;v=o[k10];if(n10&&typeof v!=='number')return -12;c10[i]=v;v=o[k11];if(n11&&typeof v!=='number')return -13;c11[i]=v;v=o[k12];if(n12&&typeof v!=='number')return -14;c12[i]=v;v=o[k13];if(n13&&typeof v!=='number')return -15;c13[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n',k5=ks[5],c5=cols[5],n5=ty[5]==='n',k6=ks[6],c6=cols[6],n6=ty[6]==='n',k7=ks[7],c7=cols[7],n7=ty[7]==='n',k8=ks[8],c8=cols[8],n8=ty[8]==='n',k9=ks[9],c9=cols[9],n9=ty[9]==='n',k10=ks[10],c10=cols[10],n10=ty[10]==='n',k11=ks[11],c11=cols[11],n11=ty[11]==='n',k12=ks[12],c12=cols[12],n12=ty[12]==='n',k13=ks[13],c13=cols[13],n13=ty[13]==='n',k14=ks[14],c14=cols[14],n14=ty[14]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==15)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;v=o[k5];if(n5&&typeof v!=='number')return -7;c5[i]=v;v=o[k6];if(n6&&typeof v!=='number')return -8;c6[i]=v;v=o[k7];if(n7&&typeof v!=='number')return -9;c7[i]=v;v=o[k8];if(n8&&typeof v!=='number')return -10;c8[i]=v;v=o[k9];if(n9&&typeof v!=='number')return -11;c9[i]=v;v=o[k10];if(n10&&typeof v!=='number')return -12;c10[i]=v;v=o[k11];if(n11&&typeof v!=='number')return -13;c11[i]=v;v=o[k12];if(n12&&typeof v!=='number')return -14;c12[i]=v;v=o[k13];if(n13&&typeof v!=='number')return -15;c13[i]=v;v=o[k14];if(n14&&typeof v!=='number')return -16;c14[i]=v;}return 0;},
+    function(rows,from,to,ks,ty,cols){var i,o,q,p,v,k0=ks[0],c0=cols[0],n0=ty[0]==='n',k1=ks[1],c1=cols[1],n1=ty[1]==='n',k2=ks[2],c2=cols[2],n2=ty[2]==='n',k3=ks[3],c3=cols[3],n3=ty[3]==='n',k4=ks[4],c4=cols[4],n4=ty[4]==='n',k5=ks[5],c5=cols[5],n5=ty[5]==='n',k6=ks[6],c6=cols[6],n6=ty[6]==='n',k7=ks[7],c7=cols[7],n7=ty[7]==='n',k8=ks[8],c8=cols[8],n8=ty[8]==='n',k9=ks[9],c9=cols[9],n9=ty[9]==='n',k10=ks[10],c10=cols[10],n10=ty[10]==='n',k11=ks[11],c11=cols[11],n11=ty[11]==='n',k12=ks[12],c12=cols[12],n12=ty[12]==='n',k13=ks[13],c13=cols[13],n13=ty[13]==='n',k14=ks[14],c14=cols[14],n14=ty[14]==='n',k15=ks[15],c15=cols[15],n15=ty[15]==='n';for(i=from;i<to;i++){o=rows[i];if(typeof o!=='object'||o===null||Object.getPrototypeOf(o)!==OP)return -1;q=0;for(p in o){if(p!==ks[q++])return -1;}if(q!==16)return -1;v=o[k0];if(n0&&typeof v!=='number')return -2;c0[i]=v;v=o[k1];if(n1&&typeof v!=='number')return -3;c1[i]=v;v=o[k2];if(n2&&typeof v!=='number')return -4;c2[i]=v;v=o[k3];if(n3&&typeof v!=='number')return -5;c3[i]=v;v=o[k4];if(n4&&typeof v!=='number')return -6;c4[i]=v;v=o[k5];if(n5&&typeof v!=='number')return -7;c5[i]=v;v=o[k6];if(n6&&typeof v!=='number')return -8;c6[i]=v;v=o[k7];if(n7&&typeof v!=='number')return -9;c7[i]=v;v=o[k8];if(n8&&typeof v!=='number')return -10;c8[i]=v;v=o[k9];if(n9&&typeof v!=='number')return -11;c9[i]=v;v=o[k10];if(n10&&typeof v!=='number')return -12;c10[i]=v;v=o[k11];if(n11&&typeof v!=='number')return -13;c11[i]=v;v=o[k12];if(n12&&typeof v!=='number')return -14;c12[i]=v;v=o[k13];if(n13&&typeof v!=='number')return -15;c13[i]=v;v=o[k14];if(n14&&typeof v!=='number')return -16;c14[i]=v;v=o[k15];if(n15&&typeof v!=='number')return -17;c15[i]=v;}return 0;}];
   function fusedExtractor(keys, types) {
     var sig = 'f' + keys.join('\u0001') + '\u0002' + types.join(''), f = GEN_CACHE[sig], j, src, nk = keys.length;
     if (f) return f;
@@ -3009,6 +3047,13 @@
       src += '}return r;';
       f = new Function('rows', 'n', 'keys', 'OP', 'T', src);
       f = (function (g) { return function (rows, n, ks) { return g(rows, n, ks, OP, takeF64); }; })(f);
+    } else if (FIXED_FUSE[nk]) {
+      f = function (rows, n, ks) {
+        var r = [], jj, c;
+        for (jj = 0; jj < nk; jj++) r.push(types[jj] === 'n' ? takeF64(n) : new Array(n));
+        c = FIXED_FUSE[nk](rows, 0, n, ks, types, r);
+        return c === 0 ? r : c;
+      };
     } else {
       f = function (rows, n, ks) {
         var r = [], i, jj, o, k, p, v;
@@ -3258,13 +3303,37 @@
   };
 
   // A column is returned as {n, mode, a, d}: mode 0 a[i] is the value, 1 a[i] === 1 is the value, 2 d[a[i]], 3 every value is d.
+  // A top-level text column of a view (lazyText) is made by lazyCol and has t = 4, 5 or 6 and the same mode: 4 FSST codes decoded per row, 5 one decoded text with the row ends (a.big, a.off: a string is cut when asked for),
+  // 6 a pattern whose strings are put together per row (a.row(i); the slots' numbers and lookup tables are kept for the memory report). The first reads cut one string each, so opening a page and reading a row or two stays cheap.
+  // A column that keeps being read (a scan, a list on screen) is turned into its strings in one pass after n/32 reads (at least 32; not for columns over 16,384 rows, so no read waits for a long pass), because cutting them all in a tight loop costs about a third of cutting them one by one;
+  // it then becomes a plain mode 0 column (t stays, for the memory report), so later reads cost what any column costs.
   // full() gives a plain array of the values.
-  function Col(n, mode, a, d) { this.n = n; this.mode = mode; this.a = a; this.d = d; }
-  Col.prototype.get = function (i) { var m = this.mode; if (m === 4) return fsGet(this.a, i); return m === 0 ? this.a[i] : m === 1 ? this.a[i] === 1 : m === 2 ? this.d[this.a[i]] : this.d; };
+  function Col(n, mode, a, d) { this.n = n; this.mode = mode; this.a = a; this.d = d; this.t = 0; this.hits = 0; }
+  Col.prototype.get = function (i) { var m = this.mode; return m === 0 ? this.a[i] : m === 1 ? this.a[i] === 1 : m === 2 ? this.d[this.a[i]] : m === 3 ? this.d : this.cut(i); };   // kept small on purpose: it is read once per value in every row builder and must stay inlinable
+  function lazyCol(n, kind, a) { var c = new Col(n, kind, a, null); c.t = kind; return c; }
+  Col.prototype.cut = function (i) {                                  // one string of a column that is not made yet
+    var a = this.a, m = this.mode;
+    if (this.n <= 16384 && ++this.hits > (this.n >> 5 > 32 ? this.n >> 5 : 32)) { this.fill(); return this.a[i]; }       // not for a column of more than 16,384 rows: making them all in one go would hold a slice of unpackAsync up
+    return m === 5 ? a.big.substring(a.off[i], a.off[i + 1]) : m === 6 ? a.row(i) : fsGet(a, i);
+  };
+  Col.prototype.make = function () {                                  // a new array of all the strings of a column that is not made yet
+    var n = this.n, a = this.a, out, i, big, off;
+    if (this.mode === 4) return fsAll(a, n);
+    out = new Array(n);
+    if (this.mode === 5) { big = a.big; off = a.off; for (i = 0; i < n; i++) out[i] = big.substring(off[i], off[i + 1]); }
+    else for (i = 0; i < n; i++) out[i] = a.row(i);
+    return out;
+  };
+  Col.prototype.fill = function () {                                  // keep the strings and let go of what only the cutting needed (row ends, numbers, codes); the big text stays, the cut strings are slices of it
+    var out = this.make();
+    this.d = this.mode === 5 ? { big: this.a.big, wide: this.a.wide } : null;
+    this.a = out; this.mode = 0;
+    return out;
+  };
   Col.prototype.full = function () {
     var n = this.n, a = this.a, d = this.d, out, i, m = this.mode;
-    if (m === 4) return fsAll(a, n);
-    if (m === 0 && Array.isArray(a)) return a;
+    if (m >= 4) return this.make();
+    if (m === 0 && Array.isArray(a)) return this.t ? a.slice() : a;
     out = new Array(n);
     if (m === 0) {                                                   // one loop per kind of array, so each loop sees one type
       if (a instanceof Float64Array) for (i = 0; i < n; i++) out[i] = a[i];
@@ -3366,7 +3435,7 @@
         a = new (m <= 256 ? Uint8Array : m <= 65536 ? Uint16Array : Uint32Array)(n);
         for (i = 0; i < n; i++) { if (!(t[i] >= 0 && t[i] < m)) jfail('dictionary index out of range'); a[i] = t[i]; }
         return new Col(n, 2, a, d);
-      case CT_STRR: return new Col(n, 0, this.rawStrings(n), null);
+      case CT_STRR: t = this.rawStrings(n, false, this.lazyText && this.depth === 1); return t instanceof Col ? t : new Col(n, 0, t, null);
       case CT_NULLABLE:
         m = c.varint(); if (m > n) jfail('bad count');
         kinds = this.blob(Uint8Array, n);
@@ -3577,7 +3646,7 @@
     }
     if (dec !== raw) jfail('FSST column decodes to the wrong size');
     a = { syms: syms, symLen: symLen, codes: codes, coff: coff, raw: raw, scratch: new Uint8Array(256), wasm: this.wasm };
-    if (this.lazyText && this.depth === 1) return new Col(n, 4, a, null);
+    if (this.lazyText && this.depth === 1) return lazyCol(n, 4, a);
     return new Col(n, 0, fsAll(a, n), null);
   };
   Dec.prototype.times = function (n) {
@@ -3591,7 +3660,7 @@
     if (R === g && n >= 2048) return new Col(n, 0, buildTimes(n, L, g, ts), null);
     cols = tsUnpack(g, ts, n).map(function (a) { var k, x = a[0]; for (k = 1; k < n && a[k] === x; k++); return k === n ? new Col(n, 3, null, x) : new Col(n, 0, a, null); });   // a number that never changes becomes part of the text
     for (j = g; j < R; j++) cols.push(this.column(n));
-    return new Col(n, 0, buildTemplate(n, [L], R, widths, null, cols), null);
+    return buildTemplate(n, [L], R, widths, null, cols, false);
   };
   Dec.prototype.template = function (n) {
     var c = this.c, nt = c.varint(), R = c.varint(), tpls = [], widths = [], tid = null, cols = [], t, j, i, L, w;
@@ -3601,7 +3670,7 @@
     for (j = 0; j < R; j++) { w = c.varint(); if (w === 1 || w > 15) jfail('bad string pattern'); widths.push(w); }
     if (nt > 1) { tid = this.blob(Uint8Array, n); for (i = 0; i < n; i++) if (tid[i] >= nt) jfail('bad string pattern'); }
     for (j = 0; j < R; j++) cols.push(this.column(n));
-    return new Col(n, 0, buildTemplate(n, tpls, R, widths, tid, cols), null);
+    return buildTemplate(n, tpls, R, widths, tid, cols, this.lazyText && this.depth === 1 && CAN_EVAL);
   };
   var ZEROS = '000000000000000';
   function pad(v, w) { var s = '' + v; return s.length >= w ? s : ZEROS.substring(0, w - s.length) + s; }
@@ -3657,7 +3726,7 @@
     return { lits: nl, R: nk.length, widths: nw, kinds: nk, arrs: na, tabs: nt, los: nlo };
   }
   // The strings come back as literal + number + literal ...; a column of numbers that spans few values is turned into text once and looked up.
-  function buildTemplate(n, tpls, R, widths, tid, cols) {
+  function buildTemplate(n, tpls, R, widths, tid, cols, lazy) {      // a Col; lazy: the strings are put together when a row is read, not now
     var nt = tpls.length, out = new Array(n), kinds = [], arrs = [], tabs = [], los = [], lits, j, t, i, a, lo, hi, x, k, sig, f, v;
     for (j = 0; j < R; j++) {
       a = cols[j]; kinds.push(0); arrs.push(null); tabs.push(null); los.push(0);
@@ -3670,7 +3739,7 @@
       } else if (widths[j]) kinds[j] = 2;
     }
     if (nt === 1 && (j = templateRun(n, tpls[0], R, widths, kinds, arrs, tabs, los))) { tpls = [j.lits]; R = j.R; widths = j.widths; kinds = j.kinds; arrs = j.arrs; tabs = j.tabs; los = j.los; }
-    sig = 'p' + nt + '|' + R + '|' + kinds.join('') + '|' + widths.join(',') + '|' + JSON.stringify(tpls);
+    sig = (lazy ? 'q' : 'p') + nt + '|' + R + '|' + kinds.join('') + '|' + widths.join(',') + '|' + JSON.stringify(tpls);
     f = GEN_CACHE[sig];
     if (!f) {
       if (CAN_EVAL) {
@@ -3685,7 +3754,10 @@
           e = e ? e + (pend ? '+' + JSON.stringify(pend) : '') : JSON.stringify(pend);
           body.push(e);
         }
-        if (nt === 1) src += 'out[i]=' + body[0] + ';}';
+        if (lazy) {
+          if (nt === 1) src = 'return function(i){return ' + body[0] + ';};';
+          else { src = 'return function(i){switch(tid[i]){'; for (t = 0; t < nt; t++) src += 'case ' + t + ':return ' + body[t] + ';'; src += '}};'; }
+        } else if (nt === 1) src += 'out[i]=' + body[0] + ';}';
         else { src += 't=tid[i];switch(t){'; for (t = 0; t < nt; t++) src += 'case ' + t + ':out[i]=' + body[t] + ';break;'; src += '}}'; }
         var params = ['out', 'n', 'tid', 'pad'];
         for (j = 0; j < R; j++) { params.push('A' + j); params.push('T' + j); params.push('LO' + j); }
@@ -3708,8 +3780,12 @@
     }
     var args = [out, n, tid, pad];
     for (j = 0; j < R; j++) { args.push(arrs[j]); args.push(tabs[j]); args.push(los[j]); }
+    if (lazy) {
+      var row = f.apply(null, args);
+      return lazyCol(n, 6, { row: row, arrs: arrs, tabs: tabs, tid: tid });
+    }
     f.apply(null, args);
-    return out;
+    return new Col(n, 0, out, null);
   }
   Dec.prototype.intCol = function (n) {
     var c = this.c, w = c.u8(), base, t, i, a, Ctor;
@@ -3729,7 +3805,7 @@
     if (ct !== CT_INT) jfail('bad lengths');
     return this.intCol(n);
   };
-  Dec.prototype.rawStrings = function (n, raw) {                 // raw: a single UTF-8 piece comes back as {lens, bytes} so the caller can work on the bytes
+  Dec.prototype.rawStrings = function (n, raw, lazy) {                 // raw: a single UTF-8 piece comes back as {lens, bytes} so the caller can work on the bytes
     var c = this.c, lens, pieces, out = new Array(n), q = 0, pi, kind, len, cnt, bytes, big, off, i, u, end;
     this.spend(n);
     lens = this.lengthCol(n);
@@ -3742,6 +3818,12 @@
       if (kind === 0) { bytes = this.blob(Uint8Array, len); big = TEXT_DEC.decode(bytes); }
       else if (kind === 1) { u = this.blob(Uint16Array, len); big = codesToString(u); }
       else jfail('bad text');
+      if (lazy && pieces === 1 && cnt === n) {                      // one piece: keep the text whole and the row ends; a string is cut out when it is read
+        off = new Uint32Array(n + 1);
+        for (i = 0; i < n; i++) { off[i + 1] = off[i] + lens.get(i); if (off[i + 1] > big.length) jfail('bad string lengths'); }
+        if (off[n] !== big.length) jfail('bad string lengths');
+        return lazyCol(n, 5, { big: big, off: off, wide: kind === 1 });
+      }
       off = 0; end = q + cnt;
       for (; q < end; q++) {
         i = lens.get(q);
@@ -3877,6 +3959,8 @@
       src += '}return 0;';
       f = new Function('rows', 'from', 'to', 'keys', 'cols', 'OP', src);
       f = (function (g) { return function (rows, from, to, ks, cols) { return g(rows, from, to, ks, cols, OP); }; })(f);
+    } else if (FIXED_FUSE[nk]) {
+      f = function (rows, from, to, ks, cols) { return FIXED_FUSE[nk](rows, from, to, ks, types, cols); };
     } else {
       f = function (rows, from, to, ks, cols) {
         var i, jj, o, k, p, v;
@@ -4200,6 +4284,7 @@
       n = c.varint();
       if (n < SLICE_MIN) { c.p = p0; return Promise.resolve(finishUnpack(d)); }
       d.depth = 1; d.spend(n);
+      d.onRows = opts && typeof opts.onRows === 'function' ? opts.onRows : null;                 // opts.onRows(rows, from, to): called after each slice with the list being filled, rows from..to-1 ready (a list of records, not nested ones)
     } catch (err) { return Promise.reject(err); }
     return d.columnAsync(n).then(function (col) {
       var out = col.full();
@@ -4220,7 +4305,7 @@
     return p.then(function (col) { d.depth--; return col; });
   };
   Dec.prototype.recordsAsync = function (n) {                              // CT_RECORDS with one shape (format 2): the byte for the kind is read, the shape count is not
-    var d = this, c = d.c, ns = c.varint(), nk, j = 0, keys = [], dirC = [], dirB = [], cols = [], modes = [], out;
+    var d = this, c = d.c, ns = c.varint(), nk, j = 0, keys = [], dirC = [], dirB = [], cols = [], modes = [], out, tell = d.onRows && d.depth === 2 ? d.onRows : null;
     nk = c.varint(); if (nk > 100000) jfail('too many keys');
     for (j = 0; j < nk; j++) keys.push(c.u8() === 0 ? c.str() : d.str16());
     d.spend(n * nk);
@@ -4242,11 +4327,11 @@
       out = new Array(n);
       if (!CAN_EVAL) {
         plain = cols.map(plainCol);
-        return slicedLoop(n, function (from, to) { fixedRows(out, from, to, keys, plain); return true; }, UNPACK_SLICE_MS);
+        return slicedLoop(n, function (from, to) { fixedRows(out, from, to, keys, plain); if (tell) tell(out, from, to); return true; }, UNPACK_SLICE_MS);
       }
       f = builderSlice(keys, modes); args = [out, 0, 0];
       for (k = 0; k < nk; k++) { args.push(cols[k].a); args.push(cols[k].d); }
-      return slicedLoop(n, function (from, to) { args[1] = from; args[2] = to; f.apply(null, args); return true; }, UNPACK_SLICE_MS);
+      return slicedLoop(n, function (from, to) { args[1] = from; args[2] = to; f.apply(null, args); if (tell) tell(out, from, to); return true; }, UNPACK_SLICE_MS);
     }).then(function () { return new Col(n, 0, out, null); });
   };
   Dec.prototype.tupleAsync = function (n) {
@@ -4361,13 +4446,26 @@
       } else getter = function (i) { var o = {}, q; for (q = 0; q < nk; q++) define(o, keys[q], cols[q].get(i)); return o; };
       return getter;
     }
-    function colBytes(x) {                                          // about: 8 bytes a slot, plus a byte a character for text
-      var t, i, a = x.a;
-      if (x.mode === 3) return 0;
-      if (x.mode === 4) return a.codes.byteLength + a.coff.byteLength;
-      if (a.byteLength !== undefined) return a.byteLength;
-      t = a.length * 8; for (i = 0; i < a.length; i++) if (typeof a[i] === 'string') t += a[i].length;   // rows where the key is missing are undefined: count only the text
-      return t;
+    function colBytes(x) {                                          // about what the restored column takes: a number column exactly, text 8 bytes a slot plus a string header (32 for a long one, as it is cut from a bigger text) and the text itself
+      var a = x.a, m = x.mode;
+      if (m === 3) return 0;
+      if (x.t && m === 0) {                                           // a text column read often enough to have been made in one pass: the strings (a cut one is a 32 byte header on the big text, which stays)
+        var k, t2 = 24, len;
+        if (!x.d) return t2 + estimateBytes(a);
+        for (k = 0; k < a.length; k++) { len = a[k].length; t2 += 8 + (len >= 13 ? 32 : 16 + len); }
+        return t2 + x.d.big.length * (x.d.wide ? 2 : 1);
+      }
+      if (m === 4) return a.codes.byteLength + a.coff.byteLength + a.syms.length * 24 + 64;
+      if (m === 5) return 16 + a.off.byteLength + a.big.length * (a.wide ? 2 : 1);
+      if (m === 6) {                                                  // the numbers each slot reads and the tables of text it looks up
+        var t = 16 + (a.tid ? a.tid.byteLength : 0), seen = [], j;
+        for (j = 0; j < a.arrs.length; j++) if (a.arrs[j] && seen.indexOf(a.arrs[j]) < 0) { seen.push(a.arrs[j]); t += 16 + a.arrs[j].byteLength; }
+        for (j = 0; j < a.tabs.length; j++) if (a.tabs[j]) t += estimateBytes(a.tabs[j], 32);
+        return t;
+      }
+      if (m === 2) return a.byteLength + 16 + estimateBytes(x.d, 32);
+      if (a.byteLength !== undefined) return a.byteLength + 16;
+      return estimateBytes(a, 32) + 16;
     }
     return {
       length: n, keys: keys.slice(), lazy: lazy,
@@ -4375,7 +4473,7 @@
       field: function (i, key) { var q = index[key]; if (q === undefined || i < 0 || i >= n) return undefined; return col(q).get(i); },
       column: function (key) {                                  // the values of one key: a typed array when the column is numeric, otherwise a plain array
         var q = index[key], x; if (q === undefined) return undefined; x = col(q);
-        return x.mode === 0 ? x.a : x.full();
+        return x.mode === 0 && !x.t ? x.a : x.full();
       },
       slice: function (from, to) {                                // the objects from row from up to (not including) row to, made now; the other rows stay packed
         var out, g, i;
@@ -4388,7 +4486,7 @@
       toArray: function () { var out = new Array(n), q, g = getter || makeGetter(); for (q = 0; q < n; q++) out[q] = g(q); return out; },
       loaded: function () { return keys.filter(function (k, q) { return cols[q]; }); },
       release: function () { var q; if (!lazy) jfail('release() needs a file made by format 2 (pack it again)'); for (q = 0; q < nk; q++) cols[q] = undefined; getter = null; },
-      memory: function () { var q, dec = 0; for (q = 0; q < nk; q++) if (cols[q]) dec += colBytes(cols[q]); return { packed: bytes.length, restored: dec }; }
+      memory: function () { var q, dec = 0, any = false; for (q = 0; q < nk; q++) if (cols[q]) { dec += colBytes(cols[q]); any = true; } return { packed: bytes.length, restored: any ? dec + 8192 : 0 }; }   // 8 KB: what an open view itself takes
     };
   }
 
@@ -4400,12 +4498,13 @@
   }
   // estimateBytes(value): roughly how many bytes the value takes as live JavaScript objects (an estimate, usually within a third): 16 bytes of header and 8 per property or element,
   // 8 per number that is not a small whole number, strings by length, typed arrays exactly. Arrays of 200 or more objects are sampled.
-  function estimateBytes(value) {
-    var seen = new Set();
+  // A string that shows up again costs nothing more (the same string is shared); head is what a string costs besides its characters (16, or 32 for a long string cut out of a bigger one).
+  function estimateBytes(value, head) {
+    var seen = new Set(), seenS = new Set(), hs = head || 16;
     function walk(v, depth) {
       var t = typeof v, b, k, i, n, keys, step, sum;
       if (t === 'number') return v === (v | 0) ? 0 : 8;
-      if (t === 'string') return 16 + v.length;
+      if (t === 'string') { if (v.length === 0 || seenS.has(v)) return 0; if (seenS.size < 4096) seenS.add(v); return (v.length >= 13 ? hs : 16) + v.length; }
       if (t === 'bigint') return 16;
       if (v === null || t !== 'object' || depth > 40) return 0;
       if (seen.has(v)) return 0;
@@ -4680,7 +4779,7 @@
   function pager(list, opts) {
     var store, uid = Math.random().toString(36).slice(2, 10), o = pagerAuto(list, opts), rows = o.pageRows > 0 ? Math.floor(o.pageRows) : 2048, n = list.length, np = Math.ceil(n / rows), pages = new Array(np), maxLive = o.livePages >= 0 ? Math.floor(o.livePages) : 4,
       asView = !!o.pageView, coldOn = !!o.cold, coldAfter = o.coldAfter > 0 ? o.coldAfter : 3000, touched = 0, coldTimer = null, coolBad = false, ahead = o.readAhead !== false && !o.pageView, auto = o.auto !== false, live = 0, clock = 0, lastPage = -2, level = 0, packOpts = {}, k, p, st = { pageIns: 0, pageOuts: 0, repacks: 0, hits: 0 }, P, factor = 1;
-    packOpts.hints = {};                         // each column remembers which number ways won on earlier pages (every 4th pack still tries them all)
+    packOpts.hints = {};                         // each column remembers which number ways won on earlier pages (every 8th pack still tries them all)
     for (k in o) if (k !== 'pageRows' && k !== 'livePages' && k !== 'readAhead' && k !== 'auto' && k !== 'onPressure' && k !== 'background' && k !== 'sliceMs' && k !== 'spill' && k !== 'spillAt' && k !== 'onError' && k !== 'deviceMemory' && k !== 'heapBytes' && k !== 'pageView' && k !== 'cold' && k !== 'coldAfter') packOpts[k] = o[k];
     if (!Array.isArray(list)) jfail('pager() needs an array');
     store = o.spill ? (o.spill === true ? idbStore() : o.spill) : null;
@@ -4950,12 +5049,12 @@
     function start() {                                             // pool.start(): make the workers now and pack a small made-up list once with them (the result is thrown away), so the first real packAsync does not pay for loading the file and for the first run of the code on both sides
       var sample = [], i;
       begin();
-      if (primed || !usable || !ws.length) return;
+      if (primed || !usable || !ws.length) return Promise.resolve(false);
       primed = true;
       try {
         for (i = 0; i < 2500; i++) sample.push({ id: i, a: (i * 7919) % 900, b: (i * 104729) % 913, w: ((i * 31) % 1000) / 10, t: 1700000000 + i * 37 + (i * i) % 29 });
-        unified.packAsync(sample, { mode: 'balanced', workers: handle }).then(function () { }, function () { });
-      } catch (err) { }
+        return unified.packAsync(sample, { mode: 'balanced', workers: handle }).then(function () { return true; }, function () { return false; });   // resolves true once the first real pack will meet warm workers
+      } catch (err) { return Promise.resolve(false); }
     }
     function close() { fail('closed'); }
     handle = { run: run, close: close, start: start, size: size };
