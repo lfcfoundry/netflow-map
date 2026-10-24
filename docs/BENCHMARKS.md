@@ -1790,3 +1790,17 @@ Set `NFM_CHROME` and `NFM_FIREFOX` to the browser programs, and `NFM_PLAYWRIGHT`
 | WebKitGTK, 30,000 | 57-62 | 54-58 | 21-25 / 22-27 |
 
 Packing is 5 to 28% faster; waking ties. Earlier 2.5.1 and 2.6.0 runs seemed to show a slower all-at-once wake in Chromium; JS-modules could not reproduce it and the alternating runs above scatter both ways. The page is 17.7 KB larger (1,083,834 to 1,101,574 bytes).
+
+## 46. Layered layouts with netflow-layers 1.5.0 (2026-10-24, was 1.4.0)
+
+**What.** `vendor/netflow-layers.js` is now an exact copy of JS-modules netflow-layers 1.5.0 (row-order search and row placement in WebAssembly for maps of 100 stops or more; the page rule already has `'wasm-unsafe-eval'`, nothing is fetched). `node bench/layers-same.js /tmp/nl-140.js vendor/netflow-layers.js`: 576 layouts compared, 0 different. `node bench/layers-alt.js <browser> 5 old new 300,2000,5000 flow moderate`: fresh page each time, versions taking turns.
+
+**First Flow layout, milliseconds, lower is better (median of 5; ratio = old / new, higher is better).**
+
+| Map | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---|---|---|
+| 300 nodes | 13 to 8 (1.65) | 20 to 18 (1.11) | 10 to 10 (1.00) |
+| 1,999 nodes | 91 to 63 (1.45) | 123 to 88 (1.40) | 78 to 63 (1.24) |
+| 4,999 nodes | 510 to 297 (1.72) | 567 to 328 (1.73) | 390 to 275 (1.42) |
+
+A second layout in the same page and a layout after a moment gain 1.1 to 1.9 times in every cell; nothing is slower. Results are in `bench/results/layers-alt-moderate-*.json`.
