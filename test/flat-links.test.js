@@ -1,6 +1,6 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. A big flat map is built straight into the packed link lists (S.flatLinks in src/scene.js): the links equal the ones a styled build makes as objects (to 32-bit precision), styling and the picture lists read them without waking the objects, and S.curves still gives the objects. Pass/fail only. */
 'use strict';
-const E = require('../src/engine.js'), SC = require('../src/scene.js'), EX = require('../src/examples.js');
+const E = require('../src/engine.js'), SC = require('../vendor/netflow-scene.js'), EX = require('../src/examples.js');
 const ok = (c, m) => { if (!c) { console.log('FAIL ' + m); process.exit(1); } };
 const L = E.build(EX.bigNetwork(1500, 4, 7), { view: 'network', arrange: 'circle', colorBy: 'group' });
 const base = { colorBy: 'group', theme: 'light' };

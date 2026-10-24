@@ -1,7 +1,7 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. Scene links kept as typed arrays while idle (curveStore in src/scene.js): the objects that come back equal the originals, one link can be read without waking the rest,
  * odd links stop the pack, the idle timer packs in slices, and picking works on a packed scene. Pass/fail only. */
 'use strict';
-const E = require('../src/engine.js'), SC = require('../src/scene.js'), EX = require('../src/examples.js');
+const E = require('../src/engine.js'), SC = require('../vendor/netflow-scene.js'), EX = require('../src/examples.js');
 let bad = 0;
 const t = (name, fn) => { try { const r = fn instanceof Function && fn.constructor.name === 'AsyncFunction' ? null : fn(); if (r && r.then) return r.then((v) => console.log('ok   ' + name + (v ? ' ' + v : '')), (e) => { bad++; console.log('FAIL ' + name + ': ' + (e && e.message)); }); console.log('ok   ' + name + (r ? ' ' + r : '')); } catch (e) { bad++; console.log('FAIL ' + name + ': ' + e.message); } };
 const ok = (c, m) => { if (!c) throw new Error(m); };

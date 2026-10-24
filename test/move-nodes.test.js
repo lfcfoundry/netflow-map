@@ -1,7 +1,7 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. Moving items by hand on a big flat map: S.moveNodes (scene.js) must leave the dots, names, icons, node boxes and straight links exactly as building the picture again from the new places gives. */
 'use strict';
 global.NFMColumns = require('../src/columns.js'); global.NFMSim = require('../src/sim.js'); global.NFMCheck = require('../src/check.js'); global.NFMPack = require('../src/pack.js');
-const E = require('../src/engine.js'); global.NFMEngine = E; const SC = require('../src/scene.js'), GEN = require('../bench/gen.js'); let bad = 0;
+const E = require('../src/engine.js'); global.NFMEngine = E; const SC = require('../vendor/netflow-scene.js'), GEN = require('../bench/gen.js'); let bad = 0;
 const ok = (c, m) => { if (!c) throw new Error(m); };
 const t = (name, fn) => { const t0 = Date.now(); try { const r = fn(); console.log('ok   ' + name + ' (' + (Date.now() - t0) + ' ms)' + (r ? ' ' + r : '')); } catch (e) { bad++; console.log('FAIL ' + name + ': ' + e.message); } };
 const derive = (g) => NFMColumns.derive(JSON.parse(JSON.stringify(g)));
