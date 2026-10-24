@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39,
 
 ## October 24
 
+- **2026.10.23.2338** A packed link list could be left unreadable if it was parked by hand while the idle background pack was part way through (the next link read failed with "reading 'edges:0'"): the background pack now gives way when anything else took over. Found by a 100,000-item timing run; the 2,000-item run never starts that pack. New test fails before and passes after; all 33 Node tests and the browser test pass in Chromium (186 checks), Firefox (174) and WebKitGTK (174). Nothing drawn changes.
 - **2026.10.23.2131** Basic (Canvas 2D) drawing is faster for straight links: they are drawn as lines instead of curves that happen to be straight. At 93,232 links one draw takes 757 to 629 ms in Chromium, 462 to 385 ms in Firefox and 7,258 to 934 ms in WebKitGTK (lower is better). Edge pixels differ slightly: 99.84% or more of color values within 5 of 255 in all three. Big maps on the graphics card are not affected.
 
 ## October 23

@@ -83,10 +83,11 @@
       if (Date.now() - touchedAt >= delay && size() >= min && !(o.hold && o.hold())) startPack(); else schedule();
     }
     function startPack() {
-      var jobs = [], t0 = touchedAt;
-      K = {}; busy = true;
+      var jobs = [], t0 = touchedAt, mine = {};
+      K = mine; busy = true;
       KEYS.forEach(function (k) { cnt[k] = live[k].length; for (var i = 0; i < live[k].length; i += CHUNK) jobs.push({ k: k, from: i }); });
       (function next() {
+        if (K !== mine) { busy = false; return; }   /* parkNow or a wake took over while this was waiting for its next turn: the store it finished or dropped is not this one */
         if (gone || touchedAt !== t0 || (o.hold && o.hold())) { dropPartial(); schedule(); return; }
         var j = jobs.shift();
         if (!j) { finish(); return; }
