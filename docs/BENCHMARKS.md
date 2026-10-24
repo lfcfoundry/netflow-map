@@ -1716,6 +1716,12 @@ Draw time, taking turns inside one page with a pixel read after each draw (`benc
 
 `bench/park-wake.js`, 100,000 items (311,667 links, 13 pieces of 25,000), median of 5, page held while the parked list comes back (ms, lower is better). Reading `L.edges` wakes everything at once: Chromium 155 222 to 125, Firefox 158 273 to 101, WebKitGTK 2.52.6 207 to 101, GNOME Web 46.5 190 to 125 (the vendored module 2.3.4 to 2.4.9). New `L.wakeAsync()` opens each piece a column at a time (`unpackAsync`): the longest hold is 34 / 14 / 19 / 23 ms, and the list is ready after 140 / 171 / 117 / 125 ms. The page asks for it when a control or key is touched (not when the picture is panned or zoomed) and before a queued picture rebuild; a read in the meantime still wakes everything at once, as before. Cost: the page is 30 KB larger (1,028 to 1,058 KB). Checks 186 / 174 / 174 / 174. Not done (the brief says it does not pay): packing saved layouts. To re-time when module briefs 2.4.10 and 2.4.11 land.
 
+## 44. Basic drawing: straight links drawn as lines (2026-10-24)
+
+`bench/canvas-lines-ab.js`, 30,000 items = 93,232 links, older page against newer page in fresh pages taking turns, median of 3 draws each, a pixel read after every draw (software canvas in the test container; ms, lower is better). Chromium 155: 757 to 629 ms (0.83). Firefox 158: 462 to 385 (0.83). WebKitGTK 2.52.6: 7,258 to 934 (0.13). A straight link used to be drawn as a curve that happens to be straight; it is now a line (`src/render.js`). The new picture against the old one (share of red, green and blue values): exact 81.4 / 81.4 / 75.6%, within 2 levels of 255 99.13 / 98.92 / 96.62%, within 5 levels 99.988 / 99.979 / 99.842% (largest difference 20 / 20 / 66 of 255; only antialiased edge pixels differ). The owner counts 5 levels as a match, so the 99.5% rule holds in all three. Also in this change: the pen (color, alpha, width) is set only when it changes; that part draws the exact same picture and its time ties (1.01 / 1.00 / 1.00).
+
+Not found worth doing: grouping same-style links into shared strokes (36 to 239% slower in the software canvas and it changes the picture). A real graphics-card canvas was not timed. Checks 186 / 174 / 174.
+
 ## Reproduce
 
 ```
