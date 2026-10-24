@@ -1,4 +1,4 @@
-/* Copyright (c) 2026 LFC Foundry. MIT License. Says whether the four-browser test is needed for what changed, so a words-only, benchmark-only or Node-test-only change skips about 275 s of browser time (Chromium 73 s, Firefox 69 s, WebKitGTK 62 s, GNOME Web 70 s, one at a time).
+/* Copyright (c) 2026 LFC Foundry. MIT License. Says whether the three-browser test is needed for what changed, so a words-only, benchmark-only or Node-test-only change skips about 205 s of browser time (Chromium 73 s, Firefox 69 s, WebKitGTK 62 s, one at a time; GNOME Web left the suite on 2026-10-24).
  *   node test/need-browser.js [--since REF]     prints "yes: ..." or "no: ..." and exits 0 either way (default: changes since HEAD, plus new files; with --since origin/main, everything the branch changed)
  * "yes" when anything the page is built from changed (src/, vendor/, wasm/, the build tools, the baseline) or a file is not recognized; "no" for CHANGELOG, README, AGENTS, docs/, bench/ and Node-only tests. */
 'use strict';
