@@ -1,11 +1,12 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. One browser session that exercises the built index.html.
- *   node test/browser.test.js chromium|firefox|webkit|epiphany [outdir]   (webkit = WebKitGTK 2.52.6 through bench/webkit-driver.js; epiphany = GNOME Web)
+ *   node test/browser.test.js chromium|firefox|webkit [outdir]   (webkit = WebKitGTK 2.52.6 through bench/webkit-driver.js; GNOME Web was dropped from the test suite on 2026-10-24)
  * chromium: Playwright (NFM_PLAYWRIGHT = path to playwright-core, NFM_CHROME = browser program; ungoogled-chromium 155 from the browsers branch)
  * NFM_PAGE = the page to test (default index.html; index.packed.html tests the self-extracting copy)
  * firefox:  Puppeteer over WebDriver BiDi (NFM_PUPPETEER = path to puppeteer-core, NFM_FIREFOX = browser program) */
 'use strict';
 const path = require('path');
 const which = process.argv[2] || 'chromium', outDir = process.argv[3] || '/tmp';
+if (['chromium', 'firefox', 'webkit'].indexOf(which) < 0) { console.error('unknown browser "' + which + '": use chromium, firefox or webkit (GNOME Web was dropped from the suite on 2026-10-24)'); process.exit(2); }
 const strict = which === 'chromium' || !!process.env.NFM_STRICT;
 const flags = ['--no-sandbox', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist'];
 const T0 = Date.now(); let tLast = T0;   /* NFM_TIMES=1 puts the seconds since the last line in front of every line: where the time goes */
@@ -14,8 +15,8 @@ let slept = 0, sleeps = 0; const sites = {}; const sleep = (ms) => { slept += ms
 /* Short pauses only let the screen catch up after a click or drag. Wait for three real animation frames plus a quarter of the old pause instead of the whole pause (NFM_SLOW=1 restores the full pauses). Long pauses (over 450 ms) are real time (easing, playback) and stay as they were. */
 
 async function open() {
-  if (which === 'webkit' || which === 'epiphany') {   /* WebKitGTK / GNOME Web through bench/webkit-driver.js (Playwright and Puppeteer cannot drive them); software drawing, a virtual screen */
-    const WD = require('../bench/webkit-driver.js'), b = await WD.launch({ browser: which === 'epiphany' ? 'epiphany' : 'webkitgtk', width: 1100, height: 720 }), page = b.page;
+  if (which === 'webkit') {   /* WebKitGTK through bench/webkit-driver.js (Playwright and Puppeteer cannot drive them); software drawing, a virtual screen */
+    const WD = require('../bench/webkit-driver.js'), b = await WD.launch({ browser: 'webkitgtk', width: 1100, height: 720 }), page = b.page;
     return { b, page, close: () => b.close(), size: (w, h) => page.setViewport({ width: w, height: h }), wait: (fn, arg, ms) => page.waitForFunction(fn, arg, { timeout: ms || 20000 }), shot: (p) => page.screenshot({ path: p }), click: (x, y) => page.mouse.click(x, y), press: (k) => page.keyboard.press(k),
       drag: async (x0, y0, x1, y1) => { await page.mouse.move(x0, y0); await page.mouse.down(); await page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 }); await page.mouse.move(x1, y1, { steps: 4 }); await page.mouse.up(); }, version: b.version };
   }
