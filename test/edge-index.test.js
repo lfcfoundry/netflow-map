@@ -1,7 +1,7 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. The hover index of the links (typed-array grid in src/scene.js) gives exactly the answers of the earlier one (a Map of arrays), on many points, tolerances and views;
  * it also works on a packed scene and with odd numbers in a link. Pass/fail only. */
 'use strict';
-const E = require('../src/engine.js'), SC = require('../src/scene.js'), EX = require('../src/examples.js');
+const E = require('../src/engine.js'), SC = require('../vendor/netflow-scene.js'), EX = require('../src/examples.js');
 let bad = 0;
 const t = (name, fn) => { try { const r = fn(); console.log('ok   ' + name + (r ? ' ' + r : '')); } catch (e) { bad++; console.log('FAIL ' + name + ': ' + e.message); } };
 const ok = (c, m) => { if (!c) throw new Error(m); };

@@ -1,6 +1,6 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. Link looks kept between pictures of a flat map (o.lookPlan in src/scene.js): same links as a fresh build, the look is worked out once, and a plan for another map, theme or link count starts over. Pass/fail only. */
 'use strict';
-const E = require('../src/engine.js'), SC = require('../src/scene.js'), EX = require('../src/examples.js');
+const E = require('../src/engine.js'), SC = require('../vendor/netflow-scene.js'), EX = require('../src/examples.js');
 const ok = (c, m) => { if (!c) { console.log('FAIL ' + m); process.exit(1); } };
 const L = E.build(EX.bigNetwork(1200, 6, 7), { view: 'network', arrange: 'circle', colorBy: 'group' });
 let calls = 0;

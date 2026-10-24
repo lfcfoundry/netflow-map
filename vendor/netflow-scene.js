@@ -1,4 +1,20 @@
 /*!
+ * netflow-scene.js: turns a Netflow Map layout into plain drawing lists (dots, links, labels, ribbons, shapes) that Canvas 2D, WebGL2, WebGPU or SVG can draw the same way. No page, no DOM, no dependencies.
+ * Big flat maps keep their links in typed lists and reuse each link's look between pictures, so rebuilding after a move is faster with the same pixels.
+ * Part of JS-modules, https://github.com/lfcfoundry/JS-modules
+ * Copyright (c) 2026 LFC Foundry. MIT License (see LICENSE at the repository root).
+ * Version 1.0.0 (API 1)
+ *
+ *   var L = NetflowEngine.build(graph, { view: 'network' });          // netflow-engine 2.2.2 or newer
+ *   var S = NetflowScene.make(L, { theme: 'light', colorBy: 'group' }); // S.dots, S.curves, S.labels ...
+ *   svgText = NetflowScene.toSvg(S, 'My map');
+ */
+
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.NetflowScene = factory();
+}(typeof self !== 'undefined' ? self : this, function () {
+/*
  * Netflow Map scene: turns an engine layout into plain drawing lists that every drawing backend (Canvas2D, WebGL2, WebGPU)
  * and the SVG export read the same way. No DOM. Copyright (c) 2026 LFC Foundry. MIT License.
  *
@@ -16,6 +32,8 @@
 var NFMScene = (function () {
   'use strict';
   var HEAD = 9;
+  var engineTried = false, engineMod = null;
+  function engineFile() { if (!engineTried) { engineTried = true; try { if (typeof require === 'function') engineMod = require('../netflow-engine/netflow-engine.js'); } catch (e) { engineMod = null; } } return engineMod; }
   var PICTURE_PAD = 30;   /* empty space kept around the picture */
 
   /* ---------------------------------------------------------------- colors */
@@ -130,6 +148,8 @@ var NFMScene = (function () {
   }
   function fmtNum(v) {
     if (typeof NFMColumns !== 'undefined') return NFMColumns.fmt(v);
+    var NE = typeof NetflowEngine !== 'undefined' ? NetflowEngine : engineFile();
+    if (NE && NE.columns && NE.columns.fmt) return NE.columns.fmt(v);
     return String(Math.round(v * 100) / 100);
   }
   function clip(s, n) { s = String(s === undefined || s === null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
@@ -1365,4 +1385,5 @@ var NFMScene = (function () {
     css: css, hex: hex, toHex: toHex, mix: mix, alpha: alpha, arrowTri: arrowTri, bez: bez, HEAD: HEAD, labelBox: labelBox
   };
 })();
-if (typeof module !== 'undefined' && module.exports) module.exports = NFMScene;
+  return NFMScene;
+}));

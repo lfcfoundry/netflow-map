@@ -6,7 +6,7 @@
 // (Node 22. For the jso module use a checkout of its main branch, version 1.1.1 or later.)
 const PATH=require('path'), R=PATH.resolve(__dirname,'..','..')+'/', JSM=process.env.JSM||PATH.resolve(R,'..','JS-modules');
 const J=JSM+'/modules/memory-compression/';
-global.NFMColumns=require(R+'src/columns.js'); const E=require(R+'src/engine.js'); global.NFMEngine=E; const SC=require(R+'src/scene.js'); const GEN=require(R+'bench/gen.js'), C=global.NFMColumns;
+global.NFMColumns=require(R+'src/columns.js'); const E=require(R+'src/engine.js'); global.NFMEngine=E; const SC=require(R+'vendor/netflow-scene.js', 'src/scene-alias.js'); const GEN=require(R+'bench/gen.js'), C=global.NFMColumns;
 const MC=require(J+'memory-compression.js'); const N=Number(process.argv[2])||100000;
 const heap=()=>{global.gc();global.gc();return process.memoryUsage().heapUsed/1048576;};
 const t=(f)=>{const a=process.hrtime.bigint();const r=f();return [r,Number(process.hrtime.bigint()-a)/1e6];};
