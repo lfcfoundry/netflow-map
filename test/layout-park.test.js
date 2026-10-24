@@ -53,3 +53,14 @@ function same(a, b) { assert.deepStrictEqual(b, a); }
   same(copy, e); assert.strictEqual(L.edges, e, 'one array, no second copy swapped in');
   console.log('layout park: sliced wake checks passed');
 })();
+(async function () {   /* parkNow() while the idle pack is part way through (what the 100,000-item bench did): the packed list must stay readable */
+  const L = { nodes: [{ id: 'x' }], edges: mkEdges(80000), n: 1, m: 80000 }, copy = structuredClone(L.edges);
+  Park.attach(L, { delay: 1, min: 1 });
+  await new Promise((r) => setTimeout(r, 1000 + 15));   /* the idle timer starts the background pack at 1 s; it packs one 25,000-link piece per tick */
+  assert.strictEqual(L.parkNow(), true, 'parked by hand while the background pack runs');
+  await new Promise((r) => setTimeout(r, 300));          /* the background pack reaches its next step */
+  assert.strictEqual(L.parked(), true, 'still parked');
+  same(copy[0], L.edgeAt(0)); same(copy[79999], L.edgeAt(79999)); assert.strictEqual(L.parkBytes() > 0, true);
+  same(copy, L.edges);
+  console.log('layout park: hand park during the idle pack checks passed');
+})();
