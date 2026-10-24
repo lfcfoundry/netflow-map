@@ -1775,3 +1775,18 @@ node stress-tune.js moderate 10000 before '{}'       # Node-only side by side of
 ```
 
 Set `NFM_CHROME` and `NFM_FIREFOX` to the browser programs, and `NFM_PLAYWRIGHT` / `NFM_PUPPETEER` to the driver libraries when they are not in the default places (see `bench/driver.js`).
+
+## 45. Parking and waking links with memory-compression 2.6.2 (2026-10-24)
+
+`node bench/park-wake.js chromium|firefox|webkit 100000|30000 page.html 5`, the page built with 2.4.9 against the page built with 2.6.2 (only `vendor/memory-compression.js` differs), alternating, two loads each. Pack = `L.parkNow()`. Lower is better. The all-at-once wake of the same page swings between about 75 and 125 ms from run to run in Chromium (both versions), so the 40-round checks at 30,000 items (Chromium and Firefox) are the verdict for it.
+
+| Browser, items | Pack 2.4.9 (ms) | Pack 2.6.2 (ms) | Wake all at once 2.4.9 / 2.6.2 (ms) |
+|---|---|---|---|
+| Chromium 155, 100,000 | 200-210 | 147-152 | 125-127 / 70-121 (no direction) |
+| Firefox 158, 100,000 | 286-306 | 257-275 | 99-103 / 101-103 |
+| WebKitGTK 2.52.6, 100,000 | 203-214 | 178-193 | 83-136 / 105-112 (no direction) |
+| Chromium, 30,000 (40 rounds) | 56-57 | 43 | 32-34 / 32-33; sliced wall 33-35 / 34-35 |
+| Firefox, 30,000 (40 rounds) | 67-70 | 58-60 | 36-38 / 35 |
+| WebKitGTK, 30,000 | 57-62 | 54-58 | 21-25 / 22-27 |
+
+Packing is 5 to 28% faster; waking ties. Earlier 2.5.1 and 2.6.0 runs seemed to show a slower all-at-once wake in Chromium; JS-modules could not reproduce it and the alternating runs above scatter both ways. The page is 17.7 KB larger (1,083,834 to 1,101,574 bytes).
