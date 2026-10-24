@@ -3,11 +3,11 @@
 # Session-start hook: installs the four standing test browsers (copy of tools/boot-browsers.sh in lfcfoundry/knowledge-base). Runs only in cloud sessions.
 [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
 #
-# One command that gets a fresh Linux x86_64 machine ready to test in the four standing browsers (Firefox 158.0, ungoogled-chromium 155.0.8059.39-1,
-# WebKitGTK 2.52.6, GNOME Web 46.5) and writes ~/.lfc-browsers.env with the paths the tests read. Safe to run again: it skips what is already there.
+# One command that gets a fresh Linux x86_64 machine ready to test in the three standing browsers (Firefox 158.0, ungoogled-chromium 155.0.8059.39-1,
+# WebKitGTK 2.52.6; GNOME Web was dropped on 2026-10-24) and writes ~/.lfc-browsers.env with the paths the tests read. Safe to run again: it skips what is already there.
 #   sh tools/boot-browsers.sh            (about 1 to 2 minutes the first time, a few seconds after)
 # Runs as a cloud-environment setup script or a session-start hook. Needs git access to lfcfoundry/knowledge-base (attached to the project) and, for
-# WebKitGTK and GNOME Web, root or sudo. It never fails the session: a step that cannot run says why and the script goes on.
+# WebKitGTK, root or sudo. It never fails the session: a step that cannot run says why and the script goes on.
 set -u
 REPO=${KB_REPO:-https://github.com/lfcfoundry/knowledge-base}
 HERE_ROOT=${BROWSERS_HOME:-$HOME}
@@ -23,7 +23,7 @@ else
 fi
 
 CHROME=$(ls -d "$DEST"/ungoogled-chromium-*/chrome 2>/dev/null | head -1)
-if [ -z "$CHROME" ] || [ ! -x "$DEST/firefox/firefox" ] || [ ! -x /usr/bin/epiphany ]; then
+if [ -z "$CHROME" ] || [ ! -x "$DEST/firefox/firefox" ]; then
   sh "$KB/install.sh" "$DEST" >&2 || say "install.sh reported a problem; see above"
 fi
 
@@ -40,5 +40,5 @@ export NFM_PLAYWRIGHT=/tmp/pw/node_modules/playwright-core
 export NFM_PUPPETEER=/tmp/pptr/node_modules/puppeteer-core
 export FIREFOX=$DEST/firefox/firefox
 EOT
-say "ready. Chromium: ${CHROME:-missing}; Firefox: $([ -x "$DEST/firefox/firefox" ] && echo ok || echo missing); GNOME Web: $([ -x /usr/bin/epiphany ] && echo ok || echo missing); settings in $ENVF"
+say "ready. Chromium: ${CHROME:-missing}; Firefox: $([ -x "$DEST/firefox/firefox" ] && echo ok || echo missing); settings in $ENVF"
 exit 0
