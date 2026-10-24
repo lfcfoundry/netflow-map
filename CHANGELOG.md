@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Each build is stamped
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## October 24
+
+- **2026.10.23.2131** Basic (Canvas 2D) drawing is faster for straight links: they are drawn as lines instead of curves that happen to be straight. At 93,232 links one draw takes 757 to 629 ms in Chromium, 462 to 385 ms in Firefox and 7,258 to 934 ms in WebKitGTK (lower is better). Edge pixels differ slightly: 99.84% or more of color values within 5 of 255 in all three. Big maps on the graphics card are not affected.
+
 ## October 23
 
 - **2026.10.23.1716** A big map left alone for a few seconds comes back without holding the page: waking the parked links at 100,000 items holds the page 222 to 34 ms in Chromium, 273 to 14 ms in Firefox, 207 to 19 ms in WebKitGTK and 190 to 23 ms in GNOME Web (lower is better); it also uses memory-compression 2.4.9 (waking all at once alone is 125 / 101 / 101 / 125 ms). The page is 30 KB larger. Nothing drawn changes.
