@@ -143,7 +143,7 @@ function moveNodes(p) {
   if (DRAG.sk) { skDragTo(p); return; }
   var w = worldOf(p[0], p[1]), dx = w[0] - DRAG.w0[0], dy = w[1] - DRAG.w0[1], pins = S.V.pins[DRAG.key];
   DRAG.ids.forEach(function (id) { pins[id] = [DRAG.pos[id][0] + dx, DRAG.pos[id][1] + dy]; });
-  if (!moveInPlace(DRAG.ids, DRAG.slot, DRAG.key)) scheduleScene(); else DRAG.fast = true;
+  if (!moveInPlace(DRAG.ids, DRAG.slot, DRAG.key)) scheduleScene(false, true); else DRAG.fast = true;
 }
 /** A big flat map: put the moved items' dots, names and links where they now are, in place, and send just those to the graphics card, instead of building and sending the whole picture for every mouse move (about 16 MB at 10,000 items). False when this picture cannot do it; the page then builds it again as before. ids and slot: the moved items and their places in L.nodes; their new places are in the pins. */
 function moveInPlace(ids, slot, key) {
@@ -157,7 +157,7 @@ function moveInPlace(ids, slot, key) {
 /** The drop after moving items in place: the outer box, pick grid and link hover index are worked out again for the new places (a few milliseconds) instead of building the whole picture again (about a tenth of a second at 10,000 items). Falls back to building it again when the picture cannot. Returns whether it settled in place. */
 function settleDrop() {
   var sc = S.scene;
-  if (sceneQueued || !sc || !sc.settleMoves || !sc.settleMoves()) { scheduleScene(); return false; }
+  if (sceneQueued || !sc || !sc.settleMoves || !sc.settleMoves()) { scheduleScene(false, true); return false; }
   DOTS.sc = null; MM.sc = null; requestDraw(); return true;
 }
 /** Moves items to given places the way a drag does (for tests and scripts): list = [[id, x, y], ...]. Returns {fast}: whether the in-place way was used. */
@@ -166,7 +166,7 @@ function moveItems(list, rebuild) {
   var key = pinKey(), pins = S.V.pins[key] = S.V.pins[key] || {}, slot = {}, ids = [];
   S.L.nodes.forEach(function (n, i) { slot[n.nodeId || n.id] = i; });
   list.forEach(function (m) { if (slot[m[0]] !== undefined) { pins[m[0]] = [m[1], m[2]]; ids.push(String(m[0])); } });
-  var fast = !rebuild && moveInPlace(ids, slot, key); if (!fast) scheduleScene();
+  var fast = !rebuild && moveInPlace(ids, slot, key); if (!fast) scheduleScene(false, true);
   return { fast: fast };
 }
 function endNodeDrag() { var was = DRAG; DRAG = null; if (was && was.sk) { skEndDrag(); return; } if (was && was.fast) settleDrop(); /* the picture's outer box, pick grid and link hover index were left as they were while moving: work them out again once */ saveView(); renderMapUI(); }

@@ -250,7 +250,7 @@ function makeScene(fit) {
   if (!S.L) return;
   applyPins(S.L);
   var t0 = performance.now();
-  S.camPlan = null;
+  S.camPlan = null; S.lookPlan = null;
   var so0 = sceneOpts();
   if (S.L.is3d && mgr && mgr.r && mgr.r.rigPrepare) { mgr.r.rigPrepare(); S.camPlan = {}; so0.plan = S.camPlan; so0.rig = true; }   /* a big 3D map is ready to turn on the card from the first drag */
   S.scene = NFMScene.make(S.L, so0);
@@ -264,19 +264,21 @@ function makeScene(fit) {
   warmCardSoon(); spinLoop();
   if (fit) { host.classList.remove('fade'); void host.offsetWidth; host.classList.add('fade'); }
 }
-var sceneQueued = false, sceneCamOnly = true;
+var sceneQueued = false, sceneCamOnly = true, sceneKeepLook = true;
 /** Redraws on the next frame. camOnly: only the camera of a 3D map changed, so what each item looks like is reused from the last picture. */
-function scheduleScene(camOnly) {
-  sceneCamOnly = sceneCamOnly && camOnly === true; if (sceneQueued) return; sceneQueued = true;
+function scheduleScene(camOnly, keepLook) {
+  sceneCamOnly = sceneCamOnly && camOnly === true; sceneKeepLook = sceneKeepLook && keepLook === true; if (sceneQueued) return; sceneQueued = true;
   requestAnimationFrame(function () {
     sceneQueued = false; if (!S.L) return;
-    if (S.L.parked && S.L.parked() && S.L.wakeAsync) { sceneQueued = true; S.L.wakeAsync().then(function () { sceneQueued = false; if (S.L && S.L.parked()) S.L.wake(); scheduleScene(sceneCamOnly); }); return; }
+    if (S.L.parked && S.L.parked() && S.L.wakeAsync) { sceneQueued = true; S.L.wakeAsync().then(function () { sceneQueued = false; if (S.L && S.L.parked()) S.L.wake(); scheduleScene(sceneCamOnly, sceneKeepLook); }); return; }
     var r = mgr && mgr.r, sc = S.scene;
     /* a big 3D map that is only being turned: the graphics card already holds the items and links, so just give it the new angle (see turnTo in scene.js) */
     if (sceneCamOnly && S.L.is3d && sc && sc.turnTo && r && r.rigOK && !sc.noTurn) { sc.turnTo(S.V.cam, S.view.k * 2); requestDraw(); armSettle(); return; }
     applyPins(S.L); var so = sceneOpts();
     if (sceneCamOnly && S.L.is3d) { so.plan = S.camPlan || (S.camPlan = {}); if (r && r.rigPrepare) { r.rigPrepare(); so.rig = true; } } else S.camPlan = null;
-    sceneCamOnly = true; S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (r) r.setScene(S.scene); keepPacked(S.scene); requestDraw();
+    /* only item moves and label sizes keep link looks; any other change starts the looks over */
+    if (sceneKeepLook && !S.L.is3d) so.lookPlan = S.lookPlan || (S.lookPlan = {}); else S.lookPlan = null;
+    sceneCamOnly = true; sceneKeepLook = true; S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (r) r.setScene(S.scene); keepPacked(S.scene); requestDraw();
   });
 }
 /** While a big 3D map turns, the picture lives on the card and the lists in the scene are out of date. A moment after the turning stops (or when something needs them: saving, printing) they are made again. */
