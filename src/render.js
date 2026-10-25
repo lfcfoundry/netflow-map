@@ -214,13 +214,13 @@ var NFMRender = (function () {
   }
 
   /* ---------------------------------------------------------------- host: two stacked canvases */
-  function makeHost(host) {
+  function makeHost(host, cpu) {
     host.textContent = '';
     var a = document.createElement('canvas'), b = document.createElement('canvas');
     [a, b].forEach(function (c) { c.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;display:block;touch-action:none'; });
     a.setAttribute('aria-hidden', 'true'); b.setAttribute('aria-hidden', 'true'); b.style.pointerEvents = 'none';
     host.appendChild(a); host.appendChild(b);
-    return { main: a, over: b, ctx2: b.getContext('2d') };
+    return { main: a, over: b, ctx2: b.getContext('2d', cpu ? { willReadFrequently: true } : undefined) };
   }
   function sizeCanvases(H, w, h, dpr) {
     var pw = Math.max(1, Math.round(w * dpr)), ph = Math.max(1, Math.round(h * dpr));
@@ -235,7 +235,7 @@ var NFMRender = (function () {
     ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
   }
   function createCanvas2D(host, hooks) {
-    var H = makeHost(host), ctx = H.main.getContext('2d', { alpha: false }), S = null, W = 1, Hh = 1, dpr = 1;
+    var cpu = !!(hooks && hooks.cpu), H = makeHost(host, cpu), ctx = H.main.getContext('2d', cpu ? { alpha: false, willReadFrequently: true } : { alpha: false }), S = null, W = 1, Hh = 1, dpr = 1;   /* cpu: the picture is kept in memory and read back (GIF pictures), which avoids a slow card read-back per picture */
     if (!ctx) throw new Error('no 2D canvas');
     /* Moving the camera over a map that is slow to draw: the picture kept from the last full draw is slid and scaled to the new camera (a few ms), and the real picture is drawn again 140 ms after the camera stops, so at rest the picture is exactly what a full draw gives. Only used when the last full draw took over FAST_MS (a small map is always drawn in full). */
     var FAST_MS = 16, SETTLE_MS = 140, cache = null, cacheScene = null, cacheW = 0, cacheH = 0, fullView = null, fullFresh = false, lastFullMs = 0, settleT = 0, fastForce = null, lastDrawAt = 0, slowMotion = false;

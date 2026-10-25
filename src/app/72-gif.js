@@ -100,7 +100,7 @@ function makeGif(o, progress, stop) {
     if (o.what === 'screen') { var f = W / Math.max(1, S.stageW); view = { k: S.view.k * f, tx: S.view.tx * f, ty: S.view.ty * f }; }
     else { var pad = Math.round(Math.min(W, H) * 0.05), k = Math.min((W - 2 * pad) / uw, (H - 2 * pad) / uh); view = { k: k, tx: (W - uw * k) / 2 - ux0 * k, ty: (H - uh * k) / 2 - uy0 * k }; }
     host = document.createElement('div'); host.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + W + 'px;height:' + H + 'px'; document.body.appendChild(host);
-    return NFMRender.createCanvas2D(host, {}).then(function (r) {
+    return NFMRender.createCanvas2D(host, { cpu: true }).then(function (r) {
       rend = r; r.resize(W, H, 1);
       var out = document.createElement('canvas'); out.width = W; out.height = H; var x = out.getContext('2d', { willReadFrequently: true });
       var renderItem = function (p) {
