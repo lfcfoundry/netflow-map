@@ -751,7 +751,7 @@ async function open() {
     /* the new GIF options: exact 25 FPS timing, pauses with a reversal, a filter reaching the palette */
     const parse = (bytes) => { const b = bytes; let p = 13 + 768, sum = 0, n = 0; const ds = []; if (!(b[10] & 0x80)) return null; p = 13; const pal = []; for (let i = 0; i < 256; i++) pal.push([b[p + i * 3], b[p + i * 3 + 1], b[p + i * 3 + 2]]); p += 768;
       while (b[p] !== 0x3b && p < b.length) { if (b[p] === 0x21) { const l = b[p + 1]; p += 2; if (l === 0xf9) { ds.push(b[p + 2] | b[p + 3] << 8); sum += (b[p + 2] | b[p + 3] << 8); n++; } while (b[p] !== 0) p += b[p] + 1; p++; } else if (b[p] === 0x2c) { p += 10; p++; while (b[p] !== 0) p += b[p] + 1; p++; } else break; } return { ds, sum, n, pal }; };
-    const runCfg = async (patch) => { await ev((pt) => NFM.gifRun(pt), patch); await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled && NFM.gif(); }, null, 120000); return ev(() => { const r = NFM.gif(); return { bytes: Array.from(r.bytes), frames: r.frames, workers: r.workers, inline: r.inline, card: r.card }; }); };
+    const runCfg = async (patch) => { await ev((pt) => NFM.gifRun(pt), patch); await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled && NFM.gif(); }, null, 120000); return ev(() => { const r = NFM.gif(); return { bytes: Array.from(r.bytes), frames: r.frames, workers: r.workers, inline: r.inline, card: r.card, video: r.video, asked: r.asked }; }); };
     {
       const a = await runCfg({ size: 640, fps: 25, turns: 1, turnSec: 2, pause: 0, ease: 'linear', names: 'always', arc: 360, reverse: false, filter: { brightness: 0, contrast: 0, saturation: 0, warmth: 0, hue: 0, tone: 'none', blur: 0, sharpen: 0, glow: 0, vignette: 0 } });
       const g = parse(a.bytes); say(g && a.frames === 50 && g.ds.every((d) => d === 4) && g.n >= 40, `GIF at 25 FPS: ${a.frames} pictures, every one shown for exactly 4 hundredths (${g && g.ds.slice(0, 3)}); ${a.workers} worker${a.workers === 1 ? '' : 's'}${a.inline ? ' (on the page)' : ''}`);
@@ -763,6 +763,34 @@ async function open() {
       const off = await runCfg({ filter: look, card: 'off', turns: 1, pause: 0, ease: 'linear' }), onC = await runCfg({ filter: look, card: 'auto' });
       say(off.card === false && off.frames === onC.frames && Math.abs(onC.bytes.length - off.bytes.length) <= off.bytes.length * 0.08, `GIF with the full look, card off ${off.bytes.length} bytes, card auto ${onC.bytes.length} bytes (${onC.card ? 'graphics card used' : 'card not available here, WebAssembly used'}): same pictures, file sizes within 8%`);
       await runCfg({ filter: { tone: 'none', contrast: 0 }, card: 'auto', size: 640, turnSec: 2, turns: 1, pause: 0 });
+      {   /* video: MP4 where the browser can make it, else WebM, else the GIF */
+        const plain = { filter: { tone: 'none', contrast: 0, blur: 0, sharpen: 0, glow: 0, vignette: 0 }, size: 640, turnSec: 2, turns: 1, pause: 0, ease: 'linear', reverse: false, arc: 360 };
+        const has = (b, t) => { const q = [...t].map((c) => c.charCodeAt(0)); for (let i = 0; i + q.length <= b.length; i++) { let k = 0; while (k < q.length && b[i + k] === q[k]) k++; if (k === q.length) return i; } return -1; };
+        const gifRef = await runCfg(Object.assign({ format: 'gif' }, plain)), vd = await runCfg(Object.assign({ format: 'video' }, plain));
+        const supported = await ev(() => typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined');
+        if (!supported) say(vd.video === '' && vd.asked === 'video' && String.fromCharCode(...vd.bytes.slice(0, 6)) === 'GIF89a', 'Video asked for, this browser has no video encoder: a GIF is made instead and the result says so');
+        else {
+          const b = vd.bytes, ok = vd.video === 'mp4' ? (String.fromCharCode(...b.slice(4, 8)) === 'ftyp' && has(b, 'moov') > 0 && has(b, 'avcC') > 0) : vd.video === 'webm' ? (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3 && has(b, 'V_VP9') > 0) : false;
+          say(ok, `Video: a ${vd.video || 'no'} file has the right headers (${b.length} bytes against ${gifRef.bytes.length} for the GIF of the same ${gifRef.frames} pictures)`);
+          const im = await ev(() => { const i = document.querySelector('#gif-out img'); return i ? i.src.slice(0, 22) : ''; }); say(im === 'data:image/png;base64,' || im.startsWith('data:image/png'), 'Video: the result shows the first picture (the page does not play video, so its policy stays as it was)');
+          let n = -1; if (vd.video === 'mp4') { const i = has(b, 'stsz'); n = i < 0 ? -1 : ((b[i + 12] << 24 | b[i + 13] << 16 | b[i + 14] << 8 | b[i + 15]) >>> 0); }
+          say(vd.frames === gifRef.frames && (vd.video !== 'mp4' || n === vd.frames), `Video: one video picture for every picture of the GIF (${vd.frames}${vd.video === 'mp4' ? ', the file lists ' + n : ''})`);
+          await ev(() => { window.__ve = window.VideoEncoder; window.VideoEncoder = undefined; });
+          const fb = await runCfg(Object.assign({ format: 'video' }, plain));
+          await ev(() => { window.VideoEncoder = window.__ve; });
+          say(fb.video === '' && fb.asked === 'video' && String.fromCharCode(...fb.bytes.slice(0, 6)) === 'GIF89a', 'Video asked for but the browser has no video encoder: a GIF is made instead');
+        }
+        await runCfg(Object.assign({ format: 'gif' }, plain));
+      }
+      {   /* the legend choice: Short, Full and Off make different pictures; Off leaves the corner empty */
+        const plain = { format: 'gif', filter: { tone: 'none', contrast: 0, blur: 0, sharpen: 0, glow: 0, vignette: 0 }, size: 640, turnSec: 2, turns: 1, pause: 0, ease: 'linear', reverse: false, arc: 360 };
+        const sh = await runCfg(Object.assign({ legend: 'short' }, plain)), off = await runCfg(Object.assign({ legend: 'off' }, plain)), fu = await runCfg(Object.assign({ legend: 'full' }, plain));
+        const same = (x, y) => x.bytes.length === y.bytes.length && x.bytes.every((v, i) => v === y.bytes[i]);
+        say(!same(sh, off) && sh.frames === off.frames && fu.frames === sh.frames, `Legend choice: Short (${sh.bytes.length} bytes) and Off (${off.bytes.length} bytes) make different GIFs with the same ${sh.frames} pictures`);
+        const sv = await ev(() => { const sel = [...document.querySelectorAll('#gif-card label.field')].find((l) => l.textContent.startsWith('Legend')).querySelector('select'); sel.value = 'full'; sel.dispatchEvent(new Event('change', { bubbles: true })); return JSON.parse(localStorage.getItem('nfm-gif') || '{}').legend; });
+        say(sv === 'full', 'The legend choice in the GIF maker is remembered (' + sv + ')');
+        await ev(() => { const sel = [...document.querySelectorAll('#gif-card label.field')].find((l) => l.textContent.startsWith('Legend')).querySelector('select'); sel.value = 'short'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+      }
     }
     await ev(() => { document.getElementById('gif-go').click(); setTimeout(() => NFM.setGraph(NFMImport.sanitizeGraph({ name: 'GifOther', nodes: [{ id: 'A' }, { id: 'B' }], edges: [{ from: 'A', to: 'B' }] })), 40); });
     await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled; }, null, 60000); await settle(200);
