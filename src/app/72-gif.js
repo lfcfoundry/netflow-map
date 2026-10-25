@@ -2,8 +2,8 @@
  * Netflow Map app, part 9b: animated GIF and the one-page HTML report (Export tab). Copyright (c) 2026 LFC Foundry. MIT License.
  * Pictures are drawn on the page, then filtered and written to the GIF in background workers (src/gif-worker.js); timing and filters are in src/gifx.js.
  */
-var GX_KEY = 'nfm-gif', GX = { opts: { size: 960, shape: '169', fps: 25, hold: 1.4, trans: 0.9, caption: true, key: true, theme: 'light', what: 'whole', ease: 'smooth', turns: 1, turnSec: 4, pause: 0, reverse: false, arc: 360, names: 'always', filter: NFMGifFx.plainFilter() }, running: false, cancel: false, result: null, msg: '', prog: null, preview: null };
-(function () { try { var o = JSON.parse(LS.get(GX_KEY) || 'null'); if (o && typeof o === 'object') { var d = GX.opts; ['size', 'fps', 'hold', 'trans', 'turns', 'turnSec', 'pause', 'arc'].forEach(function (k) { if (typeof o[k] === 'number' && isFinite(o[k])) d[k] = o[k]; }); ['shape', 'theme', 'what', 'ease', 'names'].forEach(function (k) { if (typeof o[k] === 'string' && o[k].length < 20) d[k] = o[k]; }); ['caption', 'key', 'reverse'].forEach(function (k) { if (typeof o[k] === 'boolean') d[k] = o[k]; }); d.filter = NFMGifFx.cleanFilter(o.filter); if (!NFMGifFx.EASES[d.ease]) d.ease = 'smooth'; if (!NFMGifFx.NAMES[d.names]) d.names = 'always'; d.fps = clamp(d.fps, 5, 30); d.turns = clamp(Math.round(d.turns), 1, 12); d.turnSec = clamp(d.turnSec, 1, 20); d.pause = clamp(d.pause, 0, 10); d.arc = clamp(d.arc, 10, 360); } } catch (e) { /* defaults */ } })();
+var GX_KEY = 'nfm-gif', GX = { opts: { size: 960, shape: '169', fps: 25, hold: 1.4, trans: 0.9, caption: true, key: true, theme: 'light', what: 'whole', ease: 'smooth', turns: 1, turnSec: 4, pause: 0, reverse: false, arc: 360, names: 'always', card: 'auto', filter: NFMGifFx.plainFilter() }, running: false, cancel: false, result: null, msg: '', prog: null, preview: null };
+(function () { try { var o = JSON.parse(LS.get(GX_KEY) || 'null'); if (o && typeof o === 'object') { var d = GX.opts; ['size', 'fps', 'hold', 'trans', 'turns', 'turnSec', 'pause', 'arc'].forEach(function (k) { if (typeof o[k] === 'number' && isFinite(o[k])) d[k] = o[k]; }); ['shape', 'theme', 'what', 'ease', 'names', 'card'].forEach(function (k) { if (typeof o[k] === 'string' && o[k].length < 20) d[k] = o[k]; }); ['caption', 'key', 'reverse'].forEach(function (k) { if (typeof o[k] === 'boolean') d[k] = o[k]; }); d.filter = NFMGifFx.cleanFilter(o.filter); if (!NFMGifFx.EASES[d.ease]) d.ease = 'smooth'; if (!NFMGifFx.NAMES[d.names]) d.names = 'always'; if (d.card !== 'off') d.card = 'auto'; d.fps = clamp(d.fps, 5, 30); d.turns = clamp(Math.round(d.turns), 1, 12); d.turnSec = clamp(d.turnSec, 1, 20); d.pause = clamp(d.pause, 0, 10); d.arc = clamp(d.arc, 10, 360); } } catch (e) { /* defaults */ } })();
 NFMGifFx.initWasm();   /* compile early, so the one-picture preview on the page has it too */
 var saveGx = function () { LS.set(GX_KEY, JSON.stringify(GX.opts)); };
 HOOKS.graph.push(function () { if (GX.result && GX.result.url) { try { URL.revokeObjectURL(GX.result.url); } catch (e) { /* gone */ } } GX.result = null; GX.msg = ''; });
@@ -63,7 +63,17 @@ function gifPool(n) {
     pool.inline = true;
     pool.ws.push({ postMessage: function (m) { setTimeout(function () { NFMGifWorker.handle(m, function (r) { pool.inflight[0]--; if (pool.on) pool.on(0, r); }); }, 0); }, terminate: function () { /* nothing */ } }); pool.inflight.push(0);
   }
-  pool.n = pool.ws.length;
+  pool.n = pool.ws.length; pool.card = -1;
+  /** Starts one more worker that filters on the graphics card. Resolves true when it works; the pictures then go there first. Not used where workers are missing. */
+  pool.initCard = function () {
+    if (pool.inline || !src) return Promise.resolve(false);
+    return new Promise(function (res) {
+      var w, k = pool.ws.length, to = setTimeout(function () { fail(); }, 4000), fail = function () { clearTimeout(to); try { w.terminate(); } catch (e) { /* gone */ } pool.ws.length = k; pool.inflight.length = k; res(false); };
+      try { var u = URL.createObjectURL(new Blob([src], { type: 'text/javascript' })); w = new Worker(u); setTimeout(function () { URL.revokeObjectURL(u); }, 4000); } catch (e) { return res(false); }
+      w.onerror = fail; w.onmessage = function (e) { if (e.data.t !== 'card') return; clearTimeout(to); if (!e.data.ok) return fail(); w.onmessage = function (ev) { pool.inflight[k]--; if (pool.on) pool.on(k, ev.data); }; w.onerror = function (ev) { if (pool.on) pool.on(k, { t: 'error', msg: String(ev.message || 'worker failed') }); }; pool.ws.push(w); pool.inflight.push(0); pool.n = pool.ws.length; pool.card = k; res(true); };
+      w.postMessage({ t: 'card', id: 'c' });
+    });
+  };
   pool.post = function (k, m, tr) { pool.inflight[k]++; pool.ws[k].postMessage(m, tr || []); };
   return pool;
 }
@@ -99,11 +109,12 @@ function makeGif(o, progress, stop) {
       pool.on = function (k, m) { if (m.t === 'error') failed = new Error(m.msg); var w = waits[m.id !== undefined ? m.id : m.t]; if (w) { delete waits[m.id !== undefined ? m.id : m.t]; w(m); } else if (m.t === 'error') Object.keys(waits).forEach(function (q) { waits[q](m); }); };
       var ask = function (k, msg, tr, key) { return new Promise(function (res, rej) { waits[key] = function (m) { if (m.t === 'error') rej(failed); else res(m); }; pool.post(k, msg, tr); }); };
       var tick = function (text) { progress(done, total, text); return nextFrame(); };
-      var least = function () { var b = 0, q; for (q = 1; q < pool.n; q++) if (pool.inflight[q] < pool.inflight[b]) b = q; return b; };
+      var least = function () { if (pool.card >= 0 && pool.inflight[pool.card] < 3) return pool.card; var b = 0, q; for (q = 1; q < pool.n; q++) if (q !== pool.card && pool.inflight[q] < pool.inflight[b]) b = q; return b; };
       var filterBuf = function (buf) { if (!useFilter) return Promise.resolve(buf); var id = 'f' + nid++; return ask(least(), { t: 'filter', id: id, buf: buf, w: W, h: H, f: filt }, [buf], id).then(function (m) { return m.buf; }); };
       var cache = new Map();
       var run = async function () {
         pool.ws[0].postMessage({ t: 'init', w: W, h: H });
+        if (useFilter && o.card !== 'off') await pool.initCard();   /* a worker that filters on the graphics card, where there is one */
         if (useFilter) await Promise.all(pool.ws.map(function (w, k) { return ask(k, { t: 'wasm', id: 'w' + k }, [], 'w' + k); }));   /* every worker compiles the WebAssembly filters first (plain JavaScript where it cannot) */
         /* pass 1: the main pictures give the colors */
         var shots = [], ki, kb;
@@ -130,7 +141,7 @@ function makeGif(o, progress, stop) {
         var fin = await ask(0, { t: 'finish' }, [], 'done');
         return new Uint8Array(fin.bytes);
       };
-      return run().then(function (bytes) { finish(); return { bytes: bytes, w: W, h: H, frames: plan.length, ms: performance.now() - t0, mode: mode, workers: pool.n, inline: pool.inline }; }, function (err) { finish(); throw err; });
+      return run().then(function (bytes) { finish(); return { bytes: bytes, w: W, h: H, frames: plan.length, ms: performance.now() - t0, mode: mode, workers: pool.n, inline: pool.inline, card: pool.card >= 0 }; }, function (err) { finish(); throw err; });
     });
   });
 }
@@ -188,6 +199,7 @@ function gifCard() {
     slider('Glow', F.glow, 0, 1, 0.05, function (v) { fset('glow', v); }, function (v) { return v ? pct(v) : 'off'; }),
     slider('Darker corners (vignette)', F.vignette, 0, 1, 0.05, function (v) { fset('vignette', v); }, function (v) { return v ? pct(v) : 'off'; }),
     h('p', { class: 'muted small', style: { margin: 0 } }, 'Glow, blur and darker corners add many shades, so the file gets bigger.'),
+    field('Graphics card', select([['auto', 'Use it when it works (faster)'], ['off', 'Do not use it']], o.card, chg('card')), 'The card does the same arithmetic as the processor, so a picture may differ by a color shade or two between computers.'),
     h('div', { class: 'row tight' }, [h('button', { class: 'sm', id: 'gif-try', onclick: tryLook }, 'Try it on one picture'), h('button', { class: 'sm', onclick: function () { o.filter = fx.plainFilter(); saveGx(); renderExport(); } }, 'Reset the look')]), prev], false));
   card.appendChild(h('div', { class: 'row' }, [check('Include the key', o.key, chg('key')), mode === 'states' ? check('Show the state name', o.caption, chg('caption')) : null]));
   var prog = h('div', { id: 'gif-prog', 'aria-live': 'polite' });
@@ -206,7 +218,7 @@ function gifResultKids() {
   if (GX.msg && !GX.running) return [h('p', { class: 'muted' }, GX.msg)];
   var r = GX.result; if (!r) return [];
   var kb = Math.round(r.bytes.length / 1024), size = kb > 1500 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB';
-  return [h('p', { class: 'muted small', style: { margin: '6px 0 2px' } }, plural(r.frames, 'picture') + ', ' + r.w + ' × ' + r.h + ', ' + size + ', made in ' + (r.ms / 1000).toFixed(1) + ' seconds.' + (kb > 8000 ? ' That is large for a slide. Try a smaller width or a lower FPS.' : '')),
+  return [h('p', { class: 'muted small', style: { margin: '6px 0 2px' } }, plural(r.frames, 'picture') + ', ' + r.w + ' × ' + r.h + ', ' + size + ', made in ' + (r.ms / 1000).toFixed(1) + ' seconds.' + (r.card ? ' The looks were done by the graphics card.' : '') + (kb > 8000 ? ' That is large for a slide. Try a smaller width or a lower FPS.' : '')),
     h('img', { src: r.url, alt: 'Preview of the animation', style: { maxWidth: '100%', borderRadius: '8px', border: '1px solid var(--line)' } }),
     h('div', { class: 'row' }, [h('button', { class: 'primary', onclick: function () { download(fname('.gif'), new Blob([r.bytes], { type: 'image/gif' }), 'image/gif'); } }, 'Save the GIF'), h('button', { onclick: function () { download(fname('-report.html'), reportHtml(r), 'text/html'); } }, 'Save as a web page (HTML report)')])];
 }
