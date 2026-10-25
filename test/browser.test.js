@@ -772,6 +772,7 @@ async function open() {
         else {
           const b = vd.bytes, ok = vd.video === 'mp4' ? (String.fromCharCode(...b.slice(4, 8)) === 'ftyp' && has(b, 'moov') > 0 && has(b, 'avcC') > 0) : vd.video === 'webm' ? (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3 && has(b, 'V_VP9') > 0) : false;
           say(ok, `Video: a ${vd.video || 'no'} file has the right headers (${b.length} bytes against ${gifRef.bytes.length} for the GIF of the same ${gifRef.frames} pictures)`);
+          const im = await ev(() => { const i = document.querySelector('#gif-out img'); return i ? i.src.slice(0, 22) : ''; }); say(im === 'data:image/png;base64,' || im.startsWith('data:image/png'), 'Video: the result shows the first picture (the page does not play video, so its policy stays as it was)');
           let n = -1; if (vd.video === 'mp4') { const i = has(b, 'stsz'); n = i < 0 ? -1 : ((b[i + 12] << 24 | b[i + 13] << 16 | b[i + 14] << 8 | b[i + 15]) >>> 0); }
           say(vd.frames === gifRef.frames && (vd.video !== 'mp4' || n === vd.frames), `Video: one video picture for every picture of the GIF (${vd.frames}${vd.video === 'mp4' ? ', the file lists ' + n : ''})`);
           await ev(() => { window.__ve = window.VideoEncoder; window.VideoEncoder = undefined; });

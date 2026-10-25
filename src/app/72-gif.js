@@ -147,7 +147,7 @@ function makeGif(o, progress, stop) {
             ahead.push({ p: p, pr: pr });
           }
           var it = ahead.shift(), data = await it.pr, id = 'e' + nid++;
-          if (vw) encP.push(vw.add(data, it.p.ms, W)); else encP.push(ask(0, { t: 'frame', id: id, buf: data, ms: it.p.ms }, [data], id)); sent++; done++;
+          if (vw) { if (!sent) run.poster = gifPoster(data, W, H); encP.push(vw.add(data, it.p.ms, W)); } else encP.push(ask(0, { t: 'frame', id: id, buf: data, ms: it.p.ms }, [data], id)); sent++; done++;
           if (encP.length > 3) await encP.shift();
           progress(done, total, 'Frame ' + sent + ' of ' + plan.length + '…');
         }
@@ -156,10 +156,12 @@ function makeGif(o, progress, stop) {
         var fin = await ask(0, { t: 'finish' }, [], 'done');
         return new Uint8Array(fin.bytes);
       };
-      return run().then(function (bytes) { finish(); return { bytes: bytes, w: W, h: H, frames: plan.length, ms: performance.now() - t0, mode: mode, video: run.video || '', asked: o.format, workers: pool.n, inline: pool.inline, card: pool.card >= 0 }; }, function (err) { if (vw) vw.cancel(); finish(); throw err; });
+      return run().then(function (bytes) { finish(); return { bytes: bytes, w: W, h: H, frames: plan.length, ms: performance.now() - t0, mode: mode, video: run.video || '', poster: run.poster || '', asked: o.format, workers: pool.n, inline: pool.inline, card: pool.card >= 0 }; }, function (err) { if (vw) vw.cancel(); finish(); throw err; });
     });
   });
 }
+/** The first picture of a video as a small PNG, so there is something to look at here (the page does not play video). */
+function gifPoster(buf, W, H) { try { var c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(buf.slice(0)), W, H), 0, 0); return c.toDataURL('image/png'); } catch (e) { return ''; } }
 function b64(bytes) { if (typeof bytes.toBase64 === 'function') return bytes.toBase64(); var s = '', i, n = 0x8000; for (i = 0; i < bytes.length; i += n) s += String.fromCharCode.apply(null, bytes.subarray(i, i + n)); return btoa(s); }
 /** One self-contained page: the animation, the key in words, the states and the biggest changes. */
 function reportHtml(res) {
@@ -248,7 +250,7 @@ function gifResultKids() {
   var vid = r.video, mime = vid === 'mp4' ? 'video/mp4' : vid === 'webm' ? 'video/webm' : 'image/gif', ext = vid ? '.' + vid : '.gif';
   var kb = Math.round(r.bytes.length / 1024), size = kb > 1500 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB';
   return [h('p', { class: 'muted small', style: { margin: '6px 0 2px' } }, plural(r.frames, 'picture') + ', ' + r.w + ' × ' + r.h + ', ' + size + ', made in ' + (r.ms / 1000).toFixed(1) + ' seconds.' + (r.card ? ' The looks were done by the graphics card.' : '') + (vid ? ' ' + vid.toUpperCase() + ' video.' : r.asked === 'video' ? ' This browser cannot make video, so this is a GIF.' : '') + (kb > 8000 ? ' That is large for a slide. Try a smaller width or a lower FPS.' : '')),
-    vid ? h('video', { src: r.url, controls: true, loop: true, muted: true, autoplay: true, playsinline: true, 'aria-label': 'Preview of the animation', style: { maxWidth: '100%', borderRadius: '8px', border: '1px solid var(--line)' } }) : h('img', { src: r.url, alt: 'Preview of the animation', style: { maxWidth: '100%', borderRadius: '8px', border: '1px solid var(--line)' } }),
+    vid ? h('div', {}, [h('img', { src: r.poster, alt: 'The first picture of the video', style: { maxWidth: '100%', borderRadius: '8px', border: '1px solid var(--line)' } }), h('p', { class: 'muted small', style: { margin: '2px 0 0' } }, 'This is the first picture. Save the video to play it (this page does not play video, to keep its security rules as they are).')]) : h('img', { src: r.url, alt: 'Preview of the animation', style: { maxWidth: '100%', borderRadius: '8px', border: '1px solid var(--line)' } }),
     h('div', { class: 'row' }, [h('button', { class: 'primary', onclick: function () { download(fname(ext), new Blob([r.bytes], { type: mime }), mime); } }, vid ? 'Save the video' : 'Save the GIF'), h('button', { onclick: function () { download(fname('-report.html'), reportHtml(r), 'text/html'); } }, 'Save as a web page (HTML report)')])];
 }
 function runGif() {
