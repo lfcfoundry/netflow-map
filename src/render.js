@@ -7,6 +7,7 @@
 var NFMRender = (function () {
   'use strict';
   var css = NFMScene.css, SHAPE_STRIDE = 16, MESH_STRIDE = 10;
+  var labelFamily = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';   /* the type family of every map label; the page sets it from the person's look */
 
   /* ---------------------------------------------------------------- shared: geometry lists for the GPU */
   function bezPts(P, line) {
@@ -171,7 +172,7 @@ var NFMRender = (function () {
       var x = l.x * k + view.tx, y = l.y * k + view.ty;
       if (!l.rot && (x < -300 || x > w + 300 || y < -40 || y > h + 40)) continue;
       if (l.rot && (x < -400 || x > w + 400 || y < -400 || y > h + 400)) continue;
-      var font = (l.bold ? '700 ' : '500 ') + Math.min(px, 60).toFixed(1) + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      var font = (l.bold ? '700 ' : '500 ') + Math.min(px, 60).toFixed(1) + 'px ' + labelFamily;
       if (font !== lastFont) { ctx.font = font; lastFont = font; }
       ctx.globalAlpha = l.a === undefined ? 1 : l.a;
       ctx.textAlign = l.align === 'l' ? 'left' : l.align === 'r' ? 'right' : 'center';
@@ -835,6 +836,6 @@ var NFMRender = (function () {
     return this.start().catch(function (err) { self.log.push('start failed: ' + (err && err.message)); return self.rescue(); });
   };
 
-  return { Manager: Manager, setWebGPUDrawing: function (on) { webgpuDrawing = !!on; }, webgpuDrawing: function () { return webgpuDrawing; }, tessellate: tessellate, drawLabels: drawLabels, createCanvas2D: createCanvas2D, createWebGL2: createWebGL2, createWebGPU: createWebGPU, copyViaCanvas: copyViaCanvas };
+  return { setFont: function (f) { if (typeof f === 'string' && f.length < 300) labelFamily = f; }, Manager: Manager, setWebGPUDrawing: function (on) { webgpuDrawing = !!on; }, webgpuDrawing: function () { return webgpuDrawing; }, tessellate: tessellate, drawLabels: drawLabels, createCanvas2D: createCanvas2D, createWebGL2: createWebGL2, createWebGPU: createWebGPU, copyViaCanvas: copyViaCanvas };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMRender;

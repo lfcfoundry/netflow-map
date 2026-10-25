@@ -372,9 +372,32 @@ async function open() {
   }
   await ev(() => NFM.manager().use('auto'));
 
+  /* the Colors tab: a look changes the scene's theme, rides along in shared view text, is cleaned when it comes from outside, and "My looks" keep it */
+  await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(300, 3, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'circle' }); });
+  await D.wait(() => !NFM.pending() && NFM.state.scene, null, 60000);
+  const lk = await ev(async () => {
+    const out = {}; const frames = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const txt = document.getElementById('rt-colors'); out.tab = !!txt; txt.click(); await frames();
+    out.cards = document.querySelectorAll('.lkcard').length;
+    [...document.querySelectorAll('.lkcard')].find((b) => /Blueprint/.test(b.textContent)).click(); await frames(); await frames(); await frames();
+    out.bg = NFM.state.scene.theme.hex.bg; out.base = NFM.state.V.fmt.base;
+    const snap = NFM.snapshot(); out.snapFmt = snap.fmt && snap.fmt.slots && snap.fmt.slots.bg;
+    NFM.applySnapshot({ fmt: { base: 'light', slots: { bg: 'url(javascript:1)', fg: '#102030' }, font: 'nope', nodeScale: 50 } }); await frames(); await frames();
+    out.cleanBg = NFM.state.scene.theme.hex.bg; out.cleanFg = NFM.state.V.fmt.slots.fg; out.cleanFont = NFM.state.V.fmt.font; out.cleanScale = NFM.state.V.fmt.nodeScale;
+    const nm = document.querySelector('input[aria-label="Name for this look"]'); nm.value = 'Test look'; nm.dispatchEvent(new Event('input'));
+    [...document.querySelectorAll('button')].find((b) => /Save this look$/.test(b.textContent)).click(); await frames();
+    out.saved = JSON.parse(localStorage.getItem('nfm-looks') || '[]').some((x) => x.name === 'Test look');
+    [...document.querySelectorAll('button')].find((b) => /Back to the normal look/.test(b.textContent)).click(); await frames(); await frames();
+    out.reset = NFM.state.V.fmt.base === 'auto' && !Object.keys(NFM.state.V.fmt.slots).length; localStorage.removeItem('nfm-looks');
+    return out;
+  });
+  say(lk.tab && lk.cards >= 10 && lk.bg === '#0b2a4a' && lk.base === 'dark' && lk.snapFmt === '#0b2a4a', `Colors tab: ${lk.cards} ready-made looks, Blueprint paints the scene background ${lk.bg}, shared view text carries it`);
+  say(lk.cleanBg !== 'url(javascript:1)' && lk.cleanFg === '#102030' && lk.cleanFont === 'system' && lk.cleanScale === 3, `Colors tab: a look from outside is cleaned (bad color dropped, font ${lk.cleanFont}, size ${lk.cleanScale}); the good color stays`);
+  say(lk.saved && lk.reset, 'Colors tab: "My looks" keeps a named look in this browser and "Back to the normal look" resets');
+
   /* moving items by hand on a big flat map takes the in-place way (only the touched dots and links are sent) and draws exactly what building the whole picture again draws */
   await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(1500, 4, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'circle' }); });
-  await D.wait(() => !NFM.pending() && NFM.state.scene && typeof NFM.state.scene.moveNodes === 'function', null, 60000);
+  await D.wait(() => !NFM.pending() && NFM.state.scene && NFM.state.L && NFM.state.L.n > 1000 && typeof NFM.state.scene.moveNodes === 'function', null, 60000);
   for (const be of ['canvas2d', 'webgl2', 'webgpu']) {
     const r = await ev(async (be) => {
       const m = NFM.manager(); if (be !== 'canvas2d') m.canary[be] = { ok: true }; await m.use(be); if (m.r.name !== be) return { err: 'n/a' };

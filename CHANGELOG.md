@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Each build is stamped
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## October 25
+
+- **2026.10.25.1018** New Colors tab on the Map: pick a ready-made look (12, including Blueprint, Paper, Colorblind-safe, High contrast and Print gray) or change the color of every part yourself (background, boxes, text, links, highlights, good and bad, bands, twelve group colors, the number scale), the type family, and the size of items, names and lines. Looks are saved with the map, kept in My looks in this browser, and can be saved to a file and opened on another computer. The animated GIF follows your colors. Maps with no look chosen are drawn exactly as before (30,000-item rebuild 248 to 241 ms in WebKitGTK, lower is better).
+
 ## October 24
 
 - **2026.10.24.2045** Big maps with link rules, dashes, arrowheads or bent links are now kept in the compact flat lists too, so they rebuild faster after moving items (30,000 items, rebuild 143 to 128 ms in Chromium, 158 to 137 in Firefox, 228 to 212 in WebKitGTK; lower is better). Pictures are identical.
