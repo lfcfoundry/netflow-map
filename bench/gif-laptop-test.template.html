@@ -90,8 +90,8 @@ var LAB = (function () {
         if (g) {
           b = new Uint8ClampedArray(pic); var r = g.apply(b, w, h, f);
           if (r) {
-            var close = 0, tot = 0, i; for (i = 0; i < a.length; i++) { if ((i & 3) === 3) continue; tot++; if (Math.abs(a[i] - b[i]) <= 2) close++; }
-            row.match = close / tot * 100;
+            var close = 0, tot = 0, i, d, c0 = 0, c1 = 0, c4 = 0, mx = 0; for (i = 0; i < a.length; i++) { if ((i & 3) === 3) continue; tot++; d = Math.abs(a[i] - b[i]); if (d <= 2) close++; if (d === 0) c0++; if (d <= 1) c1++; if (d <= 4) c4++; if (d > mx) mx = d; }
+            row.match = close / tot * 100; row.detail = 'exact ' + (c0 / tot * 100).toFixed(2) + '%, within 1 ' + (c1 / tot * 100).toFixed(2) + '%, within 4 ' + (c4 / tot * 100).toFixed(2) + '%, worst ' + mx;
             row.gl = (await time(function () { g.apply(new Uint8ClampedArray(pic), w, h, f); g.finish(); }, { warm: 3, runs: 9 })).median;
           }
         }
@@ -107,7 +107,7 @@ var LAB = (function () {
     var head = ['Picture / look', 'Plain code (ms)', 'WebAssembly (ms)', 'Graphics card (ms)', 'Card vs WebAssembly', 'Match'];
     return table(head, res.rows.map(function (r) {
       return [esc(r.size + '  ' + r.look), (r.js == null ? 'skipped' : ms(r.js)), r.wasm == null ? 'n/a' : ms(r.wasm), r.gl == null ? 'n/a' : ms(r.gl), r.gl != null && r.wasm ? (r.wasm / r.gl).toFixed(1) + '× ' + (r.gl < r.wasm ? 'faster' : 'slower') : '', r.match == null ? '' : r.match.toFixed(2) + '%'];
-    })) + '<p class="mut">Lower is better. "Match" is the share of color values within 2 steps of the plain-code picture. ' + (res.facts.floor != null ? 'Fixed cost of the card path (send up, one pass, read back): ' + ms(res.facts.floor) + ' ms.' : '') + (res.soft ? ' This browser draws WebGL itself in software, so the card numbers are not from a graphics card.' : '') + '</p>';
+    })) + '<p class="mut">Lower is better. "Match" is the share of color values within 2 steps of the plain-code picture. ' + (res.facts.floor != null ? 'Fixed cost of the card path (send up, one pass, read back): ' + ms(res.facts.floor) + ' ms.' : '') + (res.rows.length ? '<br>Match detail, ' + esc(res.rows[res.rows.length - 1].size + ' ' + res.rows[res.rows.length - 1].look) + ': ' + esc(res.rows[res.rows.length - 1].detail || 'n/a') + '.' : '') + (res.soft ? ' This browser draws WebGL itself in software, so the card numbers are not from a graphics card.' : '') + '</p>';
   } });
 
   /* ---- test 2: several cores ---- */
@@ -214,7 +214,7 @@ var LAB = (function () {
     var L = ['Netflow Map laptop test report', 'Run: ' + out.when + ' (local time)', '', env(), ''];
     tests.forEach(function (t) {
       var r = out.results[t.id]; if (!r) return; L.push('## ' + t.title);
-      if (t.id === 'paths') { L.push('| Picture / look | Plain (ms) | WebAssembly (ms) | Card (ms) | Match |', '|---|---:|---:|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + x.size + ' ' + x.look + ' | ' + (x.js == null ? 'skipped' : ms(x.js)) + ' | ' + (x.wasm == null ? 'n/a' : ms(x.wasm)) + ' | ' + (x.gl == null ? 'n/a' : ms(x.gl)) + ' | ' + (x.match == null ? '' : x.match.toFixed(2) + '%') + ' |'); }); if (r.facts.floor != null) L.push('Card fixed cost (upload, 1 pass, read back): ' + ms(r.facts.floor) + ' ms'); if (r.soft) L.push('Note: WebGL runs in software in this browser.'); }
+      if (t.id === 'paths') { L.push('| Picture / look | Plain (ms) | WebAssembly (ms) | Card (ms) | Match |', '|---|---:|---:|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + x.size + ' ' + x.look + ' | ' + (x.js == null ? 'skipped' : ms(x.js)) + ' | ' + (x.wasm == null ? 'n/a' : ms(x.wasm)) + ' | ' + (x.gl == null ? 'n/a' : ms(x.gl)) + ' | ' + (x.match == null ? '' : x.match.toFixed(2) + '%') + ' |'); }); r.rows.forEach(function (x) { if (x.detail) L.push('Match detail ' + x.size + ' ' + x.look + ': ' + x.detail); }); if (r.facts.floor != null) L.push('Card fixed cost (upload, 1 pass, read back): ' + ms(r.facts.floor) + ' ms'); if (r.soft) L.push('Note: WebGL runs in software in this browser.'); }
       else if (t.id === 'workers') { L.push('| Way | Workers | Pictures per second |', '|---|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + (x.path === 'gl' ? 'Card' : 'WebAssembly') + ' | ' + x.workers + ' | ' + (x.perSec ? x.perSec.toFixed(1) : (x.none || 'n/a')) + ' |'); }); }
       else if (t.report) L.push(t.report(r)); else if (r && r.report) L.push(typeof r.report === 'function' ? r.report() : String(r.report));
       L.push('');
