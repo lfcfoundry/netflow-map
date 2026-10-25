@@ -111,7 +111,7 @@ var LAB = (function () {
   } });
 
   /* ---- test 2: several cores ---- */
-  add({ id: 'workers', title: 'Several cores: pictures per second', async run(ctx) {
+  add({ id: 'workers', title: 'Several cores: FPS', async run(ctx) {
     var cores = navigator.hardwareConcurrency || 2, counts = [1, 2, 4].filter(function (c) { return c <= Math.max(1, cores - 1); }), mx = Math.max(1, cores - 1); if (counts.indexOf(mx) < 0) counts.push(mx); if (ctx.quick) counts = counts.filter(function (c) { return c === 1 || c === mx; });
     var w = 960, h = 540, pic = samplePicture(w, h).data, N = 24, src = document.getElementById('lab-worker-src').textContent, res = { rows: [], cores: cores }, plan = [], ci, path;
     counts.forEach(function (c) { plan.push(['wasm', c]); }); plan.push(['gl', 1]); if (counts.indexOf(2) >= 0) plan.push(['gl', 2]);
@@ -132,7 +132,7 @@ var LAB = (function () {
     return res;
   }, show(res) {
     var base = res.rows.filter(function (r) { return r.path === 'wasm' && r.workers === 1 && r.perSec; })[0];
-    return table(['Way', 'Workers', 'Pictures per second', 'Compared with 1 WebAssembly worker'], res.rows.map(function (r) {
+    return table(['Way', 'Workers', 'FPS', 'Compared with 1 WebAssembly worker'], res.rows.map(function (r) {
       return [r.path === 'gl' ? 'Graphics card' : 'WebAssembly', String(r.workers), r.perSec ? r.perSec.toFixed(1) : esc(r.none || 'n/a'), r.perSec && base ? (r.perSec / base.perSec).toFixed(2) + '×' : ''];
     })) + '<p class="mut">Full look chain at 960x540, 24 pictures each. Higher is better. This machine reports ' + res.cores + ' logical cores.</p>';
   } });
@@ -169,10 +169,10 @@ var LAB = (function () {
     return res;
   }, show(res) {
     if (!res.glOk) return '<p class="mut">WebGL 2 did not start here, so there is nothing to batch.</p>';
-    return table(['Way', 'Detail', 'ms per picture', 'Pictures per second'], res.rows.map(function (r) { return [esc(r.way), esc(r.detail), r.perPic ? ms(r.perPic) : '', r.perSec ? r.perSec.toFixed(1) : '']; })) + '<p class="mut">Full look chain, 960x540. Higher pictures per second is better. "Together" shares one pile of pictures between all workers.</p>';
+    return table(['Way', 'Detail', 'ms per picture', 'FPS'], res.rows.map(function (r) { return [esc(r.way), esc(r.detail), r.perPic ? ms(r.perPic) : '', r.perSec ? r.perSec.toFixed(1) : '']; })) + '<p class="mut">Full look chain, 960x540. Higher FPS is better. "Together" shares one pile of pictures between all workers.</p>';
   }, report(res) {
     if (!res.glOk) return 'WebGL 2 not available.';
-    return ['| Way | Detail | ms per picture | Pictures per second |', '|---|---|---:|---:|'].concat(res.rows.map(function (r) { return '| ' + r.way + ' | ' + r.detail + ' | ' + (r.perPic ? ms(r.perPic) : '') + ' | ' + (r.perSec ? r.perSec.toFixed(1) : '') + ' |'; })).join('\n');
+    return ['| Way | Detail | ms per picture | FPS |', '|---|---|---:|---:|'].concat(res.rows.map(function (r) { return '| ' + r.way + ' | ' + r.detail + ' | ' + (r.perPic ? ms(r.perPic) : '') + ' | ' + (r.perSec ? r.perSec.toFixed(1) : '') + ' |'; })).join('\n');
   } });
 
   async function runAll() {
@@ -201,7 +201,7 @@ var LAB = (function () {
     }
     if (W) {
       var one = W.rows.filter(function (r) { return r.path === 'wasm' && r.workers === 1; })[0], best = W.rows.filter(function (r) { return r.path === 'wasm' && r.perSec; }).sort(function (a, b) { return b.perSec - a.perSec; })[0], glw = W.rows.filter(function (r) { return r.path === 'gl' && r.perSec; })[0];
-      if (one && best) lines.push('<p>With more workers, WebAssembly went from ' + one.perSec.toFixed(1) + ' to ' + best.perSec.toFixed(1) + ' pictures per second (' + best.workers + ' worker' + (best.workers > 1 ? 's' : '') + ', ' + (best.perSec / one.perSec).toFixed(1) + '×).' + (glw ? ' The card in a worker managed ' + glw.perSec.toFixed(1) + ' per second.' : ' WebGL in a worker did not run here.') + '</p>');
+      if (one && best) lines.push('<p>With more workers, WebAssembly went from ' + one.perSec.toFixed(1) + ' to ' + best.perSec.toFixed(1) + ' FPS (' + best.workers + ' worker' + (best.workers > 1 ? 's' : '') + ', ' + (best.perSec / one.perSec).toFixed(1) + '×).' + (glw ? ' The card in a worker managed ' + glw.perSec.toFixed(1) + ' FPS.' : ' WebGL in a worker did not run here.') + '</p>');
     }
     if (!lines.length) lines.push('<p>Nothing finished. Press Run again.</p>');
     $('vtext').innerHTML = lines.join(''); $('verdict').hidden = false; out.text = report(rep);
@@ -215,7 +215,7 @@ var LAB = (function () {
     tests.forEach(function (t) {
       var r = out.results[t.id]; if (!r) return; L.push('## ' + t.title);
       if (t.id === 'paths') { L.push('| Picture / look | Plain (ms) | WebAssembly (ms) | Card (ms) | Match |', '|---|---:|---:|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + x.size + ' ' + x.look + ' | ' + (x.js == null ? 'skipped' : ms(x.js)) + ' | ' + (x.wasm == null ? 'n/a' : ms(x.wasm)) + ' | ' + (x.gl == null ? 'n/a' : ms(x.gl)) + ' | ' + (x.match == null ? '' : x.match.toFixed(2) + '%') + ' |'); }); r.rows.forEach(function (x) { if (x.detail) L.push('Match detail ' + x.size + ' ' + x.look + ': ' + x.detail); }); if (r.facts.floor != null) L.push('Card fixed cost (upload, 1 pass, read back): ' + ms(r.facts.floor) + ' ms'); if (r.soft) L.push('Note: WebGL runs in software in this browser.'); }
-      else if (t.id === 'workers') { L.push('| Way | Workers | Pictures per second |', '|---|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + (x.path === 'gl' ? 'Card' : 'WebAssembly') + ' | ' + x.workers + ' | ' + (x.perSec ? x.perSec.toFixed(1) : (x.none || 'n/a')) + ' |'); }); }
+      else if (t.id === 'workers') { L.push('| Way | Workers | FPS |', '|---|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + (x.path === 'gl' ? 'Card' : 'WebAssembly') + ' | ' + x.workers + ' | ' + (x.perSec ? x.perSec.toFixed(1) : (x.none || 'n/a')) + ' |'); }); }
       else if (t.report) L.push(t.report(r)); else if (r && r.report) L.push(typeof r.report === 'function' ? r.report() : String(r.report));
       L.push('');
     });

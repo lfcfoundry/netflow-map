@@ -8,15 +8,15 @@ var NFMGifGl = (function () {
   var VS = '#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}';
   var HEAD = '#version 300 es\nprecision highp float;precision highp int;precision highp sampler2D;\nuniform sampler2D A;uniform sampler2D B;out vec4 o;\n';
   var FS = {
-    blurH: 'uniform int r;void main(){ivec2 c=ivec2(gl_FragCoord.xy);int w=textureSize(A,0).x;vec4 s=vec4(0);for(int i=-r;i<=r;i++)s+=texelFetch(A,ivec2(clamp(c.x+i,0,w-1),c.y),0);o=s/float(2*r+1);}',
-    blurV: 'uniform int r;uniform int ph;void main(){ivec2 c=ivec2(gl_FragCoord.xy);int lo=(c.y/ph)*ph,hi=lo+ph-1;vec4 s=vec4(0);for(int i=-r;i<=r;i++)s+=texelFetch(A,ivec2(c.x,clamp(c.y+i,lo,hi)),0);o=s/float(2*r+1);}',
+    blurH: 'uniform int r;void main(){ivec2 c=ivec2(gl_FragCoord.xy);int w=textureSize(A,0).x;vec4 s=vec4(0);for(int i=-r;i<=r;i++)s+=floor(texelFetch(A,ivec2(clamp(c.x+i,0,w-1),c.y),0)*255.0+0.5);float iv=floor(65536.0/float(2*r+1));o=floor((s*iv+32768.0)/65536.0)/255.0;}',
+    blurV: 'uniform int r;uniform int ph;void main(){ivec2 c=ivec2(gl_FragCoord.xy);int lo=(c.y/ph)*ph,hi=lo+ph-1;vec4 s=vec4(0);for(int i=-r;i<=r;i++)s+=floor(texelFetch(A,ivec2(c.x,clamp(c.y+i,lo,hi)),0)*255.0+0.5);float iv=floor(65536.0/float(2*r+1));o=floor((s*iv+32768.0)/65536.0)/255.0;}',
     unsharp: 'uniform float amt;void main(){ivec2 c=ivec2(gl_FragCoord.xy);vec4 s=texelFetch(A,c,0),b=texelFetch(B,c,0);o=vec4(s.rgb+amt*(s.rgb-b.rgb),s.a);}',
     glowDown: 'uniform float thr;uniform int sh,ph;void main(){ivec2 g=ivec2(gl_FragCoord.xy);int bd=g.y/sh;ivec2 c=ivec2(g.x*4,bd*ph+(g.y-bd*sh)*4);vec3 s=vec3(0);for(int j=0;j<4;j++)for(int i=0;i<4;i++)s+=floor(texelFetch(A,c+ivec2(i,j),0).rgb*255.0+0.5);vec3 q=floor(s/16.0);float l=floor((q.r*54.0+q.g*183.0+q.b*19.0)/256.0);float k=l>thr?(l-thr)/(255.0-thr):0.0;o=vec4(q*k/255.0,1.0);}',
     glowUp: 'uniform float g;uniform int sh,ph;void main(){ivec2 c=ivec2(gl_FragCoord.xy);int bd=c.y/ph;ivec2 sz=ivec2(textureSize(B,0).x,sh);vec2 f=clamp((vec2(c.x,c.y-bd*ph)+0.5)/4.0-0.5,vec2(0),vec2(sz-1));ivec2 p0=ivec2(f);ivec2 p1=min(p0+1,sz-1);vec2 t=f-vec2(p0);p0.y+=bd*sh;p1.y+=bd*sh;vec3 bv=mix(mix(texelFetch(B,p0,0).rgb,texelFetch(B,ivec2(p1.x,p0.y),0).rgb,t.x),mix(texelFetch(B,ivec2(p0.x,p1.y),0).rgb,texelFetch(B,p1,0).rgb,t.x),t.y)*255.0*g;bv=min(bv,vec3(255.0));vec4 s=texelFetch(A,c,0);vec3 a=floor(s.rgb*255.0+0.5);o=vec4((255.0-floor((255.0-a)*(255.0-bv)/256.0))/255.0,s.a);}',
-    grade: 'uniform float m[9];uniform float wr,con,bri,vs,inv;uniform int vig,ph;uniform vec2 ctr;\nfloat lut(float v){float i=clamp(floor(v),0.0,255.0);return clamp(floor(((i/255.0-0.5)*con+0.5+bri*0.5)*255.0+1.0),0.0,255.0);}\nvoid main(){ivec2 c=ivec2(gl_FragCoord.xy);vec4 s=texelFetch(A,c,0);vec3 p=floor(s.rgb*255.0+0.5);vec3 n=vec3(m[0]*p.r+m[1]*p.g+m[2]*p.b+wr,m[3]*p.r+m[4]*p.g+m[5]*p.b,m[6]*p.r+m[7]*p.g+m[8]*p.b-wr);n=vec3(lut(n.r),lut(n.g),lut(n.b));if(vig==1){vec2 d=vec2(c.x,c.y%ph)-ctr;float q=dot(d,d)*inv;n*=1.0-vs*q*q;}o=vec4(n/255.0,s.a);}'
+    grade: 'uniform sampler2D L;uniform float m[9];uniform float wr,vs,inv;uniform int vig,ph;uniform vec2 ctr;\nfloat lut(float v){return floor(texelFetch(L,ivec2(int(clamp(floor(v),0.0,255.0)),0),0).r*255.0+0.5);}\nvoid main(){ivec2 c=ivec2(gl_FragCoord.xy);vec4 s=texelFetch(A,c,0);vec3 p=floor(s.rgb*255.0+0.5);vec3 n=vec3(m[0]*p.r+m[1]*p.g+m[2]*p.b+wr,m[3]*p.r+m[4]*p.g+m[5]*p.b,m[6]*p.r+m[7]*p.g+m[8]*p.b-wr);n=vec3(lut(n.r),lut(n.g),lut(n.b));if(vig==1){vec2 d=vec2(c.x,c.y%ph)-ctr;float q=dot(d,d)*inv;n*=1.0-vs*q*q;}o=vec4(n/255.0,s.a);}'
   };
   function create(canvas) {
-    var gl, progs = {}, tex = [], vao, maxTex = 2048;
+    var gl, progs = {}, tex = [], vao, maxTex = 2048, lutTex = null;
     try {
       canvas = canvas || (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(1, 1) : document.createElement('canvas'));
       gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
@@ -60,9 +60,12 @@ var NFMGifGl = (function () {
           box(S0, S1, S2, Math.max(1, Math.round(sw / 60)), sh);
           pass('glowUp', X, S2, Y, function (u) { gl.uniform1f(u('g'), f.glow * 1.3); gl.uniform1i(u('sh'), sh); gl.uniform1i(u('ph'), h); }); t = X; X = Y; Y = t;
         }
-        var m = Fx.colorMatrix(f), cx = (w - 1) / 2, cy = (h - 1) / 2;
+        var m = Fx.colorMatrix(f), cx = (w - 1) / 2, cy = (h - 1) / 2, cv = Fx.curve(f), lb = new Uint8Array(1024), q;   /* the brightness/contrast table comes from the JavaScript twin, so rounding is identical */
+        for (q = 0; q < 256; q++) lb[q * 4] = cv[q];
+        if (!lutTex) { lutTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, lutTex); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 256, 1); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); }
+        gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, lutTex); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RGBA, gl.UNSIGNED_BYTE, lb); gl.activeTexture(gl.TEXTURE0);
         pass('grade', X, null, Y, function (u) {
-          gl.uniform1fv(u('m'), new Float32Array(m)); gl.uniform1f(u('wr'), f.warmth * 28); gl.uniform1f(u('con'), 1 + f.contrast * 1.2); gl.uniform1f(u('bri'), f.brightness);
+          gl.uniform1fv(u('m'), new Float32Array(m)); gl.uniform1f(u('wr'), f.warmth * 28); gl.uniform1i(u('L'), 2);
           gl.uniform1i(u('vig'), f.vignette > 0 ? 1 : 0); gl.uniform1f(u('vs'), f.vignette * 0.85); gl.uniform1f(u('inv'), 1 / (cx * cx + cy * cy)); gl.uniform2f(u('ctr'), cx, cy); gl.uniform1i(u('ph'), h);
         });
         gl.bindFramebuffer(gl.FRAMEBUFFER, Y.f); gl.readPixels(0, 0, w, H, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
