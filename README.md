@@ -10,11 +10,11 @@ The Story Editor's map shows how the pages of a story lead on to each other and 
 
 ## What it does
 
-It has six tabs:
+It has six tabs (the Map's left panel adds a Colors tab):
 
 - **Data**: drop in files or a folder (or paste text), see in plain words what was found, and use the columns workbench: every column with its type and what it does on the map (color, size, line width, labels, filters), plus calculated columns. If the data holds the same network at several times, a States card turns one column per state (or a column naming the state on repeated links) into baseline / year 1 / year 2 / end state.
 - **Nodes**: the items and links as tables you can sort, filter, edit, add to, and delete from.
-- **Map**: (with states: a timeline under the picture to play, pause or drag through them) nine views, a network view with several arrangements (including three 3D ones you can turn: 3D force, Distances 3D and Sphere), a floating key you can drag and edit, search, strongest-links slider, facets, route lighting, box and lasso selection, hand-moved items, right-click menus, formatting rules for items and links, saved views, and a poster print.
+- **Map**: (the **Colors** tab in its left panel changes the color of every part of the map, the type family and the sizes, with 12 ready-made looks and your own saved looks that can be shared as a file; with states: a timeline under the picture to play, pause or drag through them) nine views, a network view with several arrangements (including three 3D ones you can turn: 3D force, Distances 3D and Sphere), a floating key you can drag and edit, search, strongest-links slider, facets, route lighting, box and lasso selection, hand-moved items, right-click menus, formatting rules for items and links, saved views, and a poster print.
 - **Check**: findings about the data, each with a plain-words reason, a way to see it on the map or in the table, and a fix where one is safe.
 - **Advanced**: the Monte Carlo simulation (up to 100,000 walkers; start items, walker types, 16 distributions for arrivals, uncertain link weights, link costs and dwell times; exact odds with error bars beside the dice; step, cost and settling charts; what-if ranking of items or links; results as map color and link width, with optional flow dots), layout settings, and the one-button device check.
 - **Export**: JSON, CSV, SVG, PNG, poster, the check report, saved views, an animated GIF for slides (plays through the states with a smooth change between them, or turns a 3D view around), and a one-page HTML report with the animation inside.
