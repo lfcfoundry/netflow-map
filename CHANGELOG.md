@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39,
 
 ## October 25
 
+- **2026.10.25.1237** New "File size" choice for GIFs (Best picture, Smaller file, Smallest file; Smaller is the new default). On a busy 30,000-item map the file went from 6.9 MB to about 5.3 MB (lower is better) with Smaller and about 4 MB with Smallest. Turning the other way after each pause now also turns the other way at the pause where the GIF starts over (an odd number of turns is rounded up to even).
 - **2026.10.25.1218** The GIF maker draws its pictures on a canvas kept in memory instead of one held on the graphics card. On one laptop drawing a picture took 21 ms instead of 103 ms (lower is better), so GIFs finish much sooner. The map on screen is not changed.
 - **2026.10.25.1212** Making a GIF waits less between pictures, so a GIF without a look finishes about 10 to 20 percent sooner (Chromium 19.4 to 17.4 ms a picture, Firefox 18.3 to 14.8; lower is better). Pictures are identical.
 - **2026.10.25.1200** The GIF looks (glow, blur, sharpen, colors) are now done by your graphics card when there is one, with the processor as the backup, so a GIF with a look finishes much faster (on one laptop the looks took 13 ms a picture instead of 38 ms; lower is better). There is a new "Graphics card" choice in the Look section, set to automatic. The card does the same arithmetic as the processor, so a picture may differ by a color shade or two between computers.
