@@ -15,22 +15,27 @@ function exportLinksCsv() {
   return rows.join('\n') + '\n';
 }
 /** Draws the key onto a picture so pictures carry their own explanation. */
-function drawKeyOn(ctx, sc, W, H, theme) {
+function drawKeyOn(ctx, sc, W, H, theme, o) {
   if (!sc.legend || !sc.legend.length) return;
-  var fs = Math.max(11, Math.round(W / 90)), pad = fs * 0.7, rowH = fs * 1.5, x0 = pad, items = sc.legend.filter(function (l) { return l.k === 'swatch' || l.k === 'mark' || l.k === 'ramp' || l.k === 'size' || l.k === 'width' || l.k === 'text'; });
-  var lines = items.length + (sc.legendTitle ? 1 : 0), boxH = lines * rowH + pad * 2, boxW = fs * 16;
-  var y0 = H - boxH - pad;
-  ctx.save(); ctx.font = fs + 'px ' + NFMLook.fontStack(S.V.fmt.font); ctx.textBaseline = 'middle';
+  o = o || {};
+  var fs = Math.max(11, Math.round(W / 90)), pad = fs * 0.7, rowH = fs * 1.5, items = sc.legend.filter(function (l) { return l.k === 'swatch' || l.k === 'mark' || l.k === 'ramp' || l.k === 'size' || l.k === 'width' || l.k === 'text'; });
+  /* A tall key (a big map has many groups) takes up to 42% of the picture's height; beyond that it uses a second or third column, and past three columns the last row says how many were left out. */
+  var hasT = !!sc.legendTitle, cap = Math.max(4, Math.floor((H * 0.42 - pad * 2) / rowH)), total = items.length + (hasT ? 1 : 0), cols = Math.min(3, Math.max(1, Math.ceil(total / cap))), more = 0;
+  if (total > cols * cap) { more = total - (cols * cap - 1); items = items.slice(0, items.length - more); items.push({ k: 'text', t: '+ ' + more + ' more' }); }
+  var perCol = Math.ceil((items.length + (hasT ? 1 : 0)) / cols), colW = fs * (cols > 1 ? 13 : 16), boxW = colW * cols, boxH = perCol * rowH + pad * 2;
+  var pos = o.pos || 'bl', x0 = pos.charAt(1) === 'r' ? W - boxW - pad : pad, y0 = pos.charAt(0) === 't' ? pad : H - boxH - pad, font = NFMLook.fontStack(S.V.fmt.font), fg = NFMScene.css(sc.theme.fg);
+  ctx.save(); ctx.font = fs + 'px ' + font; ctx.textBaseline = 'middle';
   ctx.fillStyle = NFMScene.css(NFMScene.alpha(sc.theme.box, 0.92)); ctx.strokeStyle = NFMScene.css(NFMScene.alpha(sc.theme.boxLine, 0.8)); ctx.lineWidth = 1;
   ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x0, y0, boxW, boxH, 8); else ctx.rect(x0, y0, boxW, boxH); ctx.fill(); ctx.stroke();
-  var y = y0 + pad + rowH / 2;
-  if (sc.legendTitle) { ctx.fillStyle = NFMScene.css(sc.theme.fg); ctx.font = 'bold ' + fs + 'px ' + NFMLook.fontStack(S.V.fmt.font); ctx.fillText(sc.legendTitle, x0 + pad, y); y += rowH; ctx.font = fs + 'px ' + NFMLook.fontStack(S.V.fmt.font); }
+  var row = 0;
+  var at = function () { var c = (row / perCol) | 0, r = row % perCol; row++; return [x0 + c * colW, y0 + pad + rowH / 2 + r * rowH]; };
+  if (hasT) { var tp = at(); ctx.fillStyle = fg; ctx.font = 'bold ' + fs + 'px ' + font; ctx.fillText(sc.legendTitle, tp[0] + pad, tp[1]); ctx.font = fs + 'px ' + font; }
   items.forEach(function (l) {
-    ctx.fillStyle = NFMScene.css(sc.theme.fg);
-    if (l.k === 'swatch' || l.k === 'mark') { ctx.fillStyle = NFMScene.css(l.c); ctx.beginPath(); if (l.dot || l.k === 'mark') ctx.arc(x0 + pad + fs * 0.45, y, fs * 0.45, 0, 7); else ctx.rect(x0 + pad, y - fs * 0.45, fs * 0.9, fs * 0.9); ctx.fill(); ctx.fillStyle = NFMScene.css(sc.theme.fg); ctx.fillText(String(l.t).slice(0, 26), x0 + pad + fs * 1.4, y); }
-    else if (l.k === 'ramp') { var g = ctx.createLinearGradient(x0 + pad, 0, x0 + pad + fs * 5, 0); for (var q = 0; q <= 4; q++) g.addColorStop(q / 4, NFMScene.css(l.ramp ? NFMScene.rampAt(l.ramp, q / 4) : NFMScene.mix(l.a, l.b, q / 4))); ctx.fillStyle = g; ctx.fillRect(x0 + pad, y - fs * 0.35, fs * 5, fs * 0.7); ctx.fillStyle = NFMScene.css(sc.theme.fg); ctx.fillText((l.t ? l.t + ' ' : '') + l.lo + ' to ' + l.hi, x0 + pad + fs * 5.5, y); }
-    else ctx.fillText(String(l.t || '').slice(0, 30) + (l.lo ? ' (' + l.lo + ' to ' + l.hi + ')' : ''), x0 + pad, y);
-    y += rowH;
+    var p = at(), cx = p[0], y = p[1], room = Math.floor((colW - pad * 2) / (fs * 0.55));
+    ctx.fillStyle = fg;
+    if (l.k === 'swatch' || l.k === 'mark') { ctx.fillStyle = NFMScene.css(l.c); ctx.beginPath(); if (l.dot || l.k === 'mark') ctx.arc(cx + pad + fs * 0.45, y, fs * 0.45, 0, 7); else ctx.rect(cx + pad, y - fs * 0.45, fs * 0.9, fs * 0.9); ctx.fill(); ctx.fillStyle = fg; ctx.fillText(String(l.t).slice(0, Math.min(26, room - 3)), cx + pad + fs * 1.4, y); }
+    else if (l.k === 'ramp') { var g = ctx.createLinearGradient(cx + pad, 0, cx + pad + fs * 5, 0); for (var q = 0; q <= 4; q++) g.addColorStop(q / 4, NFMScene.css(l.ramp ? NFMScene.rampAt(l.ramp, q / 4) : NFMScene.mix(l.a, l.b, q / 4))); ctx.fillStyle = g; ctx.fillRect(cx + pad, y - fs * 0.35, fs * 5, fs * 0.7); ctx.fillStyle = fg; ctx.fillText((l.t ? l.t + ' ' : '') + l.lo + ' to ' + l.hi, cx + pad + fs * 5.5, y); }
+    else ctx.fillText(String(l.t || '').slice(0, 30) + (l.lo ? ' (' + l.lo + ' to ' + l.hi + ')' : ''), cx + pad, y);
   });
   ctx.restore();
 }
