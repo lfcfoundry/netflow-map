@@ -2,8 +2,9 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; worker-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <title>Netflow Map laptop test</title>
 <style>
-:root{--bg:#f6f5f1;--card:#fff;--ink:#1f2430;--mut:#667;--line:#dcd9d0;--ok:#2f7d4f;--warn:#b26a00;--bad:#b3362f;--acc:#3b6ea5}
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1f2430;--mut:#667;--line:#dcd9d0;--ok:#2f7d4f;--warn:#8a4f00;--bad:#b3362f;--acc:#3b6ea5}
 @media (prefers-color-scheme:dark){:root{--bg:#16181d;--card:#1f232a;--ink:#e8e8ea;--mut:#9aa0ab;--line:#343a44;--ok:#5fc08a;--warn:#e0a34a;--bad:#ef7b73;--acc:#7fb0e8}}
+@media (prefers-color-scheme:dark){button{color:#10151c}button.alt{color:var(--acc)}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 main{max-width:860px;margin:0 auto;padding:20px 16px 60px}
 h1{font-size:1.5rem;margin:0 0 4px}h2{font-size:1.1rem;margin:0 0 6px}.sub{color:var(--mut);margin:0 0 16px}
@@ -12,6 +13,7 @@ button{font:inherit;padding:10px 18px;border-radius:10px;border:1px solid var(--
 .bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:8px 0}.bar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .2s}
 table{border-collapse:collapse;width:100%;font-size:.92rem}th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line)}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .v{font-weight:600}.good{color:var(--ok)}.meh{color:var(--warn)}.bad{color:var(--bad)}.mut{color:var(--mut)}
+.badge{display:inline-block;padding:1px 9px;border-radius:6px;border:1px solid rgba(255,255,255,.4);color:#fff;font-weight:700;margin-right:8px}.badge.good{background:#1b5e3a}.badge.meh{background:#3d4a5c}.badge.bad{background:#8f1d1d}
 pre{white-space:pre-wrap;word-break:break-word;font-size:.85rem}
 </style></head><body><main>
 <h1>Netflow Map laptop test</h1>
@@ -227,10 +229,11 @@ var LAB = (function () {
       try {
         var r = await t.run({ quick: $('quick').checked, stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / tests.length * 100).toFixed(0) + '%'; $('status').textContent = text; } });
         out.results[t.id] = r; bodies[i].className = 'body'; bodies[i].innerHTML = t.show ? t.show(r) : '';
-      } catch (e) { bodies[i].className = 'body bad'; bodies[i].textContent = 'This part failed: ' + (e && e.message || e); out.notes.push(t.id + ' failed: ' + (e && e.message || e)); }
+      } catch (e) { bodies[i].className = 'body'; bodies[i].innerHTML = badge('bad', 'Failed') + esc('This part failed: ' + (e && e.message || e)); out.notes.push(t.id + ' failed: ' + (e && e.message || e)); }
     }
     $('bar').style.width = '100%'; $('status').textContent = stopFlag ? 'Stopped.' : 'Done.'; $('run').disabled = false; $('stop').disabled = true; verdict();
   }
+  function badge(kind, word) { return '<span class="badge ' + kind + '">' + esc(word) + '</span>'; }
   function verdict() {
     var P = out.results.paths, W = out.results.workers, lines = [], rep = [];
     if (P) {
@@ -238,9 +241,9 @@ var LAB = (function () {
       if (full) {
         if (full.gl != null && full.wasm) {
           var sp = full.wasm / full.gl;
-          lines.push('<p class="v ' + (sp >= 1.3 ? 'good' : sp >= 0.9 ? 'meh' : 'bad') + '">' + (P.soft ? 'The browser here draws graphics in software, so this is not a graphics-card result. ' : '') + 'The graphics card did the full look chain on a 960 wide picture in ' + ms(full.gl) + ' ms; WebAssembly took ' + ms(full.wasm) + ' ms' + (full.js != null ? ' and plain code ' + ms(full.js) + ' ms' : '') + '. The card was ' + (sp >= 1 ? sp.toFixed(1) + '× faster' : (1 / sp).toFixed(1) + '× slower') + ' than WebAssembly' + (full.match != null ? ', and its pictures match within 2 color steps for ' + full.match.toFixed(2) + '% of values.' : '.') + '</p>');
+          lines.push('<p>' + badge(sp >= 1.3 ? 'good' : sp >= 0.9 ? 'meh' : 'bad', sp >= 1.3 ? 'Use the card' : sp >= 0.9 ? 'About equal' : 'Keep WebAssembly') + (P.soft ? 'The browser here draws graphics in software, so this is not a graphics-card result. ' : '') + 'The graphics card did the full look chain on a 960 wide picture in ' + ms(full.gl) + ' ms; WebAssembly took ' + ms(full.wasm) + ' ms' + (full.js != null ? ' and plain code ' + ms(full.js) + ' ms' : '') + '. The card was ' + (sp >= 1 ? sp.toFixed(1) + '× faster' : (1 / sp).toFixed(1) + '× slower') + ' than WebAssembly' + (full.match != null ? ', and its pictures match within 2 color steps for ' + full.match.toFixed(2) + '% of values.' : '.') + '</p>');
           rep.push('verdict_gpu_vs_wasm_full_960: ' + sp.toFixed(2) + 'x (' + (sp >= 1.3 ? 'use card' : 'keep WebAssembly') + ')');
-        } else if (!P.glOk) { lines.push('<p class="v meh">WebGL 2 could not start here, so the card path is not possible on this browser. WebAssembly did the full look chain in ' + (full.wasm != null ? ms(full.wasm) : 'n/a') + ' ms ' + (full.js != null ? '(plain code ' + ms(full.js) + ' ms)' : '') + '.</p>'); rep.push('verdict: no WebGL2'); }
+        } else if (!P.glOk) { lines.push('<p>' + badge('meh', 'No card path') + 'WebGL 2 could not start here, so the card path is not possible on this browser. WebAssembly did the full look chain in ' + (full.wasm != null ? ms(full.wasm) : 'n/a') + ' ms ' + (full.js != null ? '(plain code ' + ms(full.js) + ' ms)' : '') + '.</p>'); rep.push('verdict: no WebGL2'); }
       }
     }
     if (W) {
@@ -250,7 +253,7 @@ var LAB = (function () {
     var D = out.results.drawing;
     if (D) {
       var pg = D.rows.filter(function (r) { return r.fps && !r.workers; }).sort(function (a, b) { return b.fps - a.fps; })[0], wk = D.rows.filter(function (r) { return r.fps && r.workers; }).sort(function (a, b) { return b.fps - a.fps; })[0];
-      if (pg && wk) { var gain = wk.fps / pg.fps; lines.push('<p class="v ' + (gain >= 1.8 ? 'good' : gain >= 1.2 ? 'meh' : 'bad') + '">Drawing a map picture on the page runs at ' + pg.fps.toFixed(0) + ' FPS (' + ms(pg.total) + ' ms each). In ' + wk.workers + ' worker' + (wk.workers > 1 ? 's' : '') + ' it reaches ' + wk.fps.toFixed(0) + ' FPS, ' + gain.toFixed(1) + '× ' + (gain >= 1 ? 'more' : 'less') + '. ' + (gain >= 1.8 ? 'Drawing in parallel is worth building.' : 'Drawing in parallel would help only a little.') + '</p>'); rep.push('verdict_parallel_drawing: ' + gain.toFixed(2) + 'x'); }
+      if (pg && wk) { var gain = wk.fps / pg.fps; lines.push('<p>' + badge(gain >= 1.8 ? 'good' : gain >= 1.2 ? 'meh' : 'bad', gain >= 1.8 ? 'Worth building' : gain >= 1.2 ? 'Small gain' : 'Not worth it') + 'Drawing a map picture on the page runs at ' + pg.fps.toFixed(0) + ' FPS (' + ms(pg.total) + ' ms each). In ' + wk.workers + ' worker' + (wk.workers > 1 ? 's' : '') + ' it reaches ' + wk.fps.toFixed(0) + ' FPS, ' + gain.toFixed(1) + '× ' + (gain >= 1 ? 'more' : 'less') + '. ' + (gain >= 1.8 ? 'Drawing in parallel is worth building.' : 'Drawing in parallel would help only a little.') + '</p>'); rep.push('verdict_parallel_drawing: ' + gain.toFixed(2) + 'x'); }
     }
     if (!lines.length) lines.push('<p>Nothing finished. Press Run again.</p>');
     $('vtext').innerHTML = lines.join(''); $('verdict').hidden = false; out.text = report(rep);
