@@ -4,6 +4,7 @@
  */
 var GX_KEY = 'nfm-gif', GX = { opts: { size: 960, shape: '169', fps: 25, hold: 1.4, trans: 0.9, caption: true, key: true, theme: 'light', what: 'whole', ease: 'smooth', turns: 1, turnSec: 4, pause: 0, reverse: false, arc: 360, names: 'always', filter: NFMGifFx.plainFilter() }, running: false, cancel: false, result: null, msg: '', prog: null, preview: null };
 (function () { try { var o = JSON.parse(LS.get(GX_KEY) || 'null'); if (o && typeof o === 'object') { var d = GX.opts; ['size', 'fps', 'hold', 'trans', 'turns', 'turnSec', 'pause', 'arc'].forEach(function (k) { if (typeof o[k] === 'number' && isFinite(o[k])) d[k] = o[k]; }); ['shape', 'theme', 'what', 'ease', 'names'].forEach(function (k) { if (typeof o[k] === 'string' && o[k].length < 20) d[k] = o[k]; }); ['caption', 'key', 'reverse'].forEach(function (k) { if (typeof o[k] === 'boolean') d[k] = o[k]; }); d.filter = NFMGifFx.cleanFilter(o.filter); if (!NFMGifFx.EASES[d.ease]) d.ease = 'smooth'; if (!NFMGifFx.NAMES[d.names]) d.names = 'always'; d.fps = clamp(d.fps, 5, 30); d.turns = clamp(Math.round(d.turns), 1, 12); d.turnSec = clamp(d.turnSec, 1, 20); d.pause = clamp(d.pause, 0, 10); d.arc = clamp(d.arc, 10, 360); } } catch (e) { /* defaults */ } })();
+NFMGifFx.initWasm();   /* compile early, so the one-picture preview on the page has it too */
 var saveGx = function () { LS.set(GX_KEY, JSON.stringify(GX.opts)); };
 HOOKS.graph.push(function () { if (GX.result && GX.result.url) { try { URL.revokeObjectURL(GX.result.url); } catch (e) { /* gone */ } } GX.result = null; GX.msg = ''; });
 function gifMode() { return hasStates() ? 'states' : (S.L && S.L.is3d ? 'spin' : ''); }
@@ -91,8 +92,7 @@ function makeGif(o, progress, stop) {
         return x.getImageData(0, 0, W, H).data.buffer;
       };
       if (o.preview) {   /* one picture with the look applied, on the page (the person pressed a button and waits for one picture) */
-        var pb = renderItem(plan[0]), pa = new Uint8ClampedArray(pb); NFMGifFx.apply(pa, W, H, filt); x.putImageData(new ImageData(pa, W, H), 0, 0);
-        var png = out.toDataURL('image/png'); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); return { png: png, w: W, h: H };
+        return NFMGifFx.initWasm().then(function () { var pb = renderItem(plan[0]), pa = new Uint8ClampedArray(pb); NFMGifFx.apply(pa, W, H, filt); x.putImageData(new ImageData(pa, W, H), 0, 0); var png = out.toDataURL('image/png'); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); return { png: png, w: W, h: H }; });
       }
       var pool = gifPool(useFilter ? gifWorkerCount() : 1), waits = {}, nid = 1, total = plan.length + keys.length, done = 0, failed = null;
       var finish = function () { pool.on = null; pool.close(); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); };
@@ -104,6 +104,7 @@ function makeGif(o, progress, stop) {
       var cache = new Map();
       var run = async function () {
         pool.ws[0].postMessage({ t: 'init', w: W, h: H });
+        if (useFilter) await Promise.all(pool.ws.map(function (w, k) { return ask(k, { t: 'wasm', id: 'w' + k }, [], 'w' + k); }));   /* every worker compiles the WebAssembly filters first (plain JavaScript where it cannot) */
         /* pass 1: the main pictures give the colors */
         var shots = [], ki, kb;
         for (ki = 0; ki < keys.length; ki++) {
