@@ -29,6 +29,7 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:.85rem}
 var __wasmP = null;
 self.onmessage = function (e) {
   var m = e.data;
+  if (m.t === 'draw') { var oc = new OffscreenCanvas(m.w, m.h), ox = oc.getContext('2d', { willReadFrequently: true }), d = ox.getImageData ? null : null; drawScene(ox, m.w, m.h, m.seed); var im = ox.getImageData(0, 0, m.w, m.h); postMessage({ t: 'drawn', id: m.id, buf: im.data.buffer }, [im.data.buffer]); return; }
   if (m.t === 'init') { __wasmP = NFMGifFx.initWasm(); var g = null; try { g = NFMGifGl.create(); } catch (x) { g = null; } self.__gl = g; __wasmP.then(function (ok) { postMessage({ t: 'ready', wasm: ok, gl: !!g }); }); return; }
   if (m.t === 'run') {
     var a = new Uint8ClampedArray(m.buf), ok = true, n = m.n || 1, sz = m.w * m.h * 4, k;
@@ -69,10 +70,21 @@ var LAB = (function () {
     x.font = '12px sans-serif'; for (i = 0; i < 140; i++) { x.fillStyle = P[i][3]; x.beginPath(); x.arc(P[i][0], P[i][1], P[i][2], 0, 6.2832); x.fill(); x.fillStyle = '#1d2330'; x.fillText('Item ' + i, P[i][0] + P[i][2] + 3, P[i][1] + 4); }
     return x.getImageData(0, 0, w, h);
   }
+
+  /** A map-like picture drawn with Canvas 2D: soft background, curved links, round nodes with names. seed turns the map a little, like a spin. */
+  function drawScene(x, w, h, seed) {
+    var s = 7, i, rnd = function () { return (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }, P = [], a = seed * 0.05, ca = Math.cos(a), sa = Math.sin(a);
+    x.fillStyle = '#f4f2ec'; x.fillRect(0, 0, w, h);
+    for (i = 0; i < 400; i++) { var px = rnd() - .5, py = rnd() - .5; P.push([w / 2 + (px * ca - py * sa) * w * .95, h / 2 + (px * sa + py * ca) * h * .95, 4 + rnd() * 10, 'hsl(' + (rnd() * 360 | 0) + ',55%,52%)']); }
+    x.lineWidth = 1.2; x.strokeStyle = 'rgba(40,50,70,.4)';
+    for (i = 0; i < 900; i++) { var p = P[rnd() * 400 | 0], q = P[rnd() * 400 | 0]; x.beginPath(); x.moveTo(p[0], p[1]); x.quadraticCurveTo((p[0] + q[0]) / 2 + 20 * (rnd() - .5), (p[1] + q[1]) / 2 + 20 * (rnd() - .5), q[0], q[1]); x.stroke(); }
+    x.font = '11px sans-serif';
+    for (i = 0; i < 400; i++) { x.fillStyle = P[i][3]; x.beginPath(); x.arc(P[i][0], P[i][1], P[i][2], 0, 6.2832); x.fill(); if (i % 3 === 0) { x.fillStyle = '#1d2330'; x.fillText('Item ' + i, P[i][0] + P[i][2] + 2, P[i][1] + 4); } }
+  }
   var FULL = { glow: 0.6, blur: 1, vignette: 0.4, sharpen: 0.3, saturation: 0.2 };
   var LOOKS = [['Crisp', null], ['Neon glow', null], ['Full chain (glow, blur, sharpen, vignette)', FULL]];
   function lookOf(name, f) { if (f) return f; var p = NFMGifFx.FILTER_PRESETS.filter(function (q) { return q[0] === name; })[0]; return p ? p[1] : {}; }
-  function worker(src) { var u = URL.createObjectURL(new Blob([src], { type: 'text/javascript' })), w = new Worker(u); setTimeout(function () { URL.revokeObjectURL(u); }, 4000); return w; }
+  function worker(src) { var u = URL.createObjectURL(new Blob([src + '\nvar drawScene = ' + drawScene.toString() + ';'], { type: 'text/javascript' })), w = new Worker(u); setTimeout(function () { URL.revokeObjectURL(u); }, 4000); return w; }
   function ask(w, m, tr) { return new Promise(function (res, rej) { w.onmessage = function (e) { res(e.data); }; w.onerror = function (e) { rej(new Error(e.message || 'worker failed')); }; w.postMessage(m, tr || []); }); }
 
   /* ---- test 1: one picture, three ways ---- */
@@ -173,6 +185,37 @@ var LAB = (function () {
   }, report(res) {
     if (!res.glOk) return 'WebGL 2 not available.';
     return ['| Way | Detail | ms per picture | FPS |', '|---|---|---:|---:|'].concat(res.rows.map(function (r) { return '| ' + r.way + ' | ' + r.detail + ' | ' + (r.perPic ? ms(r.perPic) : '') + ' | ' + (r.perSec ? r.perSec.toFixed(1) : '') + ' |'; })).join('\n');
+  } });
+
+  /* ---- test 4: drawing the pictures (what limits the GIF maker once looks are fast) ---- */
+  add({ id: 'drawing', title: 'Drawing the pictures: here, and in several workers', async run(ctx) {
+    var w = 960, h = 540, N = ctx.quick ? 24 : 48, res = { rows: [], cores: navigator.hardwareConcurrency || 2 }, src = document.getElementById('lab-worker-src').textContent, modes = [['Canvas as the page makes it', { alpha: false }], ['Canvas kept in memory for reading (willReadFrequently)', { alpha: false, willReadFrequently: true }]], mi, k;
+    for (mi = 0; mi < modes.length; mi++) {
+      if (ctx.stopped()) return res; ctx.progress(mi / 8, 'Drawing here: ' + modes[mi][0]);
+      var c = document.createElement('canvas'); c.width = w; c.height = h; var x = c.getContext('2d', modes[mi][1]), o = document.createElement('canvas'); o.width = w; o.height = h; var ox = o.getContext('2d', { willReadFrequently: true }), tD = 0, tC = 0, tR = 0, seed = 0;
+      for (k = 0; k < N + 3; k++) {
+        var t0 = performance.now(); drawScene(x, w, h, seed++); var t1 = performance.now(); ox.drawImage(c, 0, 0); var t2 = performance.now(); ox.getImageData(0, 0, w, h); var t3 = performance.now();
+        if (k >= 3) { tD += t1 - t0; tC += t2 - t1; tR += t3 - t2; } await nextFrame();
+      }
+      res.rows.push({ way: 'On this page: ' + modes[mi][0], draw: tD / N, copy: tC / N, read: tR / N, total: (tD + tC + tR) / N, fps: 1000 * N / (tD + tC + tR) });
+    }
+    var mx = Math.max(1, res.cores - 1), counts = [1, 2, 4].filter(function (n) { return n <= mx; }); if (counts.indexOf(mx) < 0) counts.push(mx);
+    if (ctx.quick) counts = counts.filter(function (n) { return n === 1 || n === mx || n === 4; });
+    for (var ci = 0; ci < counts.length; ci++) {
+      if (ctx.stopped()) return res; var kw = counts[ci]; ctx.progress((2 + ci) / 8 + .1, 'Drawing in ' + kw + ' worker' + (kw > 1 ? 's' : ''));
+      var ws = [], j; try {
+        for (j = 0; j < kw; j++) ws.push(worker(src)); await Promise.all(ws.map(function (wk) { return ask(wk, { t: 'init' }); }));
+        var next = 0, done = 0, tt = performance.now();
+        await Promise.all(ws.map(function (wk) { return (async function () { while (next < N) { var id = next++; await ask(wk, { t: 'draw', id: id, w: w, h: h, seed: id }); done++; } })(); }));
+        var dt = performance.now() - tt; res.rows.push({ way: 'In ' + kw + ' worker' + (kw > 1 ? 's' : '') + ' (OffscreenCanvas)', workers: kw, fps: 1000 * done / dt, total: dt / done });
+      } catch (e) { res.rows.push({ way: 'In ' + kw + ' worker(s)', none: String(e.message || e) }); }
+      ws.forEach(function (wk) { wk.terminate(); });
+    }
+    return res;
+  }, show(res) {
+    return table(['Way', 'Draw (ms)', 'Finish and copy (ms)', 'Read pixels (ms)', 'Per picture (ms)', 'FPS'], res.rows.map(function (r) { return [esc(r.way), r.draw != null ? ms(r.draw) : '', r.copy != null ? ms(r.copy) : '', r.read != null ? ms(r.read) : '', r.total != null ? ms(r.total) : esc(r.none || ''), r.fps ? r.fps.toFixed(1) : '']; })) + '<p class="mut">A map-like picture of 400 items and 900 links at 960x540. Lower ms and higher FPS are better. Workers show how much drawing in parallel would help.</p>';
+  }, report(res) {
+    return ['| Way | Draw (ms) | Finish and copy (ms) | Read (ms) | Per picture (ms) | FPS |', '|---|---:|---:|---:|---:|---:|'].concat(res.rows.map(function (r) { return '| ' + r.way + ' | ' + (r.draw != null ? ms(r.draw) : '') + ' | ' + (r.copy != null ? ms(r.copy) : '') + ' | ' + (r.read != null ? ms(r.read) : '') + ' | ' + (r.total != null ? ms(r.total) : (r.none || '')) + ' | ' + (r.fps ? r.fps.toFixed(1) : '') + ' |'; })).join('\n');
   } });
 
   async function runAll() {
