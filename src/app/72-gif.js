@@ -1,7 +1,10 @@
 /*!
  * Netflow Map app, part 9b: animated GIF and the one-page HTML report (Export tab). Copyright (c) 2026 LFC Foundry. MIT License.
+ * Pictures are drawn on the page, then filtered and written to the GIF in background workers (src/gif-worker.js); timing and filters are in src/gifx.js.
  */
-var GX = { opts: { size: 960, shape: '169', fps: 10, hold: 1.4, trans: 0.9, caption: true, key: true, theme: 'light', what: 'whole' }, running: false, cancel: false, result: null, msg: '', prog: null };
+var GX_KEY = 'nfm-gif', GX = { opts: { size: 960, shape: '169', fps: 25, hold: 1.4, trans: 0.9, caption: true, key: true, theme: 'light', what: 'whole', ease: 'smooth', turns: 1, turnSec: 4, pause: 0, reverse: false, arc: 360, names: 'always', filter: NFMGifFx.plainFilter() }, running: false, cancel: false, result: null, msg: '', prog: null, preview: null };
+(function () { try { var o = JSON.parse(LS.get(GX_KEY) || 'null'); if (o && typeof o === 'object') { var d = GX.opts; ['size', 'fps', 'hold', 'trans', 'turns', 'turnSec', 'pause', 'arc'].forEach(function (k) { if (typeof o[k] === 'number' && isFinite(o[k])) d[k] = o[k]; }); ['shape', 'theme', 'what', 'ease', 'names'].forEach(function (k) { if (typeof o[k] === 'string' && o[k].length < 20) d[k] = o[k]; }); ['caption', 'key', 'reverse'].forEach(function (k) { if (typeof o[k] === 'boolean') d[k] = o[k]; }); d.filter = NFMGifFx.cleanFilter(o.filter); if (!NFMGifFx.EASES[d.ease]) d.ease = 'smooth'; if (!NFMGifFx.NAMES[d.names]) d.names = 'always'; d.fps = clamp(d.fps, 5, 30); d.turns = clamp(Math.round(d.turns), 1, 12); d.turnSec = clamp(d.turnSec, 1, 20); d.pause = clamp(d.pause, 0, 10); d.arc = clamp(d.arc, 10, 360); } } catch (e) { /* defaults */ } })();
+var saveGx = function () { LS.set(GX_KEY, JSON.stringify(GX.opts)); };
 HOOKS.graph.push(function () { if (GX.result && GX.result.url) { try { URL.revokeObjectURL(GX.result.url); } catch (e) { /* gone */ } } GX.result = null; GX.msg = ''; });
 function gifMode() { return hasStates() ? 'states' : (S.L && S.L.is3d ? 'spin' : ''); }
 function gifSize(o, uw, uh) {
@@ -10,28 +13,32 @@ function gifSize(o, uw, uh) {
   else if (o.shape === '169') H = Math.round(W * 9 / 16); else if (o.shape === '43') H = Math.round(W * 3 / 4); else if (o.shape === 'sq') H = W; else H = Math.round(W * clamp(uh / Math.max(1, uw), 0.4, 1.4));
   return [W - (W % 2), Math.max(240, H - (H % 2))];
 }
-/** What to draw, in order: { L (or make()), caption, delay (ms), key (a main picture, used for the palette), cam }. */
+/** What to draw, in order: { L (or make()), caption, ms (time shown), names (0..1), key (a main picture, used for the palette), cam }. */
 function gifPlan(o, frames) {
-  var items = [], N, i, s;
+  var items = [], N, i, s, fx = NFMGifFx;
   if (frames) {
     N = frames.length;
     for (i = 0; i < N; i++) {
-      items.push({ L: frames[i], caption: stateName(i), delay: Math.round((i === N - 1 ? o.hold * 1.6 : o.hold) * 1000), key: true });
+      items.push({ L: frames[i], caption: stateName(i), ms: Math.round((i === N - 1 ? o.hold * 1.6 : o.hold) * 1000), names: o.names === 'never' ? 0 : 1, key: true });
       if (i < N - 1) {
         var steps = Math.max(0, Math.round(o.trans * o.fps));
-        for (s = 1; s <= steps; s++) (function (a, b, u) { items.push({ make: function () { return blend(frames[a], frames[b], ease(u)); }, caption: u < 0.5 ? stateName(a) : stateName(b), delay: Math.round(1000 / o.fps), key: false }); })(i, i + 1, s / (steps + 1));
+        for (s = 1; s <= steps; s++) (function (a, b, u) { items.push({ make: function () { return blend(frames[a], frames[b], fx.ease(o.ease, u)); }, caption: u < 0.5 ? stateName(a) : stateName(b), ms: 1000 / o.fps, names: fx.stateNames(o.names, u), key: false }); })(i, i + 1, s / (steps + 1));
       }
     }
   } else {
-    var n = Math.max(12, Math.round(o.hold * 6 * o.fps / 2)), yaw0 = S.V.cam.yaw;
-    for (i = 0; i < n; i++) items.push({ L: S.L, caption: '', cam: Object.assign({}, S.V.cam, { yaw: yaw0 + 2 * Math.PI * i / n }), delay: Math.round(1000 / o.fps), key: i % Math.ceil(n / 4) === 0 });
+    var yaw0 = S.V.cam.yaw, sp = fx.spinPlan({ fps: o.fps, turns: o.turns, turnSec: o.turnSec, pauseSec: o.pause, reverse: o.reverse, ease: o.ease, arc: o.arc, names: o.names, fadeSec: 0.4 }), every = Math.max(1, Math.ceil(sp.length / 6));
+    sp.forEach(function (f, k) { items.push({ L: S.L, caption: '', cam: Object.assign({}, S.V.cam, { yaw: yaw0 + f.yaw }), ms: f.ms, names: f.a, key: k % every === 0 || (f.phase === 'hold' && f.ms > 100) }); });
   }
+  var cs = fx.delaysCs(items.map(function (p) { return p.ms; }));
+  items.forEach(function (p, k) { p.ms = cs[k] * 10; });
   return items;
 }
 function gifScene(item, o) {
   var L = item.make ? item.make() : item.L; applyPins(L);
   var so = sceneOpts(); if (o.theme !== 'app') { so.theme = o.theme; so.palette = S.V.palette; so.ramp = S.V.ramp; } if (item.cam) so.cam = item.cam;
-  var sc = NFMScene.make(L, so); editKey(sc); return sc;
+  var sc = NFMScene.make(L, so); editKey(sc);
+  if (item.names !== undefined && item.names < 0.999) { if (item.names <= 0.01) sc.labels = []; else sc.labels.forEach(function (l) { l.a = (l.a === undefined ? 1 : l.a) * item.names; }); }
+  return sc;
 }
 function gifCaption(ctx, sc, text, W, H) {
   if (!text) return;
@@ -42,13 +49,30 @@ function gifCaption(ctx, sc, text, W, H) {
   ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, tw + pad * 2, fs + pad * 1.4, fs * 0.4); else ctx.rect(x, y, tw + pad * 2, fs + pad * 1.4); ctx.fill(); ctx.stroke();
   ctx.fillStyle = NFMScene.css(sc.theme.fg); ctx.fillText(text, x + pad, y + (fs + pad * 1.4) / 2); ctx.restore();
 }
-/** Makes the GIF. Resolves to { bytes, w, h, frames, ms }. progress(done, total, text); stop() returns true to cancel. */
+/** A few background workers (or one inline helper where workers are missing). Messages come back through pool.on(workerIndex, msg). */
+function gifPool(n) {
+  var pool = { n: 0, ws: [], inflight: [], on: null, inline: false, close: function () { pool.ws.forEach(function (w) { try { w.terminate(); } catch (e) { /* gone */ } }); pool.ws = []; } };
+  var src = null, url = null;
+  try { src = $('nfm-gif-src').textContent; url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' })); } catch (e) { src = null; }
+  for (var i = 0; src && i < n; i++) (function (k) {
+    try { var w = new Worker(url); w.onmessage = function (e) { pool.inflight[k]--; if (pool.on) pool.on(k, e.data); }; w.onerror = function (e) { if (pool.on) pool.on(k, { t: 'error', msg: String(e.message || 'worker failed') }); }; pool.ws.push(w); pool.inflight.push(0); } catch (e) { /* fewer workers */ }
+  })(i);
+  if (url) setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  if (!pool.ws.length) {   /* the same code on the page, one message at a time */
+    pool.inline = true;
+    pool.ws.push({ postMessage: function (m) { setTimeout(function () { NFMGifWorker.handle(m, function (r) { pool.inflight[0]--; if (pool.on) pool.on(0, r); }); }, 0); }, terminate: function () { /* nothing */ } }); pool.inflight.push(0);
+  }
+  pool.n = pool.ws.length;
+  pool.post = function (k, m, tr) { pool.inflight[k]++; pool.ws[k].postMessage(m, tr || []); };
+  return pool;
+}
+function gifWorkerCount() { return window.NFM_GIF_WORKERS > 0 ? window.NFM_GIF_WORKERS : clamp((navigator.hardwareConcurrency || 2) - 1, 1, 5); }
+/** Makes the GIF. Resolves to { bytes, w, h, frames, ms, workers }. progress(done, total, text); stop() returns true to cancel. */
 function makeGif(o, progress, stop) {
   var t0 = performance.now(), mode = gifMode();
   var getFrames = mode === 'states' ? ensureFrames(function (i, n) { progress(0, 1, 'Preparing state ' + i + ' of ' + n + '…'); }) : Promise.resolve(null);
   return getFrames.then(function (frames) {
-    var plan = gifPlan(o, frames), keys = plan.filter(function (p) { return p.key; }), W, H, view, host, rend, cache = new Map();
-    /* the picture frame: the union of all the main pictures */
+    var plan = gifPlan(o, frames), keys = plan.filter(function (p) { return p.key; }); if (o.preview) { plan = [keys[0]]; keys = plan; } var W, H, view, host, rend, filt = NFMGifFx.cleanFilter(o.filter), useFilter = !NFMGifFx.isPlainFilter(filt);
     var ux0 = Infinity, uy0 = Infinity, ux1 = -Infinity, uy1 = -Infinity;
     keys.forEach(function (p) { var sc = gifScene(p, o); ux0 = Math.min(ux0, sc.x0); uy0 = Math.min(uy0, sc.y0); ux1 = Math.max(ux1, sc.x0 + sc.w); uy1 = Math.max(uy1, sc.y0 + sc.h); });
     var uw = ux1 - ux0, uh = uy1 - uy0, sz = gifSize(o, uw, uh); W = sz[0]; H = sz[1];
@@ -64,28 +88,48 @@ function makeGif(o, progress, stop) {
         for (var i = 0; i < host.children.length; i++) x.drawImage(host.children[i], 0, 0);
         if (o.key) drawKeyOn(x, sc, W, H);
         if (o.caption) gifCaption(x, sc, p.caption, W, H);
-        return x.getImageData(0, 0, W, H).data;
+        return x.getImageData(0, 0, W, H).data.buffer;
       };
-      var finish = function () { try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); };
-      var total = plan.length + keys.length, done = 0, tick = function (text) { progress(done, total, text); return nextFrame(); };
-      /* pass 1: the main pictures give the colors */
-      var ki = 0, shots = [];
-      var pass1 = function () {
-        if (ki >= keys.length) return Promise.resolve();
-        if (stop()) return Promise.reject(new Error('cancelled'));
-        var d = renderItem(keys[ki]); cache.set(keys[ki], new Uint8ClampedArray(d)); shots.push(cache.get(keys[ki])); ki++; done++;
-        return tick('Looking at the colors…').then(pass1);
+      if (o.preview) {   /* one picture with the look applied, on the page (the person pressed a button and waits for one picture) */
+        var pb = renderItem(plan[0]), pa = new Uint8ClampedArray(pb); NFMGifFx.apply(pa, W, H, filt); x.putImageData(new ImageData(pa, W, H), 0, 0);
+        var png = out.toDataURL('image/png'); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); return { png: png, w: W, h: H };
+      }
+      var pool = gifPool(useFilter ? gifWorkerCount() : 1), waits = {}, nid = 1, total = plan.length + keys.length, done = 0, failed = null;
+      var finish = function () { pool.on = null; pool.close(); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); };
+      pool.on = function (k, m) { if (m.t === 'error') failed = new Error(m.msg); var w = waits[m.id !== undefined ? m.id : m.t]; if (w) { delete waits[m.id !== undefined ? m.id : m.t]; w(m); } else if (m.t === 'error') Object.keys(waits).forEach(function (q) { waits[q](m); }); };
+      var ask = function (k, msg, tr, key) { return new Promise(function (res, rej) { waits[key] = function (m) { if (m.t === 'error') rej(failed); else res(m); }; pool.post(k, msg, tr); }); };
+      var tick = function (text) { progress(done, total, text); return nextFrame(); };
+      var least = function () { var b = 0, q; for (q = 1; q < pool.n; q++) if (pool.inflight[q] < pool.inflight[b]) b = q; return b; };
+      var filterBuf = function (buf) { if (!useFilter) return Promise.resolve(buf); var id = 'f' + nid++; return ask(least(), { t: 'filter', id: id, buf: buf, w: W, h: H, f: filt }, [buf], id).then(function (m) { return m.buf; }); };
+      var cache = new Map();
+      var run = async function () {
+        pool.ws[0].postMessage({ t: 'init', w: W, h: H });
+        /* pass 1: the main pictures give the colors */
+        var shots = [], ki, kb;
+        for (ki = 0; ki < keys.length; ki++) {
+          if (stop()) throw new Error('cancelled'); if (failed) throw failed;
+          kb = await filterBuf(renderItem(keys[ki])); cache.set(keys[ki], kb); shots.push(kb.slice(0)); done++; await tick('Looking at the colors…');
+        }
+        await ask(0, { t: 'palette', bufs: shots }, shots, 'ready'); shots = null;
+        /* pass 2: every picture in order, drawn here, filtered by the workers in turn, written by worker 0 */
+        var ahead = [], next = 0, sent = 0, window_ = pool.n + 1, encP = [];
+        while (sent < plan.length) {
+          while (next < plan.length && ahead.length < window_) {
+            if (stop()) throw new Error('cancelled'); if (failed) throw failed;
+            var p = plan[next++], buf = cache.get(p), pr;
+            if (buf) { cache.delete(p); pr = Promise.resolve(buf); } else { pr = filterBuf(renderItem(p)); await nextFrame(); }
+            ahead.push({ p: p, pr: pr });
+          }
+          var it = ahead.shift(), data = await it.pr, id = 'e' + nid++;
+          encP.push(ask(0, { t: 'frame', id: id, buf: data, ms: it.p.ms }, [data], id)); sent++; done++;
+          if (encP.length > 3) await encP.shift();
+          progress(done, total, 'Frame ' + sent + ' of ' + plan.length + '…');
+        }
+        await Promise.all(encP);
+        var fin = await ask(0, { t: 'finish' }, [], 'done');
+        return new Uint8Array(fin.bytes);
       };
-      return pass1().then(function () {
-        var pal = NFMGif.makePalette(shots, 255), enc = NFMGif.createEncoder(W, H, pal, { loop: true }), pi = 0;
-        var pass2 = function () {
-          if (pi >= plan.length) return Promise.resolve();
-          if (stop()) return Promise.reject(new Error('cancelled'));
-          var p = plan[pi], d = cache.get(p) || renderItem(p); cache.delete(p); enc.add(d, p.delay); pi++; done++;
-          return tick('Frame ' + pi + ' of ' + plan.length + '…').then(pass2);
-        };
-        return pass2().then(function () { var bytes = enc.finish(); finish(); return { bytes: bytes, w: W, h: H, frames: plan.length, ms: performance.now() - t0, mode: mode }; });
-      }).catch(function (err) { finish(); throw err; });
+      return run().then(function (bytes) { finish(); return { bytes: bytes, w: W, h: H, frames: plan.length, ms: performance.now() - t0, mode: mode, workers: pool.n, inline: pool.inline }; }, function (err) { finish(); throw err; });
     });
   });
 }
@@ -101,25 +145,61 @@ function reportHtml(res) {
   return '<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + e(name) + '</title><style>' + css + '</style></head><body>\n<h1>' + e(name) + '</h1>\n<p>' + e(plural(S.graph.nodes.length, word('item')) + ' and ' + plural(S.graph.edges.length, word('link')) + (states.length ? ', shown over ' + states.join(', ') : '') + '.') + '</p>\n<img alt="' + e('Animated map of ' + name + (states.length ? ' over ' + states.join(', ') : '')) + '" src="data:image/gif;base64,' + b64(res.bytes) + '" width="' + res.w + '" height="' + res.h + '">\n' + (legend ? '<h2>Key</h2><ul>' + legend + '</ul>' : '') + (states.length ? '<h2>States</h2><ol>' + states.map(function (s) { return '<li>' + e(s) + '</li>'; }).join('') + '</ol>' : '') + rows.join('') + '\n<footer>Made with Netflow Map, forged by LFC Foundry, version ' + e(APP_VERSION) + '. Nothing was uploaded; everything was made in the browser.</footer>\n</body></html>\n';
 }
 function gifCard() {
-  var mode = gifMode(), o = GX.opts, card = h('div', { class: 'card', id: 'gif-card' }, [h('h2', null, 'Animation (GIF)')]);
+  var mode = gifMode(), o = GX.opts, fx = NFMGifFx, card = h('div', { class: 'card', id: 'gif-card' }, [h('h2', null, 'Animation (GIF)')]);
   if (!mode) { card.appendChild(h('p', { class: 'muted small', style: { margin: 0 } }, 'Two kinds of animation are possible. If your data has states (baseline, year 1 and so on; set them up in the Data tab), this makes a GIF that plays through them. If you pick a 3D arrangement on the Map, it makes a turn-around GIF.')); return card; }
   var needMap = !S.L; if (needMap) { card.appendChild(h('p', { class: 'muted small' }, 'Open the Map tab once first.')); return card; }
-  card.appendChild(h('p', { class: 'muted small', style: { margin: 0 } }, mode === 'states' ? 'Plays through all ' + nStates() + ' states with a smooth change between them. Works in PowerPoint, Keynote, Google Slides, email and web pages.' : 'A full turn of the 3D picture. Works in PowerPoint, Keynote, Google Slides, email and web pages.'));
+  var chg = function (k, conv) { return function (v) { o[k] = conv ? conv(v) : v; saveGx(); if (k === 'reverse' || k === 'arc' || k === 'pause' || k === 'turns' || k === 'turnSec' || k === 'fps' || k === 'trans' || k === 'hold') updateEstimate(); }; };
+  var updateEstimate = function () { /* the numbers are shown after the GIF is made */ };
+  card.appendChild(h('p', { class: 'muted small', style: { margin: 0 } }, mode === 'states' ? 'Plays through all ' + nStates() + ' states with a smooth change between them. Works in PowerPoint, Keynote, Google Slides, email and web pages.' : 'Turns the 3D picture around. Works in PowerPoint, Keynote, Google Slides, email and web pages.'));
+  var easeOpts = Object.keys(fx.EASES).map(function (k) { return [k, fx.EASES[k][0]]; });
   card.appendChild(h('div', { class: 'maprow' }, [
-    field('Width (pixels)', select([[640, '640 (small file)'], [960, '960 (slides)'], [1280, '1280 (sharp)']], o.size, function (v) { o.size = +v; })),
-    field('Shape', select([['169', 'Slide (16:9)'], ['43', 'Slide (4:3)'], ['sq', 'Square'], ['fit', 'Fit the map']], o.shape, function (v) { o.shape = v; })),
-    field('What to show', select([['whole', 'The whole map'], ['screen', 'What I see now (zoomed)']], o.what, function (v) { o.what = v; })),
-    field('Background', select([['light', 'Light (best for slides)'], ['dark', 'Dark'], ['app', 'Same as the map on screen (with my colors)']], o.theme, function (v) { o.theme = v; })),
-    field(mode === 'states' ? 'Seconds on each state' : 'Seconds per turn (about)', select([[0.6, '0.6'], [1, '1'], [1.4, '1.4'], [2, '2'], [3, '3']], o.hold, function (v) { o.hold = +v; })),
-    mode === 'states' ? field('Seconds of change between states', select([[0, 'None (cut)'], [0.5, '0.5'], [0.9, '0.9'], [1.5, '1.5']], o.trans, function (v) { o.trans = +v; })) : null,
-    field('Smoothness', select([[6, 'Light (6 FPS)'], [10, 'Normal (10 FPS)'], [15, 'Smooth (15 FPS)']], o.fps, function (v) { o.fps = +v; }))]));
-  card.appendChild(h('div', { class: 'row' }, [check('Include the key', o.key, function (on) { o.key = on; }), mode === 'states' ? check('Show the state name', o.caption, function (on) { o.caption = on; }) : null]));
+    field('Width (pixels)', select([[640, '640 (small file)'], [960, '960 (slides)'], [1280, '1280 (sharp)']], o.size, chg('size', Number))),
+    field('Shape', select([['169', 'Slide (16:9)'], ['43', 'Slide (4:3)'], ['sq', 'Square'], ['fit', 'Fit the map']], o.shape, chg('shape'))),
+    field('What to show', select([['whole', 'The whole map'], ['screen', 'What I see now (zoomed)']], o.what, chg('what'))),
+    field('Background', select([['light', 'Light (best for slides)'], ['dark', 'Dark'], ['app', 'Same as the map on screen (with my colors)']], o.theme, chg('theme'))),
+    field('Smoothness', select([[6, 'Light (6 FPS)'], [10, 'Normal (10 FPS)'], [15, 'Smooth (15 FPS)'], [25, 'Very smooth (25 FPS)']], o.fps, chg('fps', Number)), o.fps >= 25 ? 'Each picture is shown for exactly 0.04 seconds. Files get bigger.' : '')]));
+  if (mode === 'states') {
+    card.appendChild(acc('Timing', [h('div', { class: 'maprow' }, [
+      field('Seconds on each state', select([[0.6, '0.6'], [1, '1'], [1.4, '1.4'], [2, '2'], [3, '3'], [5, '5']], o.hold, chg('hold', Number))),
+      field('Seconds of change between states', select([[0, 'None (cut)'], [0.5, '0.5'], [0.9, '0.9'], [1.5, '1.5'], [2.5, '2.5']], o.trans, chg('trans', Number))),
+      field('How the change moves', select(easeOpts, o.ease, chg('ease')))])], true));
+  } else {
+    card.appendChild(acc('Turning', [h('div', { class: 'maprow' }, [
+      field('Turns', select([1, 2, 3, 4, 6, 8].map(function (n) { return [n, String(n)]; }), o.turns, chg('turns', Number))),
+      field('Seconds per turn', select([2, 3, 4, 6, 8, 12].map(function (n) { return [n, String(n)]; }), o.turnSec, chg('turnSec', Number))),
+      field('How far each turn goes', select([[360, 'All the way around'], [180, 'Half way (180°)'], [90, 'A quarter (90°)'], [45, 'A small swing (45°)']], o.arc, function (v) { o.arc = +v; saveGx(); renderExport(); }), o.arc < 360 ? 'A short turn swings back and forth, so the loop has no jump.' : ''),
+      field('Pause between turns (seconds)', select([[0, 'None'], [0.5, '0.5'], [1, '1'], [2, '2'], [3, '3'], [5, '5']], o.pause, chg('pause', Number))),
+      field('How each turn moves', select(easeOpts, o.ease, chg('ease')), 'With no pause, Steady keeps the turning even.')]),
+      check('Turn the other way after each pause', o.reverse || o.arc < 360, chg('reverse'), { disabled: o.arc < 360 })], true));
+  }
+  card.appendChild(acc('Names on the map', [field('When names show', select(Object.keys(fx.NAMES).map(function (k) { return [k, fx.NAMES[k]]; }), o.names, chg('names')), mode === 'states' ? '"Only when it holds still" and "When it slows down" fade names out while the map changes.' : 'With pauses, "Only when it holds still" fades names in at each pause and out when turning starts.')]));
+  var F = o.filter, fset = function (k, v) { F[k] = v; saveGx(); };
+  var sl = function (label, k, lo, hi, st, fmt) { return slider(label, F[k], lo, hi, st, function (v) { fset(k, v); }, fmt || function (v) { return v > 0 ? '+' + Math.round(v * 100) : Math.round(v * 100) + ''; }); };
+  var pct = function (v) { return Math.round(v * 100) + '%'; };
+  var prev = h('div', { id: 'gif-prev' }, GX.preview ? [h('img', { src: GX.preview, alt: 'One picture with the look applied', style: { maxWidth: '100%', borderRadius: '8px', border: '1px solid var(--line)' } })] : []);
+  card.appendChild(acc('Look of the animation (filters)', [
+    field('Ready-made', select([['', 'Choose…']].concat(fx.FILTER_PRESETS.map(function (p, i) { return [String(i), p[0]]; })), '', function (v) { if (v === '') return; o.filter = fx.cleanFilter(fx.FILTER_PRESETS[+v][1]); saveGx(); renderExport(); })),
+    sl('Brightness', 'brightness', -1, 1, 0.05), sl('Contrast', 'contrast', -1, 1, 0.05), sl('Color strength', 'saturation', -1, 1, 0.05), sl('Warm / cool', 'warmth', -1, 1, 0.05),
+    slider('Shift colors (degrees)', F.hue, -180, 180, 5, function (v) { fset('hue', v); }, function (v) { return v + '°'; }),
+    field('Color tone', select(Object.keys(fx.TONES).map(function (k) { return [k, fx.TONES[k]]; }), F.tone, function (v) { fset('tone', v); })),
+    slider('Soften (blur)', F.blur, 0, 6, 0.5, function (v) { fset('blur', v); }, function (v) { return v ? v : 'off'; }),
+    slider('Sharpen', F.sharpen, 0, 1, 0.05, function (v) { fset('sharpen', v); }, function (v) { return v ? pct(v) : 'off'; }),
+    slider('Glow', F.glow, 0, 1, 0.05, function (v) { fset('glow', v); }, function (v) { return v ? pct(v) : 'off'; }),
+    slider('Darker corners (vignette)', F.vignette, 0, 1, 0.05, function (v) { fset('vignette', v); }, function (v) { return v ? pct(v) : 'off'; }),
+    h('p', { class: 'muted small', style: { margin: 0 } }, 'Glow, blur and darker corners add many shades, so the file gets bigger.'),
+    h('div', { class: 'row tight' }, [h('button', { class: 'sm', id: 'gif-try', onclick: tryLook }, 'Try it on one picture'), h('button', { class: 'sm', onclick: function () { o.filter = fx.plainFilter(); saveGx(); renderExport(); } }, 'Reset the look')]), prev], false));
+  card.appendChild(h('div', { class: 'row' }, [check('Include the key', o.key, chg('key')), mode === 'states' ? check('Show the state name', o.caption, chg('caption')) : null]));
   var prog = h('div', { id: 'gif-prog', 'aria-live': 'polite' });
   var go = h('button', { class: 'primary', id: 'gif-go', onclick: runGif, disabled: GX.running }, GX.result ? 'Make it again' : 'Make the GIF'), cancel = h('button', { id: 'gif-cancel', hidden: !GX.running, onclick: function () { GX.cancel = true; } }, 'Cancel');
   card.appendChild(h('div', { class: 'row' }, [go, cancel]));
   card.appendChild(prog);
   card.appendChild(h('div', { id: 'gif-out' }, gifResultKids()));
   return card;
+}
+/** One picture with the look applied, so the person can judge it before waiting for the whole animation. */
+function tryLook() {
+  if (GX.running) return; var btn = $('gif-try'); if (btn) btn.disabled = true;
+  ensureMap().then(function () { return makeGif(Object.assign({}, GX.opts, { preview: true }), function () { }, function () { return false; }); }).then(function (r) { GX.preview = r.png; var b = $('gif-prev'); if (b) mount(b, h('img', { src: r.png, alt: 'One picture with the look applied', style: { maxWidth: '100%', borderRadius: '8px', border: '1px solid var(--line)' } })); }).catch(function (e) { toast('Could not make the preview: ' + e.message); }).then(function () { var b = $('gif-try'); if (b) b.disabled = false; });
 }
 function gifResultKids() {
   if (GX.msg && !GX.running) return [h('p', { class: 'muted' }, GX.msg)];
