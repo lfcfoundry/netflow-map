@@ -103,19 +103,38 @@ function makeGif(o, progress, stop) {
     return NFMRender.createCanvas2D(host, { cpu: true }).then(function (r) {
       rend = r; r.resize(W, H, 1);
       var out = document.createElement('canvas'); out.width = W; out.height = H; var x = out.getContext('2d', { willReadFrequently: true });
+      var cur = { r: r, host: host, accel: false };
       var renderItem = function (p) {
-        var sc = gifScene(p, o); r.setScene(sc); r.draw({ k: view.k, tx: view.tx, ty: view.ty, invalidate: function () { /* still picture */ } });
+        var sc = gifScene(p, o); cur.r.setScene(sc); cur.r.draw({ k: view.k, tx: view.tx, ty: view.ty, invalidate: function () { /* still picture */ } });
         x.fillStyle = sc.theme.hex.bg; x.fillRect(0, 0, W, H);
-        for (var i = 0; i < host.children.length; i++) x.drawImage(host.children[i], 0, 0);
+        for (var i = 0; i < cur.host.children.length; i++) x.drawImage(cur.host.children[i], 0, 0);
         if (o.legend !== 'off') drawKeyOn(x, sc, W, H, undefined, { pos: o.keyPos, full: o.legend === 'full' });
         if (o.caption) gifCaption(x, sc, p.caption, W, H);
         return x.getImageData(0, 0, W, H).data.buffer;
       };
+      /* A big map spends most of its time drawing, and the processor-only canvas (fastest to read back, best for small maps) can lose to the graphics-card canvas there: time both on the first picture and keep the faster one. */
+      var probed = false, probe = Promise.resolve();
+      if (!o.preview) {
+        var sc0 = gifScene(plan[0], o), size0 = sc0.dots.length + (sc0.curveCount ? sc0.curveCount() : sc0.curves.length);
+        if (size0 >= 4000) probe = (function () {
+          var host2 = document.createElement('div'); host2.style.cssText = host.style.cssText; document.body.appendChild(host2);
+          return NFMRender.createCanvas2D(host2, {}).then(function (r2) {
+            r2.resize(W, H, 1);
+            var a = { r: r, host: host, accel: false }, b = { r: r2, host: host2, accel: true }, ta = 1e9, tb = 1e9, i, t;
+            for (i = 0; i < 2; i++) { cur = a; t = performance.now(); renderItem(plan[0]); ta = Math.min(ta, performance.now() - t); cur = b; t = performance.now(); renderItem(plan[0]); tb = Math.min(tb, performance.now() - t); }
+            var win = tb < ta * 0.9 ? b : a, lose = win === a ? b : a;
+            cur = win; probed = true; GX.probe = { processor: Math.round(ta), card: Math.round(tb), chose: win.accel ? 'card' : 'processor' };
+            try { lose.r.destroy(); } catch (e) { /* gone */ } lose.host.remove();
+            rend = cur.r;
+          }, function () { host2.remove(); });
+        })();
+      }
+      return probe.then(function () {
       if (o.preview) {   /* one picture with the look applied, on the page (the person pressed a button and waits for one picture) */
         return NFMGifFx.initWasm().then(function () { var pb = renderItem(plan[0]), pa = new Uint8ClampedArray(pb); NFMGifFx.apply(pa, W, H, filt); x.putImageData(new ImageData(pa, W, H), 0, 0); var png = out.toDataURL('image/png'); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); return { png: png, w: W, h: H }; });
       }
       var pool = gifPool(useFilter ? gifWorkerCount() : 1), waits = {}, nid = 1, total = plan.length + keys.length, done = 0, failed = null;
-      var finish = function () { pool.on = null; pool.close(); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); };
+      var finish = function () { pool.on = null; pool.close(); try { rend.destroy(); } catch (e) { /* gone */ } cur.host.remove(); host.remove(); };
       pool.on = function (k, m) { if (m.t === 'error') failed = new Error(m.msg); var w = waits[m.id !== undefined ? m.id : m.t]; if (w) { delete waits[m.id !== undefined ? m.id : m.t]; w(m); } else if (m.t === 'error') Object.keys(waits).forEach(function (q) { waits[q](m); }); };
       var ask = function (k, msg, tr, key) { return new Promise(function (res, rej) { waits[key] = function (m) { if (m.t === 'error') rej(failed); else res(m); }; pool.post(k, msg, tr); }); };
       var tick = function (text) { progress(done, total, text); return gifGive(); };
@@ -156,7 +175,8 @@ function makeGif(o, progress, stop) {
         var fin = await ask(0, { t: 'finish' }, [], 'done');
         return new Uint8Array(fin.bytes);
       };
-      return run().then(function (bytes) { finish(); return { bytes: bytes, w: W, h: H, frames: plan.length, ms: performance.now() - t0, mode: mode, video: run.video || '', poster: run.poster || '', asked: o.format, workers: pool.n, inline: pool.inline, card: pool.card >= 0 }; }, function (err) { if (vw) vw.cancel(); finish(); throw err; });
+      return run().then(function (bytes) { finish(); return { bytes: bytes, w: W, h: H, frames: plan.length, ms: performance.now() - t0, mode: mode, canvas: probed ? GX.probe.chose : '', video: run.video || '', poster: run.poster || '', asked: o.format, workers: pool.n, inline: pool.inline, card: pool.card >= 0 }; }, function (err) { if (vw) vw.cancel(); finish(); throw err; });
+      });   /* after the canvas was chosen */
     });
   });
 }
@@ -249,7 +269,7 @@ function gifResultKids() {
   var r = GX.result; if (!r) return [];
   var vid = r.video, mime = vid === 'mp4' ? 'video/mp4' : vid === 'webm' ? 'video/webm' : 'image/gif', ext = vid ? '.' + vid : '.gif';
   var kb = Math.round(r.bytes.length / 1024), size = kb > 1500 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB';
-  return [h('p', { class: 'muted small', style: { margin: '6px 0 2px' } }, plural(r.frames, 'picture') + ', ' + r.w + ' × ' + r.h + ', ' + size + ', made in ' + (r.ms / 1000).toFixed(1) + ' seconds.' + (r.card ? ' The looks were done by the graphics card.' : '') + (vid ? ' ' + vid.toUpperCase() + ' video.' : r.asked === 'video' ? ' This browser cannot make video, so this is a GIF.' : '') + (kb > 8000 ? ' That is large for a slide. Try a smaller width or a lower FPS.' : '')),
+  return [h('p', { class: 'muted small', style: { margin: '6px 0 2px' } }, plural(r.frames, 'picture') + ', ' + r.w + ' × ' + r.h + ', ' + size + ', made in ' + (r.ms / 1000).toFixed(1) + ' seconds.' + (r.card ? ' The looks were done by the graphics card.' : '') + (r.canvas ? ' Drawing used the ' + r.canvas + ' canvas (first picture: processor ' + GX.probe.processor + ' ms, card ' + GX.probe.card + ' ms).' : '') + (vid ? ' ' + vid.toUpperCase() + ' video.' : r.asked === 'video' ? ' This browser cannot make video, so this is a GIF.' : '') + (kb > 8000 ? ' That is large for a slide. Try a smaller width or a lower FPS.' : '')),
     vid ? h('div', {}, [h('img', { src: r.poster, alt: 'The first picture of the video', style: { maxWidth: '100%', borderRadius: '8px', border: '1px solid var(--line)' } }), h('p', { class: 'muted small', style: { margin: '2px 0 0' } }, 'This is the first picture. Save the video to play it (this page does not play video, to keep its security rules as they are).')]) : h('img', { src: r.url, alt: 'Preview of the animation', style: { maxWidth: '100%', borderRadius: '8px', border: '1px solid var(--line)' } }),
     h('div', { class: 'row' }, [h('button', { class: 'primary', onclick: function () { download(fname(ext), new Blob([r.bytes], { type: mime }), mime); } }, vid ? 'Save the video' : 'Save the GIF'), h('button', { onclick: function () { download(fname('-report.html'), reportHtml(r), 'text/html'); } }, 'Save as a web page (HTML report)')])];
 }

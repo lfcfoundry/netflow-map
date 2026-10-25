@@ -792,6 +792,18 @@ async function open() {
         await ev(() => { const sel = [...document.querySelectorAll('#gif-card label.field')].find((l) => l.textContent.startsWith('Legend')).querySelector('select'); sel.value = 'short'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
       }
     }
+    {   /* a big map: the first picture is drawn on both canvases and the faster one is kept (the choice and both times are told) */
+      await loadBig(2400, 3, 5, 'map'); await ev(() => NFM.setV({ view: 'network', arrange: 'force3d' }));
+      await W(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length === NFM.state.graph.nodes.length, null, 60000);
+      await ev(() => NFM.showTab('export')); await settle(200);
+      await ev((pt) => NFM.gifRun(pt), { size: 640, fps: 6, turns: 1, turnSec: 1, pause: 0, ease: 'linear', reverse: false, format: 'gif' });
+      await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled && NFM.gif(); }, null, 180000);
+      const bt = await ev(() => (document.querySelector('#gif-out p') || {}).textContent || '');
+      say(/Drawing used the (processor|card) canvas \(first picture: processor \d+ ms, card \d+ ms\)/.test(bt), 'Big map: both canvases are timed on the first picture and the faster is used: ' + (bt.match(/Drawing used[^)]*\)/) || [''])[0]);
+      await loadBig(40, 3, 5, 'map'); await ev(() => NFM.setV({ view: 'network', arrange: 'force3d' }));
+      await W(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length === NFM.state.graph.nodes.length, null, 30000);
+      await ev(() => NFM.showTab('export')); await settle(200);
+    }
     await ev(() => { document.getElementById('gif-go').click(); setTimeout(() => NFM.setGraph(NFMImport.sanitizeGraph({ name: 'GifOther', nodes: [{ id: 'A' }, { id: 'B' }], edges: [{ from: 'A', to: 'B' }] })), 40); });
     await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled; }, null, 60000); await settle(200);
     const r = await ev(() => ({ img: !!document.querySelector('#gif-out img'), text: (document.getElementById('gif-out') || {}).textContent || '' }));
