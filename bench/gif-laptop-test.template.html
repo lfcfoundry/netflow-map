@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; worker-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Netflow Map laptop test</title>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1f2430;--mut:#667;--line:#dcd9d0;--ok:#2f7d4f;--warn:#b26a00;--bad:#b3362f;--acc:#3b6ea5}
+@media (prefers-color-scheme:dark){:root{--bg:#16181d;--card:#1f232a;--ink:#e8e8ea;--mut:#9aa0ab;--line:#343a44;--ok:#5fc08a;--warn:#e0a34a;--bad:#ef7b73;--acc:#7fb0e8}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:1.5rem;margin:0 0 4px}h2{font-size:1.1rem;margin:0 0 6px}.sub{color:var(--mut);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0}
+button{font:inherit;padding:10px 18px;border-radius:10px;border:1px solid var(--acc);background:var(--acc);color:#fff;cursor:pointer}button.alt{background:transparent;color:var(--acc)}button:disabled{opacity:.5;cursor:default}
+.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:8px 0}.bar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .2s}
+table{border-collapse:collapse;width:100%;font-size:.92rem}th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line)}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.v{font-weight:600}.good{color:var(--ok)}.meh{color:var(--warn)}.bad{color:var(--bad)}.mut{color:var(--mut)}
+pre{white-space:pre-wrap;word-break:break-word;font-size:.85rem}
+</style></head><body><main>
+<h1>Netflow Map laptop test</h1>
+<p class="sub">Times the picture looks of the GIF maker three ways (plain code, WebAssembly, graphics card) and how well they use several cores. Everything stays on this page: no network. Takes about a minute. Please close other heavy tabs first, and leave this tab in front while it runs.</p>
+<div class="card"><button id="run">Run the test</button> <button id="stop" class="alt" disabled>Stop</button>
+<div class="bar"><i id="bar"></i></div><div id="status" class="mut">Ready.</div></div>
+<div class="card" id="verdict" hidden><h2>In plain words</h2><div id="vtext"></div>
+<p><button id="copy">Copy results</button> <button id="save" class="alt">Save report file</button> <span id="copied" class="mut"></span></p></div>
+<div id="sections"></div>
+<div class="card" id="slot-lfcpack"><h2>LFC-pack GPU tests</h2><div class="mut">Reserved for the LFC-pack tests. They register with <code>LAB.add({ id, title, run })</code> before the page loads; nothing here yet.</div></div>
+<div class="card"><h2>Details of this run</h2><pre id="env"></pre></div>
+</main>
+<script type="text/plain" id="lab-worker-src">@@GIFX@@
+@@GIFGL@@
+var __wasmP = null;
+self.onmessage = function (e) {
+  var m = e.data;
+  if (m.t === 'init') { __wasmP = NFMGifFx.initWasm(); var g = null; try { g = NFMGifGl.create(); } catch (x) { g = null; } self.__gl = g; __wasmP.then(function (ok) { postMessage({ t: 'ready', wasm: ok, gl: !!g }); }); return; }
+  if (m.t === 'run') {
+    var a = new Uint8ClampedArray(m.buf), ok = true;
+    if (m.path === 'gl') ok = !!(self.__gl && self.__gl.apply(a, m.w, m.h, m.f)); else NFMGifFx.apply(a, m.w, m.h, m.f);
+    postMessage({ t: 'done', id: m.id, ok: ok, buf: a.buffer }, [a.buffer]);
+  }
+};
+</script>
+<script>@@GIFX@@</script>
+<script>@@GIFGL@@</script>
+<script>
+'use strict';
+var LAB = (function () {
+  var tests = [], stopFlag = false, out = { rows: [], notes: [] };
+  var $ = function (id) { return document.getElementById(id); };
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  var nextFrame = function () { return new Promise(function (r) { setTimeout(r, 0); }); };
+  /** Median and fastest time (ms) of fn over runs, after warm-up runs. fn may return a promise. */
+  async function time(fn, o) {
+    o = o || {}; var warm = o.warm == null ? 2 : o.warm, runs = o.runs || 7, ts = [], i, t0;
+    for (i = 0; i < warm; i++) { await fn(); await nextFrame(); }
+    for (i = 0; i < runs; i++) { t0 = performance.now(); await fn(); ts.push(performance.now() - t0); await nextFrame(); }
+    ts.sort(function (a, b) { return a - b; }); return { median: ts[ts.length >> 1], min: ts[0], max: ts[ts.length - 1], runs: runs };
+  }
+  /** A WebGL 2 context on a small canvas, or null. */
+  function gl2(opts) { try { var c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(1, 1) : document.createElement('canvas'); return c.getContext('webgl2', opts || { antialias: false, alpha: false, powerPreference: 'high-performance' }); } catch (e) { return null; } }
+  function add(t) { tests.push(t); }
+  var ms = function (x) { return x < 10 ? x.toFixed(1) : String(Math.round(x)); };
+  var esc = function (s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
+  function section(title) { var d = document.createElement('div'); d.className = 'card'; d.innerHTML = '<h2>' + esc(title) + '</h2><div class="body mut">Waiting…</div>'; $('sections').appendChild(d); return d.querySelector('.body'); }
+  function table(head, rows) { return '<table><thead><tr>' + head.map(function (h, i) { return '<th' + (i ? ' class="n"' : '') + '>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' + rows.map(function (r) { return '<tr>' + r.map(function (c, i) { return '<td' + (i ? ' class="n"' : '') + '>' + c + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>'; }
+  /** A picture that looks like a map: soft background, links, boxes with names. */
+  function samplePicture(w, h) {
+    var c = document.createElement('canvas'); c.width = w; c.height = h; var x = c.getContext('2d', { willReadFrequently: true }), s = 7, i, rnd = function () { return (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; };
+    x.fillStyle = '#f4f2ec'; x.fillRect(0, 0, w, h); var P = [];
+    for (i = 0; i < 140; i++) P.push([rnd() * w, rnd() * h, 6 + rnd() * 16, 'hsl(' + (rnd() * 360 | 0) + ',55%,52%)']);
+    x.lineWidth = 1.5; x.strokeStyle = 'rgba(40,50,70,.5)'; for (i = 0; i < 260; i++) { var a = P[rnd() * 140 | 0], b = P[rnd() * 140 | 0]; x.beginPath(); x.moveTo(a[0], a[1]); x.quadraticCurveTo((a[0] + b[0]) / 2 + 30 * (rnd() - .5), (a[1] + b[1]) / 2 + 30 * (rnd() - .5), b[0], b[1]); x.stroke(); }
+    x.font = '12px sans-serif'; for (i = 0; i < 140; i++) { x.fillStyle = P[i][3]; x.beginPath(); x.arc(P[i][0], P[i][1], P[i][2], 0, 6.2832); x.fill(); x.fillStyle = '#1d2330'; x.fillText('Item ' + i, P[i][0] + P[i][2] + 3, P[i][1] + 4); }
+    return x.getImageData(0, 0, w, h);
+  }
+  var FULL = { glow: 0.6, blur: 1, vignette: 0.4, sharpen: 0.3, saturation: 0.2 };
+  var LOOKS = [['Crisp', null], ['Neon glow', null], ['Full chain (glow, blur, sharpen, vignette)', FULL]];
+  function lookOf(name, f) { if (f) return f; var p = NFMGifFx.FILTER_PRESETS.filter(function (q) { return q[0] === name; })[0]; return p ? p[1] : {}; }
+  function worker(src) { var u = URL.createObjectURL(new Blob([src], { type: 'text/javascript' })), w = new Worker(u); setTimeout(function () { URL.revokeObjectURL(u); }, 4000); return w; }
+  function ask(w, m, tr) { return new Promise(function (res, rej) { w.onmessage = function (e) { res(e.data); }; w.onerror = function (e) { rej(new Error(e.message || 'worker failed')); }; w.postMessage(m, tr || []); }); }
+
+  /* ---- test 1: one picture, three ways ---- */
+  add({ id: 'paths', title: 'One picture: plain code, WebAssembly, graphics card', async run(ctx) {
+    var res = { rows: [], glOk: false, facts: {} }, sizes = [[960, 540], [1280, 720]], g = NFMGifGl.create(), wasm = await NFMGifFx.initWasm(), si, li, n = sizes.length * LOOKS.length, k = 0;
+    res.glOk = !!g; res.wasmOk = wasm; if (g) res.soft = g.software();
+    for (si = 0; si < sizes.length; si++) {
+      var w = sizes[si][0], h = sizes[si][1], pic = samplePicture(w, h).data;
+      for (li = 0; li < LOOKS.length; li++) {
+        if (ctx.stopped()) return res; ctx.progress(k++ / n, 'Picture looks ' + w + ' wide: ' + LOOKS[li][0]);
+        var f = lookOf(LOOKS[li][0], LOOKS[li][1]), row = { size: w + 'x' + h, look: LOOKS[li][0] }, a, b;
+        a = new Uint8ClampedArray(pic); NFMGifFx.applyJs(a, w, h, f);
+        row.js = (await time(function () { NFMGifFx.applyJs(new Uint8ClampedArray(pic), w, h, f); }, { warm: 1, runs: 5 })).median;
+        if (wasm) row.wasm = (await time(function () { NFMGifFx.applyWasm(new Uint8ClampedArray(pic), w, h, f); }, { warm: 2, runs: 9 })).median;
+        if (g) {
+          b = new Uint8ClampedArray(pic); var r = g.apply(b, w, h, f);
+          if (r) {
+            var close = 0, tot = 0, i; for (i = 0; i < a.length; i++) { if ((i & 3) === 3) continue; tot++; if (Math.abs(a[i] - b[i]) <= 2) close++; }
+            row.match = close / tot * 100;
+            row.gl = (await time(function () { g.apply(new Uint8ClampedArray(pic), w, h, f); g.finish(); }, { warm: 3, runs: 9 })).median;
+          }
+        }
+        res.rows.push(row);
+      }
+      if (g && si === 0) {   /* the floor: upload, one color pass, read back */
+        var fl = { brightness: 0.01 }; res.facts.floor = (await time(function () { g.apply(new Uint8ClampedArray(pic), w, h, fl); g.finish(); }, { warm: 3, runs: 9 })).median;
+      }
+    }
+    if (g) g.dispose();
+    return res;
+  }, show(res) {
+    var head = ['Picture / look', 'Plain code (ms)', 'WebAssembly (ms)', 'Graphics card (ms)', 'Card vs WebAssembly', 'Match'];
+    return table(head, res.rows.map(function (r) {
+      return [esc(r.size + '  ' + r.look), ms(r.js), r.wasm == null ? 'n/a' : ms(r.wasm), r.gl == null ? 'n/a' : ms(r.gl), r.gl != null && r.wasm ? (r.wasm / r.gl).toFixed(1) + '× ' + (r.gl < r.wasm ? 'faster' : 'slower') : '', r.match == null ? '' : r.match.toFixed(2) + '%'];
+    })) + '<p class="mut">Lower is better. "Match" is the share of color values within 2 steps of the plain-code picture. ' + (res.facts.floor != null ? 'Fixed cost of the card path (send up, one pass, read back): ' + ms(res.facts.floor) + ' ms.' : '') + (res.soft ? ' This browser draws WebGL itself in software, so the card numbers are not from a graphics card.' : '') + '</p>';
+  } });
+
+  /* ---- test 2: several cores ---- */
+  add({ id: 'workers', title: 'Several cores: pictures per second', async run(ctx) {
+    var cores = navigator.hardwareConcurrency || 2, counts = [1, 2, 4].filter(function (c) { return c <= Math.max(1, cores - 1); }), mx = Math.max(1, cores - 1); if (counts.indexOf(mx) < 0) counts.push(mx);
+    var w = 960, h = 540, pic = samplePicture(w, h).data, N = 24, src = document.getElementById('lab-worker-src').textContent, res = { rows: [], cores: cores }, plan = [], ci, path;
+    counts.forEach(function (c) { plan.push(['wasm', c]); }); plan.push(['gl', 1]); if (counts.indexOf(2) >= 0) plan.push(['gl', 2]);
+    for (ci = 0; ci < plan.length; ci++) {
+      if (ctx.stopped()) return res; path = plan[ci][0]; var kw = plan[ci][1]; ctx.progress(ci / plan.length, 'Cores: ' + kw + ' worker' + (kw > 1 ? 's' : '') + (path === 'gl' ? ' with the card' : ' with WebAssembly'));
+      var ws = [], i, ok = true, ready = [];
+      try {
+        for (i = 0; i < kw; i++) ws.push(worker(src));
+        ready = await Promise.all(ws.map(function (x) { return ask(x, { t: 'init' }); }));
+        if (path === 'gl' && !ready.every(function (r) { return r.gl; })) { res.rows.push({ path: path, workers: kw, none: 'no WebGL in a worker here' }); ws.forEach(function (x) { x.terminate(); }); continue; }
+        await Promise.all(ws.map(function (x) { var b = new Uint8ClampedArray(pic).buffer; return ask(x, { t: 'run', id: 0, path: path, buf: b, w: w, h: h, f: FULL }, [b]); }));   /* warm-up */
+        var t0 = performance.now(), next = 0, fails = 0;
+        await Promise.all(ws.map(function (x) { return (async function () { while (next < N) { next++; var b = new Uint8ClampedArray(pic).buffer, r = await ask(x, { t: 'run', id: next, path: path, buf: b, w: w, h: h, f: FULL }, [b]); if (!r.ok) fails++; } })(); }));
+        var dt = performance.now() - t0; res.rows.push({ path: path, workers: kw, perSec: N / (dt / 1000), fails: fails });
+      } catch (e) { res.rows.push({ path: path, workers: kw, none: String(e.message || e) }); }
+      ws.forEach(function (x) { x.terminate(); });
+    }
+    return res;
+  }, show(res) {
+    var base = res.rows.filter(function (r) { return r.path === 'wasm' && r.workers === 1 && r.perSec; })[0];
+    return table(['Way', 'Workers', 'Pictures per second', 'Compared with 1 WebAssembly worker'], res.rows.map(function (r) {
+      return [r.path === 'gl' ? 'Graphics card' : 'WebAssembly', String(r.workers), r.perSec ? r.perSec.toFixed(1) : esc(r.none || 'n/a'), r.perSec && base ? (r.perSec / base.perSec).toFixed(2) + '×' : ''];
+    })) + '<p class="mut">Full look chain at 960x540, 24 pictures each. Higher is better. This machine reports ' + res.cores + ' logical cores.</p>';
+  } });
+
+  async function runAll() {
+    stopFlag = false; $('run').disabled = true; $('stop').disabled = false; $('verdict').hidden = true; $('sections').innerHTML = ''; out = { results: {}, when: new Date().toLocaleString(), notes: [] };
+    var i, bodies = tests.map(function (t) { return section(t.title); });
+    for (i = 0; i < tests.length; i++) {
+      if (stopFlag) break; var t = tests[i];
+      try {
+        var r = await t.run({ stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / tests.length * 100).toFixed(0) + '%'; $('status').textContent = text; } });
+        out.results[t.id] = r; bodies[i].className = 'body'; bodies[i].innerHTML = t.show ? t.show(r) : '';
+      } catch (e) { bodies[i].className = 'body bad'; bodies[i].textContent = 'This part failed: ' + (e && e.message || e); out.notes.push(t.id + ' failed: ' + (e && e.message || e)); }
+    }
+    $('bar').style.width = '100%'; $('status').textContent = stopFlag ? 'Stopped.' : 'Done.'; $('run').disabled = false; $('stop').disabled = true; verdict();
+  }
+  function verdict() {
+    var P = out.results.paths, W = out.results.workers, lines = [], rep = [];
+    if (P) {
+      var full = P.rows.filter(function (r) { return r.size === '960x540' && r.look.indexOf('Full') === 0; })[0];
+      if (full) {
+        if (full.gl != null && full.wasm) {
+          var sp = full.wasm / full.gl;
+          lines.push('<p class="v ' + (sp >= 1.3 ? 'good' : sp >= 0.9 ? 'meh' : 'bad') + '">' + (P.soft ? 'The browser here draws graphics in software, so this is not a graphics-card result. ' : '') + 'The graphics card did the full look chain on a 960 wide picture in ' + ms(full.gl) + ' ms; WebAssembly took ' + ms(full.wasm) + ' ms and plain code ' + ms(full.js) + ' ms. The card was ' + (sp >= 1 ? sp.toFixed(1) + '× faster' : (1 / sp).toFixed(1) + '× slower') + ' than WebAssembly' + (full.match != null ? ', and its pictures match within 2 color steps for ' + full.match.toFixed(2) + '% of values.' : '.') + '</p>');
+          rep.push('verdict_gpu_vs_wasm_full_960: ' + sp.toFixed(2) + 'x (' + (sp >= 1.3 ? 'use card' : 'keep WebAssembly') + ')');
+        } else if (!P.glOk) { lines.push('<p class="v meh">WebGL 2 could not start here, so the card path is not possible on this browser. WebAssembly did the full look chain in ' + (full.wasm != null ? ms(full.wasm) : 'n/a') + ' ms (plain code ' + ms(full.js) + ' ms).</p>'); rep.push('verdict: no WebGL2'); }
+      }
+    }
+    if (W) {
+      var one = W.rows.filter(function (r) { return r.path === 'wasm' && r.workers === 1; })[0], best = W.rows.filter(function (r) { return r.path === 'wasm' && r.perSec; }).sort(function (a, b) { return b.perSec - a.perSec; })[0], glw = W.rows.filter(function (r) { return r.path === 'gl' && r.perSec; })[0];
+      if (one && best) lines.push('<p>With more workers, WebAssembly went from ' + one.perSec.toFixed(1) + ' to ' + best.perSec.toFixed(1) + ' pictures per second (' + best.workers + ' worker' + (best.workers > 1 ? 's' : '') + ', ' + (best.perSec / one.perSec).toFixed(1) + '×).' + (glw ? ' The card in a worker managed ' + glw.perSec.toFixed(1) + ' per second.' : ' WebGL in a worker did not run here.') + '</p>');
+    }
+    if (!lines.length) lines.push('<p>Nothing finished. Press Run again.</p>');
+    $('vtext').innerHTML = lines.join(''); $('verdict').hidden = false; out.text = report(rep);
+  }
+  function env() {
+    var n = navigator, ua = n.userAgent, br = /Firefox\/[\d.]+/.exec(ua) || /Edg\/[\d.]+/.exec(ua) || /Chrome\/[\d.]+/.exec(ua) || /Version\/[\d.]+.*Safari/.exec(ua) || ['unknown'];
+    return ['Browser: ' + br[0], 'Logical cores: ' + (n.hardwareConcurrency || 'unknown'), 'Memory hint (GB): ' + (n.deviceMemory || 'unknown'), 'WebGL 2: ' + (gl2() ? 'yes' : 'no'), 'WebGPU in this browser: ' + (n.gpu ? 'yes' : 'no'), 'WebAssembly: ' + (typeof WebAssembly !== 'undefined' ? 'yes' : 'no'), 'OffscreenCanvas: ' + (typeof OffscreenCanvas !== 'undefined' ? 'yes' : 'no'), 'Screen scale: ' + (window.devicePixelRatio || 1)].join('\n');
+  }
+  function report(extra) {
+    var L = ['Netflow Map laptop test report', 'Run: ' + out.when + ' (local time)', '', env(), ''];
+    tests.forEach(function (t) {
+      var r = out.results[t.id]; if (!r) return; L.push('## ' + t.title);
+      if (t.id === 'paths') { L.push('| Picture / look | Plain (ms) | WebAssembly (ms) | Card (ms) | Match |', '|---|---:|---:|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + x.size + ' ' + x.look + ' | ' + ms(x.js) + ' | ' + (x.wasm == null ? 'n/a' : ms(x.wasm)) + ' | ' + (x.gl == null ? 'n/a' : ms(x.gl)) + ' | ' + (x.match == null ? '' : x.match.toFixed(2) + '%') + ' |'); }); if (r.facts.floor != null) L.push('Card fixed cost (upload, 1 pass, read back): ' + ms(r.facts.floor) + ' ms'); if (r.soft) L.push('Note: WebGL runs in software in this browser.'); }
+      else if (t.id === 'workers') { L.push('| Way | Workers | Pictures per second |', '|---|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + (x.path === 'gl' ? 'Card' : 'WebAssembly') + ' | ' + x.workers + ' | ' + (x.perSec ? x.perSec.toFixed(1) : (x.none || 'n/a')) + ' |'); }); }
+      else if (r && r.report) L.push(typeof r.report === 'function' ? r.report() : String(r.report));
+      L.push('');
+    });
+    (extra || []).forEach(function (l) { L.push(l); }); out.notes.forEach(function (l) { L.push(l); });
+    return L.join('\n');
+  }
+  function copy() {
+    var t = out.text || ''; var done = function (ok) { $('copied').textContent = ok ? 'Copied.' : 'Could not copy; use Save report file.'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(function () { done(true); }, function () { fallback(); }); else fallback();
+    function fallback() { var a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; } a.remove(); done(ok); }
+  }
+  function save() { var b = new Blob([out.text || ''], { type: 'text/markdown' }), a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'netflow-gif-laptop-report.md'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000); }
+  window.addEventListener('load', function () {
+    $('env').textContent = env(); $('run').onclick = runAll; $('stop').onclick = function () { stopFlag = true; }; $('copy').onclick = copy; $('save').onclick = save;
+    if (tests.some(function (t) { return t.lfcpack; })) $('slot-lfcpack').remove();
+    var q = /[?&]auto=1/.test(location.search); if (q) runAll();
+  });
+  window.__labResult = function () { return out; };
+  return { add: add, time: time, gl2: gl2, sleep: sleep, esc: esc, table: table, ms: ms, samplePicture: samplePicture, worker: worker, ask: ask };
+})();
+/* LFC-pack GPU tests: register here, before the page loads, with LAB.add({ id, title, lfcpack: true, async run(ctx) {...}, show(result) {...} }). */
+</script></body></html>
