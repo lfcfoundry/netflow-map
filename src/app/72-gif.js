@@ -2,8 +2,8 @@
  * Netflow Map app, part 9b: animated GIF and the one-page HTML report (Export tab). Copyright (c) 2026 LFC Foundry. MIT License.
  * Pictures are drawn on the page, then filtered and written to the GIF in background workers (src/gif-worker.js); timing and filters are in src/gifx.js.
  */
-var GX_KEY = 'nfm-gif', GX = { opts: { size: 960, shape: '169', fps: 25, hold: 1.4, trans: 0.9, caption: true, key: true, theme: 'light', what: 'whole', ease: 'smooth', turns: 1, turnSec: 4, pause: 0, reverse: false, arc: 360, names: 'always', card: 'auto', small: 'small', filter: NFMGifFx.plainFilter() }, running: false, cancel: false, result: null, msg: '', prog: null, preview: null };
-(function () { try { var o = JSON.parse(LS.get(GX_KEY) || 'null'); if (o && typeof o === 'object') { var d = GX.opts; ['size', 'fps', 'hold', 'trans', 'turns', 'turnSec', 'pause', 'arc'].forEach(function (k) { if (typeof o[k] === 'number' && isFinite(o[k])) d[k] = o[k]; }); ['shape', 'theme', 'what', 'ease', 'names', 'card', 'small'].forEach(function (k) { if (typeof o[k] === 'string' && o[k].length < 20) d[k] = o[k]; }); ['caption', 'key', 'reverse'].forEach(function (k) { if (typeof o[k] === 'boolean') d[k] = o[k]; }); d.filter = NFMGifFx.cleanFilter(o.filter); if (!NFMGifFx.EASES[d.ease]) d.ease = 'smooth'; if (!NFMGifFx.NAMES[d.names]) d.names = 'always'; if (d.card !== 'off') d.card = 'auto'; if (!NFMGifFx.SIZES[d.small]) d.small = 'small'; d.fps = clamp(d.fps, 5, 30); d.turns = clamp(Math.round(d.turns), 1, 12); d.turnSec = clamp(d.turnSec, 1, 20); d.pause = clamp(d.pause, 0, 10); d.arc = clamp(d.arc, 10, 360); } } catch (e) { /* defaults */ } })();
+var GX_KEY = 'nfm-gif', GX = { opts: { size: 960, shape: '169', fps: 25, hold: 1.4, trans: 0.9, caption: true, key: true, theme: 'light', what: 'whole', ease: 'smooth', turns: 1, turnSec: 4, pause: 0, reverse: false, arc: 360, names: 'always', card: 'auto', small: 'small', keyPos: 'bl', filter: NFMGifFx.plainFilter() }, running: false, cancel: false, result: null, msg: '', prog: null, preview: null };
+(function () { try { var o = JSON.parse(LS.get(GX_KEY) || 'null'); if (o && typeof o === 'object') { var d = GX.opts; ['size', 'fps', 'hold', 'trans', 'turns', 'turnSec', 'pause', 'arc'].forEach(function (k) { if (typeof o[k] === 'number' && isFinite(o[k])) d[k] = o[k]; }); ['shape', 'theme', 'what', 'ease', 'names', 'card', 'small', 'keyPos'].forEach(function (k) { if (typeof o[k] === 'string' && o[k].length < 20) d[k] = o[k]; }); ['caption', 'key', 'reverse'].forEach(function (k) { if (typeof o[k] === 'boolean') d[k] = o[k]; }); d.filter = NFMGifFx.cleanFilter(o.filter); if (!NFMGifFx.EASES[d.ease]) d.ease = 'smooth'; if (!NFMGifFx.NAMES[d.names]) d.names = 'always'; if (d.card !== 'off') d.card = 'auto'; if (!NFMGifFx.SIZES[d.small]) d.small = 'small'; if (['bl', 'br', 'tl', 'tr'].indexOf(d.keyPos) < 0) d.keyPos = 'bl'; d.fps = clamp(d.fps, 5, 30); d.turns = clamp(Math.round(d.turns), 1, 12); d.turnSec = clamp(d.turnSec, 1, 20); d.pause = clamp(d.pause, 0, 10); d.arc = clamp(d.arc, 10, 360); } } catch (e) { /* defaults */ } })();
 NFMGifFx.initWasm();   /* compile early, so the one-picture preview on the page has it too */
 /** Gives other tasks a turn without the 4 ms wait that nested setTimeout(0) calls get; every ~80 ms it takes a real timer turn so the progress text can paint. */
 var gifGive = (function () {
@@ -107,7 +107,7 @@ function makeGif(o, progress, stop) {
         var sc = gifScene(p, o); r.setScene(sc); r.draw({ k: view.k, tx: view.tx, ty: view.ty, invalidate: function () { /* still picture */ } });
         x.fillStyle = sc.theme.hex.bg; x.fillRect(0, 0, W, H);
         for (var i = 0; i < host.children.length; i++) x.drawImage(host.children[i], 0, 0);
-        if (o.key) drawKeyOn(x, sc, W, H);
+        if (o.key) drawKeyOn(x, sc, W, H, undefined, { pos: o.keyPos });
         if (o.caption) gifCaption(x, sc, p.caption, W, H);
         return x.getImageData(0, 0, W, H).data.buffer;
       };
@@ -213,6 +213,7 @@ function gifCard() {
     h('p', { class: 'muted small', style: { margin: 0 } }, 'Glow, blur and darker corners add many shades, so the file gets bigger.'),
     field('Graphics card', select([['auto', 'Use it when it works (faster)'], ['off', 'Do not use it']], o.card, chg('card')), 'The card does the same arithmetic as the processor, so a picture may differ by a color shade or two between computers.'),
     h('div', { class: 'row tight' }, [h('button', { class: 'sm', id: 'gif-try', onclick: tryLook }, 'Try it on one picture'), h('button', { class: 'sm', onclick: function () { o.filter = fx.plainFilter(); saveGx(); renderExport(); } }, 'Reset the look')]), prev], false));
+  card.appendChild(field('Where the key goes', select([['bl', 'Bottom left'], ['br', 'Bottom right'], ['tl', 'Top left'], ['tr', 'Top right']], o.keyPos, chg('keyPos')), 'A long key (many groups) uses two or three columns and says how many were left out.'));
   card.appendChild(h('div', { class: 'row' }, [check('Include the key', o.key, chg('key')), mode === 'states' ? check('Show the state name', o.caption, chg('caption')) : null]));
   var prog = h('div', { id: 'gif-prog', 'aria-live': 'polite' });
   var go = h('button', { class: 'primary', id: 'gif-go', onclick: runGif, disabled: GX.running }, GX.result ? 'Make it again' : 'Make the GIF'), cancel = h('button', { id: 'gif-cancel', hidden: !GX.running, onclick: function () { GX.cancel = true; } }, 'Cancel');
