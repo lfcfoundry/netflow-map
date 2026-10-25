@@ -5,6 +5,16 @@
 var GX_KEY = 'nfm-gif', GX = { opts: { size: 960, shape: '169', fps: 25, hold: 1.4, trans: 0.9, caption: true, key: true, theme: 'light', what: 'whole', ease: 'smooth', turns: 1, turnSec: 4, pause: 0, reverse: false, arc: 360, names: 'always', card: 'auto', filter: NFMGifFx.plainFilter() }, running: false, cancel: false, result: null, msg: '', prog: null, preview: null };
 (function () { try { var o = JSON.parse(LS.get(GX_KEY) || 'null'); if (o && typeof o === 'object') { var d = GX.opts; ['size', 'fps', 'hold', 'trans', 'turns', 'turnSec', 'pause', 'arc'].forEach(function (k) { if (typeof o[k] === 'number' && isFinite(o[k])) d[k] = o[k]; }); ['shape', 'theme', 'what', 'ease', 'names', 'card'].forEach(function (k) { if (typeof o[k] === 'string' && o[k].length < 20) d[k] = o[k]; }); ['caption', 'key', 'reverse'].forEach(function (k) { if (typeof o[k] === 'boolean') d[k] = o[k]; }); d.filter = NFMGifFx.cleanFilter(o.filter); if (!NFMGifFx.EASES[d.ease]) d.ease = 'smooth'; if (!NFMGifFx.NAMES[d.names]) d.names = 'always'; if (d.card !== 'off') d.card = 'auto'; d.fps = clamp(d.fps, 5, 30); d.turns = clamp(Math.round(d.turns), 1, 12); d.turnSec = clamp(d.turnSec, 1, 20); d.pause = clamp(d.pause, 0, 10); d.arc = clamp(d.arc, 10, 360); } } catch (e) { /* defaults */ } })();
 NFMGifFx.initWasm();   /* compile early, so the one-picture preview on the page has it too */
+/** Gives other tasks a turn without the 4 ms wait that nested setTimeout(0) calls get; every ~80 ms it takes a real timer turn so the progress text can paint. */
+var gifGive = (function () {
+  var mc = null, q = [], last = 0;
+  try { mc = new MessageChannel(); mc.port1.onmessage = function () { var f = q.shift(); if (f) f(); }; } catch (e) { mc = null; }
+  return function () {
+    var now = performance.now();
+    if (!mc || now - last > 80) { last = now; return nextFrame(); }
+    return new Promise(function (r) { q.push(r); mc.port2.postMessage(0); });
+  };
+})();
 var saveGx = function () { LS.set(GX_KEY, JSON.stringify(GX.opts)); };
 HOOKS.graph.push(function () { if (GX.result && GX.result.url) { try { URL.revokeObjectURL(GX.result.url); } catch (e) { /* gone */ } } GX.result = null; GX.msg = ''; });
 function gifMode() { return hasStates() ? 'states' : (S.L && S.L.is3d ? 'spin' : ''); }
@@ -108,7 +118,7 @@ function makeGif(o, progress, stop) {
       var finish = function () { pool.on = null; pool.close(); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); };
       pool.on = function (k, m) { if (m.t === 'error') failed = new Error(m.msg); var w = waits[m.id !== undefined ? m.id : m.t]; if (w) { delete waits[m.id !== undefined ? m.id : m.t]; w(m); } else if (m.t === 'error') Object.keys(waits).forEach(function (q) { waits[q](m); }); };
       var ask = function (k, msg, tr, key) { return new Promise(function (res, rej) { waits[key] = function (m) { if (m.t === 'error') rej(failed); else res(m); }; pool.post(k, msg, tr); }); };
-      var tick = function (text) { progress(done, total, text); return nextFrame(); };
+      var tick = function (text) { progress(done, total, text); return gifGive(); };
       var least = function () { if (pool.card >= 0 && pool.inflight[pool.card] < 3) return pool.card; var b = 0, q; for (q = 1; q < pool.n; q++) if (q !== pool.card && pool.inflight[q] < pool.inflight[b]) b = q; return b; };
       var filterBuf = function (buf) { if (!useFilter) return Promise.resolve(buf); var id = 'f' + nid++; return ask(least(), { t: 'filter', id: id, buf: buf, w: W, h: H, f: filt }, [buf], id).then(function (m) { return m.buf; }); };
       var cache = new Map();
@@ -129,7 +139,7 @@ function makeGif(o, progress, stop) {
           while (next < plan.length && ahead.length < window_) {
             if (stop()) throw new Error('cancelled'); if (failed) throw failed;
             var p = plan[next++], buf = cache.get(p), pr;
-            if (buf) { cache.delete(p); pr = Promise.resolve(buf); } else { pr = filterBuf(renderItem(p)); await nextFrame(); }
+            if (buf) { cache.delete(p); pr = Promise.resolve(buf); } else { pr = filterBuf(renderItem(p)); await gifGive(); }
             ahead.push({ p: p, pr: pr });
           }
           var it = ahead.shift(), data = await it.pr, id = 'e' + nid++;
