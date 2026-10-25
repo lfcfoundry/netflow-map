@@ -30,7 +30,7 @@ var NFMGifFx = (function () {
   function spinPlan(o) {
     var fps = o.fps || 25, step = 1000 / fps, turns = Math.max(1, Math.min(12, Math.round(o.turns || 1))), arc = Math.max(10, Math.min(360, o.arc || 360)) * Math.PI / 180;
     var reverse = !!o.reverse || arc < 2 * Math.PI - 1e-6, pause = Math.max(0, o.pauseSec || 0) * 1000, fade = Math.max(0, o.fadeSec === undefined ? 0.4 : o.fadeSec) * 1000, mode = o.names || 'always', nm = o.ease || 'linear';
-    if (reverse && arc < 2 * Math.PI - 1e-6 && turns % 2) turns++;       // a swing back and forth must end where it began, so the loop has no jump
+    if (reverse && turns % 2) turns++;       // turning back after every pause includes the pause where the GIF starts over, so the number of turns must be even (and a swing back and forth must end where it began, so the loop has no jump)
     var nMove = Math.max(2, Math.round((o.turnSec || 4) * fps)), nFade = Math.max(0, Math.ceil(fade / step)), out = [], yaw = 0, i, j;
     for (i = 0; i < turns; i++) {
       var dir = reverse && i % 2 ? -1 : 1, from = yaw;
@@ -54,6 +54,8 @@ var NFMGifFx = (function () {
 
   /* ---------------------------------------------------------------- picture filters on RGBA bytes */
   var FILTER_KEYS = { brightness: [-1, 1, 0], contrast: [-1, 1, 0], saturation: [-1, 1, 0], warmth: [-1, 1, 0], hue: [-180, 180, 0], tone: null, blur: [0, 6, 0], sharpen: [0, 1, 0], glow: [0, 1, 0], vignette: [0, 1, 0] };
+  /** File size choices: [label, number of colors, tolerance for leaving a pixel as it was (distance in 0..255 color space)]. */
+  var SIZES = { best: ['Best picture (largest file)', 255, 0], small: ['Smaller file (colors a little less exact)', 128, 12], smallest: ['Smallest file (fewer colors, softer changes)', 64, 20] };
   var TONES = { none: 'None', sepia: 'Old photo (sepia)', mono: 'Black and white', cyan: 'Blue-green tint', ink: 'Blue ink' };
   function plainFilter() { return { brightness: 0, contrast: 0, saturation: 0, warmth: 0, hue: 0, tone: 'none', blur: 0, sharpen: 0, glow: 0, vignette: 0 }; }
   function cleanFilter(v) {
@@ -166,6 +168,6 @@ var NFMGifFx = (function () {
   }
   /** Changes the pixels of an RGBA picture in place (alpha is left alone). f is a cleaned filter. Returns the same array. Uses WebAssembly when initWasm() has finished. */
   function apply(rgba, w, h, f) { return wx ? applyWasm(rgba, w, h, f) : applyJs(rgba, w, h, f); }
-  return { initWasm: initWasm, wasmReady: wasmReady, applyJs: applyJs, applyWasm: applyWasm, EASES: EASES, NAMES: NAMES, TONES: TONES, FILTER_PRESETS: FILTER_PRESETS, ease: ease, speed: speed, delaysCs: delaysCs, spinPlan: spinPlan, stateNames: stateNames, plainFilter: plainFilter, cleanFilter: cleanFilter, isPlainFilter: isPlainFilter, colorMatrix: colorMatrix, curve: curve, apply: apply };
+  return { initWasm: initWasm, wasmReady: wasmReady, applyJs: applyJs, applyWasm: applyWasm, EASES: EASES, NAMES: NAMES, SIZES: SIZES, TONES: TONES, FILTER_PRESETS: FILTER_PRESETS, ease: ease, speed: speed, delaysCs: delaysCs, spinPlan: spinPlan, stateNames: stateNames, plainFilter: plainFilter, cleanFilter: cleanFilter, isPlainFilter: isPlainFilter, colorMatrix: colorMatrix, curve: curve, apply: apply };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMGifFx;

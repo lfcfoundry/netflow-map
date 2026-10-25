@@ -163,12 +163,12 @@ var NFMGif = (function () {
   }
 
   /**
-   * A streaming writer: createEncoder(width, height, palette, { loop }) then add(rgba, delayMs) for each picture, then finish().
+   * A streaming writer: createEncoder(width, height, palette, { loop, tolerance }) then add(rgba, delayMs) for each picture, then finish().
    * Pixels that did not change since the last picture are left transparent, so still parts cost almost nothing.
    */
   function createEncoder(width, height, palette, opts) {
     opts = opts || {};
-    var pal = palette.slice(0, 255), TRANS = 255, frames = [], n = width * height, prevIdx = null, prevRaw = null, bufIdx = null, chg = null;
+    var pal = palette.slice(0, 255), tol2 = (opts.tolerance || 0) * (opts.tolerance || 0), TRANS = 255, frames = [], n = width * height, prevIdx = null, prevRaw = null, bufIdx = null, chg = null;
     var PR = new Int32Array(255), PG = new Int32Array(255), PB = new Int32Array(255), NP = pal.length, j;
     for (j = 0; j < NP; j++) { PR[j] = pal[j][0]; PG[j] = pal[j][1]; PB[j] = pal[j][2]; }
     var CAP = 1 << 20, ck = new Int32Array(CAP).fill(-1), cv = new Uint8Array(CAP), used = 0;
@@ -202,6 +202,7 @@ var NFMGif = (function () {
             for (x = i; x < rowEnd; x++) {
               var px = w[x];
               if (px === pr[x]) continue;
+              if (tol2) { var pi = prevIdx[x], er = (px & 255) - PR[pi], eg = ((px >> 8) & 255) - PG[pi], eb = ((px >> 16) & 255) - PB[pi]; if (er * er + eg * eg + eb * eb <= tol2) continue; }   /* lossy: a pixel that is already shown within the tolerance keeps its old color, so it stays transparent in this picture */
               if (px === last) idx[x] = lastIdx; else { last = px; lastIdx = nearest(rgbOf(px)); idx[x] = lastIdx; }
               if (idx[x] !== prevIdx[x]) { rowHit = true; chg[nchg++] = x; if (x - i < minx) minx = x - i; if (x - i > maxx) maxx = x - i; }
             }

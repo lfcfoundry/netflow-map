@@ -2,8 +2,8 @@
  * Netflow Map app, part 9b: animated GIF and the one-page HTML report (Export tab). Copyright (c) 2026 LFC Foundry. MIT License.
  * Pictures are drawn on the page, then filtered and written to the GIF in background workers (src/gif-worker.js); timing and filters are in src/gifx.js.
  */
-var GX_KEY = 'nfm-gif', GX = { opts: { size: 960, shape: '169', fps: 25, hold: 1.4, trans: 0.9, caption: true, key: true, theme: 'light', what: 'whole', ease: 'smooth', turns: 1, turnSec: 4, pause: 0, reverse: false, arc: 360, names: 'always', card: 'auto', filter: NFMGifFx.plainFilter() }, running: false, cancel: false, result: null, msg: '', prog: null, preview: null };
-(function () { try { var o = JSON.parse(LS.get(GX_KEY) || 'null'); if (o && typeof o === 'object') { var d = GX.opts; ['size', 'fps', 'hold', 'trans', 'turns', 'turnSec', 'pause', 'arc'].forEach(function (k) { if (typeof o[k] === 'number' && isFinite(o[k])) d[k] = o[k]; }); ['shape', 'theme', 'what', 'ease', 'names', 'card'].forEach(function (k) { if (typeof o[k] === 'string' && o[k].length < 20) d[k] = o[k]; }); ['caption', 'key', 'reverse'].forEach(function (k) { if (typeof o[k] === 'boolean') d[k] = o[k]; }); d.filter = NFMGifFx.cleanFilter(o.filter); if (!NFMGifFx.EASES[d.ease]) d.ease = 'smooth'; if (!NFMGifFx.NAMES[d.names]) d.names = 'always'; if (d.card !== 'off') d.card = 'auto'; d.fps = clamp(d.fps, 5, 30); d.turns = clamp(Math.round(d.turns), 1, 12); d.turnSec = clamp(d.turnSec, 1, 20); d.pause = clamp(d.pause, 0, 10); d.arc = clamp(d.arc, 10, 360); } } catch (e) { /* defaults */ } })();
+var GX_KEY = 'nfm-gif', GX = { opts: { size: 960, shape: '169', fps: 25, hold: 1.4, trans: 0.9, caption: true, key: true, theme: 'light', what: 'whole', ease: 'smooth', turns: 1, turnSec: 4, pause: 0, reverse: false, arc: 360, names: 'always', card: 'auto', small: 'small', filter: NFMGifFx.plainFilter() }, running: false, cancel: false, result: null, msg: '', prog: null, preview: null };
+(function () { try { var o = JSON.parse(LS.get(GX_KEY) || 'null'); if (o && typeof o === 'object') { var d = GX.opts; ['size', 'fps', 'hold', 'trans', 'turns', 'turnSec', 'pause', 'arc'].forEach(function (k) { if (typeof o[k] === 'number' && isFinite(o[k])) d[k] = o[k]; }); ['shape', 'theme', 'what', 'ease', 'names', 'card', 'small'].forEach(function (k) { if (typeof o[k] === 'string' && o[k].length < 20) d[k] = o[k]; }); ['caption', 'key', 'reverse'].forEach(function (k) { if (typeof o[k] === 'boolean') d[k] = o[k]; }); d.filter = NFMGifFx.cleanFilter(o.filter); if (!NFMGifFx.EASES[d.ease]) d.ease = 'smooth'; if (!NFMGifFx.NAMES[d.names]) d.names = 'always'; if (d.card !== 'off') d.card = 'auto'; if (!NFMGifFx.SIZES[d.small]) d.small = 'small'; d.fps = clamp(d.fps, 5, 30); d.turns = clamp(Math.round(d.turns), 1, 12); d.turnSec = clamp(d.turnSec, 1, 20); d.pause = clamp(d.pause, 0, 10); d.arc = clamp(d.arc, 10, 360); } } catch (e) { /* defaults */ } })();
 NFMGifFx.initWasm();   /* compile early, so the one-picture preview on the page has it too */
 /** Gives other tasks a turn without the 4 ms wait that nested setTimeout(0) calls get; every ~80 ms it takes a real timer turn so the progress text can paint. */
 var gifGive = (function () {
@@ -132,7 +132,7 @@ function makeGif(o, progress, stop) {
           if (stop()) throw new Error('cancelled'); if (failed) throw failed;
           kb = await filterBuf(renderItem(keys[ki])); cache.set(keys[ki], kb); shots.push(kb.slice(0)); done++; await tick('Looking at the colors…');
         }
-        await ask(0, { t: 'palette', bufs: shots }, shots, 'ready'); shots = null;
+        var sz = NFMGifFx.SIZES[o.small] || NFMGifFx.SIZES.small; await ask(0, { t: 'palette', bufs: shots, colors: sz[1], tol: sz[2] }, shots, 'ready'); shots = null;
         /* pass 2: every picture in order, drawn here, filtered by the workers in turn, written by worker 0 */
         var ahead = [], next = 0, sent = 0, window_ = pool.n + 1, encP = [];
         while (sent < plan.length) {
@@ -179,6 +179,7 @@ function gifCard() {
     field('Shape', select([['169', 'Slide (16:9)'], ['43', 'Slide (4:3)'], ['sq', 'Square'], ['fit', 'Fit the map']], o.shape, chg('shape'))),
     field('What to show', select([['whole', 'The whole map'], ['screen', 'What I see now (zoomed)']], o.what, chg('what'))),
     field('Background', select([['light', 'Light (best for slides)'], ['dark', 'Dark'], ['app', 'Same as the map on screen (with my colors)']], o.theme, chg('theme'))),
+    field('File size', select(Object.keys(fx.SIZES).map(function (k) { return [k, fx.SIZES[k][0]]; }), o.small, chg('small')), 'Fewer colors and ignoring tiny color changes make the file smaller. Big, busy maps gain the most.'),
     field('Smoothness', select([[6, 'Light (6 FPS)'], [10, 'Normal (10 FPS)'], [15, 'Smooth (15 FPS)'], [25, 'Very smooth (25 FPS)']], o.fps, chg('fps', Number)), o.fps >= 25 ? 'Each picture is shown for exactly 0.04 seconds. Files get bigger.' : '')]));
   if (mode === 'states') {
     card.appendChild(acc('Timing', [h('div', { class: 'maprow' }, [
@@ -192,7 +193,8 @@ function gifCard() {
       field('How far each turn goes', select([[360, 'All the way around'], [180, 'Half way (180°)'], [90, 'A quarter (90°)'], [45, 'A small swing (45°)']], o.arc, function (v) { o.arc = +v; saveGx(); renderExport(); }), o.arc < 360 ? 'A short turn swings back and forth, so the loop has no jump.' : ''),
       field('Pause between turns (seconds)', select([[0, 'None'], [0.5, '0.5'], [1, '1'], [2, '2'], [3, '3'], [5, '5']], o.pause, chg('pause', Number))),
       field('How each turn moves', select(easeOpts, o.ease, chg('ease')), 'With no pause, Steady keeps the turning even.')]),
-      check('Turn the other way after each pause', o.reverse || o.arc < 360, chg('reverse'), { disabled: o.arc < 360 })], true));
+      check('Turn the other way after each pause', o.reverse || o.arc < 360, function (v) { o.reverse = v; saveGx(); renderExport(); }, { disabled: o.arc < 360 }),
+      o.reverse || o.arc < 360 ? h('p', { class: 'muted small', style: { margin: 0 } }, 'Every pause turns the spin around, including the pause where the animation starts over, so the number of turns is rounded up to an even number' + (o.turns % 2 ? ' (' + o.turns + ' becomes ' + (o.turns + 1) + ').' : '.')) : null], true));
   }
   card.appendChild(acc('Names on the map', [field('When names show', select(Object.keys(fx.NAMES).map(function (k) { return [k, fx.NAMES[k]]; }), o.names, chg('names')), mode === 'states' ? '"Only when it holds still" and "When it slows down" fade names out while the map changes.' : 'With pauses, "Only when it holds still" fades names in at each pause and out when turning starts.')]));
   var F = o.filter, fset = function (k, v) { F[k] = v; saveGx(); };

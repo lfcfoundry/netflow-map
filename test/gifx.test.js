@@ -24,6 +24,8 @@ sp = X.spinPlan({ fps: 25, turns: 4, turnSec: 2, pauseSec: 1, ease: 'smooth', ar
 const ends = sp.filter((f, i) => sp[i + 1] && sp[i + 1].phase === 'hold' && f.phase === 'move' || (i === sp.length - 1)).map((f) => f.yaw);
 ok(sp[sp.findIndex((f) => f.phase === 'hold') - 1].yaw > 6.28 && sp.some((f) => f.yaw < sp[sp.findIndex((f2) => f2.phase === 'hold')].yaw - 0.5 && f.phase === 'move' && f.yaw < 6.2 && f.yaw > 0.1), 'reversing: the second turn goes back down');
 ok(Math.abs(sp[sp.length - 1].yaw) < 1e-9, 'an even number of reversed turns ends where it began');
+sp = X.spinPlan({ fps: 25, turns: 3, turnSec: 2, pauseSec: 1, ease: 'linear', arc: 360, reverse: true, names: 'always' });
+ok(sp.filter(function (f) { return f.phase === 'hold'; }).length === 4 && Math.abs(sp[sp.length - 1].yaw) < 1e-9, 'three reversed turns become four, so the pause where the GIF starts over also turns the spin around');
 sp = X.spinPlan({ fps: 25, turns: 1, turnSec: 2, pauseSec: 1, ease: 'smooth', arc: 90, names: 'always' });
 ok(Math.abs(sp[sp.length - 1].yaw) < 1e-9 && sp.filter((f) => f.phase === 'hold').length === 2, 'a 90 degree swing is made even (back and forth) so the loop has no jump');
 sp = X.spinPlan({ fps: 25, turns: 2, turnSec: 2, pauseSec: 1, ease: 'smooth', names: 'still', fadeSec: 0.4 });
@@ -54,4 +56,9 @@ Wk.handle({ t: 'palette', bufs: [pics[0].buffer.slice(0), pics[1].buffer.slice(0
 Wk.handle({ t: 'frame', id: 'f1', buf: pics[0].buffer.slice(0), ms: 40 }, post); Wk.handle({ t: 'frame', id: 'f2', buf: pics[1].buffer.slice(0), ms: 1500 }, post);
 Wk.handle({ t: 'finish' }, post); const gif = new Uint8Array(out[out.length - 1].bytes);
 ok(String.fromCharCode(...gif.slice(0, 6)) === 'GIF89a' && gif[gif.length - 1] === 0x3b, 'the worker writes a GIF (' + gif.length + ' bytes)');
+{
+  const G = require('../src/gif.js'), mk = (r) => { const a = new Uint8ClampedArray(16 * 16 * 4); for (let i = 0; i < a.length; i += 4) { a[i] = r; a[i + 1] = 100; a[i + 2] = 100; a[i + 3] = 255; } return a; };
+  const pal = [[100, 100, 100], [105, 100, 100]], run = (tol) => { const e = G.createEncoder(16, 16, pal, { loop: true, tolerance: tol }); e.add(mk(100), 40); e.add(mk(105), 40); e.finish(); return e.count(); };
+  ok(run(0) === 2 && run(6) === 1, 'a color change smaller than the tolerance is left as it was (2 pictures exactly, 1 with tolerance 6)');
+}
 process.exit(fails ? 1 : 0);
