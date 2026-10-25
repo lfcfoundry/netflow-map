@@ -190,8 +190,9 @@ function computeStyles() {
 function allGroupOrder(dg) { if (!S.groupOrderKey || S.groupOrderKey.dg !== dg || S.groupOrderKey.n !== dg.nodes.length || S.groupOrderKey.v !== S.gver) S.groupOrderKey = { dg: dg, n: dg.nodes.length, v: S.gver, list: Array.from(new Set(dg.nodes.map(function (n) { return n.group || ''; }))).sort() }; return S.groupOrderKey.list; }
 function sceneOpts() {
   var V = S.V, sm = computeStyles(), dg = S.dg, byDg = new Map(); dg.nodes.forEach(function (n) { byDg.set(n.id, n); });
+  var lk = lookNames();
   var o = {
-    theme: themeName(), colorBy: engineColor(), palette: V.palette, ramp: V.ramp, groupColors: V.groupColors, groupOrder: allGroupOrder(dg), story: S.story, lab: V.lab, widthScale: V.widthScale, widthMul: V.widthMul, hulls: V.hulls,
+    theme: lk.theme, colorBy: engineColor(), palette: lk.palette || V.palette, ramp: lk.ramp || V.ramp, groupColors: V.groupColors, groupOrder: allGroupOrder(dg), story: S.story, lab: V.lab, widthScale: V.widthScale, widthMul: V.widthMul, hulls: V.hulls,
     cam: V.cam, curve: V.curve, edgeValueLabels: V.valueLabels, ruler: V.ruler, taper: V.taper, lens: V.lens.on ? { x: S.lens ? S.lens.x : 0, y: S.lens ? S.lens.y : 0, r: S.lens ? S.lens.r : 0, d: V.lens.d } : null,
     chName: function (c) { return chLabel(c, /^sys:(count|flow)$/.test(c) || c === 'weight' ? 'edges' : 'nodes'); }
   };
@@ -199,6 +200,7 @@ function sceneOpts() {
     o.nodeStyle = function (n) { return sm.nodes.get(n.nodeId || n.id) || null; };
     o.linkStyle = function (e, ei) { var best = null; if (e.orig) for (var i = 0; i < e.orig.length && !best; i++) best = sm.edges.get(e.orig[i]) || null; return best; };
   }
+  if (V.fmt.nodeScale !== 1) { var bns = o.nodeStyle, ns = V.fmt.nodeScale; o.nodeStyle = function (n) { var b = bns ? bns(n) : null; return Object.assign({}, b || {}, { scale: ((b && b.scale) || 1) * ns }); }; }
   if (hasStates()) {
     annotate(S.L);
     var baseL = o.linkStyle, baseN = o.nodeStyle, ghost = V.anim.ghost;

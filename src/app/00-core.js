@@ -103,7 +103,7 @@ function defaultView() {
   return {
     view: 'flow', arrange: 'stress', colorBy: 'group', sizeBy: '', widthBy: '', edgeColorBy: '', linkLabels: '', labelCol: '', dir: 'LR', spread: 'tight', fold: true, merge: false, rows: 'route', chapters: 'auto', openCh: {}, minimap: 'auto', bundle: false, taper: false, tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false, laneBy: 'group', agg: 'sum',
     state: 0, anim: { sec: 2.4, loop: true, ghost: 'faint' }, strongest: 100, facets: {}, around: null, block: [], hideKinds: [], only: null, sets: {}, marks: {},
-    rules: [], palette: 'standard', ramp: 'warm', groupColors: {}, widthScale: 'sqrt', widthMul: 1, hulls: false, curve: 0, valueLabels: false,
+    rules: [], fmt: NFMLook.defaults(), palette: 'standard', ramp: 'warm', groupColors: {}, widthScale: 'sqrt', widthMul: 1, hulls: false, curve: 0, valueLabels: false,
     lab: { items: { show: true, scale: 1, color: 'auto', fixed: '#222222', topN: 0 }, links: { show: true, scale: 1 }, groups: { show: false, scale: 1 } },
     lens: { on: false, d: 3, r: 0.28 }, cam: { yaw: 0.6, pitch: 0.35, persp: 2.4, spin: false },
     vocab: {}, key: { x: null, y: null, min: false, hide: phoneLayout(), edits: {} }, pins: {}, saved: [],
@@ -130,6 +130,7 @@ function mergeDeep(base, add) {
 /** Settings that are looked up by name in a fixed list must name something on the list (saved or shared text can say anything). */
 function fixLook(v) {
   var D = defaultView();
+  v.fmt = NFMLook.clean(v.fmt);
   if (!own(NFMScene.PALETTES, v.palette)) v.palette = D.palette;
   if (!own(NFMScene.RAMPS, v.ramp)) v.ramp = D.ramp;
   if (!own(ARR, v.arrange)) v.arrange = D.arrange;

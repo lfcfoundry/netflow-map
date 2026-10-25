@@ -20,11 +20,11 @@ function drawKeyOn(ctx, sc, W, H, theme) {
   var fs = Math.max(11, Math.round(W / 90)), pad = fs * 0.7, rowH = fs * 1.5, x0 = pad, items = sc.legend.filter(function (l) { return l.k === 'swatch' || l.k === 'mark' || l.k === 'ramp' || l.k === 'size' || l.k === 'width' || l.k === 'text'; });
   var lines = items.length + (sc.legendTitle ? 1 : 0), boxH = lines * rowH + pad * 2, boxW = fs * 16;
   var y0 = H - boxH - pad;
-  ctx.save(); ctx.font = fs + 'px system-ui, sans-serif'; ctx.textBaseline = 'middle';
+  ctx.save(); ctx.font = fs + 'px ' + NFMLook.fontStack(S.V.fmt.font); ctx.textBaseline = 'middle';
   ctx.fillStyle = NFMScene.css(NFMScene.alpha(sc.theme.box, 0.92)); ctx.strokeStyle = NFMScene.css(NFMScene.alpha(sc.theme.boxLine, 0.8)); ctx.lineWidth = 1;
   ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x0, y0, boxW, boxH, 8); else ctx.rect(x0, y0, boxW, boxH); ctx.fill(); ctx.stroke();
   var y = y0 + pad + rowH / 2;
-  if (sc.legendTitle) { ctx.fillStyle = NFMScene.css(sc.theme.fg); ctx.font = 'bold ' + fs + 'px system-ui, sans-serif'; ctx.fillText(sc.legendTitle, x0 + pad, y); y += rowH; ctx.font = fs + 'px system-ui, sans-serif'; }
+  if (sc.legendTitle) { ctx.fillStyle = NFMScene.css(sc.theme.fg); ctx.font = 'bold ' + fs + 'px ' + NFMLook.fontStack(S.V.fmt.font); ctx.fillText(sc.legendTitle, x0 + pad, y); y += rowH; ctx.font = fs + 'px ' + NFMLook.fontStack(S.V.fmt.font); }
   items.forEach(function (l) {
     ctx.fillStyle = NFMScene.css(sc.theme.fg);
     if (l.k === 'swatch' || l.k === 'mark') { ctx.fillStyle = NFMScene.css(l.c); ctx.beginPath(); if (l.dot || l.k === 'mark') ctx.arc(x0 + pad + fs * 0.45, y, fs * 0.45, 0, 7); else ctx.rect(x0 + pad, y - fs * 0.45, fs * 0.9, fs * 0.9); ctx.fill(); ctx.fillStyle = NFMScene.css(sc.theme.fg); ctx.fillText(String(l.t).slice(0, 26), x0 + pad + fs * 1.4, y); }

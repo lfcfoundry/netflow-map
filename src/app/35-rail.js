@@ -36,7 +36,7 @@ function askApply(key) {
 /* ---------------------------------------------------------------- building the map UI once */
 function buildMapUI() {
   var ui = $('ui');
-  var tabs = [['ask', 'Ask'], ['look', 'Look'], ['filter', 'Filter'], ['find', 'Find'], ['style', 'Style'], ['views', 'Views']];
+  var tabs = [['ask', 'Ask'], ['look', 'Look'], ['filter', 'Filter'], ['find', 'Find'], ['style', 'Style'], ['colors', 'Colors'], ['views', 'Views']];
   var rail = h('div', { id: 'rail', class: 'glass', role: 'complementary', 'aria-label': 'Map controls' }, [
     h('div', { class: 'tabsrow', role: 'tablist' }, tabs.map(function (t) { return h('button', { role: 'tab', id: 'rt-' + t[0], 'aria-selected': String(t[0] === RAIL.tab), onclick: function () { railTab(t[0]); } }, t[1]); }).concat([h('button', { class: 'quiet peekbtn', id: 'peekbtn', style: { flex: '0 0 34px' }, title: 'Make this panel small or large', 'aria-label': 'Make this panel small or large', onclick: function () { setPeek(!RAIL.peek); } }, '⌄'), h('button', { class: 'quiet', style: { flex: '0 0 34px' }, title: 'Hide this panel', 'aria-label': 'Hide this panel', onclick: function () { setRail(false); } }, '‹')])),
     h('div', { class: 'body', id: 'railbody' })
@@ -104,6 +104,8 @@ function renderKey() {
   var btn = $('keybtn'); if (btn) btn.setAttribute('aria-pressed', String(!V.key.hide));
   if (!sc || !sc.legend || !sc.legend.length || V.key.hide) { el.hidden = true; return; }
   el.hidden = false; el.classList.toggle('min', !!V.key.min);
+  if (NFMLook.plainColors(V.fmt) && V.fmt.font === 'system') { el.style.background = el.style.color = el.style.borderColor = el.style.fontFamily = ''; }
+  else { var kt = sc.theme; el.style.background = NFMScene.css(NFMScene.alpha(kt.box, 0.94)); el.style.color = NFMScene.css(kt.fg); el.style.borderColor = NFMScene.css(NFMScene.alpha(kt.boxLine, 0.8)); el.style.fontFamily = NFMLook.fontStack(V.fmt.font); }
   var ed = V.key.edits;
   var title = sc.legendTitle || 'Key';
   var head = h('div', { class: 'kh', 'data-drag': '1' }, [edit ? h('input', { class: 'ed', type: 'text', value: title, 'aria-label': 'Key title', onchange: function (e) { setKeyEdit('__title', { }, e.target.value); }, onpointerdown: function (e) { e.stopPropagation(); } }) : h('span', null, title),
@@ -176,7 +178,7 @@ function renderRail(force) {
   var ae = document.activeElement;
   if (!force && ae && body.contains(ae) && /^(INPUT|TEXTAREA)$/.test(ae.tagName) && ae.type !== 'checkbox') return;
   if (!S.graph.nodes.length) { mount(body, h('p', { class: 'muted' }, 'Bring in data on the Data tab, then the controls appear here.')); return; }
-  var scroll = body.scrollTop, fn = { ask: panelAsk, look: panelLook, filter: panelFilter, find: panelFind, style: panelStyle, views: panelViews }[RAIL.tab];
+  var scroll = body.scrollTop, fn = { ask: panelAsk, look: panelLook, filter: panelFilter, find: panelFind, style: panelStyle, colors: panelColors, views: panelViews }[RAIL.tab];
   mount(body, fn()); body.scrollTop = force ? 0 : scroll;
 }
 
@@ -495,13 +497,13 @@ function panelStyle() {
   var wk = [['walker', 'One simulated traveler'], ['walkers', 'Many travelers'], ['item', 'One item'], ['items', 'Items'], ['link', 'One link'], ['links', 'Links'], ['end', 'One end point'], ['ends', 'End points'], ['odds', 'Heading for "where it ends"'], ['flow', 'Heading for flow']];
   kids.push(acc('Words used', [h('p', { class: 'muted small', style: { margin: 0 } }, 'Change the words in the panels and key. Leave empty for the default.')].concat(wk.map(function (x) { return field(x[1], h('input', { type: 'text', value: (V.vocab || {})[x[0]] || '', placeholder: (S.story ? VOCAB.story : VOCAB.data)[x[0]], onchange: function (e) { V.vocab = Object.assign({}, V.vocab); if (e.target.value.trim()) V.vocab[x[0]] = e.target.value.trim().slice(0, 40); else delete V.vocab[x[0]]; saveView(); renderMapUI(); renderRail(true); } })); }).concat([h('button', { class: 'sm', onclick: function () { V.vocab = {}; saveView(); renderMapUI(); renderRail(true); } }, 'Back to the default words')]))));
   var gs = groupNames();
-  kids.push(acc('Group colors', gs.length > 40 ? [h('p', { class: 'muted small' }, 'Too many groups to list. Use rules, or edit them in the key.')] : gs.map(function (g, i) { var base = NFMScene.palette(themeName(), V.palette).hex.groups; var cur = V.groupColors[g] || base[i % base.length]; return h('div', { class: 'row tight' }, [h('input', { type: 'color', value: NFMScene.toHex(NFMScene.hex(cur)), 'aria-label': 'Color of ' + g, onchange: function (e) { V.groupColors = Object.assign({}, V.groupColors); V.groupColors[g] = e.target.value; saveView(); makeScene(false); } }), h('span', null, g), V.groupColors[g] ? h('button', { class: 'sm quiet', onclick: function () { delete V.groupColors[g]; V.groupColors = Object.assign({}, V.groupColors); saveView(); makeScene(false); renderRail(true); } }, 'default') : null]); }).concat([h('p', { class: 'muted small' }, 'Colors follow the group order of the current color set.')])));
+  kids.push(acc('Group colors', gs.length > 40 ? [h('p', { class: 'muted small' }, 'Too many groups to list. Use rules, or edit them in the key.')] : gs.map(function (g, i) { var base = NFMScene.palette(lookNames().theme, V.palette).hex.groups; var cur = V.groupColors[g] || base[i % base.length]; return h('div', { class: 'row tight' }, [h('input', { type: 'color', value: NFMScene.toHex(NFMScene.hex(cur)), 'aria-label': 'Color of ' + g, onchange: function (e) { V.groupColors = Object.assign({}, V.groupColors); V.groupColors[g] = e.target.value; saveView(); makeScene(false); } }), h('span', null, g), V.groupColors[g] ? h('button', { class: 'sm quiet', onclick: function () { delete V.groupColors[g]; V.groupColors = Object.assign({}, V.groupColors); saveView(); makeScene(false); renderRail(true); } }, 'default') : null]); }).concat([h('p', { class: 'muted small' }, 'Colors follow the group order of the current color set.')])));
   kids.push(h('div', { class: 'row tight' }, [h('button', { class: 'sm', onclick: function () { S.keyEdit = true; V.key.hide = false; renderKey(); } }, 'Edit the key'), h('button', { class: 'sm', onclick: function () { V.rules = []; V.groupColors = {}; V.key.edits = {}; V.marks = {}; V.vocab = {}; S.styleMap = null; saveView(); makeScene(false); renderRail(true); } }, 'Clear all styling')]));
   return kids;
 }
 
 /* ---- Views */
-var SNAP_KEYS = ['view', 'arrange', 'colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'labelCol', 'dir', 'spread', 'fold', 'merge', 'rows', 'chapters', 'openCh', 'minimap', 'bundle', 'taper', 'tagLen', 'spineCol', 'better', 'wrap', 'ruler', 'downLanes', 'laneBy', 'agg', 'strongest', 'facets', 'around', 'block', 'hideKinds', 'only', 'sets', 'marks', 'rules', 'palette', 'ramp', 'groupColors', 'widthScale', 'widthMul', 'hulls', 'curve', 'valueLabels', 'lab', 'lens', 'cam', 'vocab', 'pins', 'sk'];
+var SNAP_KEYS = ['view', 'arrange', 'colorBy', 'sizeBy', 'widthBy', 'edgeColorBy', 'linkLabels', 'labelCol', 'dir', 'spread', 'fold', 'merge', 'rows', 'chapters', 'openCh', 'minimap', 'bundle', 'taper', 'tagLen', 'spineCol', 'better', 'wrap', 'ruler', 'downLanes', 'laneBy', 'agg', 'strongest', 'facets', 'around', 'block', 'hideKinds', 'only', 'sets', 'marks', 'rules', 'palette', 'ramp', 'groupColors', 'widthScale', 'widthMul', 'hulls', 'curve', 'valueLabels', 'lab', 'lens', 'cam', 'vocab', 'pins', 'sk', 'fmt'];
 function snapshot() { var o = {}; SNAP_KEYS.forEach(function (k) { o[k] = JSON.parse(JSON.stringify(S.V[k] === undefined ? null : S.V[k])); }); return o; }
 /** Only known settings of the right kind are accepted from shared text. */
 function cleanSnapshot(o) {
@@ -520,6 +522,7 @@ function cleanSnapshot(o) {
     else if (k === 'marks' || k === 'groupColors' || k === 'vocab') { if (v && typeof v === 'object') { var m = {}; Object.keys(v).slice(0, 500).forEach(function (n) { if (typeof v[n] === 'string' && v[n].length < 80) m[n] = v[n]; }); out[k] = m; } }
     else if (k === 'facets') { if (v && typeof v === 'object') { var f = {}; Object.keys(v).slice(0, 20).forEach(function (n) { if (Array.isArray(v[n])) f[n] = v[n].filter(function (x) { return typeof x === 'string'; }).slice(0, 200); }); out[k] = f; } }
     else if (k === 'pins') { if (v && typeof v === 'object') { var p = {}; Object.keys(v).slice(0, 20).forEach(function (vk) { if (v[vk] && typeof v[vk] === 'object') { p[vk] = {}; Object.keys(v[vk]).slice(0, 5000).forEach(function (id) { var a = v[vk][id]; if (Array.isArray(a) && typeof a[0] === 'number' && typeof a[1] === 'number') p[vk][id] = [a[0], a[1]]; }); } }); out[k] = p; } }
+    else if (k === 'fmt') { out[k] = NFMLook.clean(v); }
     else if (k === 'sk') { var sk = cleanSk(v); if (sk) out[k] = sk; }
     else if (k === 'lab' || k === 'lens' || k === 'cam') { if (v && typeof v === 'object') { var q = JSON.parse(JSON.stringify(D[k])); Object.keys(q).forEach(function (a) { if (v[a] && typeof v[a] === 'object' && typeof q[a] === 'object') { Object.keys(q[a]).forEach(function (b) { if (typeof v[a][b] === typeof q[a][b]) q[a][b] = v[a][b]; }); } else if (typeof v[a] === typeof q[a]) q[a] = v[a]; }); out[k] = q; } }
   });

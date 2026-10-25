@@ -30,13 +30,13 @@ function gifPlan(o, frames) {
 }
 function gifScene(item, o) {
   var L = item.make ? item.make() : item.L; applyPins(L);
-  var so = sceneOpts(); so.theme = o.theme === 'app' ? themeName() : o.theme; if (item.cam) so.cam = item.cam;
+  var so = sceneOpts(); if (o.theme !== 'app') { so.theme = o.theme; so.palette = S.V.palette; so.ramp = S.V.ramp; } if (item.cam) so.cam = item.cam;
   var sc = NFMScene.make(L, so); editKey(sc); return sc;
 }
 function gifCaption(ctx, sc, text, W, H) {
   if (!text) return;
   var fs = Math.max(14, Math.round(H / 16)), pad = fs * 0.55;
-  ctx.save(); ctx.font = '700 ' + fs + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; ctx.textBaseline = 'middle';
+  ctx.save(); ctx.font = '700 ' + fs + 'px ' + NFMLook.fontStack(S.V.fmt.font); ctx.textBaseline = 'middle';
   var tw = ctx.measureText(text).width, x = fs * 0.6, y = fs * 0.6;
   ctx.fillStyle = NFMScene.css(NFMScene.alpha(sc.theme.box, 0.92)); ctx.strokeStyle = NFMScene.css(NFMScene.alpha(sc.theme.boxLine, 0.8));
   ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, tw + pad * 2, fs + pad * 1.4, fs * 0.4); else ctx.rect(x, y, tw + pad * 2, fs + pad * 1.4); ctx.fill(); ctx.stroke();
@@ -109,7 +109,7 @@ function gifCard() {
     field('Width (pixels)', select([[640, '640 (small file)'], [960, '960 (slides)'], [1280, '1280 (sharp)']], o.size, function (v) { o.size = +v; })),
     field('Shape', select([['169', 'Slide (16:9)'], ['43', 'Slide (4:3)'], ['sq', 'Square'], ['fit', 'Fit the map']], o.shape, function (v) { o.shape = v; })),
     field('What to show', select([['whole', 'The whole map'], ['screen', 'What I see now (zoomed)']], o.what, function (v) { o.what = v; })),
-    field('Background', select([['light', 'Light (best for slides)'], ['dark', 'Dark'], ['app', 'Same as the app']], o.theme, function (v) { o.theme = v; })),
+    field('Background', select([['light', 'Light (best for slides)'], ['dark', 'Dark'], ['app', 'Same as the map on screen (with my colors)']], o.theme, function (v) { o.theme = v; })),
     field(mode === 'states' ? 'Seconds on each state' : 'Seconds per turn (about)', select([[0.6, '0.6'], [1, '1'], [1.4, '1.4'], [2, '2'], [3, '3']], o.hold, function (v) { o.hold = +v; })),
     mode === 'states' ? field('Seconds of change between states', select([[0, 'None (cut)'], [0.5, '0.5'], [0.9, '0.9'], [1.5, '1.5']], o.trans, function (v) { o.trans = +v; })) : null,
     field('Smoothness', select([[6, 'Light (6 FPS)'], [10, 'Normal (10 FPS)'], [15, 'Smooth (15 FPS)']], o.fps, function (v) { o.fps = +v; }))]));

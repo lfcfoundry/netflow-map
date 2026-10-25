@@ -63,7 +63,7 @@ function skStyleWrap(o) {
 /* ---------------------------------------------------------------- small pop-up: pick a color */
 function askColor(title, def, reset) {
   return new Promise(function (resolve) {
-    var dlg = $('dlg'), body = $('dlg-body'), pal = NFMScene.palette(themeName(), S.V.palette).hex.groups.concat(['#1d2330', '#7b8294', '#ffffff']);
+    var dlg = $('dlg'), body = $('dlg-body'), pal = NFMScene.palette(lookNames().theme, S.V.palette).hex.groups.concat(['#1d2330', '#7b8294', '#ffffff']);
     var inp = h('input', { type: 'color', value: NFMScene.toHex(NFMScene.hex(def || '#4e79a7')), 'aria-label': 'Color', style: { width: '64px', height: '40px' } });
     var done = function (v) { dlg.close(); resolve(v); };
     var sw = h('div', { class: 'row tight', style: { flexWrap: 'wrap' } }, pal.map(function (c) { return h('button', { class: 'sm', 'aria-label': c, title: c, style: { background: c, width: '28px', height: '28px', padding: 0, border: '1px solid rgba(0,0,0,.25)', borderRadius: '6px' }, onclick: function () { done(c); } }); }));
