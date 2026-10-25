@@ -22,7 +22,10 @@ const which=process.argv[2]||'chromium';
     let same=0,max=0,n=w*h*4,close=0;for(let i=0;i<n;i++){if(i%4==3)continue;const d=Math.abs(a[i]-b[i]);if(d===0)same++;if(d<=2)close++;if(d>max)max=d;}
     res.push({name,exact:+(same/(n*0.75)*100).toFixed(2),within2:+(close/(n*0.75)*100).toFixed(2),max});
    }
-   return {res,sw:g.software()};
+   const n=4,pics=[];for(let k=0;k<n;k++){const a=new Uint8ClampedArray(rgba);for(let i=0;i<a.length;i++)if((i&3)!==3)a[i]=(a[i]+k*37)&255;pics.push(a);}
+   const one=pics.map(a=>g.apply(new Uint8ClampedArray(a),w,h,full)),big=new Uint8ClampedArray(w*h*4*n);pics.forEach((a,k)=>big.set(a,k*w*h*4));
+   const r4=g.apply(big,w,h,full,n);let bdiff=0;if(!r4)bdiff=-1;else for(let k=0;k<n;k++)for(let i=0;i<w*h*4;i++)if(one[k][i]!==big[k*w*h*4+i])bdiff++;
+   return {res,sw:g.software(),batchDiffValues:bdiff,maxBatch:g.maxBatch(h)};
   });
   console.log(D.version,JSON.stringify(out,null,0).replace(/\},/g,'},\n'));
  }finally{await D.close();}
