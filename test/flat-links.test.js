@@ -4,7 +4,7 @@ const E = require('../src/engine.js'), SC = require('../vendor/netflow-scene.js'
 const ok = (c, m) => { if (!c) { console.log('FAIL ' + m); process.exit(1); } };
 const L = E.build(EX.bigNetwork(1500, 4, 7), { view: 'network', arrange: 'circle', colorBy: 'group' });
 const base = { colorBy: 'group', theme: 'light' };
-const flat = SC.make(L, base), objs = SC.make(L, Object.assign({ linkStyle: () => null }, base));
+const flat = SC.make(L, base), objs = SC.make(L, Object.assign({ flat: false }, base));
 const n = flat.curveCount(); ok(n > 2000 && n === objs.curveCount(), 'a big map: ' + n + ' vs ' + objs.curveCount());
 ok(flat.curvesPacked() && !objs.curvesPacked(), 'the flat build is packed from the start, the styled one is objects');
 const snap = (S) => S.curves.map((c) => JSON.stringify([c.P, c.w, c.color, c.arrow, c.line, c.edge, c.from, c.to, c.dash || 0], (k, v) => typeof v === 'number' ? Math.fround(v) : v));
@@ -12,7 +12,7 @@ const f0 = flat.curves.map((c) => c), o0 = snap(objs);   /* waking the flat one 
 ok(!flat.curvesPacked(), 'reading S.curves makes the objects');
 const fs = snap(flat); for (let i = 0; i < n; i++) ok(fs[i] === o0[i], 'link ' + i + ' differs:\n' + fs[i] + '\n' + o0[i]);
 /* styling and picture lists on fresh packed scenes */
-const mk = () => SC.make(L, base), a = mk(), b = SC.make(L, Object.assign({ linkStyle: () => null }, base));
+const mk = () => SC.make(L, base), a = mk(), b = SC.make(L, Object.assign({ flat: false }, base));
 const focus = new Set(L.nodes.slice(0, 40).map((x) => x.key || x.id));
 for (const st of [{}, { focus }, { focus, edges: new Set([3, 5, 9]) }, {}]) {
   SC.style(a, st); SC.style(b, st); ok(a.curvesPacked(), 'styling leaves the links packed');
