@@ -12,6 +12,7 @@ const ALL = [
   { name: 'new page, 25 FPS, full filters, 1 worker', file: NEW, fps: 25, sec: '2', filter: FULL, workers: 1 },
   { name: 'new page, 25 FPS, full filters, 2 workers', file: NEW, fps: 25, sec: '2', filter: FULL, workers: 2 },
   { name: 'new page, 25 FPS, full filters, 4 workers', file: NEW, fps: 25, sec: '2', filter: FULL, workers: 4 }];
+ALL.push({ name: 'previous page (JavaScript filters), 25 FPS, full filters, 1 worker', file: OLD, fps: 25, sec: '2', filter: FULL, workers: 1 }, { name: 'previous page (JavaScript filters), 25 FPS, full filters, 2 workers', file: OLD, fps: 25, sec: '2', filter: FULL, workers: 2 }, { name: 'previous page (JavaScript filters), 25 FPS, full filters, 4 workers', file: OLD, fps: 25, sec: '2', filter: FULL, workers: 4 });
 const rows = process.env.ROWS ? process.env.ROWS.split(',').map((i) => ALL[+i]) : ALL;
 (async () => {
   const med = (a) => a.slice().sort((x, y) => x - y)[a.length >> 1], res = rows.map(() => []); let version = '';

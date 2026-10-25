@@ -8,4 +8,5 @@ FLAGS="--target=wasm32 -O3 -msimd128 -mbulk-memory -ffp-contract=off -nostdlib -
 LINK="-Wl,--no-entry -Wl,--export=__heap_base -Wl,--initial-memory=1048576 -Wl,--max-memory=2147483648 -Wl,-z,stack-size=8192 -Wl,--strip-all -Wl,--global-base=1024"
 clang $FLAGS $LINK -Wl,--export=force_round -o force.wasm force.c
 clang $FLAGS $LINK -o stress.wasm stress.c
-wc -c force.wasm stress.wasm
+clang $FLAGS $LINK -Wl,--export=blur -Wl,--export=unsharp -Wl,--export=glow_down -Wl,--export=glow_up -Wl,--export=grade -o pixfx.wasm pixfx.c
+wc -c force.wasm stress.wasm pixfx.wasm
