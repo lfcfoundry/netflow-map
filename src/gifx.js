@@ -166,6 +166,6 @@ var NFMGifFx = (function () {
   }
   /** Changes the pixels of an RGBA picture in place (alpha is left alone). f is a cleaned filter. Returns the same array. Uses WebAssembly when initWasm() has finished. */
   function apply(rgba, w, h, f) { return wx ? applyWasm(rgba, w, h, f) : applyJs(rgba, w, h, f); }
-  return { initWasm: initWasm, wasmReady: wasmReady, applyJs: applyJs, applyWasm: applyWasm, EASES: EASES, NAMES: NAMES, TONES: TONES, FILTER_PRESETS: FILTER_PRESETS, ease: ease, speed: speed, delaysCs: delaysCs, spinPlan: spinPlan, stateNames: stateNames, plainFilter: plainFilter, cleanFilter: cleanFilter, isPlainFilter: isPlainFilter, apply: apply };
+  return { initWasm: initWasm, wasmReady: wasmReady, applyJs: applyJs, applyWasm: applyWasm, EASES: EASES, NAMES: NAMES, TONES: TONES, FILTER_PRESETS: FILTER_PRESETS, ease: ease, speed: speed, delaysCs: delaysCs, spinPlan: spinPlan, stateNames: stateNames, plainFilter: plainFilter, cleanFilter: cleanFilter, isPlainFilter: isPlainFilter, colorMatrix: colorMatrix, curve: curve, apply: apply };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMGifFx;
