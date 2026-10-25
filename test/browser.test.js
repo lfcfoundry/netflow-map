@@ -744,17 +744,30 @@ async function open() {
   { await loadBig(40, 3, 5, 'map'); await ev(() => NFM.setV({ view: 'network', arrange: 'force3d' }));   /* a small 3D map for the GIF checks */
     await W(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length === NFM.state.graph.nodes.length, null, 30000);
     await ev(() => NFM.showTab('export')); await settle(200);
-    await ev(() => { const sel = [...document.querySelectorAll('#gif-card select')], put = (s, v) => { s.value = v; s.dispatchEvent(new Event('change', { bubbles: true })); }; put(sel[0], '640'); put(sel[4], '0.6'); put(sel[5], '6'); });
+    await ev(() => { const sel = [...document.querySelectorAll('#gif-card select')], put = (s, v) => { s.value = v; s.dispatchEvent(new Event('change', { bubbles: true })); }; const by = (t) => [...document.querySelectorAll('#gif-card label.field')].find((l) => l.textContent.startsWith(t)).querySelector('select'); put(sel[0], '640'); put(by('Seconds per turn'), '2'); put(by('Smoothness'), '6'); });
     await click('#gif-go');
     const made = await W(() => { const im = document.querySelector('#gif-out img'); return im && im.complete && im.naturalWidth > 0; }, null, 60000);
     say(made, 'a turn-around GIF of the 3D map is made (control for the next checks)');
+    /* the new GIF options: exact 25 FPS timing, pauses with a reversal, a filter reaching the palette */
+    const parse = (bytes) => { const b = bytes; let p = 13 + 768, sum = 0, n = 0; const ds = []; if (!(b[10] & 0x80)) return null; p = 13; const pal = []; for (let i = 0; i < 256; i++) pal.push([b[p + i * 3], b[p + i * 3 + 1], b[p + i * 3 + 2]]); p += 768;
+      while (b[p] !== 0x3b && p < b.length) { if (b[p] === 0x21) { const l = b[p + 1]; p += 2; if (l === 0xf9) { ds.push(b[p + 2] | b[p + 3] << 8); sum += (b[p + 2] | b[p + 3] << 8); n++; } while (b[p] !== 0) p += b[p] + 1; p++; } else if (b[p] === 0x2c) { p += 10; p++; while (b[p] !== 0) p += b[p] + 1; p++; } else break; } return { ds, sum, n, pal }; };
+    const runCfg = async (patch) => { await ev((pt) => NFM.gifRun(pt), patch); await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled && NFM.gif(); }, null, 120000); return ev(() => { const r = NFM.gif(); return { bytes: Array.from(r.bytes), frames: r.frames, workers: r.workers, inline: r.inline }; }); };
+    {
+      const a = await runCfg({ size: 640, fps: 25, turns: 1, turnSec: 2, pause: 0, ease: 'linear', names: 'always', arc: 360, reverse: false, filter: { brightness: 0, contrast: 0, saturation: 0, warmth: 0, hue: 0, tone: 'none', blur: 0, sharpen: 0, glow: 0, vignette: 0 } });
+      const g = parse(a.bytes); say(g && a.frames === 50 && g.ds.every((d) => d === 4) && g.n >= 40, `GIF at 25 FPS: ${a.frames} pictures, every one shown for exactly 4 hundredths (${g && g.ds.slice(0, 3)}); ${a.workers} worker${a.workers === 1 ? '' : 's'}${a.inline ? ' (on the page)' : ''}`);
+      const b2 = await runCfg({ turns: 2, pause: 1, reverse: true, ease: 'smooth' }); const g2 = parse(b2.bytes);
+      say(g2 && Math.abs(g2.sum - (2 * 200 + 2 * 100)) <= 2 && b2.frames >= 100, `GIF with 2 turns, a 1 s pause after each and the spin reversed: total ${g2 && g2.sum} hundredths (6 s expected), ${b2.frames} pictures`);
+      const c2 = await runCfg({ turns: 1, pause: 0, ease: 'linear', filter: { tone: 'mono', contrast: 0.1 } }); const g3 = parse(c2.bytes);
+      say(g3 && g3.pal.slice(0, 200).every((c) => Math.abs(c[0] - c[1]) <= 2 && Math.abs(c[1] - c[2]) <= 2 || (c[0] === 0 && c[1] === 0 && c[2] === 0)), 'GIF with the black-and-white look: the palette holds only grays');
+      await runCfg({ filter: { tone: 'none', contrast: 0 }, size: 640, turnSec: 2, turns: 1, pause: 0 });
+    }
     await ev(() => { document.getElementById('gif-go').click(); setTimeout(() => NFM.setGraph(NFMImport.sanitizeGraph({ name: 'GifOther', nodes: [{ id: 'A' }, { id: 'B' }], edges: [{ from: 'A', to: 'B' }] })), 40); });
     await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled; }, null, 60000); await settle(200);
     const r = await ev(() => ({ img: !!document.querySelector('#gif-out img'), text: (document.getElementById('gif-out') || {}).textContent || '' }));
     say(!r.img && /data changed/i.test(r.text), 'a GIF made while the data changed is dropped, not attached to the new data: ' + JSON.stringify(r.text.slice(0, 90)));
     await loadBig(40, 3, 5, 'map'); await ev(() => NFM.setV({ view: 'network', arrange: 'force3d' })); await W(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length === NFM.state.graph.nodes.length, null, 30000);
     await ev(() => NFM.showTab('export')); await settle(200);
-    await ev(() => { const sel = [...document.querySelectorAll('#gif-card select')], put = (s, v) => { s.value = v; s.dispatchEvent(new Event('change', { bubbles: true })); }; put(sel[0], '640'); put(sel[4], '0.6'); put(sel[5], '6'); document.getElementById('gif-go').click(); document.getElementById('gif-cancel').click(); });
+    await ev(() => { const sel = [...document.querySelectorAll('#gif-card select')], put = (s, v) => { s.value = v; s.dispatchEvent(new Event('change', { bubbles: true })); }; const by = (t) => [...document.querySelectorAll('#gif-card label.field')].find((l) => l.textContent.startsWith(t)).querySelector('select'); put(sel[0], '640'); put(by('Seconds per turn'), '2'); put(by('Smoothness'), '6'); document.getElementById('gif-go').click(); document.getElementById('gif-cancel').click(); });
     await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled; }, null, 60000); await settle(200);
     say(await ev(() => (document.getElementById('gif-out') || {}).textContent) === 'Canceled.', 'canceling the GIF says "Canceled." (American spelling)'); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
