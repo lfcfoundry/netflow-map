@@ -16,7 +16,7 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:.85rem}
 </style></head><body><main>
 <h1>Netflow Map laptop test</h1>
 <p class="sub">Times the picture looks of the GIF maker three ways (plain code, WebAssembly, graphics card) and how well they use several cores. Everything stays on this page: no network. Takes about a minute. Please close other heavy tabs first, and leave this tab in front while it runs.</p>
-<div class="card"><button id="run">Run the test</button> <button id="stop" class="alt" disabled>Stop</button>
+<div class="card"><button id="run">Run the test</button> <button id="stop" class="alt" disabled>Stop</button> <label class="mut"><input type="checkbox" id="quick" checked> Quick run (skips the slow plain-code and 1280-wide rows; untick for the full run)</label>
 <div class="bar"><i id="bar"></i></div><div id="status" class="mut">Ready.</div></div>
 <div class="card" id="verdict" hidden><h2>In plain words</h2><div id="vtext"></div>
 <p><button id="copy">Copy results</button> <button id="save" class="alt">Save report file</button> <span id="copied" class="mut"></span></p></div>
@@ -31,8 +31,8 @@ self.onmessage = function (e) {
   var m = e.data;
   if (m.t === 'init') { __wasmP = NFMGifFx.initWasm(); var g = null; try { g = NFMGifGl.create(); } catch (x) { g = null; } self.__gl = g; __wasmP.then(function (ok) { postMessage({ t: 'ready', wasm: ok, gl: !!g }); }); return; }
   if (m.t === 'run') {
-    var a = new Uint8ClampedArray(m.buf), ok = true;
-    if (m.path === 'gl') ok = !!(self.__gl && self.__gl.apply(a, m.w, m.h, m.f)); else NFMGifFx.apply(a, m.w, m.h, m.f);
+    var a = new Uint8ClampedArray(m.buf), ok = true, n = m.n || 1, sz = m.w * m.h * 4, k;
+    if (m.path === 'gl') ok = !!(self.__gl && self.__gl.apply(a, m.w, m.h, m.f, n)); else for (k = 0; k < n; k++) NFMGifFx.apply(a.subarray(k * sz, (k + 1) * sz), m.w, m.h, m.f);
     postMessage({ t: 'done', id: m.id, ok: ok, buf: a.buffer }, [a.buffer]);
   }
 };
@@ -77,7 +77,7 @@ var LAB = (function () {
 
   /* ---- test 1: one picture, three ways ---- */
   add({ id: 'paths', title: 'One picture: plain code, WebAssembly, graphics card', async run(ctx) {
-    var res = { rows: [], glOk: false, facts: {} }, sizes = [[960, 540], [1280, 720]], g = NFMGifGl.create(), wasm = await NFMGifFx.initWasm(), si, li, n = sizes.length * LOOKS.length, k = 0;
+    var res = { rows: [], glOk: false, facts: {} }, sizes = ctx.quick ? [[960, 540]] : [[960, 540], [1280, 720]], g = NFMGifGl.create(), wasm = await NFMGifFx.initWasm(), si, li, n = sizes.length * LOOKS.length, k = 0;
     res.glOk = !!g; res.wasmOk = wasm; if (g) res.soft = g.software();
     for (si = 0; si < sizes.length; si++) {
       var w = sizes[si][0], h = sizes[si][1], pic = samplePicture(w, h).data;
@@ -85,7 +85,7 @@ var LAB = (function () {
         if (ctx.stopped()) return res; ctx.progress(k++ / n, 'Picture looks ' + w + ' wide: ' + LOOKS[li][0]);
         var f = lookOf(LOOKS[li][0], LOOKS[li][1]), row = { size: w + 'x' + h, look: LOOKS[li][0] }, a, b;
         a = new Uint8ClampedArray(pic); NFMGifFx.applyJs(a, w, h, f);
-        row.js = (await time(function () { NFMGifFx.applyJs(new Uint8ClampedArray(pic), w, h, f); }, { warm: 1, runs: 5 })).median;
+        if (!ctx.quick) row.js = (await time(function () { NFMGifFx.applyJs(new Uint8ClampedArray(pic), w, h, f); }, { warm: 1, runs: 5 })).median;
         if (wasm) row.wasm = (await time(function () { NFMGifFx.applyWasm(new Uint8ClampedArray(pic), w, h, f); }, { warm: 2, runs: 9 })).median;
         if (g) {
           b = new Uint8ClampedArray(pic); var r = g.apply(b, w, h, f);
@@ -106,13 +106,13 @@ var LAB = (function () {
   }, show(res) {
     var head = ['Picture / look', 'Plain code (ms)', 'WebAssembly (ms)', 'Graphics card (ms)', 'Card vs WebAssembly', 'Match'];
     return table(head, res.rows.map(function (r) {
-      return [esc(r.size + '  ' + r.look), ms(r.js), r.wasm == null ? 'n/a' : ms(r.wasm), r.gl == null ? 'n/a' : ms(r.gl), r.gl != null && r.wasm ? (r.wasm / r.gl).toFixed(1) + '× ' + (r.gl < r.wasm ? 'faster' : 'slower') : '', r.match == null ? '' : r.match.toFixed(2) + '%'];
+      return [esc(r.size + '  ' + r.look), (r.js == null ? 'skipped' : ms(r.js)), r.wasm == null ? 'n/a' : ms(r.wasm), r.gl == null ? 'n/a' : ms(r.gl), r.gl != null && r.wasm ? (r.wasm / r.gl).toFixed(1) + '× ' + (r.gl < r.wasm ? 'faster' : 'slower') : '', r.match == null ? '' : r.match.toFixed(2) + '%'];
     })) + '<p class="mut">Lower is better. "Match" is the share of color values within 2 steps of the plain-code picture. ' + (res.facts.floor != null ? 'Fixed cost of the card path (send up, one pass, read back): ' + ms(res.facts.floor) + ' ms.' : '') + (res.soft ? ' This browser draws WebGL itself in software, so the card numbers are not from a graphics card.' : '') + '</p>';
   } });
 
   /* ---- test 2: several cores ---- */
   add({ id: 'workers', title: 'Several cores: pictures per second', async run(ctx) {
-    var cores = navigator.hardwareConcurrency || 2, counts = [1, 2, 4].filter(function (c) { return c <= Math.max(1, cores - 1); }), mx = Math.max(1, cores - 1); if (counts.indexOf(mx) < 0) counts.push(mx);
+    var cores = navigator.hardwareConcurrency || 2, counts = [1, 2, 4].filter(function (c) { return c <= Math.max(1, cores - 1); }), mx = Math.max(1, cores - 1); if (counts.indexOf(mx) < 0) counts.push(mx); if (ctx.quick) counts = counts.filter(function (c) { return c === 1 || c === mx; });
     var w = 960, h = 540, pic = samplePicture(w, h).data, N = 24, src = document.getElementById('lab-worker-src').textContent, res = { rows: [], cores: cores }, plan = [], ci, path;
     counts.forEach(function (c) { plan.push(['wasm', c]); }); plan.push(['gl', 1]); if (counts.indexOf(2) >= 0) plan.push(['gl', 2]);
     for (ci = 0; ci < plan.length; ci++) {
@@ -137,13 +137,51 @@ var LAB = (function () {
     })) + '<p class="mut">Full look chain at 960x540, 24 pictures each. Higher is better. This machine reports ' + res.cores + ' logical cores.</p>';
   } });
 
+  /* ---- test 3: several pictures per card pass, and card + WebAssembly together ---- */
+  add({ id: 'batch', title: 'Card with several pictures at once, and card + cores together', async run(ctx) {
+    var w = 960, h = 540, pic = samplePicture(w, h).data, sz = w * h * 4, g = NFMGifGl.create(), res = { rows: [], glOk: !!g, cores: navigator.hardwareConcurrency || 2 }, src = document.getElementById('lab-worker-src').textContent, i, stack = function (n) { var b = new Uint8ClampedArray(sz * n), k; for (k = 0; k < n; k++) b.set(pic, k * sz); return b; };
+    if (!g) return res;
+    var mb = g.maxBatch(h); res.maxBatch = mb;
+    var sizes = [1, 2, 4, 8].filter(function (n) { return n <= mb; });
+    for (i = 0; i < sizes.length; i++) {
+      if (ctx.stopped()) return res; ctx.progress(i / 10, 'Card, ' + sizes[i] + ' picture' + (sizes[i] > 1 ? 's' : '') + ' per pass');
+      var n = sizes[i], t = await time(function () { g.apply(stack(n), w, h, FULL, n); g.finish(); }, { warm: 2, runs: 7 });
+      res.rows.push({ way: 'Card on this page', detail: n + ' per pass', perPic: t.median / n, perSec: 1000 * n / t.median });
+    }
+    g.dispose();
+    var cores = res.cores, mx = Math.max(1, cores - 1);
+    async function farm(label, spec, N) {   /* spec: [[path, batch], ...] one worker each; pictures taken from one shared queue */
+      var ws = [], j, next = 0, fails = 0, t0;
+      try {
+        for (j = 0; j < spec.length; j++) ws.push(worker(src));
+        var rd = await Promise.all(ws.map(function (x) { return ask(x, { t: 'init' }); }));
+        if (spec.some(function (sp, q) { return sp[0] === 'gl' && !rd[q].gl; })) { res.rows.push({ way: label, detail: 'no WebGL in a worker here' }); return; }
+        await Promise.all(ws.map(function (x, q) { var n = spec[q][1], b = stack(n).buffer; return ask(x, { t: 'run', id: 0, path: spec[q][0], buf: b, w: w, h: h, f: FULL, n: n }, [b]); }));
+        t0 = performance.now();
+        await Promise.all(ws.map(function (x, q) { return (async function () { var n = spec[q][1]; while (next < N) { next += n; var b = stack(n).buffer, r = await ask(x, { t: 'run', id: next, path: spec[q][0], buf: b, w: w, h: h, f: FULL, n: n }, [b]); if (!r.ok) fails++; } })(); }));
+        var dt = performance.now() - t0; res.rows.push({ way: label, detail: spec.length + ' workers', perSec: next / (dt / 1000), fails: fails });
+      } catch (e) { res.rows.push({ way: label, detail: String(e.message || e) }); }
+      ws.forEach(function (x) { x.terminate(); });
+    }
+    var N = ctx.quick ? 48 : 96, b4 = Math.min(4, mb), b8 = Math.min(8, mb), plan = [['Card in 1 worker', [['gl', b4]]], ['Card in 2 workers', [['gl', b4], ['gl', b4]]], ['Card in 2 workers, 8 per pass', [['gl', b8], ['gl', b8]]]], mix = [];
+    for (i = 0; i < Math.max(1, mx - 2); i++) mix.push(['wasm', 1]); mix.push(['gl', b4], ['gl', b4]); plan.push(['Card (2 workers) and WebAssembly (' + Math.max(1, mx - 2) + ' workers) together', mix]);
+    for (i = 0; i < plan.length; i++) { if (ctx.stopped()) return res; ctx.progress((4 + i) / 10 + 0.1, plan[i][0]); await farm(plan[i][0], plan[i][1], N); }
+    return res;
+  }, show(res) {
+    if (!res.glOk) return '<p class="mut">WebGL 2 did not start here, so there is nothing to batch.</p>';
+    return table(['Way', 'Detail', 'ms per picture', 'Pictures per second'], res.rows.map(function (r) { return [esc(r.way), esc(r.detail), r.perPic ? ms(r.perPic) : '', r.perSec ? r.perSec.toFixed(1) : '']; })) + '<p class="mut">Full look chain, 960x540. Higher pictures per second is better. "Together" shares one pile of pictures between all workers.</p>';
+  }, report(res) {
+    if (!res.glOk) return 'WebGL 2 not available.';
+    return ['| Way | Detail | ms per picture | Pictures per second |', '|---|---|---:|---:|'].concat(res.rows.map(function (r) { return '| ' + r.way + ' | ' + r.detail + ' | ' + (r.perPic ? ms(r.perPic) : '') + ' | ' + (r.perSec ? r.perSec.toFixed(1) : '') + ' |'; })).join('\n');
+  } });
+
   async function runAll() {
     stopFlag = false; $('run').disabled = true; $('stop').disabled = false; $('verdict').hidden = true; $('sections').innerHTML = ''; out = { results: {}, when: new Date().toLocaleString(), notes: [] };
     var i, bodies = tests.map(function (t) { return section(t.title); });
     for (i = 0; i < tests.length; i++) {
       if (stopFlag) break; var t = tests[i];
       try {
-        var r = await t.run({ stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / tests.length * 100).toFixed(0) + '%'; $('status').textContent = text; } });
+        var r = await t.run({ quick: $('quick').checked, stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / tests.length * 100).toFixed(0) + '%'; $('status').textContent = text; } });
         out.results[t.id] = r; bodies[i].className = 'body'; bodies[i].innerHTML = t.show ? t.show(r) : '';
       } catch (e) { bodies[i].className = 'body bad'; bodies[i].textContent = 'This part failed: ' + (e && e.message || e); out.notes.push(t.id + ' failed: ' + (e && e.message || e)); }
     }
@@ -156,9 +194,9 @@ var LAB = (function () {
       if (full) {
         if (full.gl != null && full.wasm) {
           var sp = full.wasm / full.gl;
-          lines.push('<p class="v ' + (sp >= 1.3 ? 'good' : sp >= 0.9 ? 'meh' : 'bad') + '">' + (P.soft ? 'The browser here draws graphics in software, so this is not a graphics-card result. ' : '') + 'The graphics card did the full look chain on a 960 wide picture in ' + ms(full.gl) + ' ms; WebAssembly took ' + ms(full.wasm) + ' ms and plain code ' + ms(full.js) + ' ms. The card was ' + (sp >= 1 ? sp.toFixed(1) + '× faster' : (1 / sp).toFixed(1) + '× slower') + ' than WebAssembly' + (full.match != null ? ', and its pictures match within 2 color steps for ' + full.match.toFixed(2) + '% of values.' : '.') + '</p>');
+          lines.push('<p class="v ' + (sp >= 1.3 ? 'good' : sp >= 0.9 ? 'meh' : 'bad') + '">' + (P.soft ? 'The browser here draws graphics in software, so this is not a graphics-card result. ' : '') + 'The graphics card did the full look chain on a 960 wide picture in ' + ms(full.gl) + ' ms; WebAssembly took ' + ms(full.wasm) + ' ms' + (full.js != null ? ' and plain code ' + ms(full.js) + ' ms' : '') + '. The card was ' + (sp >= 1 ? sp.toFixed(1) + '× faster' : (1 / sp).toFixed(1) + '× slower') + ' than WebAssembly' + (full.match != null ? ', and its pictures match within 2 color steps for ' + full.match.toFixed(2) + '% of values.' : '.') + '</p>');
           rep.push('verdict_gpu_vs_wasm_full_960: ' + sp.toFixed(2) + 'x (' + (sp >= 1.3 ? 'use card' : 'keep WebAssembly') + ')');
-        } else if (!P.glOk) { lines.push('<p class="v meh">WebGL 2 could not start here, so the card path is not possible on this browser. WebAssembly did the full look chain in ' + (full.wasm != null ? ms(full.wasm) : 'n/a') + ' ms (plain code ' + ms(full.js) + ' ms).</p>'); rep.push('verdict: no WebGL2'); }
+        } else if (!P.glOk) { lines.push('<p class="v meh">WebGL 2 could not start here, so the card path is not possible on this browser. WebAssembly did the full look chain in ' + (full.wasm != null ? ms(full.wasm) : 'n/a') + ' ms ' + (full.js != null ? '(plain code ' + ms(full.js) + ' ms)' : '') + '.</p>'); rep.push('verdict: no WebGL2'); }
       }
     }
     if (W) {
@@ -176,9 +214,9 @@ var LAB = (function () {
     var L = ['Netflow Map laptop test report', 'Run: ' + out.when + ' (local time)', '', env(), ''];
     tests.forEach(function (t) {
       var r = out.results[t.id]; if (!r) return; L.push('## ' + t.title);
-      if (t.id === 'paths') { L.push('| Picture / look | Plain (ms) | WebAssembly (ms) | Card (ms) | Match |', '|---|---:|---:|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + x.size + ' ' + x.look + ' | ' + ms(x.js) + ' | ' + (x.wasm == null ? 'n/a' : ms(x.wasm)) + ' | ' + (x.gl == null ? 'n/a' : ms(x.gl)) + ' | ' + (x.match == null ? '' : x.match.toFixed(2) + '%') + ' |'); }); if (r.facts.floor != null) L.push('Card fixed cost (upload, 1 pass, read back): ' + ms(r.facts.floor) + ' ms'); if (r.soft) L.push('Note: WebGL runs in software in this browser.'); }
+      if (t.id === 'paths') { L.push('| Picture / look | Plain (ms) | WebAssembly (ms) | Card (ms) | Match |', '|---|---:|---:|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + x.size + ' ' + x.look + ' | ' + (x.js == null ? 'skipped' : ms(x.js)) + ' | ' + (x.wasm == null ? 'n/a' : ms(x.wasm)) + ' | ' + (x.gl == null ? 'n/a' : ms(x.gl)) + ' | ' + (x.match == null ? '' : x.match.toFixed(2) + '%') + ' |'); }); if (r.facts.floor != null) L.push('Card fixed cost (upload, 1 pass, read back): ' + ms(r.facts.floor) + ' ms'); if (r.soft) L.push('Note: WebGL runs in software in this browser.'); }
       else if (t.id === 'workers') { L.push('| Way | Workers | Pictures per second |', '|---|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + (x.path === 'gl' ? 'Card' : 'WebAssembly') + ' | ' + x.workers + ' | ' + (x.perSec ? x.perSec.toFixed(1) : (x.none || 'n/a')) + ' |'); }); }
-      else if (r && r.report) L.push(typeof r.report === 'function' ? r.report() : String(r.report));
+      else if (t.report) L.push(t.report(r)); else if (r && r.report) L.push(typeof r.report === 'function' ? r.report() : String(r.report));
       L.push('');
     });
     (extra || []).forEach(function (l) { L.push(l); }); out.notes.forEach(function (l) { L.push(l); });
@@ -199,4 +237,5 @@ var LAB = (function () {
   return { add: add, time: time, gl2: gl2, sleep: sleep, esc: esc, table: table, ms: ms, samplePicture: samplePicture, worker: worker, ask: ask };
 })();
 /* LFC-pack GPU tests: register here, before the page loads, with LAB.add({ id, title, lfcpack: true, async run(ctx) {...}, show(result) {...} }). */
+@@LFCPACK@@
 </script></body></html>
