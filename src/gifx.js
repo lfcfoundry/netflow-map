@@ -101,8 +101,8 @@ var NFMGifFx = (function () {
       for (k = 0; k < W4; k++) { dst[o + k] = (sums[k] * inv + 32768) >> 16; sums[k] += tmp[a + k] - tmp[b + k]; }
     }
   }
-  /** Changes the pixels of an RGBA picture in place (alpha is left alone). f is a cleaned filter. Returns the same array. */
-  function apply(rgba, w, h, f) {
+  /** Plain JavaScript version (the fallback, and the twin the WebAssembly one is checked against). */
+  function applyJs(rgba, w, h, f) {
     f = cleanFilter(f); if (isPlainFilter(f)) return rgba;
     var n = w * h, i, p;
     if (f.blur > 0 || f.sharpen > 0 || f.glow > 0) {
@@ -138,6 +138,34 @@ var NFMGifFx = (function () {
     }
     return rgba;
   }
-  return { EASES: EASES, NAMES: NAMES, TONES: TONES, FILTER_PRESETS: FILTER_PRESETS, ease: ease, speed: speed, delaysCs: delaysCs, spinPlan: spinPlan, stateNames: stateNames, plainFilter: plainFilter, cleanFilter: cleanFilter, isPlainFilter: isPlainFilter, apply: apply };
+
+  /* ---------------------------------------------------------------- WebAssembly twin (wasm/pixfx.c, rebuilt by wasm/build.sh + wasm/embed.py) */
+  var WASM_B64 = /*WASM:pixfx:BEGIN*/'AGFzbQEAAAABMgVgB39/f39/f38AYAR/f398AGAFf39/f38AYAd/f39/f398AGALf39/f398f3x8fHwAAwYFAAECAwQFBgEBEICAAgYPAn8BQYDIAAt/AEGAyAALB0cHBm1lbW9yeQIABGJsdXIAAAd1bnNoYXJwAAEJZ2xvd19kb3duAAIHZ2xvd191cAADBWdyYWRlAAQLX19oZWFwX2Jhc2UDAQq/HQW9BwYGfwF7A38BewR/AXsgA0ECdCEHQYCABCAFQQF0QQFyIghtIQkCQCAEQQFIDQAgBUEBaiEKIANBf2ohC0EAIAVrIQwgCf0RIQ0gAiEOQQAhDwNAIAAgDyAHbGohEAJAAkAgBUEATg0A/QwAAAAAAAAAAAAAAAAAAAAAIREMAQv9DAAAAAAAAAAAAAAAAAAAAAAhESAIIRIgDCETA0AgESAQQQAgEyALIBMgA0gbQQJ0IBNBAEgbav1cAAD9iQH9qQH9rgEhESATQQFqIRMgEkF/aiISDQALCyAKIRMgDiEUIAwhEiADIRUCQCADQQFIDQADQCAUIBEgDf21Af0MAIAAAACAAAAAgAAAAIAAAP2uAUEQ/a0BIhYgFv2GASIWIBb9Zv1aAAAAIBEgECATIAsgEyADSBtBAnRq/VwAAP2JAf2pAf2uASAQIBJBACASQQBKG0ECdGr9XAAA/YkB/akB/bEBIREgE0EBaiETIBRBBGohFCASQQFqIRIgFUF/aiIVDQALCyAOIAdqIQ4gD0EBaiIPIARHDQALCwJAIANBAUgNACAHQQEgB0EBShshFEEAIRACQAJAIAdBBEgNACAUQfz///8HcSIQIRIgBiETA0AgE/0MAAAAAAAAAAAAAAAAAAAAAP0LAgAgE0EQaiETIBJBfGoiEg0ACyAUIBBGDQELIBQgEGshEiAGIBBBAnRqIRMDQCATQQA2AgAgE0EEaiETIBJBf2oiEg0ACwsgBUEASA0AIANBAUgNACAEQX9qIRVBACAFayEUA0AgAkEAIBQgFSAUIARIGyAUQQBIGyAHbGohECAGIRNBACESA0AgEyAT/QAAACAQIBJq/VwAAP2JAf2pAf2uAf0LAAAgE0EQaiETIBJBBGoiEiAHSA0ACyAUIAVHIRMgFEEBaiEUIBMNAAsLAkAgBEEBSA0AIANBAUgNACAEQX9qIQsgBUEBaiEOIAn9ESENQQAgBWshFSADQQJ0IQ9BACEDA0AgAiAOIANqIhMgCyATIARIGyAHbGohECACIA8gFUEAIBVBAEobbGohFCAGIRJBACETA0AgASATaiAS/QAAACIRIA39tQH9DACAAAAAgAAAAIAAAACAAAD9rgFBEP2tASIWIBb9hgEiFiAW/Wb9WgAAACASIBEgECATav1cAAD9iQH9qQH9rgEgFCATav1cAAD9iQH9qQH9sQH9CwAAIBJBEGohEiATQQRqIhMgB0gNAAsgASAHaiEBIBVBAWohFSADQQFqIgMgBEcNAAsLC6EBAgN/AnwCQCACQQFIDQBBACEEA0ACQCAEQQNxQQNGDQACQAJARAAAAAAA4G9AIAAgBGoiBS0AACIGIAEgBGotAABrtyADoiAGuKCeIgcgB0QAAAAAAOBvQGYbIgiZRAAAAAAAAOBBY0UNACAIqiEGDAELQYCAgIB4IQYLIAVBACAGIAdEAAAAAAAAAABjGzoAAAsgAiAEQQFqIgRHDQALCwuOBwQGfwF8BX8CfAJAIARBAUgNACADQQFIDQAgAkECdCEFIANBAnQhBiACQQR0IQdBACEIA0AgASEJIAMhCiAAIQIDQEQAAAAAAAAAACELAkAgAkEBai0AACACQQVqLQAAaiACQQlqLQAAaiACQQ1qLQAAaiACIAVqIgxBAWotAABqIAxBBWotAABqIAxBCWotAABqIAxBDWotAABqIAwgBWoiDUEBai0AAGogDUEFai0AAGogDUEJai0AAGogDUENai0AAGogDSAFaiIOQQFqLQAAaiAOQQVqLQAAaiAOQQlqLQAAaiAOQQ1qLQAAakEEdiIPQbcBbCACLQAAIAJBBGotAABqIAJBCGotAABqIAJBDGotAABqIAwtAABqIAxBBGotAABqIAxBCGotAABqIAxBDGotAABqIA0tAABqIA1BBGotAABqIA1BCGotAABqIA1BDGotAABqIA4tAABqIA5BBGotAABqIA5BCGotAABqIA5BDGotAABqQQR2IhBBNmxqIAJBAmotAAAgAkEGai0AAGogAkEKai0AAGogAkEOai0AAGogDEECai0AAGogDEEGai0AAGogDEEKai0AAGogDEEOai0AAGogDUECai0AAGogDUEGai0AAGogDUEKai0AAGogDUEOai0AAGogDkECai0AAGogDkEG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'/*WASM:pixfx:END*/;
+  var wx = null;
+  /** Starts compiling the WebAssembly twin; resolves true when it is ready (apply() then uses it), false when this browser cannot (apply() keeps using JavaScript). */
+  function initWasm() {
+    if (wx) return Promise.resolve(true);
+    if (!WASM_B64 || typeof WebAssembly === 'undefined' || typeof atob !== 'function') return Promise.resolve(false);
+    var bin = atob(WASM_B64), bytes = new Uint8Array(bin.length), i; for (i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return WebAssembly.instantiate(bytes, {}).then(function (r) { wx = r.instance.exports; return true; }, function () { return false; });
+  }
+  function wasmReady() { return !!wx; }
+  function applyWasm(rgba, w, h, f) {
+    f = cleanFilter(f); if (isPlainFilter(f)) return rgba;
+    var n4 = w * h * 4, sw = Math.max(2, (w / 4) | 0), sh = Math.max(2, (h / 4) | 0), sn = sw * sh * 4, al = function (x) { return (x + 15) & ~15; };
+    var A = al(wx.__heap_base.value), B = A + al(n4), C = B + al(n4), S = C + al(n4), SB = S + al(sn), ST = SB + al(sn), SU = ST + al(sn), LU = SU + al(Math.max(w, sw) * 16), M = LU + 256, END = M + 80;
+    var mem = wx.memory; if (mem.buffer.byteLength < END) mem.grow(Math.ceil((END - mem.buffer.byteLength) / 65536));
+    var u8 = new Uint8Array(mem.buffer); u8.set(rgba, A);
+    if (f.blur > 0) { var rb = Math.max(1, Math.round(f.blur * w / 640)); wx.blur(A, B, C, w, h, rb, SU); wx.blur(B, A, C, w, h, Math.max(1, rb >> 1), SU); }
+    if (f.sharpen > 0) { wx.blur(A, B, C, w, h, Math.max(1, Math.round(w / 480)), SU); wx.unsharp(A, B, n4, f.sharpen * 1.4); }
+    if (f.glow > 0) { wx.glow_down(A, S, w, sw, sh); wx.blur(S, SB, ST, sw, sh, Math.max(1, Math.round(sw / 60)), SU); wx.glow_up(A, SB, w, h, sw, sh, f.glow * 1.3); }
+    var m = colorMatrix(f), lut = curve(f), cx = (w - 1) / 2, cy = (h - 1) / 2, inv = 1 / (cx * cx + cy * cy);
+    new Float64Array(mem.buffer, M, 9).set(m); u8.set(lut, LU);
+    wx.grade(A, w, h, M, LU, f.warmth * 28, f.vignette > 0 ? 1 : 0, cx, cy, inv, f.vignette * 0.85);
+    rgba.set(u8.subarray(A, A + n4)); return rgba;
+  }
+  /** Changes the pixels of an RGBA picture in place (alpha is left alone). f is a cleaned filter. Returns the same array. Uses WebAssembly when initWasm() has finished. */
+  function apply(rgba, w, h, f) { return wx ? applyWasm(rgba, w, h, f) : applyJs(rgba, w, h, f); }
+  return { initWasm: initWasm, wasmReady: wasmReady, applyJs: applyJs, applyWasm: applyWasm, EASES: EASES, NAMES: NAMES, TONES: TONES, FILTER_PRESETS: FILTER_PRESETS, ease: ease, speed: speed, delaysCs: delaysCs, spinPlan: spinPlan, stateNames: stateNames, plainFilter: plainFilter, cleanFilter: cleanFilter, isPlainFilter: isPlainFilter, apply: apply };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMGifFx;
