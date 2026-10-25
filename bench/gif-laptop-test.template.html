@@ -16,7 +16,7 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:.85rem}
 </style></head><body><main>
 <h1>Netflow Map laptop test</h1>
 <p class="sub">Times the picture looks of the GIF maker three ways (plain code, WebAssembly, graphics card) and how well they use several cores. Everything stays on this page: no network. Takes about a minute. Please close other heavy tabs first, and leave this tab in front while it runs.</p>
-<div class="card"><button id="run">Run the test</button> <button id="stop" class="alt" disabled>Stop</button> <label class="mut"><input type="checkbox" id="quick" checked> Quick run (skips the slow plain-code and 1280-wide rows; untick for the full run)</label>
+<div class="card"><button id="run">Run the test</button> <button id="stop" class="alt" disabled>Stop</button> <label class="mut"><input type="checkbox" id="quick" checked> Only the new parts (skips what you already ran; untick to run everything)</label>
 <div class="bar"><i id="bar"></i></div><div id="status" class="mut">Ready.</div></div>
 <div class="card" id="verdict" hidden><h2>In plain words</h2><div id="vtext"></div>
 <p><button id="copy">Copy results</button> <button id="save" class="alt">Save report file</button> <span id="copied" class="mut"></span></p></div>
@@ -88,7 +88,7 @@ var LAB = (function () {
   function ask(w, m, tr) { return new Promise(function (res, rej) { w.onmessage = function (e) { res(e.data); }; w.onerror = function (e) { rej(new Error(e.message || 'worker failed')); }; w.postMessage(m, tr || []); }); }
 
   /* ---- test 1: one picture, three ways ---- */
-  add({ id: 'paths', title: 'One picture: plain code, WebAssembly, graphics card', async run(ctx) {
+  add({ id: 'paths', seen: true, title: 'One picture: plain code, WebAssembly, graphics card', async run(ctx) {
     var res = { rows: [], glOk: false, facts: {} }, sizes = ctx.quick ? [[960, 540]] : [[960, 540], [1280, 720]], g = NFMGifGl.create(), wasm = await NFMGifFx.initWasm(), si, li, n = sizes.length * LOOKS.length, k = 0;
     res.glOk = !!g; res.wasmOk = wasm; if (g) res.soft = g.software();
     for (si = 0; si < sizes.length; si++) {
@@ -123,7 +123,7 @@ var LAB = (function () {
   } });
 
   /* ---- test 2: several cores ---- */
-  add({ id: 'workers', title: 'Several cores: FPS', async run(ctx) {
+  add({ id: 'workers', seen: true, title: 'Several cores: FPS', async run(ctx) {
     var cores = navigator.hardwareConcurrency || 2, counts = [1, 2, 4].filter(function (c) { return c <= Math.max(1, cores - 1); }), mx = Math.max(1, cores - 1); if (counts.indexOf(mx) < 0) counts.push(mx); if (ctx.quick) counts = counts.filter(function (c) { return c === 1 || c === mx; });
     var w = 960, h = 540, pic = samplePicture(w, h).data, N = 24, src = document.getElementById('lab-worker-src').textContent, res = { rows: [], cores: cores }, plan = [], ci, path;
     counts.forEach(function (c) { plan.push(['wasm', c]); }); plan.push(['gl', 1]); if (counts.indexOf(2) >= 0) plan.push(['gl', 2]);
@@ -150,7 +150,7 @@ var LAB = (function () {
   } });
 
   /* ---- test 3: several pictures per card pass, and card + WebAssembly together ---- */
-  add({ id: 'batch', title: 'Card with several pictures at once, and card + cores together', async run(ctx) {
+  add({ id: 'batch', seen: true, title: 'Card with several pictures at once, and card + cores together', async run(ctx) {
     var w = 960, h = 540, pic = samplePicture(w, h).data, sz = w * h * 4, g = NFMGifGl.create(), res = { rows: [], glOk: !!g, cores: navigator.hardwareConcurrency || 2 }, src = document.getElementById('lab-worker-src').textContent, i, stack = function (n) { var b = new Uint8ClampedArray(sz * n), k; for (k = 0; k < n; k++) b.set(pic, k * sz); return b; };
     if (!g) return res;
     var mb = g.maxBatch(h); res.maxBatch = mb;
@@ -223,6 +223,7 @@ var LAB = (function () {
     var i, bodies = tests.map(function (t) { return section(t.title); });
     for (i = 0; i < tests.length; i++) {
       if (stopFlag) break; var t = tests[i];
+      if ($('quick').checked && (t.seen || t.lfcpack)) { bodies[i].className = 'body mut'; bodies[i].textContent = 'Skipped ("Only the new parts" is ticked). Untick it to run this too.'; continue; }
       try {
         var r = await t.run({ quick: $('quick').checked, stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / tests.length * 100).toFixed(0) + '%'; $('status').textContent = text; } });
         out.results[t.id] = r; bodies[i].className = 'body'; bodies[i].innerHTML = t.show ? t.show(r) : '';
@@ -245,6 +246,11 @@ var LAB = (function () {
     if (W) {
       var one = W.rows.filter(function (r) { return r.path === 'wasm' && r.workers === 1; })[0], best = W.rows.filter(function (r) { return r.path === 'wasm' && r.perSec; }).sort(function (a, b) { return b.perSec - a.perSec; })[0], glw = W.rows.filter(function (r) { return r.path === 'gl' && r.perSec; })[0];
       if (one && best) lines.push('<p>With more workers, WebAssembly went from ' + one.perSec.toFixed(1) + ' to ' + best.perSec.toFixed(1) + ' FPS (' + best.workers + ' worker' + (best.workers > 1 ? 's' : '') + ', ' + (best.perSec / one.perSec).toFixed(1) + '×).' + (glw ? ' The card in a worker managed ' + glw.perSec.toFixed(1) + ' FPS.' : ' WebGL in a worker did not run here.') + '</p>');
+    }
+    var D = out.results.drawing;
+    if (D) {
+      var pg = D.rows.filter(function (r) { return r.fps && !r.workers; }).sort(function (a, b) { return b.fps - a.fps; })[0], wk = D.rows.filter(function (r) { return r.fps && r.workers; }).sort(function (a, b) { return b.fps - a.fps; })[0];
+      if (pg && wk) { var gain = wk.fps / pg.fps; lines.push('<p class="v ' + (gain >= 1.8 ? 'good' : gain >= 1.2 ? 'meh' : 'bad') + '">Drawing a map picture on the page runs at ' + pg.fps.toFixed(0) + ' FPS (' + ms(pg.total) + ' ms each). In ' + wk.workers + ' worker' + (wk.workers > 1 ? 's' : '') + ' it reaches ' + wk.fps.toFixed(0) + ' FPS, ' + gain.toFixed(1) + '× ' + (gain >= 1 ? 'more' : 'less') + '. ' + (gain >= 1.8 ? 'Drawing in parallel is worth building.' : 'Drawing in parallel would help only a little.') + '</p>'); rep.push('verdict_parallel_drawing: ' + gain.toFixed(2) + 'x'); }
     }
     if (!lines.length) lines.push('<p>Nothing finished. Press Run again.</p>');
     $('vtext').innerHTML = lines.join(''); $('verdict').hidden = false; out.text = report(rep);
