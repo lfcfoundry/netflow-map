@@ -361,14 +361,14 @@ var edgeIdxCache = null;
 function edgeIdxMap() { if (!edgeIdxCache || edgeIdxCache.v !== S.gver) { var m = new Map(); S.graph.edges.forEach(function (e, i) { m.set(e, i); }); edgeIdxCache = { v: S.gver, m: m }; } return edgeIdxCache.m; }
 function reach(start, forward) {
   var seen = new Set([start]), q = [start], eix = edgeIdxMap(), edges = new Set();
-  while (q.length) { var id = q.pop(); (forward ? S.outAdj : S.inAdj).get(id) && (forward ? S.outAdj : S.inAdj).get(id).forEach(function (e) { var o = forward ? e.to : e.from; edges.add(eix.get(e)); if (!seen.has(o)) { seen.add(o); q.push(o); } }); }
+  while (q.length) { var id = q.pop(); (forward ? S.outAdj : S.inAdj).each(id, function (e) { var o = forward ? e.to : e.from; edges.add(eix.get(e)); if (!seen.has(o)) { seen.add(o); q.push(o); } }); }
   return { nodes: seen, edges: edges };
 }
 function routeCompute(a, b, mode) {
   var eix = edgeIdxMap();
   if (mode === 'short' && b) {
     var prev = new Map([[a, null]]), q = [a], i = 0;
-    while (i < q.length && !prev.has(b)) { var id = q[i++]; (S.outAdj.get(id) || []).forEach(function (e) { if (!prev.has(e.to)) { prev.set(e.to, [id, e]); q.push(e.to); } }); }
+    while (i < q.length && !prev.has(b)) { var id = q[i++]; S.outAdj.each(id, function (e) { if (!prev.has(e.to)) { prev.set(e.to, [id, e]); q.push(e.to); } }); }
     if (!prev.has(b)) return null;
     var nodes = new Set([b]), edges = new Set(), cur = b; while (prev.get(cur)) { var p = prev.get(cur); nodes.add(p[0]); edges.add(eix.get(p[1])); cur = p[0]; }
     return { nodes: nodes, edges: edges, ends: [a, b], steps: edges.size };

@@ -41,7 +41,7 @@ function renderTidy() {
   if (g.start && !list.some(function (n) { return n.id === g.start; })) sel.appendChild(opt(g.start, (S.byId.get(g.start) || {}).label || g.start, true));
 }
 function sortVal(row, key, items) {
-  if (key === '#in') return (S.inAdj.get(row.id) || []).length; if (key === '#out') return (S.outAdj.get(row.id) || []).length;
+  if (key === '#in') return S.inAdj.count(row.id); if (key === '#out') return S.outAdj.count(row.id);
   var v = key === 'id' ? row.id : key === 'from' || key === 'to' ? ((S.byId.get(row[key]) || {}).label || row[key]) : (row[key] !== undefined && key in row ? row[key] : row.attrs && row.attrs[key]);
   return v === undefined || v === null ? '' : v;
 }
@@ -70,7 +70,7 @@ function renderTable() {
   if (items) {
     head = [th('Name', 'id'), th('Label', 'label'), th('Group', 'group')].concat(S.story ? [th('Ending', 'valence')] : []).concat(extra.map(function (c) { return th(c.name, c.key); }), [th('In', '#in'), th('Out', '#out'), h('th')]);
     body = slice.map(function (i) {
-      var n = src[i], out = (S.outAdj.get(n.id) || []).length, inn = (S.inAdj.get(n.id) || []).length;
+      var n = src[i], out = S.outAdj.count(n.id), inn = S.inAdj.count(n.id);
       var tds = [h('td', null, [n.id, n.ghost ? h('span', { class: 'pill ghost', style: { marginLeft: '5px' } }, 'placeholder') : null]), cell(i, 'label', n.label, false, false, 'Label of ' + n.id), cell(i, 'group', n.group, false, false, 'Group of ' + n.id)];
       if (S.story) tds.push(h('td', null, select([['', '—'], ['good', 'Good'], ['bad', 'Bad'], ['neutral', 'Other']], n.valence || '', null, { 'data-i': i, 'data-f': 'valence', 'aria-label': 'Ending of ' + n.id })));
       extra.forEach(function (c) { tds.push(cell(i, c.key, n.attrs && n.attrs[c.key], true, calcNames.has(c.key), c.name + ' of ' + n.id)); });
