@@ -538,12 +538,16 @@ var NFMRender = (function () {
             gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, RG.tN); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, RG.tNS); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, RG.tE); gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, RG.tES);
             gl.bindVertexArray(vao); gl.drawArraysInstanced(mode, 0, cnt, 1);
           };
-          gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, 0, 0);
+          /* into a one-pixel picture of its own, not the screen's buffer: a draw into the screen's buffer after the map was shown makes the browser show that buffer again, and it is empty (the map went black on big 3D maps until Fit) */
+          var wfb = gl.createFramebuffer(), wrb = gl.createRenderbuffer();
+          gl.bindRenderbuffer(gl.RENDERBUFFER, wrb); gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, 1, 1); gl.bindFramebuffer(gl.FRAMEBUFFER, wfb); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, wrb);
+          var vp = gl.getParameter(gl.VIEWPORT); gl.viewport(0, 0, 1, 1); gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, 0, 0);
           wp(RG.pe, RG.le, RG.vaoNone, gl.TRIANGLE_STRIP, 4);
           wp(RG.pd, RG.ld, RG.vaoSeqs[rigState.ring || 0], gl.TRIANGLES, 6);
           gl.disable(gl.SCISSOR_TEST); gl.bindVertexArray(null); gl.activeTexture(gl.TEXTURE0);
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(vp[0], vp[1], vp[2], vp[3]); gl.deleteFramebuffer(wfb); gl.deleteRenderbuffer(wrb);
           return true;
-        } catch (e) { try { gl.disable(gl.SCISSOR_TEST); } catch (x) { /* none */ } return false; }
+        } catch (e) { try { gl.disable(gl.SCISSOR_TEST); gl.bindFramebuffer(gl.FRAMEBUFFER, null); } catch (x) { /* none */ } return false; }
       },
       resize: function (w, h, d) { W = w; Hh = h; dpr = d; sizeCanvases(H, w, h, d); },
       draw: function (view) {
