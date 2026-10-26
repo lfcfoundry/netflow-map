@@ -256,6 +256,12 @@ async function open() {
   await D.click(pos[0], pos[1]); await settle(250);
   say(await ev(() => NFM.state.sel.size === 1 && NFM.state.sel.has('hall')), 'clicking a box selects it');
   say(await ev(() => !document.getElementById('details').hidden), 'details panel shows');
+  try {   /* box select: dragging over the whole map picks every item (the key lookup must not be a scan per item) */
+    const bx = await ev(() => { NFM.state.tool = 'box'; const r = document.getElementById('stage').getBoundingClientRect(); return [r.left + 4, r.top + 4, r.right - 4, r.bottom - 4]; });
+    await D.drag(bx[0], bx[1], bx[2], bx[3]); await settle(300);
+    const bs = await ev(() => { const o = { sel: NFM.state.sel.size, vis: NFM.state.scene.nodes.filter((x) => x.nodeId !== undefined).length }; NFM.state.tool = 'hand'; NFM.setSel([]); return o; });
+    say(bs.sel > 1 && bs.sel <= bs.vis, 'a box dragged over the map selects its items (' + bs.sel + ' of ' + bs.vis + ')');
+  } catch (e) { say(false, 'box select stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   await ev(() => document.getElementById('stage').focus()); await D.press('ArrowRight'); await settle(150);
   const after = await ev(() => Array.from(NFM.state.sel)[0]); say(!!after && after !== 'hall', 'arrow key follows a link to ' + after);
   await D.press('Escape'); await settle(300);
@@ -313,6 +319,14 @@ async function open() {
   await ev(() => NFM.manager().use('auto'));
 
   /* WebGPU keeps its graphics-memory buffers between pictures: a smaller scene drawn over a bigger one, and the old make-new-buffers way, must give exactly the pictures a fresh drawing gives */
+  const offhost = await ev(async () => {   /* the picture on an off-screen host (what a drawing worker uses) is the same as on the page */
+    const sc = NFM.state.scene, v = { k: 0.6, tx: 20, ty: 20 }, div = document.createElement('div');
+    const shot = async (host) => { const r = await NFMRender.createCanvas2D(host, { cpu: true }); r.resize(640, 400, 1); r.setScene(sc); r.draw(v); const s = r.snapshot(); const d = Array.from(s.data); try { r.destroy && r.destroy(); } catch (e) { /* none */ } return d; };
+    const a = await shot(div), b = await shot({ offscreen: true });
+    let diff = 0; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff++;
+    return { same: a.length === b.length && diff === 0, len: a.length, diff };
+  });
+  say(offhost.same, 'A picture drawn on an off-screen host (no page) is exactly the same as on the page: ' + JSON.stringify(offhost));
   const kept = await ev(async () => {
     const m = NFM.manager(); m.canary.webgpu = { ok: true };
     try { await m.use('webgpu'); } catch (e) { return { err: e.message }; }
@@ -751,7 +765,14 @@ async function open() {
     /* the new GIF options: exact 25 FPS timing, pauses with a reversal, a filter reaching the palette */
     const parse = (bytes) => { const b = bytes; let p = 13 + 768, sum = 0, n = 0; const ds = []; if (!(b[10] & 0x80)) return null; p = 13; const pal = []; for (let i = 0; i < 256; i++) pal.push([b[p + i * 3], b[p + i * 3 + 1], b[p + i * 3 + 2]]); p += 768;
       while (b[p] !== 0x3b && p < b.length) { if (b[p] === 0x21) { const l = b[p + 1]; p += 2; if (l === 0xf9) { ds.push(b[p + 2] | b[p + 3] << 8); sum += (b[p + 2] | b[p + 3] << 8); n++; } while (b[p] !== 0) p += b[p] + 1; p++; } else if (b[p] === 0x2c) { p += 10; p++; while (b[p] !== 0) p += b[p] + 1; p++; } else break; } return { ds, sum, n, pal }; };
-    const runCfg = async (patch) => { await ev((pt) => NFM.gifRun(pt), patch); await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled && NFM.gif(); }, null, 120000); return ev(() => { const r = NFM.gif(); return { bytes: Array.from(r.bytes), frames: r.frames, workers: r.workers, inline: r.inline, card: r.card, video: r.video, asked: r.asked }; }); };
+    const runCfg = async (patch) => { await ev((pt) => NFM.gifRun(pt), patch); await W(() => { const b = document.getElementById('gif-go'); return b && !b.disabled && NFM.gif(); }, null, 120000); return ev(() => { const r = NFM.gif(); return { bytes: Array.from(r.bytes), frames: r.frames, workers: r.workers, inline: r.inline, card: r.card, video: r.video, asked: r.asked, drawWorkers: r.drawWorkers }; }); };
+    {   /* drawing the pictures in background workers gives exactly the same GIF as drawing them here */
+      const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+      for (const [name, patch] of [['light key', { legend: 'short' }], ['dark, long key at the top right', { theme: 'dark', legend: 'full', keyPos: 'tr' }], ['no key, what I see now', { legend: 'off', what: 'screen' }], ['reverse with a pause', { reverse: true, pause: 0.5, legend: 'short' }]]) {
+        const here = await runCfg(Object.assign({ drawWorkers: false }, patch)), there = await runCfg(Object.assign({ drawWorkers: true }, patch));
+        say(there.drawWorkers >= 2 && here.drawWorkers === 0 && here.frames === there.frames && same(here.bytes, there.bytes), 'a GIF with the pictures drawn in ' + there.drawWorkers + ' workers is byte for byte the GIF drawn here (' + name + ', ' + here.frames + ' pictures, ' + here.bytes.length + ' bytes)');
+      }
+    }
     {
       const a = await runCfg({ size: 640, fps: 25, turns: 1, turnSec: 2, pause: 0, ease: 'linear', names: 'always', arc: 360, reverse: false, filter: { brightness: 0, contrast: 0, saturation: 0, warmth: 0, hue: 0, tone: 'none', blur: 0, sharpen: 0, glow: 0, vignette: 0 } });
       const g = parse(a.bytes); say(g && a.frames === 50 && g.ds.every((d) => d === 4) && g.n >= 40, `GIF at 25 FPS: ${a.frames} pictures, every one shown for exactly 4 hundredths (${g && g.ds.slice(0, 3)}); ${a.workers} worker${a.workers === 1 ? '' : 's'}${a.inline ? ' (on the page)' : ''}`);

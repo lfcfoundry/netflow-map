@@ -6,6 +6,11 @@ What changed in Netflow Map, in plain words, newest first. Each build is stamped
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## October 26
+
+- **2026.10.26.0030** Selecting a lot of items with the box or lasso no longer freezes the page. Before, the page searched the whole map once for every selected item, so a box over all 30,000 items of a big map took 12.8 seconds in Chromium 155; now it takes 6 milliseconds and picks exactly the same items. Maps of a few hundred items were already instant and look the same.
+- **2026.10.26.0001** The GIF and video maker now draws the pictures of a 3D turn of a big map (5,000 items or more, 20 pictures or more, 4 or more processor cores) in 2 to 4 background workers, instead of one picture at a time on the page. The files come out byte for byte the same. On the 30,000-item test map, 60 pictures at 960 wide, on a 4-core test machine (lower is better): Chromium 64.1 s down to 30 to 33 s; Firefox 56 s down to 50 s (more cores help more, and your laptop test page measured 3.9 ms a picture in 4 workers against 9.9 ms on the page). The key and caption are still drawn on the page, because text drawn in a worker differed slightly in Firefox. New tests: four byte-for-byte GIF checks and one check that a picture drawn with no page matches the page's.
+
 ## October 25
 
 - **2026.10.25.2230** Big maps use less memory: the lists of links going in and out of each item are now two number lists instead of one list of objects per item (30,000 items, 94,597 links: whole page memory 18.4 to 12.5 MB in Chromium). Finding the neighbors of an item and the routes through it is faster too (routes from 5 items 320 to 93 ms in Chromium). New tests: the same links in the same order as before, and the same neighbors and routes.
