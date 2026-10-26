@@ -256,6 +256,12 @@ async function open() {
   await D.click(pos[0], pos[1]); await settle(250);
   say(await ev(() => NFM.state.sel.size === 1 && NFM.state.sel.has('hall')), 'clicking a box selects it');
   say(await ev(() => !document.getElementById('details').hidden), 'details panel shows');
+  try {   /* box select: dragging over the whole map picks every item (the key lookup must not be a scan per item) */
+    const bx = await ev(() => { NFM.state.tool = 'box'; const r = document.getElementById('stage').getBoundingClientRect(); return [r.left + 4, r.top + 4, r.right - 4, r.bottom - 4]; });
+    await D.drag(bx[0], bx[1], bx[2], bx[3]); await settle(300);
+    const bs = await ev(() => { const o = { sel: NFM.state.sel.size, vis: NFM.state.scene.nodes.filter((x) => x.nodeId !== undefined).length }; NFM.state.tool = 'hand'; NFM.setSel([]); return o; });
+    say(bs.sel > 1 && bs.sel <= bs.vis, 'a box dragged over the map selects its items (' + bs.sel + ' of ' + bs.vis + ')');
+  } catch (e) { say(false, 'box select stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   await ev(() => document.getElementById('stage').focus()); await D.press('ArrowRight'); await settle(150);
   const after = await ev(() => Array.from(NFM.state.sel)[0]); say(!!after && after !== 'hall', 'arrow key follows a link to ' + after);
   await D.press('Escape'); await settle(300);
