@@ -14,7 +14,7 @@ var NFMVideo = (function () {
 
   /* ---- MP4 ---- */
   function box(type, parts) { var body = cat(parts); return cat([u32(body.length + 8), str(type), body]); }
-  function full(type, ver, parts) { return box(type, [[ver, 0, 0, 0]].concat(parts)); }
+  function full(type, flags, parts) { return box(type, [[0, 0, 0, flags]].concat(parts)); }   /* a version byte (always 0) and three flag bytes */
   var MATRIX = [].concat(u32(0x10000), u32(0), u32(0), u32(0), u32(0x10000), u32(0), u32(0), u32(0), u32(0x40000000));
   /** samples: [{ data: Uint8Array (length-prefixed H.264), ms: how long it shows, key: bool }]; avcC: the decoder configuration record. */
   function writeMp4(samples, w, h, avcC) {
@@ -56,10 +56,10 @@ var NFMVideo = (function () {
       t += s.ms;
     }
     flush();
-    var cuesEl = el([0x1c, 0x53, 0xbb, 0x6b], cues.map(function (c) { return el([0xbb], [el([0xb3], [uint(c[0])]), el([0xb7], [el([0xf7], [[1]]), el([0xf1], [uint(c[1] + 0)])])]); }));
-    /* cue positions count from the start of the segment's content: the info, the tracks (and, before the clusters, the cues themselves) come first */
-    var before = info.length + tracks.length + cuesEl.length;
-    cuesEl = el([0x1c, 0x53, 0xbb, 0x6b], cues.map(function (c) { return el([0xbb], [el([0xb3], [uint(c[0])]), el([0xb7], [el([0xf7], [[1]]), el([0xf1], [uint(c[1] + before)])])]); }));
+    /* cue positions count from the start of the segment's content: the info, the tracks and the cues themselves come first, and the cue numbers change the cues' own length, so the position is worked out until it holds still */
+    var cuesAt = function (before) { return el([0x1c, 0x53, 0xbb, 0x6b], cues.map(function (c) { return el([0xbb], [el([0xb3], [uint(c[0])]), el([0xb7], [el([0xf7], [[1]]), el([0xf1], [uint(c[1] + before)])])]); })); };
+    var cuesEl = cuesAt(0), q;
+    for (q = 0; q < 6; q++) { var again = cuesAt(info.length + tracks.length + cuesEl.length); if (again.length === cuesEl.length) { cuesEl = again; break; } cuesEl = again; }
     return cat([head, el([0x18, 0x53, 0x80, 0x67], [info, tracks, cuesEl].concat(clusters))]);
   }
 
