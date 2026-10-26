@@ -37,18 +37,20 @@ function saveMapFile() {
   var t0 = performance.now();
   return nextFrame().then(mapFileBytes).then(function (bytes) {
     download(fname('.json.lfc'), new Blob([bytes], { type: 'application/octet-stream' }));
+    MAPFILE.last = 'Last map file: ' + plural(S.graph.nodes.length, 'item') + ', ' + (bytes.length / 1048576 < 0.1 ? Math.round(bytes.length / 1024) + ' KB' : (bytes.length / 1048576).toFixed(1) + ' MB') + ', saved in ' + ((performance.now() - t0) / 1000).toFixed(2) + ' s.';
     toast('Saved ' + plural(S.graph.nodes.length, 'item') + ' and ' + plural(S.graph.edges.length, 'link') + ' in ' + (bytes.length / 1048576 < 0.1 ? Math.round(bytes.length / 1024) + ' KB' : (bytes.length / 1048576).toFixed(1) + ' MB') + ' (' + ((performance.now() - t0) / 1000).toFixed(1) + ' s).', 5000);
   }, function (err) { toast('The map file could not be made: ' + (err && err.message || err), 8000); });
 }
 /** Puts a map file back: the data, the view, and the saved picture when there is one. Resolves when the map is loaded. */
 function openMapBytes(u8) {
-  return lfcReady().then(function () { return LfcPack.unpackTables(u8); }).then(function (doc) {
+  var t0 = performance.now(), tU;
+  return lfcReady().then(function () { var t1 = performance.now(); var d = LfcPack.unpackTables(u8); return Promise.resolve(d).then(function (x) { tU = performance.now() - t1; return x; }); }).then(function (doc) {
     if (!doc || doc.format !== 'netflow-map' || !Array.isArray(doc.nodes) || !Array.isArray(doc.links)) throw new Error('this is not a Netflow Map file');
     var g = NFMImport.sanitizeGraph({ name: doc.name, start: doc.start, flavor: doc.flavor, calc: doc.calc, roles: doc.roles, states: doc.states, nodes: doc.nodes, edges: doc.links });
     if (doc.view && typeof doc.view === 'object') LS.set('nfm-v:' + g.name, JSON.stringify(doc.view)); else LS.del('nfm-v:' + g.name);
     var L = doc.layout, put = L && client.store && typeof L.xy === 'string' && L.key ? client.store.put(L.key, { key: L.key, xy: new Float64Array(bytesOfB64(L.xy).buffer), width: L.width, height: L.height, rough: false }).catch(function () { /* the layout is worked out again */ }) : Promise.resolve();
     return put.then(function () {
-      S.imp = { files: null, opts: {}, base: S.graph, mode: 'replace', res: { graph: g, report: { notes: ['Opened from a map file' + (L ? ' (with its saved picture).' : '.')] } }, name: g.name };
+      S.imp = { files: null, opts: {}, base: S.graph, mode: 'replace', res: { graph: g, report: { notes: ['Opened from a map file' + (L ? ' (with its saved picture)' : '') + ' in ' + ((performance.now() - t0) / 1000).toFixed(2) + ' s (unpacking the file ' + Math.round(tU) + ' ms).'] } }, name: g.name };
       setGraph(g, true, false);
     });
   });
