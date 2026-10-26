@@ -285,11 +285,8 @@ function openContext(x, y, hh, touch) {
 }
 /** Every page that can lead to this one plus every page it can lead on to (the pages on some route through it). */
 function routeIds(id) {
-  var seen = new Set([id]);
-  [[S.outAdj, 'to'], [S.inAdj, 'from']].forEach(function (d) {
-    var q = [id], seenD = new Set([id]);
-    for (var i = 0; i < q.length; i++) d[0].each(q[i], function (e) { var w = e[d[1]]; if (!seenD.has(w)) { seenD.add(w); seen.add(w); q.push(w); } });
-  });
+  var seen = S.outAdj.reach(id);
+  S.inAdj.reach(id).forEach(function (w) { seen.add(w); });
   return Array.from(seen);
 }
 function nodeMenu(id) {

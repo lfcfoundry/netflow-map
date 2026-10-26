@@ -301,7 +301,7 @@ function sceneNodeFor(id) { if (!S.scene || id == null) return null; if (S.scene
 function keysOf(ids) { var s = new Set(); ids.forEach(function (id) { var n = sceneNodeFor(id); if (n) s.add(n.key); }); return s; }
 function neighborIds(ids) {
   var s = new Set(ids);
-  ids.forEach(function (id) { S.outAdj.each(id, function (e) { s.add(e.to); }); S.inAdj.each(id, function (e) { s.add(e.from); }); });
+  ids.forEach(function (id) { S.outAdj.addOther(id, s); S.inAdj.addOther(id, s); });
   return s;
 }
 function edgesFromOrig(set) { /* original link numbers -> drawn arrow numbers */
