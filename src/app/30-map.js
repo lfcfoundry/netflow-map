@@ -35,8 +35,8 @@ function aroundSet() {
   for (var d = 0; d < A.depth && frontier.length; d++) {
     var next = [];
     frontier.forEach(function (id) {
-      (S.outAdj.get(id) || []).forEach(function (e) { if (!seen.has(e.to)) { seen.add(e.to); next.push(e.to); } });
-      (S.inAdj.get(id) || []).forEach(function (e) { if (!seen.has(e.from)) { seen.add(e.from); next.push(e.from); } });
+      S.outAdj.each(id, function (e) { if (!seen.has(e.to)) { seen.add(e.to); next.push(e.to); } });
+      S.inAdj.each(id, function (e) { if (!seen.has(e.from)) { seen.add(e.from); next.push(e.from); } });
     });
     frontier = next;
   }
@@ -173,7 +173,7 @@ function computeStyles() {
       if (w.type === 'column') { var f = FILL_OPS[w.op || '=']; return f ? f(ruleValue(o, w.col), w.value) : false; }
       if (w.type === 'set') return !links && (sets[w.name] || []).indexOf(o.id) >= 0;
       if (w.type === 'formula') { var v = o.attrs && o.attrs['__rule' + i]; return v !== '' && v !== undefined && Number(v) !== 0; }
-      if (w.type === 'ends') return !links && !(S.outAdj.get(o.id) || []).length;
+      if (w.type === 'ends') return !links && !S.outAdj.count(o.id);
       if (w.type === 'between') { if (!links) return false; var a = S.byId.get(o.from), b = S.byId.get(o.to); return !!a && !!b && String(a.group || '(none)') !== String(b.group || '(none)'); }
       return false;
     };
@@ -301,7 +301,7 @@ function sceneNodeFor(id) { if (!S.scene || id == null) return null; if (S.scene
 function keysOf(ids) { var s = new Set(); ids.forEach(function (id) { var n = sceneNodeFor(id); if (n) s.add(n.key); }); return s; }
 function neighborIds(ids) {
   var s = new Set(ids);
-  ids.forEach(function (id) { (S.outAdj.get(id) || []).forEach(function (e) { s.add(e.to); }); (S.inAdj.get(id) || []).forEach(function (e) { s.add(e.from); }); });
+  ids.forEach(function (id) { S.outAdj.each(id, function (e) { s.add(e.to); }); S.inAdj.each(id, function (e) { s.add(e.from); }); });
   return s;
 }
 function edgesFromOrig(set) { /* original link numbers -> drawn arrow numbers */
@@ -343,7 +343,7 @@ function setSel(ids, opts) {
   S.sel = new Set(ids); S.selEdges = new Set(opts.edges || []); S.ring = null;
   applyStyle(); renderDetails(); renderSelbar();
   if (opts.center && ids.length) centerOn(ids);
-  if (ids.length) { var n = ids.length === 1 ? S.byId.get(ids[0]) : null; say(n ? 'Selected ' + n.label + '. ' + plural((S.outAdj.get(ids[0]) || []).length, 'way') + ' on, ' + plural((S.inAdj.get(ids[0]) || []).length, 'way') + ' in.' : plural(ids.length, 'item') + ' selected.'); }
+  if (ids.length) { var n = ids.length === 1 ? S.byId.get(ids[0]) : null; say(n ? 'Selected ' + n.label + '. ' + plural(S.outAdj.count(ids[0]), 'way') + ' on, ' + plural(S.inAdj.count(ids[0]), 'way') + ' in.' : plural(ids.length, 'item') + ' selected.'); }
 }
 function runSearch(q) {
   q = (q || '').trim().toLowerCase(); S.search.q = q; S.search.cur = 0;
@@ -397,8 +397,9 @@ function warmCardSoon() {
   if (!sc0 || !S.L || !S.L.is3d || !sc0.rig) return;
   warmTimer = setTimeout(function () {
     var r = mgr && mgr.r; if (S.scene !== sc0 || !r || !r.rigWarm) return;
-    if (!r.rigOK) { warmTimer = setTimeout(function () { if (S.scene === sc0 && mgr && mgr.r === r && r.rigOK && sc0.rig) r.rigWarm(); }, 200); return; }   /* WebGPU confirms its turning setup a moment late */
-    r.rigWarm();
+    /* the pre-load draws into the card's picture buffer (nothing visible, but the browser then shows that buffer, which is empty): the map is drawn again right after it */
+    if (!r.rigOK) { warmTimer = setTimeout(function () { if (S.scene === sc0 && mgr && mgr.r === r && r.rigOK && sc0.rig) { r.rigWarm(); requestDraw(); } }, 200); return; }   /* WebGPU confirms its turning setup a moment late */
+    r.rigWarm(); requestDraw();
   }, 150);
 }
 var mgrStarting = false;

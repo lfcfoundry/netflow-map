@@ -1104,6 +1104,18 @@ async function open() {
     say(!fr.none && fr.open && fr.btns.length === 2 && /layout [\d,]+ items/.test(fr.speed) && /first-screen/.test(fr.speed), 'five taps in the top-left corner open Save speed report and Save error log, and the speed report lists the first screen and the layout times' + (fr.speed ? '' : ' (no report)') + (process.env.NFM_DEBUG_FR ? ' ' + JSON.stringify({ o: fr.open, b: fr.btns, s: String(fr.speed).slice(-500) }) : ''));
   } catch (e) { say(false, 'the hidden speed and error buttons stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  {   /* the link lists (offset arrays) give exactly what the old Map of arrays gave: same links, same order, for every item, with a link that names a missing item as well */
+    const res = await ev(() => {
+      const S = NFM.state; NFM.setGraph(NFMExamples.bigNetwork(300, 3, 7)); S.graph.edges.push({ from: S.graph.nodes[0].id, to: 'no-such-item', id: 'x1' }); S.graph.edges.push({ from: 'also-missing', to: S.graph.nodes[1].id, id: 'x2' }); NFM.setGraph(S.graph);
+      const out = new Map(), inn = new Map(); S.graph.edges.forEach((e) => { if (!out.has(e.from)) out.set(e.from, []); out.get(e.from).push(e); if (!inn.has(e.to)) inn.set(e.to, []); inn.get(e.to).push(e); });
+      let bad = 0, n = 0, same = (a, b) => (a || []).length === (b || []).length && (a || []).every((e, i) => e === b[i]);
+      const ids = S.graph.nodes.map((x) => x.id).concat(['no-such-item', 'also-missing', 'nobody']);
+      ids.forEach((id) => { n++; const eo = [], ei = []; S.outAdj.each(id, (e) => eo.push(e)); S.inAdj.each(id, (e) => ei.push(e));
+        if (!same(S.outAdj.get(id), out.get(id)) || !same(S.inAdj.get(id), inn.get(id)) || !same(eo, out.get(id)) || !same(ei, inn.get(id)) || S.outAdj.has(id) !== out.has(id) || S.inAdj.has(id) !== inn.has(id) || S.outAdj.count(id) !== (out.get(id) || []).length || S.inAdj.count(id) !== (inn.get(id) || []).length) bad++; });
+      return { bad, n, edges: S.graph.edges.length };
+    });
+    say(res.bad === 0 && res.n > 300, `link lists: the same links in the same order as the old lists for ${res.n} items (${res.edges} links, two naming an item that is not there): ${res.bad} differences`);
+  }
   say(errs.length === 0, 'no errors in the console' + (errs.length ? ': ' + errs.slice(0, 4).join(' | ') : ''));
   const pol = await ev(async () => {   // after the console check on purpose: a refused fetch is logged. (A page policy does not hold the test's own evaluate to the eval rule, so the eval refusal is not tested here; WebAssembly under the policy is covered by the two helper-thread checks above.)
     const o = {}; const m = document.querySelector('meta[http-equiv="Content-Security-Policy"]'); o.meta = m ? m.content : '';

@@ -288,7 +288,7 @@ function routeIds(id) {
   var seen = new Set([id]);
   [[S.outAdj, 'to'], [S.inAdj, 'from']].forEach(function (d) {
     var q = [id], seenD = new Set([id]);
-    for (var i = 0; i < q.length; i++) (d[0].get(q[i]) || []).forEach(function (e) { var w = e[d[1]]; if (!seenD.has(w)) { seenD.add(w); seen.add(w); q.push(w); } });
+    for (var i = 0; i < q.length; i++) d[0].each(q[i], function (e) { var w = e[d[1]]; if (!seenD.has(w)) { seenD.add(w); seen.add(w); q.push(w); } });
   });
   return Array.from(seen);
 }
@@ -457,7 +457,7 @@ function renderDetails(force) {
     kids.push(h('div', { class: 'row' }, [h('h3', { style: { flex: 1 } }, plural(ids.length, 'item') + ' selected'), h('button', { class: 'quiet icon', onclick: closeDetails, 'aria-label': 'Close details' }, '✕')]));
     var nodes = ids.map(function (i) { return S.dg.nodes[S.graph.nodes.indexOf(S.byId.get(i))] || S.byId.get(i); });
     var byG = {}; nodes.forEach(function (n) { var k = n.group || '(none)'; byG[k] = (byG[k] || 0) + 1; });
-    var inside = 0, outside = 0, set = new Set(ids); ids.forEach(function (i) { (S.outAdj.get(i) || []).forEach(function (e) { if (set.has(e.to)) inside++; else outside++; }); (S.inAdj.get(i) || []).forEach(function (e) { if (!set.has(e.from)) outside++; }); });
+    var inside = 0, outside = 0, set = new Set(ids); ids.forEach(function (i) { S.outAdj.each(i, function (e) { if (set.has(e.to)) inside++; else outside++; }); S.inAdj.each(i, function (e) { if (!set.has(e.from)) outside++; }); });
     kids.push(kvTable([['Links between them', inside], ['Links to or from outside', outside]]));
     kids.push(h('div', { class: 'chips' }, Object.keys(byG).sort(function (a, b) { return byG[b] - byG[a]; }).slice(0, 10).map(function (k) { return h('span', { class: 'pill' }, k + ' · ' + byG[k]); })));
     var numCols = S.prof.nodes.filter(function (c) { return !c.builtin && c.kind === 'number'; }).slice(0, 8);
