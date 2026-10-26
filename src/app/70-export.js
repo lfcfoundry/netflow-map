@@ -56,7 +56,7 @@ function renderExport() {
     h('div', { class: 'card' }, [h('h2', null, 'Picture of the map'), h('p', { class: 'muted small', style: { margin: 0 } }, needMap ? 'Open the Map tab once first, so there is something to save.' : 'Exactly what the Map shows now, with your formatting.'),
       h('div', { class: 'row' }, [check('Include the key', key, function (on) { EXP.key = on; }),
         field('PNG size', select([[1, 'Normal'], [2, 'Sharp (2x)'], [3, 'Poster (3x)']], pngScale, function (v) { EXP.scale = +v; }))]),
-      h('div', { class: 'row' }, [btn('PNG', function () { exportPng(EXP.scale, EXP.key); }, false, needMap), btn('SVG (editable)', function () { withMap(function (sc) { download(fname('-' + S.V.view + '.svg'), NFMScene.toSvg(sc, S.graph.name + ' (' + S.V.view + ')'), 'image/svg+xml'); }); }, false, needMap), btn('Poster (print or PDF)', function () { printPoster(S.graph.name, ''); }, false, needMap)])]),
+      h('div', { class: 'row' }, [btn('PNG', function () { exportPng(EXP.scale, EXP.key); }, false, needMap), btn('SVG (grouped, small)', function () { saveSvg(true); }, false, needMap), btn('SVG (every item its own element)', function () { saveSvg(false); }, false, needMap), btn('Poster (print or PDF)', function () { printPoster(S.graph.name, ''); }, false, needMap)])]),
     gifCard(),
     h('div', { class: 'card' }, [h('h2', null, 'Reports and views'),
       h('div', { class: 'row' }, [btn('Data check report (Markdown)', function () { if (!CHK.res) { toast('Run the check first (Check tab).'); showTab('check'); return; } download(fname('-check.md'), NFMCheck.toMarkdown(CHK.res, S.graph), 'text/markdown'); }),
