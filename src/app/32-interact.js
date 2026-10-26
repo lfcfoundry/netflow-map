@@ -80,7 +80,7 @@ function endPtr(e) {
     var w0, w1, ids;
     if (q.mode === 'box') { w0 = worldOf(q.x, q.y); w1 = worldOf(p[0], p[1]); ids = NFMScene.inRect(S.scene, w0[0], w0[1], w1[0], w1[1]); }
     else { var poly = []; inkShape.pts.forEach(function (pt) { var w = worldOf(pt[0], pt[1]); poly.push(w[0], w[1]); }); ids = NFMScene.inLasso(S.scene, poly); }
-    var items = []; ids.forEach(function (k) { var n = liveScene().nodes.filter(function (x) { return x.key === k; })[0]; if (n && n.nodeId !== undefined) items.push(n.nodeId); });
+    var items = [], byKey = new Map(); liveScene().nodes.forEach(function (x) { byKey.set(x.key, x); }); ids.forEach(function (k) { var n = byKey.get(k); if (n && n.nodeId !== undefined) items.push(n.nodeId); });
     if (q.shift && S.sel.size) items = Array.from(new Set(Array.from(S.sel).concat(items)));
     setInk(null); setSel(items); if (items.length) toast(plural(items.length, 'item') + ' selected. ' + T('Right-click', 'Press and hold') + ' for what to do with them.');
     if (S.tool !== 'hand' && !e.shiftKey && !e.altKey) { /* keep the tool until the person changes it */ }
