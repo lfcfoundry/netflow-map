@@ -214,7 +214,12 @@ var NFMRender = (function () {
   }
 
   /* ---------------------------------------------------------------- host: two stacked canvases */
+  function newCanvas() { return typeof document !== 'undefined' ? document.createElement('canvas') : new OffscreenCanvas(1, 1); }
   function makeHost(host, cpu) {
+    if (!host || host.offscreen) {   /* in a worker (no page): two off-screen canvases, nothing to put on a page */
+      var oa = new OffscreenCanvas(1, 1), ob = new OffscreenCanvas(1, 1);
+      return { main: oa, over: ob, ctx2: ob.getContext('2d', cpu ? { willReadFrequently: true } : undefined) };
+    }
     host.textContent = '';
     var a = document.createElement('canvas'), b = document.createElement('canvas');
     [a, b].forEach(function (c) { c.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;display:block;touch-action:none'; });
@@ -251,7 +256,7 @@ var NFMRender = (function () {
     function tryFast(view) {
       if (!view.moved || !fullView || fastForce === false || (fastForce !== true && lastFullMs <= FAST_MS && !slowMotion)) return false;
       if (fullFresh) {   /* the canvas still holds the last full picture: keep it */
-        if (!cache) cache = document.createElement('canvas');
+        if (!cache) cache = newCanvas();
         if (cache.width !== H.main.width || cache.height !== H.main.height) { cache.width = H.main.width; cache.height = H.main.height; }
         cache.getContext('2d').drawImage(H.main, 0, 0); cacheScene = S; cacheW = H.main.width; cacheH = H.main.height;
       } else if (!cache || cacheScene !== S || cacheW !== H.main.width || cacheH !== H.main.height) return false;
@@ -332,6 +337,7 @@ var NFMRender = (function () {
       },
       flush: function () { return Promise.resolve(); },
       snapshot: function () { return ctx.getImageData(0, 0, H.main.width, H.main.height); },
+      layers: function () { return [H.main, H.over]; },   /* the two canvases, bottom first (a drawing worker puts them together itself) */
       destroy: function () { host.textContent = ''; }
     };
     return Promise.resolve(out);

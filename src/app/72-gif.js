@@ -51,15 +51,7 @@ function gifScene(item, o) {
   if (item.names !== undefined && item.names < 0.999) { if (item.names <= 0.01) sc.labels = []; else sc.labels.forEach(function (l) { l.a = (l.a === undefined ? 1 : l.a) * item.names; }); }
   return sc;
 }
-function gifCaption(ctx, sc, text, W, H) {
-  if (!text) return;
-  var fs = Math.max(14, Math.round(H / 16)), pad = fs * 0.55;
-  ctx.save(); ctx.font = '700 ' + fs + 'px ' + NFMLook.fontStack(S.V.fmt.font); ctx.textBaseline = 'middle';
-  var tw = ctx.measureText(text).width, x = fs * 0.6, y = fs * 0.6;
-  ctx.fillStyle = NFMScene.css(NFMScene.alpha(sc.theme.box, 0.92)); ctx.strokeStyle = NFMScene.css(NFMScene.alpha(sc.theme.boxLine, 0.8));
-  ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, tw + pad * 2, fs + pad * 1.4, fs * 0.4); else ctx.rect(x, y, tw + pad * 2, fs + pad * 1.4); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = NFMScene.css(sc.theme.fg); ctx.fillText(text, x + pad, y + (fs + pad * 1.4) / 2); ctx.restore();
-}
+function gifCaption(ctx, sc, text, W, H) { NFMGifKey.drawCaption(ctx, sc, text, W, H, S.V.fmt.font); }
 /** A few background workers (or one inline helper where workers are missing). Messages come back through pool.on(workerIndex, msg). */
 function gifPool(n) {
   var pool = { n: 0, ws: [], inflight: [], on: null, inline: false, close: function () { pool.ws.forEach(function (w) { try { w.terminate(); } catch (e) { /* gone */ } }); pool.ws = []; } };
@@ -89,6 +81,45 @@ function gifPool(n) {
 }
 function gifWorkerCount() { return window.NFM_GIF_WORKERS > 0 ? window.NFM_GIF_WORKERS : clamp((navigator.hardwareConcurrency || 2) - 1, 1, 5); }
 /** Makes the GIF. Resolves to { bytes, w, h, frames, ms, workers }. progress(done, total, text); stop() returns true to cancel. */
+/** Drawing workers: the pictures of a 3D turn of a big map are drawn in background workers (src/draw-worker.js) while the page keeps its own work. Returns what the workers need,
+ *  or null when the pictures are drawn here (preview, states, sankey, per-item text, short animations, small maps, fewer than 4 cores, no workers). o.drawWorkers true/false forces it (tests). */
+function gifDrawJob(o, plan, W, H, view) {
+  var V = S.V, auto = o.drawWorkers === undefined;
+  if (o.preview || o.drawWorkers === false || typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') return null;
+  if (gifMode() !== 'spin' || V.view === 'sankey' || V.labelCol || (V.linkLabels && V.linkLabels !== 'none')) return null;
+  if (auto && (S.graph.nodes.length < 5000 || plan.length < 20 || (navigator.hardwareConcurrency || 1) < 4)) return null;
+  var so = sceneOpts(); if (o.theme !== 'app') { so.theme = o.theme; so.palette = V.palette; so.ramp = V.ramp; }
+  var cand = {}, add = function (k) { if (typeof k === 'string' && k.length < 80) cand[k] = 1; };
+  ['sys:count', 'sys:flow', 'weight', 'label', 'group', 'id'].forEach(add);
+  Object.keys(V).forEach(function (k) { if (typeof V[k] === 'string') add(V[k]); });
+  (S.dg.nodes.slice(0, 300)).forEach(function (n) { if (n.attrs) Object.keys(n.attrs).forEach(add); });
+  (S.dg.edges.slice(0, 300)).forEach(function (e) { if (e.attrs) Object.keys(e.attrs).forEach(add); });
+  var chName = new Map(); Object.keys(cand).forEach(function (c) { chName.set(c, so.chName(c)); });
+  var sm = computeStyles(), tables = { chName: chName, nodeStyle: sm.any ? sm.nodes : null, edgeStyle: sm.any ? sm.edges : null, nodeScale: V.fmt.nodeScale };
+  ['chName', 'nodeStyle', 'linkStyle', 'labelFn', 'linkLabelFn'].forEach(function (k) { delete so[k]; });
+  return { L: S.L, so: so, tables: tables, W: W, H: H, view: view, o: {}, fmt: V.fmt, themeName: themeName(), keyEdits: V.key.edits || {}, n: o.drawWorkerCount || Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 2)) };
+}
+/** The pool of drawing workers for one animation. ready() resolves when every worker has the layout; draw(p) gives the picture's pixels (RGBA buffer). */
+function gifDrawPool(job) {
+  var src = null, url = null, pool = { ws: [], inflight: [], n: 0, waits: {}, nid: 1, failed: null, drawn: 0, drawMs: 0, readyMs: 0 }, i;
+  try { src = $('nfm-draw-src').textContent; url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' })); } catch (e) { return null; }
+  var onmsg = function (k, m) { pool.inflight[k]--; if (m.t === 'error') pool.failed = new Error(m.msg); var w = pool.waits[m.id]; if (w) { delete pool.waits[m.id]; w(m); } };
+  for (i = 0; i < job.n; i++) (function (k) {
+    try { var w = new Worker(url); w.onmessage = function (e) { onmsg(k, e.data); }; w.onerror = function (e) { pool.failed = new Error(String(e.message || 'drawing worker failed')); Object.keys(pool.waits).forEach(function (q) { pool.waits[q]({ t: 'error', msg: pool.failed.message }); }); }; pool.ws.push(w); pool.inflight.push(0); } catch (e) { /* fewer workers */ }
+  })(i);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  pool.n = pool.ws.length; if (!pool.n) return null;
+  var ask = function (k, msg) { return new Promise(function (res, rej) { msg.id = 'd' + pool.nid++; pool.waits[msg.id] = function (m) { if (m.t === 'error') rej(new Error(m.msg)); else { if (m.ms) { pool.drawn++; pool.drawMs += m.ms; } res(m); } }; pool.inflight[k]++; pool.ws[k].postMessage(msg); }); };
+  /** Sends the layout to each worker in turn (copying it takes the page a moment each time), so the page can paint between them. */
+  pool.ready = async function () {
+    var all = [], t0 = performance.now();
+    for (var k = 0; k < pool.n; k++) { all.push(ask(k, { t: 'init', L: job.L, so: job.so, tables: job.tables, W: job.W, H: job.H, view: job.view, o: job.o, fmt: job.fmt, themeName: job.themeName, font: job.fmt.font, keyEdits: job.keyEdits })); await gifGive(); }
+    await Promise.all(all); pool.readyMs = performance.now() - t0;
+  };
+  pool.draw = function (p) { var b = 0, q; for (q = 1; q < pool.n; q++) if (pool.inflight[q] < pool.inflight[b]) b = q; return ask(b, { t: 'draw', cam: p.cam, names: p.names, caption: p.caption }).then(function (m) { return m.buf; }); };
+  pool.close = function () { pool.ws.forEach(function (w) { try { w.postMessage({ t: 'close' }); w.terminate(); } catch (e) { /* gone */ } }); pool.ws = []; };
+  return pool;
+}
 function makeGif(o, progress, stop) {
   var t0 = performance.now(), mode = gifMode();
   var getFrames = mode === 'states' ? ensureFrames(function (i, n) { progress(0, 1, 'Preparing state ' + i + ' of ' + n + '…'); }) : Promise.resolve(null);
@@ -112,10 +143,12 @@ function makeGif(o, progress, stop) {
         return x.getImageData(0, 0, W, H).data.buffer;
       };
       if (o.preview) {   /* one picture with the look applied, on the page (the person pressed a button and waits for one picture) */
-        return NFMGifFx.initWasm().then(function () { var pb = renderItem(plan[0]), pa = new Uint8ClampedArray(pb); NFMGifFx.apply(pa, W, H, filt); x.putImageData(new ImageData(pa, W, H), 0, 0); var png = out.toDataURL('image/png'); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); return { png: png, w: W, h: H }; });
+        return NFMGifFx.initWasm().then(async function () { var pb = renderItem(plan[0]), pa = new Uint8ClampedArray(pb);
+          if (o.twin) { var tj = gifDrawJob(Object.assign({}, o, { preview: false, drawWorkers: true }), [plan[0]], W, H, view), tp = tj && gifDrawPool(tj); if (tp) { await tp.ready(); var wb = await tp.draw(plan[0]); tp.close(); if (wb) { x.putImageData(new ImageData(new Uint8ClampedArray(wb), W, H), 0, 0); var ksc = gifScene(plan[0], o); if (o.legend !== 'off') drawKeyOn(x, ksc, W, H, undefined, { pos: o.keyPos, full: o.legend === 'full' }); if (o.caption) gifCaption(x, ksc, plan[0].caption, W, H); wb = x.getImageData(0, 0, W, H).data.buffer; } } try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); return { twin: true, page: pb, worker: wb || null, w: W, h: H }; }   /* test only: the same picture drawn here and in a drawing worker */
+          NFMGifFx.apply(pa, W, H, filt); x.putImageData(new ImageData(pa, W, H), 0, 0); var png = out.toDataURL('image/png'); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); return { png: png, w: W, h: H }; });
       }
       var pool = gifPool(useFilter ? gifWorkerCount() : 1), waits = {}, nid = 1, total = plan.length + keys.length, done = 0, failed = null;
-      var finish = function () { pool.on = null; pool.close(); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); };
+      var finish = function () { pool.on = null; pool.close(); if (dpool) dpool.close(); try { rend.destroy(); } catch (e) { /* gone */ } host.remove(); };
       pool.on = function (k, m) { if (m.t === 'error') failed = new Error(m.msg); var w = waits[m.id !== undefined ? m.id : m.t]; if (w) { delete waits[m.id !== undefined ? m.id : m.t]; w(m); } else if (m.t === 'error') Object.keys(waits).forEach(function (q) { waits[q](m); }); };
       var ask = function (k, msg, tr, key) { return new Promise(function (res, rej) { waits[key] = function (m) { if (m.t === 'error') rej(failed); else res(m); }; pool.post(k, msg, tr); }); };
       var tick = function (text) { progress(done, total, text); return gifGive(); };
@@ -123,27 +156,42 @@ function makeGif(o, progress, stop) {
       var filterBuf = function (buf) { if (!useFilter) return Promise.resolve(buf); var id = 'f' + nid++; return ask(least(), { t: 'filter', id: id, buf: buf, w: W, h: H, f: filt }, [buf], id).then(function (m) { return m.buf; }); };
       var cache = new Map();
       var vw = null;
+      var djob = gifDrawJob(o, plan, W, H, view), dpool = null;   /* drawing workers, or null: draw here */
+      var keySc = null;   /* the key and caption come from one scene made here (the key does not change between pictures); the workers draw only the map */
+      var renderPic = function (p) {
+        if (!dpool) return Promise.resolve(renderItem(p));
+        if (!keySc) keySc = gifScene(keys[0], o);
+        return dpool.draw(p).then(function (buf) {
+          var tc = performance.now();
+          x.putImageData(new ImageData(new Uint8ClampedArray(buf), W, H), 0, 0);
+          if (o.legend !== 'off') drawKeyOn(x, keySc, W, H, undefined, { pos: o.keyPos, full: o.legend === 'full' });
+          if (o.caption) gifCaption(x, keySc, p.caption, W, H);
+          var gb = x.getImageData(0, 0, W, H).data.buffer; dpool.mainMs = (dpool.mainMs || 0) + performance.now() - tc; dpool.mainN = (dpool.mainN || 0) + 1; return gb;
+        });
+      };
       var run = async function () {   /* run.video: 'mp4' or 'webm' when the result is a video */
         var vfmt = null; vw = null;
         if (o.format === 'video') { var sup = await NFMVideo.support(W, H, o.fps); vfmt = sup.mp4 ? 'mp4' : sup.webm ? 'webm' : null; }   /* MP4 where the browser can make it, else WebM, else the GIF below */
         if (vfmt) { var bpp = { best: 0.2, small: 0.1, smallest: 0.05 }[o.small] || 0.1; vw = NFMVideo.createWriter({ w: W, h: H, fps: o.fps, format: vfmt, bitsPerPixel: bpp }); }
         else pool.ws[0].postMessage({ t: 'init', w: W, h: H });
+        if (djob) { dpool = gifDrawPool(djob); if (dpool) { try { await dpool.ready(); } catch (e) { dpool.close(); dpool = null; } } }   /* if the workers cannot start, the pictures are drawn here as before */
+        run.drawWorkers = dpool ? dpool.n : 0; run.dpool = dpool;
         if (useFilter && o.card !== 'off') await pool.initCard();   /* a worker that filters on the graphics card, where there is one */
         if (useFilter) await Promise.all(pool.ws.map(function (w, k) { return ask(k, { t: 'wasm', id: 'w' + k }, [], 'w' + k); }));   /* every worker compiles the WebAssembly filters first (plain JavaScript where it cannot) */
         /* pass 1: the main pictures give the colors */
         var shots = [], ki, kb;
         for (ki = 0; !vw && ki < keys.length; ki++) {
           if (stop()) throw new Error('cancelled'); if (failed) throw failed;
-          kb = await filterBuf(renderItem(keys[ki])); cache.set(keys[ki], kb); shots.push(kb.slice(0)); done++; await tick('Looking at the colors…');
+          kb = await filterBuf(await renderPic(keys[ki])); cache.set(keys[ki], kb); shots.push(kb.slice(0)); done++; await tick('Looking at the colors…');
         }
         var sz = NFMGifFx.SIZES[o.small] || NFMGifFx.SIZES.small; if (!vw) await ask(0, { t: 'palette', bufs: shots, colors: sz[1], tol: sz[2] }, shots, 'ready'); shots = null;
         /* pass 2: every picture in order, drawn here, filtered by the workers in turn, written by worker 0 */
-        var ahead = [], next = 0, sent = 0, window_ = pool.n + 1, encP = [];
+        var ahead = [], next = 0, sent = 0, window_ = dpool ? Math.max(pool.n + 1, dpool.n * 2) : pool.n + 1, encP = [];
         while (sent < plan.length) {
           while (next < plan.length && ahead.length < window_) {
             if (stop()) throw new Error('cancelled'); if (failed) throw failed;
             var p = plan[next++], buf = cache.get(p), pr;
-            if (buf) { cache.delete(p); pr = Promise.resolve(buf); } else { pr = filterBuf(renderItem(p)); await gifGive(); }
+            if (buf) { cache.delete(p); pr = Promise.resolve(buf); } else if (dpool) { pr = renderPic(p).then(filterBuf); } else { pr = filterBuf(renderItem(p)); await gifGive(); }
             ahead.push({ p: p, pr: pr });
           }
           var it = ahead.shift(), data = await it.pr, id = 'e' + nid++;
@@ -156,7 +204,7 @@ function makeGif(o, progress, stop) {
         var fin = await ask(0, { t: 'finish' }, [], 'done');
         return new Uint8Array(fin.bytes);
       };
-      return run().then(function (bytes) { finish(); return { bytes: bytes, w: W, h: H, frames: plan.length, ms: performance.now() - t0, mode: mode, video: run.video || '', poster: run.poster || '', asked: o.format, workers: pool.n, inline: pool.inline, card: pool.card >= 0 }; }, function (err) { if (vw) vw.cancel(); finish(); throw err; });
+      return run().then(function (bytes) { finish(); return { bytes: bytes, w: W, h: H, frames: plan.length, ms: performance.now() - t0, mode: mode, video: run.video || '', poster: run.poster || '', asked: o.format, workers: pool.n, inline: pool.inline, card: pool.card >= 0, drawWorkers: run.drawWorkers || 0, drawStats: run.dpool ? { readyMs: Math.round(run.dpool.readyMs), avgWorkerMs: run.dpool.drawn ? Math.round(run.dpool.drawMs / run.dpool.drawn) : 0, avgPageMs: run.dpool.mainN ? Math.round(run.dpool.mainMs / run.dpool.mainN) : 0 } : null }; }, function (err) { if (vw) vw.cancel(); finish(); throw err; });
     });
   });
 }
