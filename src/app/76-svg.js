@@ -60,7 +60,8 @@ function svgText(sc, grouped) {
   if (big) sc = Object.assign({}, sc, { labels: bigMapLabels(sc) });
   svg = NFMScene.toSvg(sc, S.graph.name + ' (' + S.V.view + ')'); full = svg.length;
   if (grouped) {
-    svg = groupSvg(svg, big ? 150 : undefined, big);
+    svg = groupSvg(svg, big ? 150 : undefined, big).replace(/^(<svg[^\n]*\n(?:<title>[^\n]*<\/title>\n)?)<rect [^\n]*\n/, '$1');   /* no background rectangle: the map goes onto any page */
+
     if (big) svg = svg.replace(/ width="\d+" height="\d+" font-family/, ' font-family');   /* coordinates keep one decimal, finer than a pixel at this size; no fixed size, so a browser fits the whole map to the window */
   }
   return { svg: svg, full: full };

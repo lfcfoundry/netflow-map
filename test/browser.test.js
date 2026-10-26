@@ -268,7 +268,7 @@ async function open() {
       const sc = NFM.state.scene; if (!sc) return null;
       const full = NFMScene.toSvg(sc, 't'), grouped = NFM.groupSvg(full);
       const c = (t, re) => (t.match(re) || []).length;
-      return { fullLen: full.length, groupedLen: grouped.length, dots: [c(full, /<circle/g), c(grouped, /<circle/g)], curves: sc.curves.length, texts: [c(full, /<text/g), c(grouped, /<text/g)], ok: /^<svg[\s\S]*<\/svg>$/.test(grouped) };
+      return { fullLen: full.length, groupedLen: grouped.length, dots: [c(full, /<circle/g), c(grouped, /<circle/g)], curves: sc.curves.length, texts: [c(full, /<text/g), c(grouped, /<text/g)], ok: /^<svg[\s\S]*<\/svg>$/.test(grouped) && c(NFM.svgText(sc, true).svg, /<rect/g) === c(NFM.svgText(sc, false).svg, /<rect/g) - 1 };
     });
     if (r) say(r.ok && r.dots[0] === r.dots[1] && r.texts[0] === r.texts[1] && r.groupedLen <= r.fullLen, 'the grouped SVG keeps all ' + r.dots[1] + ' items and ' + r.texts[1] + ' labels (' + r.curves + ' links in the map) and is ' + r.groupedLen + ' bytes against ' + r.fullLen);
   } catch (e) { say(false, 'the grouped SVG check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
