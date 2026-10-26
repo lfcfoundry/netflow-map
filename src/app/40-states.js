@@ -13,10 +13,10 @@ function stateWidthMax() {
   var mx = 0; S.graph.edges.forEach(function (e) { if (e.vals) e.vals.forEach(function (v) { if (v > mx) mx = v; }); });
   ST.wmax = { key: key, v: mx }; return mx;
 }
-function stateAbort() { ST.token++; ST.pending = null; ST.frames = null; ST.shown = null; if (ST.playing) pauseStates(true); }
+function stateAbort() { ST.token++; ST.pending = null; ST.frames = null; ST.ring = null; ST.shown = null; if (ST.playing) pauseStates(true); }
 
 /* ---------------------------------------------------------------- Data tab: making states */
-HOOKS.graph.push(function () { ST.frames = null; ST.pos = curState() > 0 ? curState() : 0; renderStatesCard(); renderTimeline(); });
+HOOKS.graph.push(function () { ST.frames = null; ST.ring = null; ST.pos = curState() > 0 ? curState() : 0; renderStatesCard(); renderTimeline(); });
 function applyStatesSpec(spec) {
   var g; try { g = NFMColumns.buildStates(S.graph, spec); } catch (e) { toast(e.message); return; }
   S.V.state = 0; saveView(); setGraph(g, true, true);
@@ -128,13 +128,37 @@ function blend(A, B, u) {
   L.ch = A.ch; L.annotated = true; L.width = mixNum(A.width, B.width, u); L.height = mixNum(A.height, B.height, u);
   return L;
 }
+/** The number fields of a list of items that are not the same in both states (the others keep the value the first blend gave them). */
+function variesKeys(keys, As, Bs) {
+  return keys.filter(function (k) { for (var i = 0; i < As.length; i++) { var a = As[i][k], b = Bs[i][k]; if (typeof a === 'number' && typeof b === 'number' && a !== b) return true; } return false; });
+}
+/** The same layout as blend(A, B, u), but written into the objects of the last call for this pair of states (two sets take turns, so the layout shown just before is never changed while it may still be in use). The first call for a pair, or a pair that differs in shape, builds fresh objects with blend. */
+function blendInto(ring, A, B, u) {
+  if (u <= 0.0005) return A; if (u >= 0.9995) return B;
+  var buf = ring[ring.i = 1 - (ring.i | 0)] || (ring[ring.i] = {});
+  if (buf.A !== A || buf.B !== B || !buf.L) { var L0 = blend(A, B, u); if (L0 === A || L0 === B) return L0; buf.A = A; buf.B = B; buf.L = L0; buf.nk = variesKeys(NODE_NUM, A.nodes, B.nodes); buf.ek = variesKeys(EDGE_NUM, A.edges, B.edges); return L0; }
+  var L = buf.L, hi = u >= 0.5, i, j, k, a, b, n, e, p, q;
+  for (i = 0; i < A.nodes.length; i++) {
+    a = A.nodes[i]; b = B.nodes[i]; n = L.nodes[i];
+    for (k = 0; k < buf.nk.length; k++) { var nk = buf.nk[k]; if (typeof a[nk] === 'number' && typeof b[nk] === 'number') n[nk] = mixNum(a[nk], b[nk], u); }
+    n.dom = hi ? b.dom : a.dom; n.colorC = hi ? b.colorC : a.colorC;
+  }
+  for (i = 0; i < A.edges.length; i++) {
+    a = A.edges[i]; b = B.edges[i]; e = L.edges[i];
+    for (k = 0; k < buf.ek.length; k++) { var ek = buf.ek[k]; if (typeof a[ek] === 'number' && typeof b[ek] === 'number') e[ek] = mixNum(a[ek], b[ek], u); }
+    if (a.pts && b.pts && a.pts.length === b.pts.length) for (j = 0; j < a.pts.length; j++) { p = a.pts[j]; if (Array.isArray(p)) { q = b.pts[j]; e.pts[j][0] = mixNum(p[0], q[0], u); e.pts[j][1] = mixNum(p[1], q[1], u); } }
+    e.colorC = hi ? b.colorC : a.colorC; e.absent = hi ? b.absent : a.absent;
+  }
+  L.width = mixNum(A.width, B.width, u); L.height = mixNum(A.height, B.height, u);
+  return L;
+}
 function ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
 /** The layout at a position along the timeline: 0 is the first state, 1 the second, 1.5 half way to the third. */
-function layoutAt(frames, pos, hold) {
+function layoutAt(frames, pos, hold, ring) {
   var N = frames.length, p = clamp(pos, 0, N - 1), i = Math.min(N - 2, Math.floor(p)), u = p - i;
   if (p >= N - 1) return frames[N - 1];
   var hf = hold === undefined ? 0.35 : hold, ue = u < hf ? 0 : ease((u - hf) / (1 - hf));
-  return blend(frames[i], frames[i + 1], ue);
+  return ring ? blendInto(ring, frames[i], frames[i + 1], ue) : blend(frames[i], frames[i + 1], ue);
 }
 
 /* ---------------------------------------------------------------- the timeline and playing */
@@ -212,7 +236,7 @@ function showAt(pos) {
   if (!ST.frames) return;
   var N = ST.frames.length, p = clamp(pos, 0, N - 1), i = Math.min(N - 2, Math.floor(p)), u = p - i, hf = 0.35, ue = p >= N - 1 ? 1 : (u < hf ? 0 : ease((u - hf) / (1 - hf)));
   var k = i + '|' + ue.toFixed(3);
-  if (k !== lastShownKey && performance.now() - ST.lastMake >= Math.max(16, ST.makeMs * 1.25)) { lastShownKey = k; showLayout(layoutAt(ST.frames, pos)); }
+  if (k !== lastShownKey && performance.now() - ST.lastMake >= Math.max(16, ST.makeMs * 1.25)) { lastShownKey = k; showLayout(layoutAt(ST.frames, pos, undefined, ST.ring || (ST.ring = []))); }
   ST.pos = pos > N - 1 ? pos : p; updateTimelinePos();
 }
 function scrubStates(v) {
