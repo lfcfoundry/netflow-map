@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Each build is stamped
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## October 26
+
+- **2026.10.26.0001** The GIF and video maker now draws the pictures of a 3D turn of a big map (5,000 items or more, 20 pictures or more, 4 or more processor cores) in 2 to 4 background workers, instead of one picture at a time on the page. The files come out byte for byte the same. On the 30,000-item test map, 60 pictures at 960 wide, on a 4-core test machine (lower is better): Chromium 64.1 s down to 30 to 33 s; Firefox 56 s down to 50 s (more cores help more, and your laptop test page measured 3.9 ms a picture in 4 workers against 9.9 ms on the page). The key and caption are still drawn on the page, because text drawn in a worker differed slightly in Firefox. New tests: four byte-for-byte GIF checks and one check that a picture drawn with no page matches the page's.
+
 ## October 25
 
 - **2026.10.25.2125** Fixed two video file bugs: some browsers (Firefox) refused the MP4 because three header flags were written in the wrong place, and the seek points in longer WebM videos were a few bytes off. New test for both.
