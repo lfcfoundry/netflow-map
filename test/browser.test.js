@@ -250,6 +250,19 @@ async function open() {
     await ev(() => { NFM.state.V.sk = null; NFM.setV({ view: 'flow' }); }); await settle(200);
   }
 
+  /* the map file (.json.lfc): the data, the states and the view go in and come back the same */
+  try {
+    const r = await ev(async () => {
+      const S = NFM.state, before = { name: S.graph.name, n: S.graph.nodes.length, m: S.graph.edges.length, st: S.graph.states ? S.graph.states.names.join('|') : '', color: S.V.colorBy, ids: S.graph.nodes.slice(0, 5).map((x) => x.id).join('|'), w: S.graph.edges.slice(0, 5).map((x) => x.from + '>' + x.to + ':' + x.weight).join('|') };
+      S.V.colorBy = 'size'; const u8 = await NFM.mapFileBytes();
+      NFM.setGraph({ name: 'Other', nodes: [{ id: 'a' }, { id: 'b' }], edges: [{ from: 'a', to: 'b' }] }, true);
+      await NFM.openMapBytes(u8);
+      const after = { name: S.graph.name, n: S.graph.nodes.length, m: S.graph.edges.length, st: S.graph.states ? S.graph.states.names.join('|') : '', color: S.V.colorBy, ids: S.graph.nodes.slice(0, 5).map((x) => x.id).join('|'), w: S.graph.edges.slice(0, 5).map((x) => x.from + '>' + x.to + ':' + x.weight).join('|') };
+      before.color = 'size'; return { before, after, bytes: u8.length, magic: String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) + '|' + String.fromCharCode(u8[u8.length - 4], u8[u8.length - 3], u8[u8.length - 2], u8[u8.length - 1]) };
+    });
+    say(/LFC1/.test(r.magic) && JSON.stringify(r.before) === JSON.stringify(r.after), 'a map file (' + r.bytes + ' bytes, LFC1) opens as the same map: ' + r.before.n + ' items, ' + r.before.m + ' links, states "' + r.before.st + '", color by ' + r.before.color + (JSON.stringify(r.before) === JSON.stringify(r.after) ? '' : ' | ' + JSON.stringify(r.after)));
+  } catch (e) { say(false, 'the map file round trip stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
   /* select, details, keyboard */
   await ev(() => NFM.setV({ view: 'flow' })); await D.wait(() => NFM.state.L.view === 'flow' && NFM.state.scene.view === 'flow'); await settle(300);
   const pos = await ev(() => { const n = NFM.state.scene.nodes.find((x) => x.nodeId === 'hall'), S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + (n.x + n.w / 2) * S.view.k + S.view.tx, r.top + (n.y + n.h / 2) * S.view.k + S.view.ty]; });

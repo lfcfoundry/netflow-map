@@ -22,6 +22,7 @@ function readArchive(file, path) {
 function readFile(file, path) {
   return new Promise(function (resolve) {
     var name = file.name, isNote = NOTE_EXT.test(name);
+    if (/\.lfc$/i.test(name)) { MAPFILE.queue.push(file); return resolve(null); }   /* a map file is opened whole, not read as text */
     if (ARCHIVE_EXT.test(name) || file.type === 'application/zip' || file.type === 'application/x-zip-compressed' || /spreadsheetml/.test(file.type || '')) return resolve(readArchive(file, path));
     if (!TEXT_EXT.test(name) && file.type && !/text|json|csv/.test(file.type)) { skippedCount++; return resolve(null); }
     if (file.size > MAX_ONE || (path && path.indexOf('/') > 0 && isNote && file.size > MAX_NOTE)) { skippedCount++; return resolve(null); }
@@ -71,6 +72,7 @@ function renderError(msg) { var c = $('report'); c.hidden = false; $('stats').te
 
 /** Everything that brings data in goes through here. */
 function ingest(files, extra) {
+  if (MAPFILE.queue.length) { var mf = MAPFILE.queue[0]; MAPFILE.queue = []; skippedCount = 0; return openMapFile(mf); }
   if (!files.length) {
     if (archiveNotes.length) { var why = archiveNotes.join(' '); archiveNotes = []; skippedCount = 0; renderError(why); return Promise.resolve(); }
     toast('Nothing readable was found. Tables, JSON, graph files, outlines, notes, Excel and zips of these work.'); return Promise.resolve();
