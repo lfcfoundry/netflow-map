@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { deflateRawSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,13 +32,15 @@ const noEval = (p, s) => p === 'vendor/memory-compression.js' ? "self.MEMORY_COM
 /* field-report's header comment shows a script tag as an example, which cannot sit inside the page; the vendored file stays an exact copy and only the built page drops that comment. */
 const trimDoc = (p, s) => p === 'vendor/field-report.js' ? s.replace(/^\/\*![\s\S]*?\*\//, '') : s;
 const scripts = jsMin(order.map((p) => { const s = trimDoc(p, clean(rd(p))); bad(p, s); return `/* ---- ${p} ---- */\n` + noEval(p, s); }).join('\n') + '\n' + appText, 'app'); bad('app bundle', scripts);
+/* the map-file module is kept as text and started the first time a map file is saved or opened, so it costs the page nothing at start-up */
+const lfcSrc = deflateRawSync(Buffer.from(clean(rd('vendor/lfc-pack.js')), 'utf8'), { level: 9 }).toString('base64'); bad('lfc-pack', lfcSrc);   /* deflate, then base64: a third of the size to read at start-up; unpacked with DecompressionStream on first use */
 const drawSrc = jsMin(['vendor/netflow-scene.js', 'src/scene-alias.js', 'src/look.js', 'src/render.js', 'src/draw-worker.js'].map((p) => clean(rd(p))).join('\n'), 'draw-worker'); bad('draw worker', drawSrc);
 const gifSrc = jsMin(['src/gif.js', 'src/gifx.js', 'src/gifgl.js', 'src/gif-worker.js'].map((p) => clean(rd(p))).join('\n'), 'gif-worker'); bad('gif worker', gifSrc);
 const css = cssMin(rd('src/app.css')); bad('app.css', css);
 let html = rd('src/index.template.html');
 const fill = (k, v) => { html = html.split(k).join(v); };
 // order matters: the big pieces go in last so their text is never searched for placeholders
-html = html.replace('@@CSS@@', () => css).replace('@@GIFSRC@@', () => gifSrc).replace('@@DRAWSRC@@', () => drawSrc).replace('@@ENGINE@@', () => engine).replace('@@SCRIPTS@@', () => scripts);
+html = html.replace('@@CSS@@', () => css).replace('@@GIFSRC@@', () => gifSrc).replace('@@DRAWSRC@@', () => drawSrc).replace('@@LFCSRC@@', () => lfcSrc).replace('@@ENGINE@@', () => engine).replace('@@SCRIPTS@@', () => scripts);
 fill('@@VERSION@@', version);
 writeFileSync(join(root, 'index.html'), html);
 if (args.has('--pack')) {
