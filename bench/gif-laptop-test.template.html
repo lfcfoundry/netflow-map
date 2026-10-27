@@ -16,7 +16,7 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:.85rem}
 </style></head><body><main>
 <h1>Netflow Map laptop test</h1>
 <p class="sub">Times the picture looks of the GIF maker three ways (plain code, WebAssembly, graphics card) and how well they use several cores. Everything stays on this page: no network. Takes about a minute. Please close other heavy tabs first, and leave this tab in front while it runs.</p>
-<div class="card"><button id="run">Run the test</button> <button id="stop" class="alt" disabled>Stop</button> <label class="mut"><input type="checkbox" id="quick" checked> Quick run (skips the slow plain-code and 1280-wide rows; untick for the full run)</label>
+<div class="card"><button id="run">Run the test</button> <button id="runbig" class="alt">Big map only (30,000 and 100,000 items, about 2 minutes)</button> <button id="stop" class="alt" disabled>Stop</button> <label class="mut"><input type="checkbox" id="quick" checked> Quick run (skips the slow plain-code and 1280-wide rows; untick for the full run)</label>
 <div class="bar"><i id="bar"></i></div><div id="status" class="mut">Ready.</div></div>
 <div class="card" id="verdict" hidden><h2>In plain words</h2><div id="vtext"></div>
 <p><button id="copy">Copy results</button> <button id="save" class="alt">Save report file</button> <span id="copied" class="mut"></span></p></div>
@@ -218,17 +218,18 @@ var LAB = (function () {
     return ['| Way | Draw (ms) | Finish and copy (ms) | Read (ms) | Per picture (ms) | FPS |', '|---|---:|---:|---:|---:|---:|'].concat(res.rows.map(function (r) { return '| ' + r.way + ' | ' + (r.draw != null ? ms(r.draw) : '') + ' | ' + (r.copy != null ? ms(r.copy) : '') + ' | ' + (r.read != null ? ms(r.read) : '') + ' | ' + (r.total != null ? ms(r.total) : (r.none || '')) + ' | ' + (r.fps ? r.fps.toFixed(1) : '') + ' |'; })).join('\n');
   } });
 
-  async function runAll() {
-    stopFlag = false; $('run').disabled = true; $('stop').disabled = false; $('verdict').hidden = true; $('sections').innerHTML = ''; out = { results: {}, when: new Date().toLocaleString(), notes: [] };
-    var i, bodies = tests.map(function (t) { return section(t.title); });
-    for (i = 0; i < tests.length; i++) {
-      if (stopFlag) break; var t = tests[i];
+  async function runAll(only) {
+    var list = only ? tests.filter(function (t) { return only.indexOf(t.id) >= 0; }) : tests;
+    stopFlag = false; $('run').disabled = true; $('runbig').disabled = true; $('stop').disabled = false; $('verdict').hidden = true; $('sections').innerHTML = ''; out = { results: {}, when: new Date().toLocaleString(), notes: [] };
+    var i, bodies = list.map(function (t) { return section(t.title); });
+    for (i = 0; i < list.length; i++) {
+      if (stopFlag) break; var t = list[i];
       try {
-        var r = await t.run({ quick: $('quick').checked, stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / tests.length * 100).toFixed(0) + '%'; $('status').textContent = text; } });
+        var r = await t.run({ quick: $('quick').checked, stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / list.length * 100).toFixed(0) + '%'; $('status').textContent = text; } });
         out.results[t.id] = r; bodies[i].className = 'body'; bodies[i].innerHTML = t.show ? t.show(r) : '';
       } catch (e) { bodies[i].className = 'body bad'; bodies[i].textContent = 'This part failed: ' + (e && e.message || e); out.notes.push(t.id + ' failed: ' + (e && e.message || e)); }
     }
-    $('bar').style.width = '100%'; $('status').textContent = stopFlag ? 'Stopped.' : 'Done.'; $('run').disabled = false; $('stop').disabled = true; verdict();
+    $('bar').style.width = '100%'; $('status').textContent = stopFlag ? 'Stopped.' : 'Done.'; $('run').disabled = false; $('runbig').disabled = false; $('stop').disabled = true; verdict();
   }
   function verdict() {
     var P = out.results.paths, W = out.results.workers, lines = [], rep = [];
@@ -246,7 +247,7 @@ var LAB = (function () {
       var one = W.rows.filter(function (r) { return r.path === 'wasm' && r.workers === 1; })[0], best = W.rows.filter(function (r) { return r.path === 'wasm' && r.perSec; }).sort(function (a, b) { return b.perSec - a.perSec; })[0], glw = W.rows.filter(function (r) { return r.path === 'gl' && r.perSec; })[0];
       if (one && best) lines.push('<p>With more workers, WebAssembly went from ' + one.perSec.toFixed(1) + ' to ' + best.perSec.toFixed(1) + ' FPS (' + best.workers + ' worker' + (best.workers > 1 ? 's' : '') + ', ' + (best.perSec / one.perSec).toFixed(1) + '×).' + (glw ? ' The card in a worker managed ' + glw.perSec.toFixed(1) + ' FPS.' : ' WebGL in a worker did not run here.') + '</p>');
     }
-    if (!lines.length) lines.push('<p>Nothing finished. Press Run again.</p>');
+    if (!lines.length) lines.push(out.results.xopen ? '<p>Done. The opening times are in the section above; copy the report below.</p>' : '<p>Nothing finished. Press Run again.</p>');
     $('vtext').innerHTML = lines.join(''); $('verdict').hidden = false; out.text = report(rep);
   }
   function env() {
@@ -272,7 +273,7 @@ var LAB = (function () {
   }
   function save() { var b = new Blob([out.text || ''], { type: 'text/markdown' }), a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'netflow-gif-laptop-report.md'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000); }
   window.addEventListener('load', function () {
-    $('env').textContent = env(); $('run').onclick = runAll; $('stop').onclick = function () { stopFlag = true; }; $('copy').onclick = copy; $('save').onclick = save;
+    $('env').textContent = env(); $('run').onclick = function () { runAll(); }; $('runbig').onclick = function () { $('quick').checked = false; runAll(['xopen']); }; $('stop').onclick = function () { stopFlag = true; }; $('copy').onclick = copy; $('save').onclick = save;
     if (tests.some(function (t) { return t.lfcpack; })) $('slot-lfcpack').remove();
     var q = /[?&]auto=1/.test(location.search); if (q) runAll();
   });
