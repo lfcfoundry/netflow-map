@@ -72,14 +72,15 @@ var NFMVideo = (function () {
     var out = { mp4: false, webm: false };
     if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') return Promise.resolve(out);
     var test = function (format) {
-      var cfg = { codec: codecFor(format, w, h), width: w, height: h, framerate: fps, bitrate: 1e6 }; if (format === 'mp4') cfg.avc = { format: 'avc' };
+    var cfg = { codec: codecFor(format, w, h), width: w, height: h, framerate: fps, bitrate: 1e6 }; if (format === 'mp4') cfg.avc = { format: 'avc' };
       return VideoEncoder.isConfigSupported(cfg).then(function (r) { out[format] = !!(r && r.supported); }, function () { /* no */ });
     };
     return test('mp4').then(function () { return test('webm'); }).then(function () { return out; });
   }
   function createWriter(o) {
     var w = o.w & ~1, h = o.h & ~1, format = o.format, samples = [], desc = null, err = null, pending = [], count = 0, t = 0;
-    var cfg = { codec: codecFor(format, w, h), width: w, height: h, framerate: o.fps, bitrate: Math.max(100000, Math.round(w * h * o.fps * (o.bitsPerPixel || 0.1) * (format === 'webm' ? 2 : 1))), latencyMode: format === 'webm' ? 'realtime' : 'quality' };   /* Firefox's VP9 encoder takes about 7 times longer in quality mode, and realtime mode with twice the bit rate matches the quality-mode picture's closeness to the original */
+    var fastVp9 = format === 'webm' && typeof navigator !== 'undefined' && /Firefox\//.test(navigator.userAgent);   /* Firefox only: its VP9 encoder takes about 5 times longer in quality mode; realtime mode at twice the bit rate is as close to the original picture (74.3% against 74.6% of values within 8, lab) and the other browsers keep quality mode */
+    var cfg = { codec: codecFor(format, w, h), width: w, height: h, framerate: o.fps, bitrate: Math.max(100000, Math.round(w * h * o.fps * (o.bitsPerPixel || 0.1) * (fastVp9 ? 2 : 1))), latencyMode: fastVp9 ? 'realtime' : 'quality' };
     if (format === 'mp4') cfg.avc = { format: 'avc' };
     var enc = new VideoEncoder({
       output: function (chunk, meta) {
