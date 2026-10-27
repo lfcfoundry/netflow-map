@@ -15,6 +15,7 @@
 var NFMEngine = (function () {
   'use strict';
   var C = typeof NFMColumns !== 'undefined' ? NFMColumns : require('./columns.js');
+  var GWalk = typeof GraphWalk !== 'undefined' ? GraphWalk : require('../vendor/graph-walk.js');   /* breadth-first distances and loop marking (JS-modules graph-walk) */
   var SK = typeof NetflowSankey !== 'undefined' ? NetflowSankey : (typeof require === 'function' ? require('../vendor/netflow-sankey.js') : null);
   var MAP_W = 176, MAP_H = 56;
   var MAX_STOPS = 250000;   /* the largest layered drawing (pages plus the stand-in stops on long links) the Flow, Down, Spine and Lanes views will build; the module's own limit is 90,000. About 6,500 pages of a 3-links-per-page map: layout 0.6 s in the worker, 100 MB */
@@ -103,21 +104,8 @@ var NFMEngine = (function () {
   function outdeg(P, v) { return P.outStart[v + 1] - P.outStart[v]; }
   function indeg(P, v) { return P.inStart[v + 1] - P.inStart[v]; }
 
-  /** Breadth-first distances from `root` (never entering `skip`); -1 where not reached. */
-  function bfs(P, root, skip) {
-    var d = new Int32Array(P.n).fill(-1);
-    if (root < 0 || root === skip || P.n === 0) return d;
-    var q = new Int32Array(P.n), h = 0, tl = 0;
-    q[tl++] = root; d[root] = 0;
-    while (h < tl) {
-      var v = q[h++];
-      for (var k = P.outStart[v]; k < P.outStart[v + 1]; k++) {
-        var w = P.to[P.outEdge[k]];
-        if (w !== skip && d[w] < 0) { d[w] = d[v] + 1; q[tl++] = w; }
-      }
-    }
-    return d;
-  }
+  /** Breadth-first distances from `root` (never entering `skip`); -1 where not reached. The walk lives in the JS-modules graph-walk. */
+  function bfs(P, root, skip) { return GWalk.bfs(P, root, skip); }
   /** The best place to start when the data does not say: a node nothing points to that reaches the most, else the busiest node. */
   function autoStart(P) {
     if (!P.n) return -1;
@@ -211,19 +199,7 @@ var NFMEngine = (function () {
     res.spine = reached.filter(function (v) { return res.choke[v]; }).sort(function (a, b) { return depth[a] - depth[b] || a - b; });
     res.idom = idom; res.rpo = order.filter(function (v) { return v < n; }).reverse();   /* the dominator tree, parents before children (the shape view reads it) */
     /* --- traffic: drop arrows that loop back (iterative depth-first), then count routes in log space --- */
-    var state = new Uint8Array(n), keep = new Uint8Array(P.m), post = [];
-    sp = 0; it = new Int32Array(n); stack = new Int32Array(n + 1);
-    stack[sp++] = start; state[start] = 1;
-    while (sp) {
-      var v2 = stack[sp - 1], k2 = it[v2];
-      if (k2 < outdeg(P, v2)) {
-        it[v2]++;
-        var e = P.outEdge[P.outStart[v2] + k2], w2 = P.to[e];
-        if (state[w2] === 1) continue;
-        keep[e] = 1;
-        if (!state[w2]) { state[w2] = 1; stack[sp++] = w2; }
-      } else { state[v2] = 2; post.push(v2); sp--; }
-    }
+    var walk = GWalk.loops(P, start), keep = walk.keep, post = walk.post;
     var lin = new Float64Array(n).fill(-Infinity), lout = new Float64Array(n).fill(-Infinity), pi, pv, pk;
     lin[start] = 0;
     for (pi = post.length - 1; pi >= 0; pi--) {
