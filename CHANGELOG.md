@@ -8,7 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39,
 
 ## October 27
 
-- **2026.10.27.0649** Nothing you can see changes: the map's breadth-first distance walk and the walk that drops looping links now come from the shared JS-modules graph-walk helper instead of two copies inside Netflow Map. Same maps, link for link, in Chromium and Firefox; build times at 8,000 and 30,000 items are within the usual noise (Chromium 1.2 s at 30,000 items either way). Built on JS-modules draft PR 197, so it waits for that to merge.
+- **2026.10.27.0656** Nothing you can see changes: the map's breadth-first distance walk and the walk that drops looping links now come from the shared JS-modules graph-walk helper instead of two copies inside Netflow Map. Same maps, link for link, in Chromium and Firefox; build times at 8,000 and 30,000 items are within the usual noise (Chromium 1.2 s at 30,000 items either way). Built on JS-modules draft PR 197, so it waits for that to merge.
 - **2026.10.27.0551** Faster to open a big saved map: a saved picture now also keeps which item the map starts from and the importance of every item, so opening it again skips those two steps (lab, rebuild at 100,000 items: Chromium 1.2 to 0.8 s, Firefox 2.4 to 1.2 s). The map looks exactly the same. Maps saved before this are laid out once more and then saved the new way.
 
 ## October 26
