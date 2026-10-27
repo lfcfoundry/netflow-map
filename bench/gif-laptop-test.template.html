@@ -225,7 +225,8 @@ var LAB = (function () {
     for (i = 0; i < list.length; i++) {
       if (stopFlag) break; var t = list[i];
       try {
-        var r = await t.run({ quick: $('quick').checked, stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / list.length * 100).toFixed(0) + '%'; $('status').textContent = text; } });
+        var ctx = { quick: $('quick').checked, stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / list.length * 100).toFixed(0) + '%'; $('status').textContent = text; } };
+        var r = await (t.limit ? Promise.race([t.run(ctx), new Promise(function (_, rej) { setTimeout(function () { rej(new Error('this part took longer than ' + (t.limit / 1000) + ' s and was stopped')); }, t.limit); })]) : t.run(ctx));
         out.results[t.id] = r; bodies[i].className = 'body'; bodies[i].innerHTML = t.show ? t.show(r) : '';
       } catch (e) { bodies[i].className = 'body bad'; bodies[i].textContent = 'This part failed: ' + (e && e.message || e); out.notes.push(t.id + ' failed: ' + (e && e.message || e)); }
     }
