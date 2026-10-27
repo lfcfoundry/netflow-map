@@ -13,6 +13,9 @@ const swap = (s, a, b) => { if (s.split(a).length !== 2) throw new Error('expect
 const strip = (s) => s.replace(/^\/\*![\s\S]*?\*\/\n/, '').replace(/\nif \(typeof module !== 'undefined' && module\.exports\) module\.exports = \w+;\n?$/, '\n');
 col = strip(col); eng = strip(eng);
 eng = swap(eng, "var C = typeof NFMColumns !== 'undefined' ? NFMColumns : require('./columns.js');", 'var C = NFMColumns;');
+/* graph-walk (breadth-first and loop marking) is small: it travels inside the module instead of being a second file to load */
+const gwSrc = strip(rd('vendor/graph-walk.js')), gw = gwSrc.slice(gwSrc.indexOf("function () {\n") + 14, gwSrc.lastIndexOf('}));'));
+eng = swap(eng, "var GWalk = typeof GraphWalk !== 'undefined' ? GraphWalk : require('../vendor/graph-walk.js');", 'var GWalk = (function () {\n' + gw + '\n  })();');
 eng = swap(eng, "var SK = typeof NetflowSankey !== 'undefined' ? NetflowSankey : (typeof require === 'function' ? require('../vendor/netflow-sankey.js') : null);", 'var SK = null;   // the Sankey add-on (netflow-sankey): handed over with use(\'sankey\', impl); without it the Sankey view keeps the plain layered picture');
 eng = swap(eng, "var NL = typeof NetflowLayers !== 'undefined' ? NetflowLayers : require('../vendor/netflow-layers.js');\n  var mapPlaceLine = NL.mapPlaceLine, mapCrossPairs = NL.mapCrossPairs, layered = NL.layered;",
 `var NL = null;   // the layered-drawing add-on (netflow-layers): found on first use, or handed over with use('layers', impl)
