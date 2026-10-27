@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39,
 
 ## October 27
 
+- **2026.10.27.1006** New example to try the filters on: "A company's software systems" (about 290 services and databases of six teams, 712 links with a kind, a criticality column and calls per day). After loading, the notes list six steps in the Filter tab, including "Narrow the links by" (tick values to keep only those links; two columns must both match) and how "Kinds of link" differs. No change to anything else.
 - **2026.10.27.0551** Faster to open a big saved map: a saved picture now also keeps which item the map starts from and the importance of every item, so opening it again skips those two steps (lab, rebuild at 100,000 items: Chromium 1.2 to 0.8 s, Firefox 2.4 to 1.2 s). The map looks exactly the same. Maps saved before this are laid out once more and then saved the new way.
 
 ## October 26

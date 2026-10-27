@@ -154,6 +154,39 @@ var NFMExamples = (function () {
       { from: 'screen', to: 'exp', weight: 100 },
       { from: 'screen', to: 'view', weight: 30 }] };
 
+
+  /** A company's software: about 300 services, databases and teams with link kinds and a criticality column, so every filter has something to do. Made up, repeatable. */
+  function companySystems() {
+    var r = rng(11), nodes = [], edges = [], seen = new Set();
+    var teams = ['Checkout', 'Search', 'Accounts', 'Payments', 'Messaging', 'Data platform'], tiers = ['Front', 'Middle', 'Back'], regions = ['East', 'West', 'Europe'];
+    var parts = { Front: ['web', 'app', 'gateway', 'editor'], Middle: ['orders', 'cart', 'pricing', 'inventory', 'ranking', 'profile', 'billing', 'notify'], Back: ['ledger', 'catalog', 'sessions', 'events', 'cache', 'index'] };
+    var ids = { Front: [], Middle: [], Back: [] }, n = 0;
+    teams.forEach(function (t, ti) {
+      [['Front', 8], ['Middle', 22], ['Back', 18]].forEach(function (tc) {
+        for (var i = 0; i < tc[1]; i++) {
+          var base = parts[tc[0]][i % parts[tc[0]].length], id = t.toLowerCase().replace(/ /g, '-') + '-' + base + '-' + (Math.floor(i / parts[tc[0]].length) + 1);
+          nodes.push({ id: id, label: t + ' ' + base + ' ' + (Math.floor(i / parts[tc[0]].length) + 1), group: t, valence: '', ghost: false, attrs: { tier: tc[0], region: regions[Math.floor(r() * 3)] } });
+          ids[tc[0]].push(id); n++;
+        }
+      });
+    });
+    function pick(a) { return a[Math.floor(r() * a.length)]; }
+    function add(a, b, kind, crit, perDay) {
+      if (a === b) return; var k = a + '>' + b + '>' + kind; if (seen.has(k)) return; seen.add(k);
+      edges.push({ from: a, to: b, label: '', weight: perDay, kind: kind, attrs: { criticality: crit } });
+    }
+    function crit() { var x = r(); return x < 0.2 ? 'High' : x < 0.65 ? 'Medium' : 'Low'; }
+    ids.Front.forEach(function (f) { for (var i = 0; i < 3; i++) add(f, pick(ids.Middle), 'calls', crit(), Math.round(Math.pow(10, 3 + r() * 3))); });
+    ids.Middle.forEach(function (m) {
+      for (var i = 0; i < 2; i++) add(m, pick(ids.Middle), 'calls', crit(), Math.round(Math.pow(10, 2 + r() * 3)));
+      add(m, pick(ids.Back), 'reads', crit(), Math.round(Math.pow(10, 3 + r() * 3)));
+      if (r() < 0.6) add(m, pick(ids.Back), 'writes', crit(), Math.round(Math.pow(10, 2 + r() * 3)));
+      if (r() < 0.3) add(m, pick(ids.Middle), 'sends events to', crit(), Math.round(Math.pow(10, 1 + r() * 3)));
+    });
+    ids.Back.forEach(function (b) { if (r() < 0.4) add(b, pick(ids.Back), 'copies to', 'Low', Math.round(Math.pow(10, 1 + r() * 2))); });
+    return { name: 'Company systems', start: ids.Front[0], roles: { view: 'network', colorBy: 'group' }, nodes: nodes, edges: edges };
+  }
+
   var LIST = [
     { id: 'story', title: 'A short adventure (story)', blurb: 'Eighteen pages with choices, endings and a few loops. Try Sankey, Choke-point spine and Story shape.', load: function () { var r = NFMImport.importJSON(JSON.stringify(STORY), 'The Old Lighthouse', {}); return r; } },
     { id: 'pipeline', title: 'How work moves through a team (table)', blurb: 'A table of handoffs with weights and groups. Try Given lanes.', load: function () { return NFMImport.importDelimited(PIPELINE, 'Release pipeline', {}); } },
@@ -161,6 +194,11 @@ var NFMExamples = (function () {
     { id: 'outline', title: 'A bulleted outline with cross links', blurb: 'An indented list; lines with [[brackets]] add links back across the outline.', load: function () { return NFMImport.importOutline(OUTLINE, 'Weekend trip', {}); } },
     { id: 'states', title: 'A supply chain over four states (changes over time)', blurb: 'The same chain at baseline, year 1, year 2 and an end state; plants and hubs open and flows shift. Open the Map and press play.', load: function () { return NFMImport.importJSON(JSON.stringify(SUPPLY), SUPPLY.name, {}); } },
     { id: 'network', title: 'A network with no story (600 items)', blurb: 'Six hidden communities. Try Network view and color by Found groups.', load: function () { var g = bigNetwork(600, 6, 7); return { graph: g, report: { format: 'built in', nodes: g.nodes.length, edges: g.edges.length, ghosts: 0, notes: ['Made up for the example: 600 items in six clusters with a few links between clusters. No groups are named, so try "Found groups".'], counts: {} } }; } },
+    { id: 'systems', title: 'A company\'s software systems (about 290 items, to try the filters)', blurb: 'Services and databases of six teams, with link kinds (calls, reads, writes...), a criticality column and calls per day. Open Filter and follow the steps listed after loading.', load: function () {
+      var g = companySystems();
+      return { graph: g, report: { format: 'built in', nodes: g.nodes.length, edges: g.edges.length, ghosts: 0, counts: {}, notes: ['Made up for the example: 288 services and databases that belong to six teams, with link kinds, a criticality column and calls per day.',
+        'Try it in Filter: (1) "Narrow the links by Kind": tick only "writes" to see what changes data. Clear it. (2) "Narrow the links by Criticality": tick "High" to see only the links that would hurt most if they broke; with Kind also ticked, a link has to match both. (3) "Narrow down by Tier": tick "Back" to keep only the databases and storage. (4) "Kinds of link" lower down works the other way round: untick "copies to" to hide copies. (5) "Show only the strongest": slide to 10% to keep the busiest links by calls per day. (6) Select one item and use "Around one item" to see its neighbors. "Reset all filters" puts everything back.'] } };
+    } },
     { id: 'itself', title: 'How this app turns your data into a picture (the app itself)', blurb: 'The app\'s own steps from a file to the map on screen: reading, checking, preparing, arranging (with the graphics-card detour), drawing and sharing. Widths are roughly how many times each step happens per 100 files (illustrative figures, balanced so nothing is lost on the way). Try Flow, then Network.', load: function () { return NFMImport.importJSON(JSON.stringify(ITSELF), ITSELF.name, {}); } }
   ];
   return { LIST: LIST, bigNetwork: bigNetwork, STORY: STORY, ITSELF: ITSELF, PIPELINE: PIPELINE, NOTES: NOTES, OUTLINE: OUTLINE };
