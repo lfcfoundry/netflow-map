@@ -95,7 +95,8 @@ var NFMEngine = (function () {
       P.valence[i2] = v === 'good' ? 1 : v === 'bad' ? 2 : v === 'neutral' ? 3 : 0;
     }
     var want = opts.start !== undefined && opts.start !== null ? opts.start : graph.start;
-    P.start = index.has(want) ? index.get(want) : autoStart(P);
+    var hint = opts.saved && opts.saved.startId;   /* a saved layout of the same map (same fingerprint) remembers which start item autoStart picked, so it is not worked out again */
+    P.start = index.has(want) ? index.get(want) : hint && index.has(hint) ? index.get(hint) : autoStart(P);
     P.autoStart = !index.has(want);
     return P;
   }
@@ -1511,7 +1512,10 @@ var NFMEngine = (function () {
   function layoutKey(graph, o) {
     o = o || {};
     if (o.view !== 'network' || STRESS.external || FORCE_EXT.external || o.gpuPicture || o.forcePicture || o.previewOnly) return null;
-    if (layoutCodeHash === null) layoutCodeHash = fnv(fnv(fnv(fnv(fnv(0x811c9dc5, LAYOUT_EPOCH), networkLayout.toString()), stressComponent.toString()), forceSim.toString()), clearOverlaps.toString());
+    if (layoutCodeHash === null) {
+      layoutCodeHash = fnv(fnv(fnv(fnv(fnv(0x811c9dc5, LAYOUT_EPOCH), networkLayout.toString()), stressComponent.toString()), forceSim.toString()), clearOverlaps.toString());
+      layoutCodeHash = fnv(fnv(fnv(fnv(fnv(fnv(layoutCodeHash, importance.toString()), autoStart.toString()), prepare.toString()), bfs.toString()), packImp.toString()), restoreImp.toString());   /* the saved answers of these steps are only good for the same code */
+    }
     var oo = {}, h1 = 2166136261, h2 = 0x9747b28c, i, c, str;
     Object.keys(o).sort().forEach(function (k) { if (!/^(saved|wantSave|saveKey|previewOnly|gpuPicture|forcePicture)$/.test(k)) oo[k] = o[k]; });
     str = JSON.stringify([LAYOUT_EPOCH, layoutCodeHash, STRESS, FORCE2, CLOSE, oo, graph]);
@@ -2041,11 +2045,21 @@ var NFMEngine = (function () {
    *      runs, weights, block, hideKinds, start, prev (order from last time), traffic (size by traffic) }
    * Returns the drawing L with everything the screen needs on the boxes and arrows; nothing in it needs the engine.
    */
+  /** The importance answers as plain typed lists (ids as numbers), to be kept beside a saved layout; restoreImp reads them back, or gives null when they do not fit this build. */
+  function packImp(imp, P) {
+    if (!imp || P.start < 0 || !imp.rpo) return null;
+    var ints = function (a) { return Int32Array.from(a); };
+    return { n: P.n, startId: P.nodes[P.start].id, choke: imp.choke, traffic: imp.traffic, depth: imp.depth, idom: imp.idom, rpo: ints(imp.rpo), goal: ints(imp.goal), spine: ints(imp.spine), goalKind: imp.goalKind, routesLog10: imp.routesLog10, reached: imp.reached };
+  }
+  function restoreImp(r, P) {
+    if (!r || P.start < 0 || r.n !== P.n || r.startId !== P.nodes[P.start].id || !r.choke || r.choke.length !== P.n || !r.traffic || r.traffic.length !== P.n || !r.depth || r.depth.length !== P.n || !r.idom || r.idom.length !== P.n + 1 || !r.rpo || !r.goal || !r.spine) return null;
+    return { choke: r.choke, traffic: r.traffic, depth: r.depth, idom: r.idom, rpo: Array.from(r.rpo), goal: Array.from(r.goal), spine: Array.from(r.spine), goalKind: r.goalKind, routesLog10: r.routesLog10, reached: r.reached };
+  }
   function build(graph, o) {
     o = o || {};
     var t0 = now(), view = o.view || 'flow';
     var P = prepare(graph, o);
-    var imp = importance(P);
+    var imp = (o.saved && restoreImp(o.saved.imp, P)) || importance(P);   /* a saved layout of the same map also keeps the importance answers */
     var flowing = view === 'sankey', amounts = flowing && !!o.amounts;
     var sysFlow = [o.sizeBy, o.widthBy, o.edgeColorBy, o.colorBy].some(function (c) { return c && /^sys:(flow|visits)$/.test(c); });
     var needFlow = (flowing && !amounts) || o.colorBy === 'odds' || o.colorBy === 'heat' || o.wantFlow || sysFlow;
@@ -2175,6 +2189,7 @@ var NFMEngine = (function () {
     else if (view === 'network') { STRESS.previewStop = !!o.previewOnly; try { Lr = networkLayout(P, G, o); } finally { STRESS.previewStop = false; } }
     else Lr = topDown(o.dir === 'TB' ? 'TB' : 'LR');
     if ((view === 'lanes' || downLanes) && laneNames.length > 1) Lr.laneNames = laneNames;
+    if (Lr && Lr.saveLayout && P.start >= 0) { Lr.saveLayout.startId = P.nodes[P.start].id; Lr.saveLayout.imp = packImp(imp, P); }
     Lr.view = view;
     Lr.cls = cls;
     Lr.imp = {

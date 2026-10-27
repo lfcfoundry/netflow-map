@@ -17,11 +17,27 @@ function lfcReady() {
   }).catch(function (e) { MAPFILE.ready = null; throw e; });
   return MAPFILE.ready;
 }
+/** The importance answers kept beside a saved picture, as text columns for the map file (null when there are none). */
+var IMP_COLS = [['choke', Uint8Array], ['traffic', Float64Array], ['depth', Int32Array], ['idom', Int32Array], ['rpo', Int32Array], ['goal', Int32Array], ['spine', Int32Array]];
+function impToText(im) {
+  if (!im) return null;
+  var o = { n: im.n, startId: im.startId, goalKind: im.goalKind, routesLog10: im.routesLog10, reached: im.reached };
+  IMP_COLS.forEach(function (c) { var a = im[c[0]]; if (!(a instanceof c[1])) a = c[1].from(a); o[c[0]] = b64of(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)); });
+  return o;
+}
+function impFromText(o) {
+  if (!o || typeof o !== 'object') return null;
+  try {
+    var im = { n: o.n, startId: o.startId, goalKind: o.goalKind, routesLog10: o.routesLog10, reached: o.reached };
+    IMP_COLS.forEach(function (c) { if (typeof o[c[0]] !== 'string') throw new Error('x'); var u = bytesOfB64(o[c[0]]); im[c[0]] = new c[1](u.buffer, 0, u.length / c[1].BYTES_PER_ELEMENT); });
+    return im;
+  } catch (e) { return null; }   /* the answers are worked out again */
+}
 /** The finished picture of this map from the browser's own storage ({ key, xy, width, height } with xy as text), or null when there is none. */
 function mapFileLayout() {
   if (!client.store || !S.graph.nodes.length) return Promise.resolve(null);
   return client.run('layoutKey', engineOpts()).then(function (kr) { var key = kr && kr.L && kr.L.layoutKey; return key ? client.store.get(key) : null; })
-    .then(function (rec) { return rec && rec.xy ? { key: rec.key, xy: b64of(new Uint8Array(rec.xy.buffer, rec.xy.byteOffset, rec.xy.byteLength)), width: rec.width, height: rec.height } : null; }, function () { return null; });
+    .then(function (rec) { return rec && rec.xy ? { key: rec.key, xy: b64of(new Uint8Array(rec.xy.buffer, rec.xy.byteOffset, rec.xy.byteLength)), width: rec.width, height: rec.height, startId: rec.startId, imp: impToText(rec.imp) } : null; }, function () { return null; });
 }
 /** The map as file bytes: resolves to a Uint8Array. */
 function mapFileBytes() {
@@ -48,7 +64,7 @@ function openMapBytes(u8) {
     if (!doc || doc.format !== 'netflow-map' || !Array.isArray(doc.nodes) || !Array.isArray(doc.links)) throw new Error('this is not a Netflow Map file');
     var g = NFMImport.sanitizeGraph({ name: doc.name, start: doc.start, flavor: doc.flavor, calc: doc.calc, roles: doc.roles, states: doc.states, nodes: doc.nodes, edges: doc.links });
     if (doc.view && typeof doc.view === 'object') LS.set('nfm-v:' + g.name, JSON.stringify(doc.view)); else LS.del('nfm-v:' + g.name);
-    var L = doc.layout, put = L && client.store && typeof L.xy === 'string' && L.key ? client.store.put(L.key, { key: L.key, xy: new Float64Array(bytesOfB64(L.xy).buffer), width: L.width, height: L.height, rough: false }).catch(function () { /* the layout is worked out again */ }) : Promise.resolve();
+    var L = doc.layout, put = L && client.store && typeof L.xy === 'string' && L.key ? client.store.put(L.key, { key: L.key, xy: new Float64Array(bytesOfB64(L.xy).buffer), width: L.width, height: L.height, rough: false, startId: L.startId, imp: impFromText(L.imp) }).catch(function () { /* the layout is worked out again */ }) : Promise.resolve();
     return put.then(function () {
       S.imp = { files: null, opts: {}, base: S.graph, mode: 'replace', res: { graph: g, report: { notes: ['Opened from a map file' + (L ? ' (with its saved picture)' : '') + ' in ' + ((performance.now() - t0) / 1000).toFixed(2) + ' s (unpacking the file ' + Math.round(tU) + ' ms).'] } }, name: g.name };
       setGraph(g, true, false);

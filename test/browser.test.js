@@ -273,6 +273,19 @@ async function open() {
     if (r) say(r.ok && r.dots[0] === r.dots[1] && r.texts[0] === r.texts[1] && r.groupedLen <= r.fullLen, 'the grouped SVG keeps all ' + r.dots[1] + ' items and ' + r.texts[1] + ' labels (' + r.curves + ' links in the map) and is ' + r.groupedLen + ' bytes against ' + r.fullLen);
   } catch (e) { say(false, 'the grouped SVG check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  /* a saved layout also keeps the start item and importance answers: opening with them gives the same map as working them out again */
+  try {
+    const r = await ev(() => {
+      const g = NFMExamples.bigNetwork(1500, 4, 7), o = { view: 'network', arrange: 'stress' }, key = NFMEngine.layoutKey(g, o), first = NFMEngine.build(g, Object.assign({}, o, { saveKey: key, wantSave: true })), rec = first.saveLayout;
+      if (!rec || !rec.imp) return { none: true };
+      const sig = (r) => JSON.stringify({ n: r.nodes.map((n) => [n.id, n.x, n.y, n.w, n.sizeK, n.traffic, n.depth, n.choke, n.start]), s: r.startId, a: r.autoStart, i: r.imp && [r.imp.spine, r.imp.reached, r.imp.goalKind]});
+      const plain = NFMEngine.build(g, Object.assign({}, o, { saveKey: key, saved: Object.assign({}, rec, { imp: null, startId: null }) })), kept = NFMEngine.build(g, Object.assign({}, o, { saveKey: key, saved: rec }));
+      const bad = NFMEngine.build(g, Object.assign({}, o, { saveKey: key, saved: Object.assign({}, rec, { imp: Object.assign({}, rec.imp, { startId: 'nope' }) }) }));
+      return { same: sig(plain) === sig(kept), badSame: sig(plain) === sig(bad), saved: !!(plain.fromSaved && kept.fromSaved), n: g.nodes.length };
+    });
+    say(r.none ? false : r.same && r.badSame && r.saved, r.none ? 'a saved layout did not keep the importance answers' : 'a saved layout keeps the start item and importance answers: opening with them gives the same map as working them out again (' + r.n + ' items; answers that do not fit are ignored)');
+  } catch (e) { say(false, 'the saved importance check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+
   /* select, details, keyboard */
   await ev(() => NFM.setV({ view: 'flow' })); await D.wait(() => NFM.state.L.view === 'flow' && NFM.state.scene.view === 'flow'); await settle(300);
   const pos = await ev(() => { const n = NFM.state.scene.nodes.find((x) => x.nodeId === 'hall'), S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + (n.x + n.w / 2) * S.view.k + S.view.tx, r.top + (n.y + n.h / 2) * S.view.k + S.view.ty]; });
