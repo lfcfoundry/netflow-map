@@ -79,7 +79,7 @@ var NFMVideo = (function () {
   }
   function createWriter(o) {
     var w = o.w & ~1, h = o.h & ~1, format = o.format, samples = [], desc = null, err = null, pending = [], count = 0, t = 0;
-    var cfg = { codec: codecFor(format, w, h), width: w, height: h, framerate: o.fps, bitrate: Math.max(100000, Math.round(w * h * o.fps * (o.bitsPerPixel || 0.1))), latencyMode: format === 'webm' ? 'realtime' : 'quality' };   /* Firefox's VP9 encoder takes about 7 times longer in quality mode, and realtime mode still reaches the bit rate asked for */
+    var cfg = { codec: codecFor(format, w, h), width: w, height: h, framerate: o.fps, bitrate: Math.max(100000, Math.round(w * h * o.fps * (o.bitsPerPixel || 0.1) * (format === 'webm' ? 2 : 1))), latencyMode: format === 'webm' ? 'realtime' : 'quality' };   /* Firefox's VP9 encoder takes about 7 times longer in quality mode, and realtime mode with twice the bit rate matches the quality-mode picture's closeness to the original */
     if (format === 'mp4') cfg.avc = { format: 'avc' };
     var enc = new VideoEncoder({
       output: function (chunk, meta) {

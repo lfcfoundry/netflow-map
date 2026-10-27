@@ -154,8 +154,8 @@ function makeGif(o, progress, stop) {
       var tick = function (text) { progress(done, total, text); return gifGive(); };
       var least = function () { if (pool.card >= 0 && pool.inflight[pool.card] < 3) return pool.card; var b = 0, q; for (q = 1; q < pool.n; q++) if (q !== pool.card && pool.inflight[q] < pool.inflight[b]) b = q; return b; };
       var filterOne = function (buf) { var id = 'f' + nid++; return ask(least(), { t: 'filter', id: id, buf: buf, w: W, h: H, f: filt }, [buf], id).then(function (m) { return m.buf; }); };
-      /* on the graphics card, a few pictures go up stacked in one call (sending up is the slow part, most of all in Firefox); a partial batch leaves after 2 ms so nothing waits for pictures that are not coming */
-      var BATCH = Math.max(1, Math.min(4, Math.floor(8192 / H))), queue = [], qtimer = 0;
+      /* on the graphics card, up to 8 pictures go up stacked in one call (sending up is the slow part, most of all in Firefox); a partial batch leaves after 2 ms so nothing waits for pictures that are not coming */
+      var BATCH = Math.max(1, Math.min(8, Math.floor(8192 / H))), queue = [], qtimer = 0;
       var sendBatch = function () {
         clearTimeout(qtimer); qtimer = 0; var q = queue; queue = []; if (!q.length) return;
         if (q.length === 1) { filterOne(q[0].buf).then(q[0].res, q[0].rej); return; }
