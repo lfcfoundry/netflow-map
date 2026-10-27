@@ -153,7 +153,21 @@ function makeGif(o, progress, stop) {
       var ask = function (k, msg, tr, key) { return new Promise(function (res, rej) { waits[key] = function (m) { if (m.t === 'error') rej(failed); else res(m); }; pool.post(k, msg, tr); }); };
       var tick = function (text) { progress(done, total, text); return gifGive(); };
       var least = function () { if (pool.card >= 0 && pool.inflight[pool.card] < 3) return pool.card; var b = 0, q; for (q = 1; q < pool.n; q++) if (q !== pool.card && pool.inflight[q] < pool.inflight[b]) b = q; return b; };
-      var filterBuf = function (buf) { if (!useFilter) return Promise.resolve(buf); var id = 'f' + nid++; return ask(least(), { t: 'filter', id: id, buf: buf, w: W, h: H, f: filt }, [buf], id).then(function (m) { return m.buf; }); };
+      var filterOne = function (buf) { var id = 'f' + nid++; return ask(least(), { t: 'filter', id: id, buf: buf, w: W, h: H, f: filt }, [buf], id).then(function (m) { return m.buf; }); };
+      /* on the graphics card, a few pictures go up stacked in one call (sending up is the slow part, most of all in Firefox); a partial batch leaves after 2 ms so nothing waits for pictures that are not coming */
+      var BATCH = Math.max(1, Math.min(4, Math.floor(8192 / H))), queue = [], qtimer = 0;
+      var sendBatch = function () {
+        clearTimeout(qtimer); qtimer = 0; var q = queue; queue = []; if (!q.length) return;
+        if (q.length === 1) { filterOne(q[0].buf).then(q[0].res, q[0].rej); return; }
+        var sz = W * H * 4, all = new Uint8Array(sz * q.length), id = 'f' + nid++;
+        q.forEach(function (e, i) { all.set(new Uint8Array(e.buf), i * sz); });
+        ask(least(), { t: 'filtern', id: id, buf: all.buffer, w: W, h: H, f: filt, n: q.length }, [all.buffer], id).then(function (m) { q.forEach(function (e, i) { e.res(m.buf.slice(i * sz, (i + 1) * sz)); }); }, function (err) { q.forEach(function (e) { e.rej(err); }); });
+      };
+      var filterBuf = function (buf) {
+        if (!useFilter) return Promise.resolve(buf);
+        if (pool.card < 0 || BATCH < 2) return filterOne(buf);
+        return new Promise(function (res, rej) { queue.push({ buf: buf, res: res, rej: rej }); if (queue.length >= BATCH) sendBatch(); else if (!qtimer) qtimer = setTimeout(sendBatch, 2); });
+      };
       var cache = new Map();
       var vw = null;
       var djob = gifDrawJob(o, plan, W, H, view), dpool = null;   /* drawing workers, or null: draw here */
