@@ -16,7 +16,7 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:.85rem}
 </style></head><body><main>
 <h1>Netflow Map laptop test</h1>
 <p class="sub">Times the picture looks of the GIF maker three ways (plain code, WebAssembly, graphics card) and how well they use several cores. Everything stays on this page: no network. Takes about a minute. Please close other heavy tabs first, and leave this tab in front while it runs.</p>
-<div class="card"><button id="run">Run the test</button> <button id="runcard" class="alt">Card round trip only (about 1 minute)</button> <button id="runbig" class="alt">Big map only (30,000 and 100,000 items, about 2 minutes)</button> <button id="stop" class="alt" disabled>Stop</button> <label class="mut"><input type="checkbox" id="quick" checked> Quick run (skips the slow plain-code and 1280-wide rows; untick for the full run)</label>
+<div class="card"><button id="run">Run the test</button> <button id="runcard" class="alt">Card round trip only (about 1 minute)</button> <button id="runbig" class="alt">Big map only (30,000 and 100,000 items, about 2 minutes)</button> <button id="runfx" class="alt">Stacked card and WebM only (about 1 minute)</button> <button id="stop" class="alt" disabled>Stop</button> <label class="mut"><input type="checkbox" id="quick" checked> Quick run (skips the slow plain-code and 1280-wide rows; untick for the full run)</label>
 <div class="bar"><i id="bar"></i></div><div id="status" class="mut">Ready.</div></div>
 <div class="card" id="verdict" hidden><h2>In plain words</h2><div id="vtext"></div>
 <p><button id="copy">Copy results</button> <button id="save" class="alt">Save report file</button> <span id="copied" class="mut"></span></p></div>
@@ -225,7 +225,8 @@ var LAB = (function () {
     for (i = 0; i < list.length; i++) {
       if (stopFlag) break; var t = list[i];
       try {
-        var r = await t.run({ quick: $('quick').checked, stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / list.length * 100).toFixed(0) + '%'; $('status').textContent = text; } });
+        var ctx = { quick: $('quick').checked, stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / list.length * 100).toFixed(0) + '%'; $('status').textContent = text; } };
+        var r = await (t.limit ? Promise.race([t.run(ctx), new Promise(function (_, rej) { setTimeout(function () { rej(new Error('this part took longer than ' + (t.limit / 1000) + ' s and was stopped')); }, t.limit); })]) : t.run(ctx));
         out.results[t.id] = r; bodies[i].className = 'body'; bodies[i].innerHTML = t.show ? t.show(r) : '';
       } catch (e) { bodies[i].className = 'body bad'; bodies[i].textContent = 'This part failed: ' + (e && e.message || e); out.notes.push(t.id + ' failed: ' + (e && e.message || e)); }
     }
@@ -247,7 +248,7 @@ var LAB = (function () {
       var one = W.rows.filter(function (r) { return r.path === 'wasm' && r.workers === 1; })[0], best = W.rows.filter(function (r) { return r.path === 'wasm' && r.perSec; }).sort(function (a, b) { return b.perSec - a.perSec; })[0], glw = W.rows.filter(function (r) { return r.path === 'gl' && r.perSec; })[0];
       if (one && best) lines.push('<p>With more workers, WebAssembly went from ' + one.perSec.toFixed(1) + ' to ' + best.perSec.toFixed(1) + ' FPS (' + best.workers + ' worker' + (best.workers > 1 ? 's' : '') + ', ' + (best.perSec / one.perSec).toFixed(1) + '×).' + (glw ? ' The card in a worker managed ' + glw.perSec.toFixed(1) + ' FPS.' : ' WebGL in a worker did not run here.') + '</p>');
     }
-    if (!lines.length) lines.push((out.results.xopen || out.results.xcardcost) ? '<p>Done. The times are in the section above; copy the report below.</p>' : '<p>Nothing finished. Press Run again.</p>');
+    if (!lines.length) lines.push((out.results.xopen || out.results.xcardcost || out.results.xfx) ? '<p>Done. The times are in the section above; copy the report below.</p>' : '<p>Nothing finished. Press Run again.</p>');
     $('vtext').innerHTML = lines.join(''); $('verdict').hidden = false; out.text = report(rep);
   }
   function env() {
@@ -273,7 +274,7 @@ var LAB = (function () {
   }
   function save() { var b = new Blob([out.text || ''], { type: 'text/markdown' }), a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'netflow-gif-laptop-report.md'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000); }
   window.addEventListener('load', function () {
-    $('env').textContent = env(); $('run').onclick = function () { runAll(); }; $('runcard').onclick = function () { $('quick').checked = false; runAll(['xcardcost']); }; $('runbig').onclick = function () { $('quick').checked = false; runAll(['xopen']); }; $('stop').onclick = function () { stopFlag = true; }; $('copy').onclick = copy; $('save').onclick = save;
+    $('env').textContent = env(); $('run').onclick = function () { runAll(); }; $('runcard').onclick = function () { $('quick').checked = false; runAll(['xcardcost']); }; $('runfx').onclick = function () { $('quick').checked = false; runAll(['xfx']); }; $('runbig').onclick = function () { $('quick').checked = false; runAll(['xopen']); }; $('stop').onclick = function () { stopFlag = true; }; $('copy').onclick = copy; $('save').onclick = save;
     if (tests.some(function (t) { return t.lfcpack; })) $('slot-lfcpack').remove();
     var q = /[?&]auto=1/.test(location.search); if (q) runAll();
   });
