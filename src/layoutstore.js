@@ -59,9 +59,9 @@ var NFMLayoutStore = (function () {
     }, function (e) { self.errors++; self.last = String(e && e.message || e); return null; });
   };
   Store.prototype.put = function (key, rec) {
-    var self = this, bytes = rec.xy.byteLength;
+    var self = this, im = rec.imp || null, bytes = rec.xy.byteLength + (im ? im.choke.byteLength + im.traffic.byteLength + im.depth.byteLength + im.idom.byteLength + 4 * (im.rpo.length + im.goal.length + im.spine.length) : 0);   /* imp: the importance answers of this map, kept so opening it again skips that step */
     if (bytes > this.maxBytes / 2) return Promise.resolve(false);
-    return this.b.put(key, { key: key, xy: rec.xy, width: rec.width, height: rec.height, rough: false }, { key: key, t: this.now(), bytes: bytes }).then(function () { self.saves++; return self.prune(); }).then(function () { return true; }, function (e) { self.errors++; self.last = String(e && e.message || e); return false; });
+    return this.b.put(key, { key: key, xy: rec.xy, width: rec.width, height: rec.height, rough: false, startId: rec.startId, imp: im }, { key: key, t: this.now(), bytes: bytes }).then(function () { self.saves++; return self.prune(); }).then(function () { return true; }, function (e) { self.errors++; self.last = String(e && e.message || e); return false; });
   };
   Store.prototype.prune = function () {
     var self = this;
