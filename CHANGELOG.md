@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Each build is stamped
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## October 27
+
+- **2026.10.27.0551** Faster to open a big saved map: a saved picture now also keeps which item the map starts from and the importance of every item, so opening it again skips those two steps (lab, rebuild at 100,000 items: Chromium 1.2 to 0.8 s, Firefox 2.4 to 1.2 s). The map looks exactly the same. Maps saved before this are laid out once more and then saved the new way.
+
 ## October 26
 
 - **2026.10.26.2330** Faster in Firefox: WebM video now encodes in the browser's realtime mode at twice the bit rate, about 5 times faster (the file is larger, and as close to the original picture as before). Other browsers are unchanged. On the graphics card path, up to 8 pictures are sent up in one call.
