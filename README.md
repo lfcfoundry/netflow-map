@@ -1,12 +1,39 @@
+<div align="center">
+
 # Netflow Map
+
+**Turn a list of links into a map you can read and explore. One file, offline, up to 100,000 items.**
+
+![MIT](https://img.shields.io/badge/MIT-informational) ![single file](https://img.shields.io/badge/single%20file-informational) ![works offline](https://img.shields.io/badge/works%20offline-informational) ![nothing uploaded](https://img.shields.io/badge/nothing%20uploaded-informational)
+
+</div>
 
 Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry.
 
-Netflow Map turns a list of links into a map you can read and explore. It is one file, `index.html`, that works offline: it reads tables, JSON graphs, outlines, notes and graph files, lays the items out in nine views (a story's flow, choke points, lanes, a network of up to 100,000 items, and more) with no two items on top of each other, and draws them with WebGL 2 or, failing that, plain 2D drawing. The layout engine runs in a background helper, WebAssembly does its heaviest steps (plain JavaScript is always the fallback), and a big map rests in packed form while it sits idle. Nothing is uploaded; everything runs in the page.
+## What it is and how it works
+
+Netflow Map is one file, index.html, that reads tables, JSON graphs, outlines, notes and graph files, lays the items out in nine views with no two items on top of each other, and draws them with WebGL 2 or plain 2D drawing. The layout runs in a background helper, WebAssembly does the heaviest steps, and nothing is uploaded.
 
 ## Why it exists
 
-The Story Editor's map shows how the pages of a story lead on to each other and where players get stuck. The same questions come up for any set of links: notes, files, processes, flows of money or people. Netflow Map generalizes that map into a single-file app that stays quick and readable as the data grows (30,000 items lay out in under a second, 100,000 in a few seconds) and leaves the Story Editor's original story map untouched.
+The Story Editor map shows how pages lead on to each other and where players get stuck. The same questions come up for any set of links: notes, files, processes, flows of money or people. Netflow Map generalizes that map and stays quick and readable as data grows (30,000 items lay out in under a second, 100,000 in a few seconds).
+
+## Highlights
+
+| Nine views | No two items touch | Reads almost anything | Simulation |
+|---|---|---|---|
+| Flow, top-down, choke points, lanes, shape, Sankey, arc, matrix and network. | Every network arrangement ends with a step that guarantees it, and a test checks it. | CSV, JSON, outlines, Excel, GraphML, GEXF, DOT, zips and Markdown notes. | Up to 100,000 walkers with exact odds, error bars and what-if ranking. |
+
+## 5,000 items, moderate network (Node, one run)
+
+| Layout | Time | Items touching |
+|---|---|---|
+| Netflow Map (Stress) | 0.8 s | 0% |
+| d3-force | 11 s | 98.5% |
+| d3-force + forceCollide | 16 s | 12% |
+| ForceAtlas2 | 9.8 s | 98% |
+
+Shorter time is better. The app keeps this guarantee at a small cost in truth, and docs/BENCHMARKS.md section 12 counts that cost.
 
 ## What it does
 
