@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Each build is stamped
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## October 29
+
+- **2026.10.29.1352** Nothing you can see changes: the shared layered-drawing module is now version 1.5.1 from JS-modules (it now refuses a bad size limit instead of guessing; this app's limit was already a valid number).
+
 ## October 27
 
 - **2026.10.27.1309** Big maps with plain links are a little faster to turn into a picture (scene module 1.3.1 from JS-modules: links with the same group pair and width share one look; laptop, Firefox, 30,000 items, building the scene: plain links 61 to 57 ms, bent links 65 to 56 ms; lower is better). The pictures are the same.
