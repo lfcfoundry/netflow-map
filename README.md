@@ -4,7 +4,7 @@
 
 **Turn a list of links into a map you can read and explore. One file, offline, up to 100,000 items.**
 
-![MIT](https://img.shields.io/badge/MIT-informational) ![single file](https://img.shields.io/badge/single%20file-informational) ![works offline](https://img.shields.io/badge/works%20offline-informational) ![nothing uploaded](https://img.shields.io/badge/nothing%20uploaded-informational)
+![MIT](https://img.shields.io/badge/MIT-informational) ![single file](https://img.shields.io/badge/single%20file-informational) ![no install](https://img.shields.io/badge/no%20install-informational) ![works offline](https://img.shields.io/badge/works%20offline-informational) ![nothing uploaded](https://img.shields.io/badge/nothing%20uploaded-informational)
 
 </div>
 
@@ -12,7 +12,7 @@ Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry.
 
 ## What it is and how it works
 
-Netflow Map is one file, index.html, that reads tables, JSON graphs, outlines, notes and graph files, lays the items out in nine views with no two items on top of each other, and draws them with WebGL 2 or plain 2D drawing. The layout runs in a background helper, WebAssembly does the heaviest steps, and nothing is uploaded.
+Netflow Map is one file, index.html, that reads tables, JSON graphs, outlines, notes and graph files, lays the items out in nine views with no two items on top of each other, and draws them with WebGL 2 or plain 2D drawing. The layout runs in a background helper, WebAssembly does the heaviest steps, and nothing is uploaded. There is nothing to install and no administrative privileges to grant, and you need no special computing knowledge: open the file in any modern browser and drop in your list.
 
 ## Why it exists
 
