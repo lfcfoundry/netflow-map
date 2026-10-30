@@ -84,7 +84,7 @@ var NFMRender = (function () {
       return { back: new Float32Array(back), front: new Float32Array(front), mesh: EMPTY, inst: INSTBUF.subarray(0, needI), nInst: nI, nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: 0, uni: true, dot0: dot0, nDots: S.dots.length, nCurves: nI };
     }
     /* mesh */
-    var verts = 0, plan = [];
+    var verts = 0, plan = [], solidK = Infinity;
     S.ribbons.forEach(function (r) { var n = Math.max(10, Math.min(40, Math.ceil(Math.abs(r.x1 - r.x0) / 10))); plan.push(r); verts += n * 6; });
     var polyTris = 0;
     (S.polys || []).forEach(function (p) { polyTris += p.pts.length / 2; });
@@ -92,7 +92,12 @@ var NFMRender = (function () {
     if (packedSeg) verts += 6 * nC; else S.curves.forEach(function (c) {
       if (isSeg(c)) { verts += 6 + (c.arrow ? 3 : 0); return; }
       var pts = c.pts || (c.pts = bezPts(c.P, c.line));
-      c.dashed = c.dash ? dashPieces(pts, c.w, c.dash) : null;
+      c.solidDot = 0;
+      if (c.dash === 1 && opts && opts.k) {   /* dots closer than 2 pixels cannot be told apart: a thin solid line with the same average ink replaces them until the view is zoomed in (the card re-cuts the dots then) */
+        var dOn = Math.max(0.6, c.w * 0.5), dOff = Math.max(3, c.w * 2.2), kNeed = 2 / (dOn + dOff);
+        if (opts.k < kNeed) { c.solidDot = dOn / (dOn + dOff); solidK = Math.min(solidK, kNeed); }
+      }
+      c.dashed = c.dash && !c.solidDot ? dashPieces(pts, c.w, c.dash) : null;
       var n = c.dashed ? c.dashed.reduce(function (a, q) { return a + q.length / 2 - 1; }, 0) : pts.length / 2 - 1;
       verts += n * 6 + (c.arrow ? 3 : 0);
     });
@@ -135,11 +140,11 @@ var NFMRender = (function () {
       if (isSeg(c)) {
         /* A plain straight link (every link on a big network): one quad written straight into the buffer, the same numbers the general path gives. */
         o = segRec(mesh, o, c);
-      } else if (c.dashed) c.dashed.forEach(function (q) { strip(q, hw, col, a); }); else strip(c.pts, hw, col, a, c.w1 !== undefined ? c.w1 / 2 : undefined);
+      } else if (c.dashed) c.dashed.forEach(function (q) { strip(q, hw, col, a); }); else if (c.solidDot) strip(c.pts, hw, col, a * c.solidDot); else strip(c.pts, hw, col, a, c.w1 !== undefined ? c.w1 / 2 : undefined);
       if (c.arrow) { var t = NFMScene.arrowTri(c); for (i = 0; i < 3; i++) put(t[i * 2], t[i * 2 + 1], 0, 0, -1, 0, col, a); }
     });
     /* where things sit, so an item that was moved can be rewritten in place (see patchBuffers): every link a plain straight piece, none with an arrow, no ribbons or hulls, so link j starts at vertex 6 * j */
-    return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE, uni: uni, dot0: dot0, nDots: S.dots.length, nCurves: nC };
+    return { back: new Float32Array(back), front: new Float32Array(front), mesh: mesh.subarray(0, o), nBack: back.length / SHAPE_STRIDE, nFront: front.length / SHAPE_STRIDE, nMesh: o / MESH_STRIDE, solidDotK: solidK, uni: uni, dot0: dot0, nDots: S.dots.length, nCurves: nC };
   }
   /** Cuts a polyline into dashes: kind 1 = dots, 2 = short dashes, 3 = long dashes. Returns a list of flat polylines. */
   function dashPieces(pts, w, kind) {
@@ -458,10 +463,11 @@ var NFMRender = (function () {
         return a[1] <= b[1] * 1.05 + 1;   /* the clock is whole milliseconds in some browsers */
       } catch (e) { try { gl.bindFramebuffer(gl.FRAMEBUFFER, null); } catch (x) { /* gone */ } return false; }
     };
-    var tess = function (s) {
+    var lastK = 0;   /* the zoom of the last picture; before the first one, the zoom that fits the map */
+    var tess = function (s, k) {
       var want = false;
       if (pI && s && (s.curveCount ? s.curveCount() : s.curves.length)) { if (instOn === null && (s.curveCount ? s.curveCount() : s.curves.length) >= 2000) instOn = probe(); want = instOn === true; }
-      return tessellate(s, want ? { inst: true } : null);
+      var o = want ? { inst: true } : {}; o.k = k || lastK || (s && s.w && s.h ? Math.min(W / s.w, Hh / s.h) * 0.96 : 0); return tessellate(s, o);
     };
     var send = function () { up(bBack, T.back); up(bFront, T.front); if (T.inst) up(bInst, T.inst); else up(bMesh, T.mesh); };
     var sl = [[0, 4, 0, 64], [1, 4, 4, 64], [2, 4, 8, 64], [3, 4, 12, 64]], vaoBack = mkVao(sl, bBack, true), vaoFront = mkVao(sl, bFront, true);
@@ -562,6 +568,7 @@ var NFMRender = (function () {
         var bg = S.theme.bg; gl.clearColor(bg[0], bg[1], bg[2], 1); gl.clear(gl.COLOR_BUFFER_BIT);
         gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
         if (S.turn && S.turn.on && S.rig && RG) { drawRig(view); if (!(out.rigDebug && out.rigDebug.noNames)) drawLabels(H.ctx2, S, view, W, Hh, dpr); return; }
+        lastK = view.k; if (T && T.solidDotK && view.k >= T.solidDotK) { T = tess(S, view.k); send(); }   /* zoomed in until the dots can be told apart: cut them again */
         var shapes = function (vao, n) { if (!n) return; gl.useProgram(pS); gl.uniform4f(uS.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uS.r, W, Hh); gl.bindVertexArray(vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n); };
         shapes(vaoBack, T.nBack);
         if (T.nInst) { gl.useProgram(pI); gl.uniform4f(uI.v, view.k, view.tx, view.ty, 0); gl.uniform2f(uI.r, W, Hh); gl.bindVertexArray(vaoInst); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, T.nInst); }

@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Each build is stamped
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## October 30
+
+- **2026.10.30.1817** Big 3D maps with dotted links turn much faster. Dotted links that are zoomed so far out that the dots are under 2 pixels apart now draw as one thin solid line with the same average ink, and the dots come back as soon as you zoom in. In a lab run on 2,000 items, drawing a picture went from about 280 ms to about 3 ms, and the picture differed in 0.01% of its pixels.
+
 ## October 29
 
 - **2026.10.29.1352** Nothing you can see changes: the shared layered-drawing module is now version 1.5.1 from JS-modules (it now refuses a bad size limit instead of guessing; this app's limit was already a valid number).
