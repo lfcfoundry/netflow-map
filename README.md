@@ -18,6 +18,20 @@ Netflow Map is one file, index.html, that reads tables, JSON graphs, outlines, n
 
 The Story Editor map shows how pages lead on to each other and where players get stuck. The same questions come up for any set of links: notes, files, processes, flows of money or people. Netflow Map generalizes that map and stays quick and readable as data grows (30,000 items lay out in under a second, 100,000 in a few seconds).
 
+<div align="center">
+
+<table>
+<tr>
+<td align="center" valign="top"><img src="images/flow.jpg" alt="Flow view of a short story: scenes left to right with choices as arrows" width="390"><br><sub>Flow: how things lead on from the start</sub></td>
+<td align="center" valign="top"><img src="images/lanes.jpg" alt="Lanes view of a team's handoffs: one band per group" width="390"><br><sub>Lanes: how routes cross between groups</sub></td>
+</tr>
+<tr>
+<td align="center" valign="top" colspan="2"><img src="images/network.jpg" alt="Network view of a company's 288 software systems, colored by team" width="500"><br><sub>Network: 288 systems and 712 links, with no two items touching</sub></td>
+</tr>
+</table>
+
+</div>
+
 ## Highlights
 
 | Nine views | No two items touch | Reads almost anything | Simulation |
