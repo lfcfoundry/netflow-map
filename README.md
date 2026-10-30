@@ -1,12 +1,8 @@
-<div align="center">
-
 # Netflow Map
 
 **Turn a list of links into a map you can read and explore. One file, offline, up to 100,000 items.**
 
 ![MIT](https://img.shields.io/badge/MIT-informational) ![single file](https://img.shields.io/badge/single%20file-informational) ![no install](https://img.shields.io/badge/no%20install-informational) ![works offline](https://img.shields.io/badge/works%20offline-informational) ![nothing uploaded](https://img.shields.io/badge/nothing%20uploaded-informational)
-
-</div>
 
 Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry.
 
