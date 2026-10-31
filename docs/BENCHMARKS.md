@@ -1878,3 +1878,15 @@ When a piece has 80,000 or more items and starts with more than 2 touching pairs
 
 Same page size (48,069 x 48,813), nothing touching. Middle half of the map: average gap to the nearest item 56.6 to 46.3 units, gap spread 0.41 to 0.30 (more even). Push-apart alone in Node: about 1.0 s to 0.70 s. "All four stacked" adds number keys in `mapGraph`, link objects with every field up front, and a grid-order walk in the wasm `separate`; it is not shipped, and the grid-order walk changes the picture. At 60,000 items the full stretch grew the page about 9%, so smaller maps keep the old order. Comparison pages: /mnt/project-files/netflow-map/stretch-first-2026.10.31/.
 
+## 52. Three small ideas, alone and stacked (2026.10.30, chosen by Jawad)
+
+On top of stretch first: number keys when merging links (`mapGraph`), link objects made with every field up front, and a grid-order walk in the push-apart (`separate`, wasm and JavaScript). Moderate network, seed 11, 100,000 items, lab, rotating order, medians (lower is better):
+
+| Browser | Stretch first | + same-picture pair | + pair and grid order (shipped) |
+|---|---:|---:|---:|
+| Chromium 155 (5 runs) | 3,769 ms | 3,970 ms | 3,788 ms |
+| Firefox 158 (5 runs) | 3,714 ms | 3,632 ms | 3,485 ms |
+| WebKitGTK 2.52.6 (6 runs) | 3,720 ms | 3,650 ms | 3,553 ms |
+
+In Node each idea alone was inside a 20 to 40% run-to-run swing. The pair gives the same positions to the last digit; the grid-order walk moves items a few pixels on every flat map. Pictures compared side by side before the choice: /mnt/project-files/netflow-map/stack-2026.10.31/stack-compare.html.
+

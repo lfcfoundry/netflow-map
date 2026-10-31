@@ -22,7 +22,7 @@ Rules:
 
 ## stress.c: the Distances layout and the push-apart
 
-`stress.c` (9,287 bytes built) is a port of `stressComponent`'s pair building (every pair for small pieces; pivots, links and near neighbors for big ones), the one-time shuffle (the same xorshift), the forward and backward sweeps, and of `separate`'s grid passes (2D). `src/engine.js` embeds it between `WASM:stress:BEGIN` and `WASM:stress:END`; `E.stressWasm` has `on`, `minItems` (150), `calls`, `sepCalls`, `pairs` and `error`.
+`stress.c` (9,298 bytes built) is a port of `stressComponent`'s pair building (every pair for small pieces; pivots, links and near neighbors for big ones), the one-time shuffle (the same xorshift), the forward and backward sweeps, and of `separate`'s grid passes (2D). `src/engine.js` embeds it between `WASM:stress:BEGIN` and `WASM:stress:END`; `E.stressWasm` has `on`, `minItems` (150), `calls`, `sepCalls`, `pairs` and `error`.
 - Pairs are two item numbers plus one Uint16 hop code (the hop count, +512 for a pivot pair) with two 1,024-entry float32 tables for distance and weight: 10 bytes a pair instead of 16, the same numbers. The JavaScript path stores them the same way. A hop count over 511 (a very long chain) makes both use the old Float32 lists.
 - The wasm path writes X only at the end, so any failure (no WebAssembly, blocked, memory refused, hop count over 511) leaves the JavaScript to start from the same picture and the same random seed.
 - `separate` hands back "start table too small" or "grid over 4,000,000 cells" and the page continues with a bigger table or the sparse version, as the JavaScript does.
