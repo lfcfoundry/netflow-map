@@ -2,7 +2,7 @@
 
 Copyright (c) 2026 LFC Foundry. MIT License.
 
-What changed in Netflow Map, in plain words, newest first. Each build is stamped `year.month.day.HHMM` (US Eastern) in the page header. This is the short list for people who use the app. The long version for each build (every measurement, test count and tool change) is kept in the private knowledge base, under `projects/netflow-map/changelogs/`.
+What changed in Netflow Map, in plain words, newest first. Developer notes, in three levels of detail, are in docs/CHANGELOG-DEV.md. Each build is stamped `year.month.day.HHMM` (US Eastern) in the page header. This is the short list for people who use the app. The long version for each build (every measurement, test count and tool change) is kept in the private knowledge base, under `projects/netflow-map/changelogs/`.
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
