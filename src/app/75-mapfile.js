@@ -33,11 +33,26 @@ function impFromText(o) {
     return im;
   } catch (e) { return null; }   /* the answers are worked out again */
 }
-/** The finished picture of this map from the browser's own storage ({ key, xy, width, height } with xy as text), or null when there is none. */
+/** The finished picture of this map from the browser's own storage ({ key, x, y, width, height }), or null when there is none.
+ * x and y are lists of whole numbers: a place rounded to the nearest unit (under a tenth of the smallest item) cannot be seen, and whole-number
+ * lists pack about a third smaller than the exact places as text (BENCHMARKS section 53). Files saved before this hold the exact places as xy text, still read. */
 function mapFileLayout() {
   if (!client.store || !S.graph.nodes.length) return Promise.resolve(null);
   return client.run('layoutKey', engineOpts()).then(function (kr) { var key = kr && kr.L && kr.L.layoutKey; return key ? client.store.get(key) : null; })
-    .then(function (rec) { return rec && rec.xy ? { key: rec.key, xy: b64of(new Uint8Array(rec.xy.buffer, rec.xy.byteOffset, rec.xy.byteLength)), width: rec.width, height: rec.height, startId: rec.startId, imp: impToText(rec.imp) } : null; }, function () { return null; });
+    .then(function (rec) {
+      if (!rec || !rec.xy) return null;
+      var k = rec.xy.length >> 1, x = new Array(k), y = new Array(k);
+      for (var i = 0; i < k; i++) { x[i] = Math.round(rec.xy[i * 2]); y[i] = Math.round(rec.xy[i * 2 + 1]); }
+      return { key: rec.key, x: x, y: y, width: rec.width, height: rec.height, startId: rec.startId, imp: impToText(rec.imp) };
+    }, function () { return null; });
+}
+/** The saved places of a map file's layout as typed numbers (x then y for every item), from either kind of file, or null. */
+function layoutXY(L) {
+  if (typeof L.xy === 'string') return new Float64Array(bytesOfB64(L.xy).buffer);
+  if (!Array.isArray(L.x) || !Array.isArray(L.y) || L.x.length !== L.y.length) return null;
+  var xy = new Float64Array(L.x.length * 2);
+  for (var i = 0; i < L.x.length; i++) { xy[i * 2] = +L.x[i]; xy[i * 2 + 1] = +L.y[i]; }
+  return xy;
 }
 /** The map as file bytes: resolves to a Uint8Array. */
 function mapFileBytes() {
@@ -64,7 +79,7 @@ function openMapBytes(u8) {
     if (!doc || doc.format !== 'netflow-map' || !Array.isArray(doc.nodes) || !Array.isArray(doc.links)) throw new Error('this is not a Netflow Map file');
     var g = NFMImport.sanitizeGraph({ name: doc.name, start: doc.start, flavor: doc.flavor, calc: doc.calc, roles: doc.roles, states: doc.states, nodes: doc.nodes, edges: doc.links });
     if (doc.view && typeof doc.view === 'object') LS.set('nfm-v:' + g.name, JSON.stringify(doc.view)); else LS.del('nfm-v:' + g.name);
-    var L = doc.layout, put = L && client.store && typeof L.xy === 'string' && L.key ? client.store.put(L.key, { key: L.key, xy: new Float64Array(bytesOfB64(L.xy).buffer), width: L.width, height: L.height, rough: false, startId: L.startId, imp: impFromText(L.imp) }).catch(function () { /* the layout is worked out again */ }) : Promise.resolve();
+    var L = doc.layout, LX = L && L.key ? layoutXY(L) : null, put = LX && client.store ? client.store.put(L.key, { key: L.key, xy: LX, width: L.width, height: L.height, rough: false, startId: L.startId, imp: impFromText(L.imp) }).catch(function () { /* the layout is worked out again */ }) : Promise.resolve();
     return put.then(function () {
       S.imp = { files: null, opts: {}, base: S.graph, mode: 'replace', res: { graph: g, report: { notes: ['Opened from a map file' + (L ? ' (with its saved picture)' : '') + ' in ' + ((performance.now() - t0) / 1000).toFixed(2) + ' s (unpacking the file ' + Math.round(tU) + ' ms).'] } }, name: g.name };
       setGraph(g, true, false);

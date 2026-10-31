@@ -12,21 +12,45 @@ Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry.
 
 ## What it is and how it works
 
-Netflow Map is one file, index.html, that reads tables, JSON graphs, outlines, notes and graph files, lays the items out in nine views with no two items on top of each other, and draws them with WebGL 2 or plain 2D drawing. The layout runs in a background helper, WebAssembly does the heaviest steps, and nothing is uploaded. There is nothing to install and no administrative privileges to grant, and you need no special computing knowledge: open the file in any modern browser and drop in your list.
+Netflow Map is a free tool for seeing and analyzing how things connect and flow. It works with any kind of linked data: links and nodes, edges and vertices, pages and choices.
+
+How it works:
+
+1. **Read:** tables, Excel, JSON, outlines, Markdown notes, graph files, or a zip of them.
+2. **Lay out:** nine views, each answering a different question, with no two items touching.
+3. **Analyze:** find choke points, check the data, and simulate how flows spread.
+4. **Share:** export pictures, data, an animated GIF or a one-page report.
+
+It is one file that runs in your browser. Nothing is uploaded or installed.
 
 ## Why it exists
 
-The Story Editor map shows how pages lead on to each other and where players get stuck. The same questions come up for any set of links: notes, files, processes, flows of money or people. Netflow Map generalizes that map and stays quick and readable as data grows (30,000 items lay out in under a second, 100,000 in a few seconds).
+Data about connections usually lives in lists, and a list hides its shape: what everything depends on, where flows pile up, which groups barely touch. Netflow Map draws that shape quickly and clearly, so the signal stands out from the noise, even at 100,000 items.
+
+It runs in the browser because almost every device has one. So it works offline and on locked-down computers, and your data stays with you.
+
+Where it helps:
+
+- **Software systems:** which services depend on which.
+- **Processes:** where work waits, and which steps every job must pass.
+- **Supply chains and money flows:** how routes shift over time.
+- **Linked notes and wikis:** hubs, clusters and links to missing notes.
+- **Branching stories:** which endings people reach, and how often.
+- **Research networks:** citations, co-authors and other edge lists.
 
 <div align="center">
 
 <table>
 <tr>
 <td align="center" valign="top"><img src="images/flow.jpg" alt="Flow view of a short story: scenes left to right with choices as arrows" width="390"><br><sub>Flow: how things lead on from the start</sub></td>
-<td align="center" valign="top"><img src="images/lanes.jpg" alt="Lanes view of a team's handoffs: one band per group" width="390"><br><sub>Lanes: how routes cross between groups</sub></td>
+<td align="center" valign="top"><img src="images/matrix.jpg" alt="Matrix view of a team's handoffs: rows link to columns, colored by group" width="390"><br><sub>Matrix: who links to whom, with no crossing lines</sub></td>
 </tr>
 <tr>
 <td align="center" valign="top" colspan="2"><img src="images/network.jpg" alt="Network view of a company's 288 software systems, colored by team" width="500"><br><sub>Network: 288 systems and 712 links, with no two items touching</sub></td>
+</tr>
+<tr>
+<td align="center" valign="top"><img src="images/sphere.jpg" alt="3D sphere arrangement of 3,000 items and 9,231 links in six communities, colored by found group" width="390"><br><sub>3D sphere: 3,000 items and 9,231 links, turned by dragging</sub></td>
+<td align="center" valign="top"><img src="images/down.jpg" alt="Top-down view of the short story: the same drawing as Flow, top to bottom" width="390"><br><sub>Top-down: Flow read from top to bottom</sub></td>
 </tr>
 </table>
 

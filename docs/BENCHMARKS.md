@@ -1890,3 +1890,16 @@ On top of stretch first: number keys when merging links (`mapGraph`), link objec
 
 In Node each idea alone was inside a 20 to 40% run-to-run swing. The pair gives the same positions to the last digit; the grid-order walk moves items a few pixels on every flat map. Pictures compared side by side before the choice: project files: netflow-map/stack-2026.10.31/stack-compare.html.
 
+## 53. Map file places as whole numbers (2026.10.30, chosen by the owner)
+
+A 30,000-item test map with its finished picture, LFC-pack as vendored. Lab, one page per browser, an untimed first round, then the median of 5 (save = pack; open = unpack plus turning the places back into numbers):
+
+| Version | File | Chromium save / open | Firefox save / open | WebKitGTK save / open |
+|---|---:|---:|---:|---:|
+| Before (base64 of 8-byte numbers) | 1,172,668 B | 253 / 54 ms | 243 / 58 ms | 180 / 32 ms |
+| Plain numbers | 1,146,930 B (-2%) | 317 / 54 | 329 / 47 | 248 / 33 |
+| base64 of 4-byte numbers | 929,296 B (-21%) | 311 / 47 | 264 / 48 | 177 / 29 |
+| x and y lists of whole numbers (shipped) | 810,965 B (-31%) | 245 / 57 | 258 / 40 | 188 / 29 |
+| No picture at all (floor) | 696,882 B | 254 / 45 | 248 / 34 | 182 / 24 |
+
+The picture's part of the file goes from 476 KB to 114 KB (-76%). Full notes: project files: netflow-map/retest-2026.10.31/RETEST-DROPPED-IDEAS.md.
