@@ -2073,3 +2073,18 @@ Lab, 800 by 600 window, Data tab shown, early-stop A/B rule. Before = 2026.10.31
 | 1,500 rows | 7 / 7 ms | 8 / 7 ms | 9 / 9 ms |
 | 1,500 rows, page time of 20 renames (synchronous) | faster 0.84 (0.75 to 0.93) | faster 0.53 (0.44 to 0.61) | faster 0.63 (0.56 to 0.79) |
 
+## 64. Where the saved map lives: IndexedDB with a marker instead of the shared localStorage (2026.10.31)
+
+Lab, 800 by 600 window, early-stop A/B rule (after / before with the 90% interval). Before = 2026.10.31.1603, after = 2026.10.31.1750.
+
+| | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---:|---:|---:|
+| Page held through 5 saves of a 1.79 M character map | 78 / 4 ms (0.04) | 37 / 4 ms (0.24) | 524 / 519 ms (1.00) |
+| First screen with a 1.74 M character map saved | 87 / 82 ms (0.84) | slower 1.33 (1.10 to 1.82) | slower 1.21 (1.05 to 1.39) |
+| Shared localStorage held by Netflow Map | 1,737,755 / 1,348 characters | same | same |
+
+Other apps' start (round 22, Chromium, kept profile): Pineapple Defense's first storage touch 18.5 ms with a 1.79 M character map in the shared space, 1.2 ms without.
+
+Tried for the Firefox and WebKitGTK start and dropped: reading the map on a helper thread (the read is done before the page's first long script ends, but in Firefox the reply still lands about 20 ms after it, no gain; in WebKitGTK the helper sees an empty database on a page opened from a file, so the map would be lost); keeping the map packed (gzip or deflate, 1.74 M characters to 122 to 125 KB: the read gets 5 to 9 ms faster but unpacking costs 7 to 12 ms on the page) or as UTF-8 bytes (decoding adds 1 to 2 ms). The wait comes from the database's replies: they can only run on the page once its first long script has finished, so when the open is not done before that script starts (about half the Firefox starts), the read takes one more round trip after it.
+
+Second search (after the owner asked to keep looking): where the start waits, with marks in the page (Firefox, WebKitGTK; medians). The database open, started by the first script in the page head, completes 110 to 140 ms (Firefox) and 40 to 85 ms (WebKitGTK) after it starts, so it usually lands just after the page's long first script; the read then takes one more round trip (Firefox about 14 to 16 ms of waiting, WebKitGTK about 10 to 20 ms with the copy of the text). The shared localStorage has no such wait because both browsers load it before the page starts. Splitting the page's first script in two, so the reply could land between them, made Firefox slower still (1.78 against 1.33). Reading the text back and parsing it costs about the same from either place (Firefox 22 against 7 ms with parsing, WebKitGTK 26 against 18 ms, in a bare page).

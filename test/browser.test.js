@@ -1324,26 +1324,27 @@ async function open() {
   } catch (e) { say(false, 'the packed-undo check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   }
   if (want('safe')) { blk('safe');
-  /* crash-safe saves: every save also goes to IndexedDB; when localStorage lost the newest one (a browser crash), the safe copy is the newer one */
+  /* crash-safe saves: every save also goes to IndexedDB; when localStorage lost the newest one (a browser crash), the safe copy is the newer one.
+     The map itself is kept in IndexedDB only, with a small marker in the localStorage every app here shares (round 22); view settings keep both. */
   try {
     const r = await ev(async () => {
-      const S = NFM.state, g0 = S.graph, old = localStorage.getItem('nfm-graph');
+      const S = NFM.state, g0 = S.graph, vk = 'nfm-v:SafeOne', wait = (ms) => new Promise((q) => setTimeout(q, ms));
       NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SafeOne', nodes: [{ id: 'S1' }, { id: 'S2' }], edges: [{ from: 'S1', to: 'S2' }] }));
-      const t0 = performance.now(); let got = null;
-      while (performance.now() - t0 < 5000) {
-        const txt = localStorage.getItem('nfm-graph');
-        if (txt && txt.indexOf('SafeOne') >= 0) {   /* saved: now lose it from localStorage, as a crash would */
-          const seq = localStorage.getItem('nfm-seq:nfm-graph'); localStorage.setItem('nfm-graph', old || '{}'); localStorage.setItem('nfm-seq:nfm-graph', '0');
-          got = await NFM.safe.newer('nfm-graph'); NFM.safe.repair('nfm-graph', got || { text: txt, seq: +seq });
-          if (got) break;
-        }
-        await new Promise((q) => setTimeout(q, 40));
-      }
-      const out = { found: !!got, name: got ? JSON.parse(got.text).name : null, repaired: (localStorage.getItem('nfm-graph') || '').indexOf('SafeOne') >= 0, notNewerNow: (await NFM.safe.newer('nfm-graph')) === null };
-      document.getElementById('b-undo').click(); out.home = S.graph === g0;
+      NFM.setV({ hulls: true }, 'none');
+      const out = {}, t0 = performance.now(); let m = null;
+      while (performance.now() - t0 < 5000) { m = await NFM.safe.read('nfm-graph'); if (m && m.text.indexOf('SafeOne') >= 0 && localStorage.getItem(vk)) break; await wait(40); }
+      await wait(100);
+      const mark = JSON.parse(localStorage.getItem('nfm-graph-at') || 'null');
+      out.mapInDb = !!m && m.text.indexOf('SafeOne') >= 0; out.noMapText = localStorage.getItem('nfm-graph') === null; out.marker = !!mark && !!m && mark.seq === m.seq && mark.size === m.text.length;
+      const txt = localStorage.getItem(vk), seq = localStorage.getItem('nfm-seq:' + vk);   /* a view save lost from localStorage, as a crash would */
+      localStorage.setItem(vk, '{}'); localStorage.setItem('nfm-seq:' + vk, '0');
+      const got = await NFM.safe.newer(vk); NFM.safe.repair(vk, got || { text: txt, seq: +seq });
+      out.found = !!got && JSON.parse(got.text).hulls === true; out.repaired = localStorage.getItem(vk) === txt; out.notNewerNow = (await NFM.safe.newer(vk)) === null;
+      NFM.setV({ hulls: false }, 'none'); document.getElementById('b-undo').click(); out.home = S.graph === g0;
       return out;
     });
-    say(r.found && r.name === 'SafeOne' && r.repaired && r.notNewerNow && r.home, 'a save lost from localStorage is found in the safe copy and put back: ' + JSON.stringify(r));
+    say(r.mapInDb && r.noMapText && r.marker, 'the saved map is kept in IndexedDB only, with a small marker in the shared localStorage: ' + JSON.stringify({ mapInDb: r.mapInDb, noMapText: r.noMapText, marker: r.marker }));
+    say(r.found && r.repaired && r.notNewerNow && r.home, 'a save lost from localStorage is found in the safe copy and put back: ' + JSON.stringify(r));
   } catch (e) { say(false, 'the safe-save check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   try {
   { const r = await ev(async () => {
