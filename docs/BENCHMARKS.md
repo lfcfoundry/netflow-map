@@ -2052,9 +2052,30 @@ Early-stop A/B rule, small map (1,500 rows, 6,003 items), 20 changes a round, af
 
 Packing on the keeper's thread: 3.2 to 4.2 s after the park, off the page. Final build (with the Firefox fix); the first timing, before the fix, gave 10 to 20 / 9 to 19 / 9 to 140 ms held at restart.
 
-## 61. Where the saved map lives: IndexedDB with a marker instead of the shared localStorage (2026.10.31)
+## 62. Pixel ratio cap at 2 for the map (2026.10.31)
 
-Lab, 800 by 600 window, early-stop A/B rule (after / before with the 90% interval). Before = 2026.10.31.1603, after = 2026.10.31.1621.
+Chromium 155, 412 by 860 window (phone size), 1,600-item map. Before = 2.5 cap (2026.10.31.1603), after = 2 cap (2026.10.31.1645).
+
+| | Ratio 1 | Ratio 2 | Ratio 3 |
+|---|---:|---:|---:|
+| Canvas pixels, before | 0.66 M | 2.52 M | 3.92 M |
+| Canvas pixels, after | 0.66 M | 2.52 M | 2.52 M |
+
+At ratio 3, busy time on all browser threads while panning and zooming: 0.86 of before (early-stop A/B rule, 0.84 to 1.00). Screens at ratio 2 and below draw the same picture as before.
+
+## 63. The column profile updated for changed items only (2026.10.31)
+
+Lab, 800 by 600 window, Data tab shown, early-stop A/B rule. Before = 2026.10.31.1645, after = 2026.10.31.1730. Page held in the 2.5 s after one rename (heartbeat gaps over 50 ms plus the change itself), median.
+
+| | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---:|---:|---:|
+| 16 MB table (188,000 rows, 751,563 items and links) | 262 / 138 ms (0.53) | 292 / 91 ms (0.29) | 432 / 146 ms (0.37) |
+| 1,500 rows | 7 / 7 ms | 8 / 7 ms | 9 / 9 ms |
+| 1,500 rows, page time of 20 renames (synchronous) | faster 0.84 (0.75 to 0.93) | faster 0.53 (0.44 to 0.61) | faster 0.63 (0.56 to 0.79) |
+
+## 64. Where the saved map lives: IndexedDB with a marker instead of the shared localStorage (2026.10.31)
+
+Lab, 800 by 600 window, early-stop A/B rule (after / before with the 90% interval). Before = 2026.10.31.1603, after = 2026.10.31.1750.
 
 | | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
 |---|---:|---:|---:|

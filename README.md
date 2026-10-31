@@ -127,6 +127,8 @@ Lower is better. All 25 Undo steps still work. Undo keeps only what each change 
 
 Lower is better. Only what changed goes to the layout helper (1.8 s to 20 ms in Chromium), the autosave stops as soon as a map is too big to keep instead of writing all 61 MB of it, and the app's list of items and links is updated for the changed items only. Coming back to a big map after a rest no longer freezes the page either (0.6 to 1.8 s before, 8 to 32 ms now; the restart takes about 0.1 to 0.6 s longer). Details: docs/BENCHMARKS.md sections 58 to 60.
 
+The summary of what each column holds is now also updated for the changed items only: the page is held after a rename for 262 to 138 ms in Chromium, 292 to 91 ms in Firefox and 432 to 146 ms in WebKitGTK (Data tab shown, docs/BENCHMARKS.md section 63).
+
 ## Saves that survive a crash (lab)
 
 | The browser was killed hard | Before | Now |
@@ -137,7 +139,7 @@ Lower is better. Only what changed goes to the layout helper (1.8 s to 20 ms in 
 
 A browser keeps its local storage in memory and writes it to disk later: Chromium up to about a minute later, Firefox about 10 s. Every save now also goes to the browser's database (IndexedDB), asked to reach the disk at once, and when the app opens with a newer copy there it brings it back and says so. A save of a 2,000-item map costs the page about 1 ms more in Firefox and nothing measurable in Chromium. Details: docs/BENCHMARKS.md section 57.
 
-A big saved map now lives only in that database, with a tiny note in local storage, so it no longer fills the small space that every app on this site shares (1.74 MB down to 1.3 KB in a lab run). Saving it holds the page less (Chromium 78 to 4 ms over five saves, Firefox 37 to 4 ms). Opening the app with a big saved map is a little faster in Chromium and about 20 ms slower in Firefox and WebKitGTK. Maps saved by older versions move over on first open. Details: docs/BENCHMARKS.md section 61.
+A big saved map now lives only in that database, with a tiny note in local storage, so it no longer fills the small space that every app on this site shares (1.74 MB down to 1.3 KB in a lab run). Saving it holds the page less (Chromium 78 to 4 ms over five saves, Firefox 37 to 4 ms). Opening the app with a big saved map is a little faster in Chromium and about 20 ms slower in Firefox and WebKitGTK. Maps saved by older versions move over on first open. Details: docs/BENCHMARKS.md section 64.
 
 ## What it does
 
@@ -235,6 +237,7 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - In loops, the map shows expected visits per player, not "share of players who saw it".
 - A layered view stops above 90,000 stops and says so; use Network or Matrix instead.
 - Real graphics hardware and phones are checked by hand (see Browsers used in testing).
+- Sharp screens: one Chromium run at pixel ratios 1, 2 and 3 in a phone-sized window counts the map's canvas pixels (`qa-guide/pixel-ratio/dpr-check.js`). The map is drawn at up to 2 times the screen's size in points (3.92 to 2.52 M pixels at ratio 3, docs/BENCHMARKS.md section 62).
 
 ## Browsers used in testing
 

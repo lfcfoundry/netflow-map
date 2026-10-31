@@ -91,17 +91,25 @@ var NFMColumns = (function () {
   /* ---------------------------------------------------------------- profile: what is in each column */
   var NODE_BUILTIN = [['label', 'Label'], ['group', 'Group'], ['valence', 'Outcome mark']];
   var EDGE_BUILTIN = [['weight', 'Weight'], ['label', 'Label'], ['kind', 'Kind']];
+  var NODE_KEYS = ['label', 'group', 'valence'], EDGE_KEYS = ['weight', 'label', 'kind'];
+  var curI = -1;   /* the item or link being read by profile(), for the update record below */
   function makeCol(scope, key, name, builtin) {
-    return { scope: scope, key: key, name: name, builtin: !!builtin, n: 0, numN: 0, dateN: 0, min: Infinity, max: -Infinity, sum: 0, distinct: 0, cats: null, sample: [], kind: 'empty', _d: new Map() };
+    return { scope: scope, key: key, name: name, builtin: !!builtin, n: 0, numN: 0, dateN: 0, min: Infinity, max: -Infinity, sum: 0, distinct: 0, cats: null, sample: [], kind: 'empty', _d: new Map(), _f: curI, _ca: -1, _sa: -1, _si: [], _ni: false };
   }
   function feed(c, v) {
     if (isEmpty(v)) return;
     c.n++;
     var x = num(v);
-    if (x === x) { c.numN++; if (x < c.min) c.min = x; if (x > c.max) c.max = x; c.sum += x; }
+    if (x === x) { c.numN++; if (x < c.min) c.min = x; if (x > c.max) c.max = x; c.sum += x; if (x % 1) c._ni = true; }
     else if (!isNaN(dateMs(v))) c.dateN++;
-    if (c._d.size < 400 || c._d.has(v)) c._d.set(v, (c._d.get(v) || 0) + 1);
-    if (c.sample.length < 3 && c.sample.indexOf(v) < 0) c.sample.push(v);
+    if (c._d.size < 400 || c._d.has(v)) { c._d.set(v, (c._d.get(v) || 0) + 1); if (c._ca < 0 && c._d.size === 400) c._ca = curI; }
+    if (c.sample.length < 3 && c.sample.indexOf(v) < 0) { c.sample.push(v); c._si.push(curI); if (c.sample.length === 3) c._sa = curI; }
+  }
+  /* What update() needs to redo a column's summary for a few changed items: the counts (the same capped Map finish() reads), where the
+     column first appeared (_f), where its 400th different value appeared (_ca) and where its third sample came (_sa), whether any of its
+     numbers has a fraction (_ni: then a sum done in another order could differ in the last digit), and the raw min, max and sum. */
+  function record(c) {
+    return { scope: c.scope, key: c.key, name: c.name, builtin: c.builtin, n: c.n, numN: c.numN, dateN: c.dateN, min: c.min, max: c.max, sum: c.sum, sample: c.sample.slice(), si: c._si, d: c._d, f: c._f, ca: c._ca, sa: c._sa, ni: c._ni };
   }
   function finish(c) {
     c.distinct = c._d.size;
@@ -114,30 +122,127 @@ var NFMColumns = (function () {
     if (c.kind === 'category') c.cats = Array.from(c._d.entries()).sort(function (a, b) { return b[1] - a[1] || (String(a[0]) < String(b[0]) ? -1 : 1); }).slice(0, 40).map(function (e) { return [String(e[0]), e[1]]; });
     if (c.numN === 0) { c.min = c.max = c.sum = 0; }
     c.mean = c.numN ? c.sum / c.numN : 0;
-    delete c._d;
+    delete c._d; delete c._f; delete c._ca; delete c._sa; delete c._si; delete c._ni;
     return c;
+  }
+  var KEPT = typeof WeakMap === 'function' ? new WeakMap() : null;   /* profile -> its update record */
+  function close(nc, ec, nN, nE) {
+    var out = { nodes: [], edges: [] }, rec = KEPT ? { nc: [], ec: [], nN: nN, nE: nE } : null;
+    nc.forEach(function (col) { if (rec) rec.nc.push(record(col)); finish(col); if (col.kind !== 'empty') out.nodes.push(col); });
+    ec.forEach(function (col) { if (rec) rec.ec.push(record(col)); finish(col); if (col.kind !== 'empty') out.edges.push(col); });
+    // the label column is only interesting when it differs from the name; the weight is a number even when sparse
+    out.edges.forEach(function (col) { if (col.key === 'weight' && col.numN) col.kind = 'number'; });
+    if (rec) KEPT.set(out, rec);
+    return out;
   }
   /** { nodes: [column], edges: [column] } for a graph. Cheap enough to run on every change. */
   function profile(g) {
-    var out = { nodes: [], edges: [] }, nc = new Map(), ec = new Map(), i, k, c;
+    var nc = new Map(), ec = new Map(), i, k, c;
+    curI = -1;
     NODE_BUILTIN.forEach(function (b) { nc.set(b[0], makeCol('nodes', b[0], b[1], true)); });
     EDGE_BUILTIN.forEach(function (b) { ec.set(b[0], makeCol('edges', b[0], b[1], true)); });
     for (i = 0; i < g.nodes.length; i++) {
-      var n = g.nodes[i];
+      var n = g.nodes[i]; curI = i;
       feed(nc.get('label'), n.label === n.id ? '' : n.label); feed(nc.get('group'), n.group); feed(nc.get('valence'), n.valence);
       var at = n.attrs;
       if (at) for (k in at) { c = nc.get(k); if (!c) { c = makeCol('nodes', k, k, false); nc.set(k, c); } feed(c, at[k]); }
     }
+    curI = -1;
     for (i = 0; i < g.edges.length; i++) {
-      var e = g.edges[i];
+      var e = g.edges[i]; curI = i;
       feed(ec.get('weight'), e.weight); feed(ec.get('label'), e.label); feed(ec.get('kind'), e.kind);
       var ea = e.attrs;
       if (ea) for (k in ea) { c = ec.get(k); if (!c) { c = makeCol('edges', k, k, false); ec.set(k, c); } feed(c, ea[k]); }
     }
-    nc.forEach(function (col) { finish(col); if (col.kind !== 'empty') out.nodes.push(col); });
-    ec.forEach(function (col) { finish(col); if (col.kind !== 'empty') out.edges.push(col); });
-    // the label column is only interesting when it differs from the name; the weight is a number even when sparse
-    out.edges.forEach(function (col) { if (col.key === 'weight' && col.numN) col.kind = 'number'; });
+    curI = -1;
+    return close(nc, ec, g.nodes.length, g.edges.length);
+  }
+  /*
+   * update(prev, a, b, dn, de): the profile of graph b, worked out from prev (the profile of a) for the changed item slots dn and link
+   * slots de only (b has a's lengths, and every other slot holds the same object). The result is the same as profile(b), field for field;
+   * whenever it might not be, this returns null and the caller runs profile(b): a changed value at or before where a column's samples or
+   * its 400 different values were collected, a column's lowest or highest number removed, a number with a fraction, a column appearing
+   * or leaving its place in the order, a capped value's last copy removed, or a column reaching 400 different values. On a 16 MB table
+   * the full profile is about 120 ms of the page's time per change (Chromium); a few changed items take well under a millisecond.
+   */
+  /* One changed value out of (bumpOut) or into (bumpIn) a column's record. False when the record cannot be kept exact this way: the
+     column is then read again whole (redo in update()). */
+  function bumpOut(r, v, k) {
+    if (isEmpty(v)) return true;
+    if (r.sa < 0 || k <= r.sa || (r.ca >= 0 && k <= r.ca)) return false;
+    r.n--;
+    var x = num(v);
+    if (x === x) { if (r.ni || x <= r.min || x >= r.max) return false; r.numN--; r.sum -= x; }
+    else if (!isNaN(dateMs(v))) r.dateN--;
+    var m = r.d.get(v);
+    if (r.ca >= 0) { if (m === undefined) return true; if (m === 1) return false; r.d.set(v, m - 1); }
+    else if (m === 1) r.d.delete(v); else r.d.set(v, m - 1);
+    return true;
+  }
+  function bumpIn(r, v, k) {
+    if (isEmpty(v)) return true;
+    if (r.sa < 0 || k <= r.sa || (r.ca >= 0 && k <= r.ca)) return false;
+    r.n++;
+    var x = num(v);
+    if (x === x) { if (r.ni || x % 1 || Math.abs(r.sum + x) > 9e15) return false; r.numN++; r.sum += x; if (x < r.min) r.min = x; if (x > r.max) r.max = x; }
+    else if (!isNaN(dateMs(v))) r.dateN++;
+    var m = r.d.get(v);
+    if (r.ca >= 0) { if (m !== undefined) r.d.set(v, m + 1); }
+    else { r.d.set(v, (m || 0) + 1); if (r.d.size >= 400) return false; }
+    return true;
+  }
+  function update(prev, a, b, dn, de) {
+    var rec = KEPT && prev && KEPT.get(prev);
+    if (!rec || !a || !b || !dn || !de || b.nodes.length !== rec.nN || b.edges.length !== rec.nE || a.nodes.length !== rec.nN || a.edges.length !== rec.nE) return null;
+    function side(list, olds, news, slots, builtin) {
+      var map = new Map(), own2 = new Map(), redo = new Set(), i, j, k, o, nw, key, r, isN = builtin === NODE_KEYS;
+      list.forEach(function (x) { map.set(x.key, x); });
+      function mine(x) { var y = own2.get(x.key); if (!y) { y = Object.assign({}, x); y.d = new Map(x.d); own2.set(x.key, y); } return y; }
+      function bump(key, vo, vn, k, out, inn) { if (redo.has(key)) return; var y = mine(map.get(key)); if (!((!out || bumpOut(y, vo, k)) && (!inn || bumpIn(y, vn, k)))) redo.add(key); }
+      for (i = 0; i < slots.length; i++) {
+        k = slots[i]; o = olds[k]; nw = news[k];
+        for (j = 0; j < builtin.length; j++) {
+          key = builtin[j];
+          var vo = isN && key === 'label' ? (o.label === o.id ? '' : o.label) : o[key], vn = isN && key === 'label' ? (nw.label === nw.id ? '' : nw.label) : nw[key];
+          if (vo !== vn) bump(key, vo, vn, k, true, true);
+        }
+        var ao = o.attrs || null, an = nw.attrs || null;
+        if (ao === an) continue;
+        if (ao) for (key in ao) {
+          r = map.get(key); if (!r) return null;
+          if (an && Object.prototype.hasOwnProperty.call(an, key)) { if (ao[key] !== an[key]) bump(key, ao[key], an[key], k, true, true); }
+          else if (r.f === k) return null;   /* the column first appeared here: its place in the order may change */
+          else bump(key, ao[key], null, k, true, false);
+        }
+        if (an) for (key in an) {
+          if (ao && Object.prototype.hasOwnProperty.call(ao, key)) continue;
+          r = map.get(key); if (!r || r.f > k) return null;   /* a new column, or one that now appears earlier */
+          bump(key, null, an[key], k, false, true);
+        }
+      }
+      /* columns that could not be kept exact are read again whole, the way profile() reads them (the built-in field, then attrs) */
+      redo.forEach(function (key) {
+        var x = map.get(key), c = makeCol(x.scope, x.key, x.name, x.builtin), q, it, bi = builtin.indexOf(key) >= 0;
+        for (q = 0; q < news.length; q++) {
+          it = news[q]; curI = q;
+          if (bi) feed(c, isN && key === 'label' ? (it.label === it.id ? '' : it.label) : it[key]);
+          if (it.attrs && Object.prototype.hasOwnProperty.call(it.attrs, key)) feed(c, it.attrs[key]);
+        }
+        curI = -1; c._f = x.f; own2.set(key, record(c));
+      });
+      return list.map(function (x) { return own2.get(x.key) || x; });
+    }
+    var nr = side(rec.nc, a.nodes, b.nodes, dn, NODE_KEYS); if (!nr) return null;
+    var er = side(rec.ec, a.edges, b.edges, de, EDGE_KEYS); if (!er) return null;
+    function col(r) {
+      var c = { scope: r.scope, key: r.key, name: r.name, builtin: r.builtin, n: r.n, numN: r.numN, dateN: r.dateN, min: r.min, max: r.max, sum: r.sum, distinct: 0, cats: null, sample: r.sample.slice(), kind: 'empty', _d: r.d };
+      return c;
+    }
+    var out = { nodes: [], edges: [] };
+    nr.forEach(function (r) { var c = finish(col(r)); if (c.kind !== 'empty') out.nodes.push(c); });
+    er.forEach(function (r) { var c = finish(col(r)); if (c.kind !== 'empty') out.edges.push(c); });
+    out.edges.forEach(function (c) { if (c.key === 'weight' && c.numN) c.kind = 'number'; });
+    KEPT.set(out, { nc: nr, ec: er, nN: rec.nN, nE: rec.nE });
     return out;
   }
   function findCol(list, key) { for (var i = 0; i < list.length; i++) if (list[i].key === key) return list[i]; return null; }
@@ -455,6 +560,6 @@ var NFMColumns = (function () {
     return out;
   }
 
-  return { buildStates: buildStates, clearStates: clearStates, num: num, dateMs: dateMs, fmt: fmt, fmtFull: fmtFull, profile: profile, findCol: findCol, numOf: numOf, catOf: catOf, split: split, guessRoles: guessRoles, isStory: isStory, compile: compile, derive: derive, suggestStates: suggestStates, nodeSys: nodeSys, FUNCS: Object.keys(FUNCS).concat(['if']) };
+  return { buildStates: buildStates, clearStates: clearStates, num: num, dateMs: dateMs, fmt: fmt, fmtFull: fmtFull, profile: profile, profileUpdate: update, findCol: findCol, numOf: numOf, catOf: catOf, split: split, guessRoles: guessRoles, isStory: isStory, compile: compile, derive: derive, suggestStates: suggestStates, nodeSys: nodeSys, FUNCS: Object.keys(FUNCS).concat(['if']) };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMColumns;
