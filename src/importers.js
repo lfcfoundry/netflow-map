@@ -1096,7 +1096,10 @@ var NFMImport = (function () {
     var t = stripBom(String(text)).trim(), ext = (filename || '').toLowerCase().split('.').pop();
     if (!t) return 'empty';
     if (ext === 'json' || ext === 'canvas' || ext === 'jsonl' || ext === 'ndjson' || /^[\[{]/.test(t)) {
-      try { JSON.parse(t); return 'json'; } catch (e) { if (ext === 'json' || ext === 'canvas') return 'json'; }
+      try { JSON.parse(t); return 'json'; } catch (e) {
+        if (ext === 'json' || ext === 'canvas' || ext === 'jsonl' || ext === 'ndjson') return 'json';   /* JSON Lines (one record a line) used to fall through to the table reader and came out as text cells; importJSON reads them line by line */
+        if (t.charAt(0) === '{' && t.split(LINEBREAK).every(function (l) { if (!l.trim()) return true; try { JSON.parse(l); return true; } catch (e3) { return false; } })) return 'json';
+      }
     }
     if (ext === 'graphml') return 'graphml';
     if (ext === 'gexf') return 'gexf';

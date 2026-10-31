@@ -116,6 +116,20 @@ async function open() {
     z = await stats(); say(Date.now() - t0 < 15000 && /more than it says|damaged/.test(z.notes), 'a zip bomb is stopped and the rest still reads (' + (Date.now() - t0) + ' ms)');
     await feed('x.gml', Buffer.from('graph [ node [ id 1 label "One" ] node [ id 2 ] edge [ source 1 target 2 ] ]')); z = await stats();
     say(z.n === 2 && z.m === 1, 'a GML file read');
+    /* every file type the Data tab takes (test/file-types.js), each through the real file picker, then a saved .json.lfc map file the same way */
+    const FT = require('./file-types.js'), gname = () => ev(() => NFM.state.graph.name + '/' + NFM.state.graph.nodes.length + '/' + NFM.state.graph.edges.length);
+    const pick = async (name, buf) => { const b0 = await gname(); await ev(([n, b64]) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); const dt = new DataTransfer(); dt.items.add(new File([u], n)); const inp = document.getElementById('in-files'); inp.files = dt.files; inp.dispatchEvent(new Event('change')); }, [name, buf.toString('base64')]); await until((b) => (NFM.state.graph.name + '/' + NFM.state.graph.nodes.length + '/' + NFM.state.graph.edges.length) !== b, b0, 6000); };
+    const wrong = [];
+    for (let i = 0; i < FT.LIST.length; i++) {
+      const [name, data, ni, nl] = FT.LIST[i];
+      await pick('t' + i + '-' + name, Buffer.isBuffer(data) ? data : Buffer.from(data));   /* a new name each time, so the wait sees the change even when the counts are the same */
+      z = await stats(); if (z.n !== ni || z.m !== nl) wrong.push(name + ' ' + z.n + '/' + z.m);
+    }
+    say(!wrong.length, 'every file type the app takes opens through the file picker (' + FT.EXTS.map((x) => '.' + x).join(' ') + '): ' + (wrong.length ? 'wrong: ' + wrong.join(', ') : 'all ' + FT.LIST.length + ' as 3 items'));
+    const lfc = Buffer.from(await ev(async () => btoa(String.fromCharCode.apply(null, await NFM.mapFileBytes()))), 'base64');
+    await feed('small.csv', Buffer.from('source,target\nX,Y\n'));
+    await pick('saved.json.lfc', lfc); z = await stats();
+    say(z.n === 3 && z.m === 3 && Buffer.concat([lfc.slice(0, 4), lfc.slice(-4)]).toString('latin1').indexOf('LFC1') >= 0, 'a saved .json.lfc map file opens through the file picker: ' + z.n + ' items, ' + z.m + ' links (' + lfc.length + ' bytes)');
     await ev(() => NFM.showTab('data'));
   }
 
