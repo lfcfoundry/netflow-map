@@ -233,6 +233,7 @@ sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 - In loops, the map shows expected visits per player, not "share of players who saw it".
 - A layered view stops above 90,000 stops and says so; use Network or Matrix instead.
 - Real graphics hardware and phones are checked by hand (see Browsers used in testing).
+- Sharp screens: one Chromium run at pixel ratios 1, 2 and 3 in a phone-sized window counts the map's canvas pixels (`qa-guide/pixel-ratio/dpr-check.js`). The map is drawn at up to 2 times the screen's size in points (3.92 to 2.52 M pixels at ratio 3, docs/BENCHMARKS.md section 62).
 
 ## Browsers used in testing
 

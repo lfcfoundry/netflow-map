@@ -2052,3 +2052,14 @@ Early-stop A/B rule, small map (1,500 rows, 6,003 items), 20 changes a round, af
 
 Packing on the keeper's thread: 3.2 to 4.2 s after the park, off the page. Final build (with the Firefox fix); the first timing, before the fix, gave 10 to 20 / 9 to 19 / 9 to 140 ms held at restart.
 
+## 62. Pixel ratio cap at 2 for the map (2026.10.31)
+
+Chromium 155, 412 by 860 window (phone size), 1,600-item map. Before = 2.5 cap (2026.10.31.1603), after = 2 cap (2026.10.31.1645).
+
+| | Ratio 1 | Ratio 2 | Ratio 3 |
+|---|---:|---:|---:|
+| Canvas pixels, before | 0.66 M | 2.52 M | 3.92 M |
+| Canvas pixels, after | 0.66 M | 2.52 M | 2.52 M |
+
+At ratio 3, busy time on all browser threads while panning and zooming: 0.86 of before (early-stop A/B rule, 0.84 to 1.00). Screens at ratio 2 and below draw the same picture as before.
+
