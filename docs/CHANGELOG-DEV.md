@@ -4,6 +4,16 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.1603 · 2026-10-31
+
+### Quick
+Approved on a card ("Pack it off the page"): the app now sets `client.keeper`, so a parked layout worker's graph is packed off the page before the worker ends, and the restart takes it from there. Invisible, same maps, nothing saved changes; a restart after a rest takes about 0.5 to 1 s longer.
+
+### Details
+src/app/75-mapfile.js: `UNDOPACK_MAIN` (the LFC-pack worker of packed undo) takes two more kinds: `keep` (the layout worker's raw graph arrives on a MessageChannel port and goes back as `packTables` bytes, meta = every field but nodes and edges) and `give` (bytes in, `unpackTables`, the graph out on a port to the fresh layout worker). `keeperCall` / `LAYOUT_KEEPER` wrap them. src/app/99-boot.js sets `client.keeper` when Worker, DecompressionStream and MessageChannel exist. The client side (park handover, unpark from the kept bytes plus a diff, fallback to the whole graph) shipped in 2026.10.31.1410. The kept-graph browser check now runs instead of skipping. The page asks the layout worker for its graph only after the keeper's thread has its end of the channel (`keep(port, posted)`), and a keep that has not ended in 20 s is given up (the restart then sends the whole graph).
+
+### Deep
+16 MB moderate table (751,563 items and links), 800 by 600 window, 3 rounds each, park then restart. Page held at restart, before / after: Chromium 642 to 762 / 9 to 20 ms, Firefox 833 to 1,177 / 8 to 18 ms, WebKitGTK 1,569 to 1,813 / 12 to 32 ms. Restart until the worker has the graph: Chromium 1.66 to 1.77 / 1.80 to 2.03 s, Firefox 1.34 to 2.01 / 2.21 to 2.32 s, WebKitGTK 2.11 to 2.60 / 2.72 to 3.20 s. Parking now holds the page 8 to 15 ms (one WebKitGTK round 125 ms; was 0 to 1 ms: the port handover), and packing on the keeper thread takes 3.2 to 4.2 s, off the page. All 3 restarts in every browser came from the kept bytes. Found in the first three-browsers-at-once run: in Firefox the keep of a small map never ended, so the next restart waited for ever (8 checks failed or timed out). The worker's graph reached the page's end of the channel before that end had moved to the keeper's thread, and Firefox appears to drop messages queued on a port that then moves (Chromium and WebKitGTK deliver them; changing the order fixed it in all three). A big map took long enough to send that the port had moved first, which is why the timing runs never saw it. Fixed by the order above; the 20 s limit makes any keep that never ends cost a whole-graph restart instead of a stuck engine.
 ## Tests only · 2026-10-31 (no new build)
 
 ### Quick
