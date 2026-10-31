@@ -12,21 +12,48 @@ Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry.
 
 ## What it is and how it works
 
-Netflow Map is one file, index.html, that reads tables, JSON graphs, outlines, notes and graph files, lays the items out in nine views with no two items on top of each other, and draws them with WebGL 2 or plain 2D drawing. The layout runs in a background helper, WebAssembly does the heaviest steps, and nothing is uploaded. There is nothing to install and no administrative privileges to grant, and you need no special computing knowledge: open the file in any modern browser and drop in your list.
+Netflow Map is a free tool for seeing and analyzing relationships and flows. You give it a list of things and how they connect, and it draws a map you can read, then helps you ask questions of it. It does not care what the data describes or what it calls the parts: links and nodes, edges and vertices, pages and choices, or services and calls all have the same shape underneath, and the tool treats them the same way.
+
+It works in four steps, all inside your browser:
+
+1. **Read.** It takes tables (CSV, TSV, Excel), JSON graphs, outlines, Markdown notes, graph files (GraphML, GEXF, GML, DOT) and zips of any of these. It works out which columns hold the links, and reports in plain words what it kept, merged or skipped.
+2. **Lay out.** Nine views each answer a different question: Flow shows how things lead on from a start, Matrix shows who links to whom, Network shows what clusters together, and so on. In every network arrangement, no two items are left touching. The heavy work runs in a background helper with WebAssembly, so the page stays responsive: 30,000 items lay out in under a second, 100,000 in a few seconds.
+3. **Analyze.** The Check tab points out problems in the data, with a reason and a fix where one is safe. Choke points show the items every route must pass. A simulation sends up to 100,000 walkers through the map to give odds with error bars and to rank what-if changes.
+4. **Share.** Export pictures (SVG, PNG, an animated GIF), the data (JSON, CSV), or a one-page HTML report.
+
+All of this lives in one file, index.html. Nothing is uploaded and nothing is installed, and it needs no administrator rights and no special computing knowledge.
 
 ## Why it exists
 
-The Story Editor map shows how pages lead on to each other and where players get stuck. The same questions come up for any set of links: notes, files, processes, flows of money or people. Netflow Map generalizes that map and stays quick and readable as data grows (30,000 items lay out in under a second, 100,000 in a few seconds).
+Most data about connections is kept as lists: rows of who sends what to whom, files that link to other files, steps that hand work to other steps. A list hides its shape. A spreadsheet will not tell you which item everything else depends on, where flows pile up, or which groups barely talk to each other. Drawing the data helps, but drawing it by hand does not scale, and general-purpose tools often ask for one exact format, slow down past a few thousand items, or leave items piled on top of each other.
+
+Netflow Map is built to close that gap in three ways. It is data-agnostic, so the same tool works whether your links are called edges, choices, calls or references. It stays fast as the data grows, so you can look at the whole of it instead of a sample. And it is built to separate the signal from the noise: views that each answer one question, a guarantee that no two items overlap, a strongest-links slider and filters to thin out a dense map, and analysis that names the choke points and likely end points instead of leaving you to guess.
+
+It runs as a single file in the browser because the browser is the most widely available place to run software. That is why it works offline, on locked-down work computers where nothing can be installed, and on almost any device, and why your data never leaves your computer.
+
+Some places it helps:
+
+- **Software systems:** which services call which, which ones the rest depend on, and how a change in one part spreads.
+- **Processes and handoffs:** where work moves between teams, where it waits, and which steps every job must pass.
+- **Supply chains and money flows:** how much moves along each route, and how the routes shift from one state to the next (baseline, year 1, year 2).
+- **Linked notes and wikis:** a folder of Markdown notes, to see which notes are hubs, which clusters form, and which links point to notes that do not exist yet.
+- **Branching stories and decision trees:** which paths people take, which endings they reach, and how likely each one is.
+- **Research networks:** citations, co-authors, or any edge list from GraphML, GEXF or a spreadsheet, up to 100,000 items.
+- **Teaching:** showing what a network is and how different layouts reveal different things, with nothing to set up in a classroom.
 
 <div align="center">
 
 <table>
 <tr>
 <td align="center" valign="top"><img src="images/flow.jpg" alt="Flow view of a short story: scenes left to right with choices as arrows" width="390"><br><sub>Flow: how things lead on from the start</sub></td>
-<td align="center" valign="top"><img src="images/lanes.jpg" alt="Lanes view of a team's handoffs: one band per group" width="390"><br><sub>Lanes: how routes cross between groups</sub></td>
+<td align="center" valign="top"><img src="images/matrix.jpg" alt="Matrix view of a team's handoffs: rows link to columns, colored by group" width="390"><br><sub>Matrix: who links to whom, with no crossing lines</sub></td>
 </tr>
 <tr>
 <td align="center" valign="top" colspan="2"><img src="images/network.jpg" alt="Network view of a company's 288 software systems, colored by team" width="500"><br><sub>Network: 288 systems and 712 links, with no two items touching</sub></td>
+</tr>
+<tr>
+<td align="center" valign="top"><img src="images/sphere.jpg" alt="3D sphere arrangement of 3,000 items and 9,231 links in six communities, colored by found group" width="390"><br><sub>3D sphere: 3,000 items and 9,231 links, turned by dragging</sub></td>
+<td align="center" valign="top"><img src="images/down.jpg" alt="Top-down view of the short story: the same drawing as Flow, top to bottom" width="390"><br><sub>Top-down: Flow read from top to bottom</sub></td>
 </tr>
 </table>
 

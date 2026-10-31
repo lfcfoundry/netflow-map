@@ -470,6 +470,7 @@ function freeBox() {
 function fitTarget(ids) {
   var sc = S.scene; if (!sc) return null;
   var b = freeBox(), x0 = sc.x0, y0 = sc.y0, x1 = sc.x0 + sc.w, y1 = sc.y0 + sc.h;
+  if (S.L && S.L.kind === 'matrix' && !(ids && ids.length)) { x0 = Math.min(x0, 0); y0 = Math.min(y0, 0); x1 = Math.max(x1, S.L.width + 150); y1 = Math.max(y1, S.L.height); }   /* the grid's names and its note ("rows are where a link starts...", about 300 wide) sit outside the drawn squares, so Fit takes the whole grid and the note */
   if (ids && ids.length) {
     x0 = y0 = Infinity; x1 = y1 = -Infinity;
     ids.forEach(function (id) { var n = sceneNodeFor(id); if (n) { x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x + n.w); y1 = Math.max(y1, n.y + n.h); } });
