@@ -203,10 +203,40 @@ var SAFE = (function () {
 })();
 var saveView = debounce(function () { if (S.V && S.graph.nodes.length && !SAFE.set(VKEY(), JSON.stringify(S.V))) saveWarn('view'); }, 400);
 var savePrefs = debounce(function () { LS.set('nfm-prefs', JSON.stringify({ theme: S.theme, method: S.method })); }, 300);
+/**
+ * JSON.stringify(g), the same text, or null as soon as it would pass max characters. The autosave keeps maps under 1.8 MB of text only, and
+ * it used to write a big map's whole text on every change just to find that out (750,000 items and links: a long freeze and about 100 MB
+ * of garbage each time). Items are written one at a time, so a big map stops after the first 1.8 MB.
+ */
+function graphText(g, max) {
+  var parts = [], len = 2, keys = Object.keys(g), ki, k, v, t, i, kq;   /* len: the exact length of the text so far */
+  for (ki = 0; ki < keys.length; ki++) {
+    k = keys[ki]; v = g[k];
+    if ((k === 'nodes' || k === 'edges') && Array.isArray(v)) {
+      var a = new Array(v.length); kq = JSON.stringify(k); len += (parts.length ? 1 : 0) + kq.length + 3 + (v.length ? v.length - 1 : 0);
+      if (len > max) return null;
+      for (i = 0; i < v.length; i++) { t = JSON.stringify(v[i]); if (t === undefined) t = 'null'; len += t.length; if (len > max) return null; a[i] = t; }
+      parts.push(kq + ':[' + a.join(',') + ']');
+    } else {
+      t = JSON.stringify(v); if (t === undefined) continue;
+      t = JSON.stringify(k) + ':' + t; len += (parts.length ? 1 : 0) + t.length; if (len > max) return null;
+      parts.push(t);
+    }
+  }
+  return '{' + parts.join(',') + '}';
+}
+/** Whether g's text may fit in max characters: yes under 20,000 items and links; above, a guess from 200 items and 200 links spread through it (generous: 1.5 times over max still says yes). */
+function textMayFit(g, max) {
+  var n = g.nodes || [], e = g.edges || [], k = Math.min(n.length, 200), j = Math.min(e.length, 200), a = 0, b = 0, i, t;
+  if (n.length + e.length < 20000) return true;   /* small maps: the one whole stringify, exactly as before (sampling cost them 5 to 13%) */
+  for (i = 0; i < k; i++) { t = JSON.stringify(n[Math.floor(i * n.length / k)]); a += t ? t.length + 1 : 5; }
+  for (i = 0; i < j; i++) { t = JSON.stringify(e[Math.floor(i * e.length / j)]); b += t ? t.length + 1 : 5; }
+  return (k ? a / k * n.length : 0) + (j ? b / j * e.length : 0) < max * 1.5;
+}
 var saveGraph = debounce(function () {
   if (!S.graph.nodes.length) { SAFE.del('nfm-graph'); return; }
-  var txt = JSON.stringify(S.graph);
-  if (txt.length < 1800000) { if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else { SAFE.del('nfm-graph'); saveWarn('big'); }
+  var txt = textMayFit(S.graph, 1800000) ? JSON.stringify(S.graph) : graphText(S.graph, 1800000);   /* one whole stringify when it may fit (the quickest), item by item with an early stop when it surely won't */
+  if (txt !== null && txt.length < 1800000) { if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else { SAFE.del('nfm-graph'); saveWarn('big'); }
 }, 600);
 /** Saves that are still waiting for their delay are done now when the page is going away or hidden (a reload 600 ms after an edit used to lose it). */
 function flushSaves() { [saveGraph, saveView, savePrefs, typeof saveAdv === 'function' ? saveAdv : null].forEach(function (f) { if (f && f.flush) f.flush(); }); }
