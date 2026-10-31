@@ -69,13 +69,18 @@ var NFMColumns = (function () {
   function isEmpty(v) { return v === undefined || v === null || v === ''; }
 
   /* ---------------------------------------------------------------- number formats */
+  /* Number.prototype.toLocaleString with a locale builds the number rules again on every call (Chromium about 14 µs, WebKitGTK about
+     36 µs a number, against under 1 µs here); a kept Intl.NumberFormat gives the same text (the language defines toLocaleString as
+     new Intl.NumberFormat(locale, options).format). */
+  var NF_INT = typeof Intl !== 'undefined' && Intl.NumberFormat ? new Intl.NumberFormat('en-US') : null;
+  var NF_3 = NF_INT ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 }) : null;
   function fmt(v) {
     if (v === undefined || v === null || !isFinite(v)) return '';
     var a = Math.abs(v), s;
     if (a >= 1e9) s = (v / 1e9).toFixed(a >= 1e10 ? 0 : 1) + 'B';
     else if (a >= 1e6) s = (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M';
     else if (a >= 1e4) s = (v / 1e3).toFixed(a >= 1e5 ? 0 : 1) + 'k';
-    else if (a >= 1000) s = Math.round(v).toLocaleString('en-US');
+    else if (a >= 1000) s = NF_INT ? NF_INT.format(Math.round(v)) : Math.round(v).toLocaleString('en-US');
     else if (a >= 100) s = String(Math.round(v * 10) / 10);
     else if (a >= 1) s = String(Math.round(v * 100) / 100);
     else if (a === 0) s = '0';
@@ -85,7 +90,7 @@ var NFMColumns = (function () {
   }
   function fmtFull(v) {
     if (v === undefined || v === null || !isFinite(v)) return '';
-    return Number(v).toLocaleString('en-US', { maximumFractionDigits: 3 });
+    return NF_3 ? NF_3.format(Number(v)) : Number(v).toLocaleString('en-US', { maximumFractionDigits: 3 });
   }
 
   /* ---------------------------------------------------------------- profile: what is in each column */
@@ -560,6 +565,6 @@ var NFMColumns = (function () {
     return out;
   }
 
-  return { buildStates: buildStates, clearStates: clearStates, num: num, dateMs: dateMs, fmt: fmt, fmtFull: fmtFull, profile: profile, profileUpdate: update, findCol: findCol, numOf: numOf, catOf: catOf, split: split, guessRoles: guessRoles, isStory: isStory, compile: compile, derive: derive, suggestStates: suggestStates, nodeSys: nodeSys, FUNCS: Object.keys(FUNCS).concat(['if']) };
+  return { buildStates: buildStates, clearStates: clearStates, num: num, dateMs: dateMs, fmt: fmt, fmtFull: fmtFull, nf: function (n) { return NF_INT ? NF_INT.format(Number(n)) : Number(n).toLocaleString('en-US'); }, profile: profile, profileUpdate: update, findCol: findCol, numOf: numOf, catOf: catOf, split: split, guessRoles: guessRoles, isStory: isStory, compile: compile, derive: derive, suggestStates: suggestStates, nodeSys: nodeSys, FUNCS: Object.keys(FUNCS).concat(['if']) };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMColumns;

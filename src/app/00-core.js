@@ -15,7 +15,7 @@ var LS = {
   set: function (k, v) { if (TWIN) return true; try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
   del: function (k) { if (TWIN) return; try { localStorage.removeItem(k); } catch (e) { /* none */ } }
 };
-var nfmt = function (n) { return Number(n).toLocaleString('en-US'); };
+var nfmt = function (n) { return NFMColumns.nf(n); };   /* Number(n).toLocaleString('en-US') with a kept formatter (src/columns.js) */
 var clamp = function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); };
 var plural = function (n, one, many) { return nfmt(n) + ' ' + (n === 1 ? one : (many || one + 's')); };
 /** Builds an element: h('div', { class: 'x', onclick: fn, 'data-a': 1 }, [children or strings]). Text is always set as text, never as markup. */
