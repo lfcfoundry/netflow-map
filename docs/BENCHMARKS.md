@@ -2045,10 +2045,10 @@ Early-stop A/B rule, small map (1,500 rows, 6,003 items), 20 changes a round, af
 | | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
 |---|---:|---:|---:|
 | Page held at restart, before | 642 to 762 ms | 833 to 1,177 ms | 1,569 to 1,813 ms |
-| Page held at restart, after | 10 to 20 ms | 9 to 19 ms | 9 to 140 ms |
+| Page held at restart, after | 9 to 20 ms | 8 to 18 ms | 12 to 32 ms |
 | Restart until the worker has the map, before | 1.66 to 1.77 s | 1.34 to 2.01 s | 2.11 to 2.60 s |
-| Restart until the worker has the map, after | 2.07 to 2.37 s | 2.30 to 2.64 s | 2.87 to 3.08 s |
-| Page held at park, after | 9 to 23 ms | 12 to 28 ms | 13 to 29 ms |
+| Restart until the worker has the map, after | 1.80 to 2.03 s | 2.21 to 2.32 s | 2.72 to 3.20 s |
+| Page held at park, after | 12 to 14 ms | 8 to 15 ms | 10 to 125 ms |
 
-Packing on the keeper's thread: 3.3 to 4.3 s after the park, off the page.
+Packing on the keeper's thread: 3.2 to 4.2 s after the park, off the page. Final build (with the Firefox fix); the first timing, before the fix, gave 10 to 20 / 9 to 19 / 9 to 140 ms held at restart.
 
