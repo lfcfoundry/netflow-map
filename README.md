@@ -137,6 +137,8 @@ Lower is better. Only what changed goes to the layout helper (1.8 s to 20 ms in 
 
 A browser keeps its local storage in memory and writes it to disk later: Chromium up to about a minute later, Firefox about 10 s. Every save now also goes to the browser's database (IndexedDB), asked to reach the disk at once, and when the app opens with a newer copy there it brings it back and says so. A save of a 2,000-item map costs the page about 1 ms more in Firefox and nothing measurable in Chromium. Details: docs/BENCHMARKS.md section 57.
 
+A big saved map now lives only in that database, with a tiny note in local storage, so it no longer fills the small space that every app on this site shares (1.74 MB down to 1.3 KB in a lab run). Saving it holds the page less (Chromium 78 to 4 ms over five saves, Firefox 37 to 4 ms). Opening the app with a big saved map is a little faster in Chromium and about 20 ms slower in Firefox and WebKitGTK. Maps saved by older versions move over on first open. Details: docs/BENCHMARKS.md section 61.
+
 ## What it does
 
 It has six tabs (the Map's left panel adds a Colors tab):

@@ -157,16 +157,21 @@ function saveWarn(kind) {
  * about 10 s (tested: an edit 30 s before the kill was gone on reopen in Chromium). Each save of the data and of its view settings is also
  * written to IndexedDB, with 'strict' durability, which kept every completed save in both. Each save carries a number, also kept in
  * localStorage; at start, when IndexedDB holds a newer save than localStorage, that one is brought back.
+ * The map itself (nfm-graph, up to 1.8 M characters) is kept in IndexedDB only, with a small marker (nfm-graph-at: its save number and
+ * size) in localStorage: every app on this address shares one 5 MB localStorage, and in Chromium each app's start paid about 17 ms for
+ * a big map kept there (round 22). A map saved by an older build in localStorage is read as before and moved over at start. Without
+ * IndexedDB (a private window that refuses it) the map stays in localStorage, as before. While the page is going away, the map is also
+ * written to localStorage (an IndexedDB write may not finish then); the next start moves it over and removes it.
  */
 var SAFE = (function () {
-  var dbP = null, seq = 0;
+  var dbP = null, seq = 0, idbOK = false, BIG = { 'nfm-graph': 'nfm-graph-at' }, going = false, flying = null;   /* flying: the map save whose IndexedDB write has not finished */
   function open() {
     if (dbP) return dbP;
     dbP = new Promise(function (res, rej) {
       if (TWIN || typeof indexedDB === 'undefined') return rej(new Error('no IndexedDB'));
-      var q = indexedDB.open('netflow-map-saves', 1);
+      var q; try { q = indexedDB.open('netflow-map-saves', 1); } catch (e) { return rej(e); }
       q.onupgradeneeded = function () { q.result.createObjectStore('s'); };
-      q.onsuccess = function () { res(q.result); }; q.onerror = function () { rej(q.error); }; q.onblocked = function () { rej(new Error('blocked')); };
+      q.onsuccess = function () { idbOK = true; res(q.result); }; q.onerror = function () { rej(q.error); }; q.onblocked = function () { rej(new Error('blocked')); };
     });
     dbP.catch(function () { /* no safe copy: localStorage alone, as before */ });
     return dbP;
@@ -180,17 +185,33 @@ var SAFE = (function () {
       });
     });
   }
+  function next() { seq = Math.max(seq, +(LS.get('nfm-seq') || 0)) + 1; LS.set('nfm-seq', String(seq)); return seq; }
+  function spill(f) { LS.set(f.k, f.text); LS.set('nfm-seq:' + f.k, String(f.n)); }
   return {
-    /** Saves text under a localStorage key and its safe copy; false when localStorage refused it. */
+    ready: open,
+    /** Takes the connection the page's first script opened (NFM_EARLY in the page head), so it is not opened twice. */
+    adopt: function (db) { if (!dbP && db) { idbOK = true; dbP = Promise.resolve(db); } },
+    /** Saves text under a key: localStorage plus the IndexedDB copy, or for the map (BIG) IndexedDB plus a marker. False when nothing could keep it. */
     set: function (k, text) {
-      seq = Math.max(seq, +(LS.get('nfm-seq') || 0)) + 1;
-      var ok = LS.set(k, text); LS.set('nfm-seq:' + k, String(seq)); LS.set('nfm-seq', String(seq));
-      tx('readwrite', function (st) { st.put({ seq: seq, text: text }, k); }).catch(function () { /* the localStorage copy stands */ });
+      if (TWIN) return true;
+      var n = next();
+      if (BIG[k] && idbOK) {
+        LS.set(BIG[k], JSON.stringify({ seq: n, size: text.length }));
+        var me = flying = { k: k, text: text, n: n };
+        if (going) spill(me);   /* the page is going away: a sure copy too, moved over at the next start */
+        tx('readwrite', function (st) { st.put({ seq: n, text: text }, k); }).then(function () {
+          if (flying === me) flying = null;
+          if (LS.get(k) !== null && +(LS.get('nfm-seq:' + k) || 0) <= n) { LS.del(k); LS.del('nfm-seq:' + k); }   /* an older or spilled copy is not needed now */
+        }, function () { if (flying === me) flying = null; spill(me); });   /* IndexedDB refused it: localStorage, as before */
+        return true;
+      }
+      var ok = LS.set(k, text); LS.set('nfm-seq:' + k, String(n));
+      tx('readwrite', function (st) { st.put({ seq: n, text: text }, k); }).catch(function () { /* the localStorage copy stands */ });
       return ok;
     },
-    del: function (k) { LS.del(k); LS.del('nfm-seq:' + k); tx('readwrite', function (st) { st.delete(k); }).catch(function () { /* none */ }); },
-    /** Puts a safe copy back into localStorage. */
-    repair: function (k, r) { LS.set(k, r.text); LS.set('nfm-seq:' + k, String(r.seq)); },
+    del: function (k) { if (TWIN) return; LS.del(k); LS.del('nfm-seq:' + k); if (BIG[k]) LS.del(BIG[k]); tx('readwrite', function (st) { st.delete(k); }).catch(function () { /* none */ }); },
+    /** Puts a safe copy back: into localStorage, or for the map, nowhere (IndexedDB already holds it) once IndexedDB works. */
+    repair: function (k, r) { if (BIG[k] && idbOK) { LS.set(BIG[k], JSON.stringify({ seq: r.seq, size: r.text.length })); return; } LS.set(k, r.text); LS.set('nfm-seq:' + k, String(r.seq)); },
     /** The safe copy of key k ({ seq, text }) when it is newer than localStorage's, else null. */
     newer: function (k) {
       var have = +(LS.get('nfm-seq:' + k) || 0);
@@ -198,7 +219,12 @@ var SAFE = (function () {
         if (r && r.seq) seq = Math.max(seq, r.seq);
         return r && r.seq > have && typeof r.text === 'string' ? r : null;
       }, function () { return null; });
-    }
+    },
+    /** The IndexedDB copy of key k ({ seq, text }) or null. */
+    read: function (k) { return tx('readonly', function (st) { return st.get(k); }).then(function (r) { if (r && r.seq) seq = Math.max(seq, r.seq); return r && typeof r.text === 'string' ? r : null; }, function () { return null; }); },
+    /** True while the page is going away (flushSaves): the map is also written to localStorage then. */
+    going: function (v) { going = !!v; if (going && flying) spill(flying); },   /* a map save still on its way to IndexedDB goes to localStorage too */
+    has: function () { return idbOK; }
   };
 })();
 var saveView = debounce(function () { if (S.V && S.graph.nodes.length && !SAFE.set(VKEY(), JSON.stringify(S.V))) saveWarn('view'); }, 400);
@@ -239,7 +265,7 @@ var saveGraph = debounce(function () {
   if (txt !== null && txt.length < 1800000) { if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else { SAFE.del('nfm-graph'); saveWarn('big'); }
 }, 600);
 /** Saves that are still waiting for their delay are done now when the page is going away or hidden (a reload 600 ms after an edit used to lose it). */
-function flushSaves() { [saveGraph, saveView, savePrefs, typeof saveAdv === 'function' ? saveAdv : null].forEach(function (f) { if (f && f.flush) f.flush(); }); }
+function flushSaves() { SAFE.going(true); try { [saveGraph, saveView, savePrefs, typeof saveAdv === 'function' ? saveAdv : null].forEach(function (f) { if (f && f.flush) f.flush(); }); } finally { SAFE.going(false); } }
 window.addEventListener('pagehide', flushSaves);
 document.addEventListener('visibilitychange', function () { if (document.hidden || document.visibilityState === 'hidden') flushSaves(); });
 

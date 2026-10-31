@@ -2052,3 +2052,15 @@ Early-stop A/B rule, small map (1,500 rows, 6,003 items), 20 changes a round, af
 
 Packing on the keeper's thread: 3.2 to 4.2 s after the park, off the page. Final build (with the Firefox fix); the first timing, before the fix, gave 10 to 20 / 9 to 19 / 9 to 140 ms held at restart.
 
+## 61. Where the saved map lives: IndexedDB with a marker instead of the shared localStorage (2026.10.31)
+
+Lab, 800 by 600 window, early-stop A/B rule (after / before with the 90% interval). Before = 2026.10.31.1603, after = 2026.10.31.1621.
+
+| | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---:|---:|---:|
+| Page held through 5 saves of a 1.79 M character map | 78 / 4 ms (0.04) | 37 / 4 ms (0.24) | 524 / 519 ms (1.00) |
+| First screen with a 1.74 M character map saved | 87 / 82 ms (0.84) | slower 1.33 (1.10 to 1.82) | slower 1.21 (1.05 to 1.39) |
+| Shared localStorage held by Netflow Map | 1,737,755 / 1,348 characters | same | same |
+
+Other apps' start (round 22, Chromium, kept profile): Pineapple Defense's first storage touch 18.5 ms with a 1.79 M character map in the shared space, 1.2 ms without.
+
