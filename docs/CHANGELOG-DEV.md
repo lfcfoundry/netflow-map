@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.0846 · 2026-10-31
+
+### Quick
+Fix for 2026.10.31.0826: the data part of the layout key was kept on the worker's state object, which stays when a new graph arrives, so a new graph got the old graph's key. With the same item count, the saved picture of the first map was put on the second. `LAYOUT_EPOCH` is now `nfm-layout-4`, so records saved by 0826 are never used.
+
+### Details
+`layoutKey` keeps `memo.layoutHashOf` (the graph object the hash was made from) and reuses the hash only for that object. New checks in layout-saved.test.js: the worker memo given a new graph of the same size, and an edited link with the same item count, both get their own key; they failed on 0826. Seen in Chromium through the page: a 3,000-item map opened after three 1,000-item pieces came back in 101 ms from the store with the wrong places.
+
+### Deep
+The 0826 test made a fresh memo per graph, which the worker never does: `__st` lives for the worker's life and only `__st.G` changes. Found while timing maps of many pieces of equal total size (30,000 items each), where every later case came back in under a second.
+
 ## 2026.10.31.0826 · 2026-10-31
 
 ### Quick

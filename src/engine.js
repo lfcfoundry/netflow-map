@@ -1517,7 +1517,7 @@ var NFMEngine = (function () {
   /* Saved layouts (the page keeps finished Network pictures in the browser's own storage so a second open of the same map skips the layout). The key is a 106-bit fingerprint of everything
    * the layout can read: the data, the options of the build, the tuning numbers and the text of the layout code itself, so a changed map, option or method never reuses an old picture.
    * It is made from the data as it comes in (no start of a build needed), which costs about 16 ms for 10,000 items. */
-  var LAYOUT_EPOCH = 'nfm-layout-3', layoutCodeHash = null;
+  var LAYOUT_EPOCH = 'nfm-layout-4', layoutCodeHash = null;
   function fnv(h, s) { for (var i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0; return h; }
   /* Options that never move an item in the Network view: colors, link widths, labels, and the settings of the other views. They are left out
    * of the key, so changing a color finds the picture already made instead of laying the whole map out again (6 s at 100,000 items) and
@@ -1531,8 +1531,9 @@ var NFMEngine = (function () {
     return [h1, h2];
   }
   /** The fingerprint the page looks the saved picture up by (null when this build's picture cannot be saved: not the Network view, or a picture from the graphics card).
-   * `memo` (optional) is an object that lives as long as this exact graph does and is never changed (the worker's copy): the data's part of the
-   * hash is kept on it, so a second key for the same data hashes only the options (the data part is about 330 ms at 100,000 items). */
+   * `memo` (optional) is the worker's state object, whose G is the graph copy it holds (never changed in place; a new graph is a new object):
+   * the data's part of the hash is kept on it with the graph it was made from, so a second key for the same data hashes only the options
+   * (the data part is about 330 ms at 100,000 items) and a new graph is always hashed afresh. */
   function layoutKey(graph, o, memo) {
     o = o || {};
     if (o.view !== 'network' || STRESS.external || FORCE_EXT.external || o.gpuPicture || o.forcePicture || o.previewOnly) return null;
@@ -1542,8 +1543,8 @@ var NFMEngine = (function () {
     }
     var oo = {};
     Object.keys(o).sort().forEach(function (k) { if (!LOOK_ONLY.test(k) && !(k === 'agg' && !o.sizeBy)) oo[k] = o[k]; });
-    var gh = memo && memo.G === graph && memo.layoutHash;
-    if (!gh) { gh = hash2(JSON.stringify(graph), [2166136261, 0x9747b28c]); if (memo && memo.G === graph) memo.layoutHash = gh; }
+    var gh = memo && memo.layoutHashOf === graph ? memo.layoutHash : null;   /* kept with the graph it was made from: the worker's memo stays when a new graph arrives */
+    if (!gh) { gh = hash2(JSON.stringify(graph), [2166136261, 0x9747b28c]); if (memo && memo.G === graph) { memo.layoutHash = gh; memo.layoutHashOf = graph; } }
     var h = hash2(JSON.stringify([LAYOUT_EPOCH, layoutCodeHash, STRESS, FORCE2, CLOSE, oo]), gh);
     return LAYOUT_EPOCH + ':' + graph.nodes.length + ':' + h[0].toString(36) + h[1].toString(36);
   }
