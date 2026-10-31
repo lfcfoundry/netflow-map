@@ -95,6 +95,17 @@ Shorter time is better. Firefox 158: 10.3 s to 9.1 s from the first step alone. 
 
 Shorter time is better. A change that moves nothing now keeps the finished picture instead of laying the map out again. Same picture, same first-layout time. Details: docs/BENCHMARKS.md section 54.
 
+## Maps made of many separate pieces (lab, through the page)
+
+| Map | Chromium | Firefox | WebKitGTK |
+|---|---|---|---|
+| 10 pieces of 3,000 items | 12.2 to 5.6 s | 11.7 to 6.0 s | 12.2 to 6.3 s |
+| 3 pieces of 3,000 items | 3.3 to 1.4 s | 3.8 to 1.5 s | 4.0 to 1.7 s |
+| 30 pieces of 1,000 items | 5.0 to 2.5 s | 5.4 to 2.7 s | 5.2 to 3.1 s |
+| 4 pieces of 1,000 items | 0.62 to 0.31 s | 0.62 to 0.27 s | 0.72 to 0.37 s |
+
+Shorter time is better. Each separate piece of 150 to 4,000 items is laid out on its own helper thread (up to 3, one fewer than the cores), the same picture. Maps of one piece, or with little work in total, are laid out as before. Details: docs/BENCHMARKS.md section 55.
+
 ## What it does
 
 It has six tabs (the Map's left panel adds a Colors tab):

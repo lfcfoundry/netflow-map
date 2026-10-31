@@ -1935,3 +1935,37 @@ What was found and fixed:
 | All five | 742 MB (-21%) |
 
 Each alone and stacked keeps the exact picture. Full collections and their pauses vary run to run by more than these changes move them (4 to 6 per build), and first-layout time stays within noise in all three browsers. WebAssembly memory was checked too: the engine makes a new instance for each step, so its memory goes back after the step; the only one kept is the layered drawing module's (6.8 MB after a 50,000-item map).
+
+## 55. Separate pieces on helper threads (2026.10.31)
+
+Maps made of separate pieces, each piece `bench/gen.js` moderate with its own seed, Network view, Distances. Page timing through the app's own engine client (browser store emptied first), lab, 4 cores, 3 rounds alternating the page before (2026.10.31.0846) and after, medians. Every case gives exactly the same picture in both pages (hash of every item's center).
+
+| Map | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---:|---:|---:|
+| 10 pieces of 3,000 items | 12.2 / 5.6 s | 11.7 / 6.0 s | 12.2 / 6.3 s |
+| 30 pieces of 1,000 | 5.0 / 2.5 s | 5.4 / 2.7 s | 5.2 / 3.1 s |
+| 100 pieces of 300 | 2.9 / 1.6 s | 2.9 / 2.1 s | 4.1 / 2.9 s |
+| 3 pieces of 3,000 | 3.3 / 1.4 s | 3.8 / 1.5 s | 4.0 / 1.7 s |
+| 4 pieces of 1,000 | 0.62 / 0.31 s | 0.62 / 0.27 s | 0.72 / 0.37 s |
+| 3 pieces of 800 | 0.32 / 0.18 s | 0.39 / 0.20 s | 0.31 / 0.20 s |
+| 20 pieces of 300 | 0.49 / 0.33 s | 0.59 / 0.34 s | 0.66 / 0.46 s |
+| 2 pieces of 600 (stays in the worker) | 0.16 / 0.16 s | 0.16 / 0.14 s | 0.20 / 0.23 s (noise, see below) |
+| 1 piece of 30,000 (stays in the worker) | 1.9 / 1.7 s | 2.1 / 1.9 s | 1.8 / 1.8 s |
+
+Before / after; shorter time is better.
+
+Tiny maps in WebKitGTK. Five maps with no helpers (2 pieces of 601 to 604 items, 3 of 500), 6 rounds each: median 199 ms before, 225 ms after (+13%). The same run with two copies of the same page gave 222 and 199 ms (10% apart), and with the new page's helpers switched off 222 ms, so this is within what this harness can tell apart at 0.2 s. In Node the plain build of these maps is the same before and after (25 runs each).
+
+When helpers start. A piece qualifies when Distances lays it out in one go (150 to 4,000 items, one random draw), and the map qualifies when at least 2 pieces do and the sum of their item counts squared is at least 1,000,000. Tested with the same maps from 1 million and 6 million (lab, 3 rounds, medians, before / after):
+
+| Map | Chromium | Firefox |
+|---|---:|---:|
+| 4 pieces of 1,000 (4 million) | 0.79 / 0.59 s | 0.67 / 0.50 s |
+| 6 pieces of 600 (2.2 million) | 0.54 / 0.34 s | 0.48 / 0.32 s |
+| 3 pieces of 800 (1.9 million) | 0.30 / 0.21 s | 0.32 / 0.18 s |
+| 2 pieces of 1,000 (2 million) | 0.39 / 0.28 s | 0.30 / 0.21 s |
+| 20 pieces of 300 (1.8 million) | 0.49 / 0.52 s | 0.48 / 0.48 s |
+
+Nothing was slower beyond noise, so helpers start at 1 million. Below it (2 pieces of 600 items is 0.7 million) starting a helper costs about what it saves.
+
+Why the page makes the helpers. The first version had the engine worker start them from its own text. In WebKitGTK a worker started inside a worker reports an error with no message and never runs, with or without the page policy (tested on a bare page), so every piece fell back to the worker and 10 pieces of 3,000 items took 10.6 to 11.8 s there. A worker started by the page and joined to the engine worker with a message port runs in all three browsers.

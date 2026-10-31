@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.0925 · 2026-10-31
+
+### Quick
+Same pictures, no new settings, nothing saved changes. A Network map (Distances) with at least 2 separate pieces of 150 to 4,000 items, and enough work in total (the sum of each piece's items squared at least 1,000,000), lays its pieces out on up to 3 helper threads. The page makes the helpers when the engine worker asks and gives each one a message port to it: a worker started inside a worker fails in WebKitGTK, with or without the page policy.
+
+### Details
+src/engine.js: `pieceBody` is the comps loop body pulled out; `buildPieces(graph, o, run)` builds once with `PIECES.capturing`, which stops after the comps loop with the list of eligible pieces (their item numbers, links, sizes, root and the one random draw each takes), hands them to `run`, checks every answer's count and length, then builds again with the answers (`PIECES.give`). Any trouble, including a helper that stops or answers short, lays the pieces out in the worker: the same picture. `pieceJob` runs one piece in a helper with the worker's tuning. src/engine-client.js: `helperPool` in the engine worker asks the page (`needHelpers`), the page's `Client.makeHelpers` starts the helpers from the worker's own text and sends a port each (`helperPorts`); helpers end 30 s after their last piece (`helpersDone`) and whenever the worker ends. Page timing, 3 rounds alternating old and new pages, medians, same picture hash every time: 10 pieces of 3,000 items 12.2 to 5.6 s Chromium, 11.7 to 6.0 s Firefox, 12.2 to 6.3 s WebKitGTK; 3 of 3,000: 3.3 to 1.4, 3.8 to 1.5, 4.0 to 1.7 s; one piece of 30,000: no change (BENCHMARKS section 55).
+
+### Deep
+Distances lays a piece of 150 to 4,000 items out with exactly one random draw, so the pieces can run anywhere in any order and still give the plain build's picture: the draws are taken in piece order in the first pass and sent with each piece. The worker takes the smallest pieces itself, one at a time between helper answers, while the helpers take the biggest first. The start point was tested by laying the same maps out with helpers from 1 million and from 6 million: 3 pieces of 800 items went 0.30 to 0.21 s (Chromium) and 4 of 1,000 went 0.79 to 0.59 s, with nothing slower beyond noise, so it starts at 1 million; 2 pieces of 600 (0.7 million) stay in the worker. Tried first: helpers made by the engine worker from the text it was sent (works in Chromium and Firefox; in WebKitGTK every helper failed, so the pieces fell back to the worker and the run took about 10% longer). New test/pieces.test.js: the same picture through `pieceJob` for mixed maps, no pieces sent for other arrangements, one-piece maps, previews or best quality, every fallback, tuning carried to the helpers, and saved-picture records kept.
+
 ## 2026.10.31.0846 · 2026-10-31
 
 ### Quick
