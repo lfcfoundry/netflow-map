@@ -832,7 +832,17 @@ var NFMEngine = (function () {
    * again; the few that remain are placed by settleOverlaps. `margin` is the gap kept between items.
    */
   function clearOverlaps(X, k, dim, rad, passes, rounds, grow) {
-    var i, r, dirty = separate(X, k, dim, rad, passes);
+    var i, r, dirty;
+    if (dim === 2 && k >= STRESS.jumpFirstMin) {   // very big and very crowded: stretch before the first passes (at 100,000 items those passes took 0.5 s and only cut touching pairs from 4.7 to 4.4 per item; stretching first gives the same final size)
+      var ov0 = overlapsPerItem(X, k, rad);
+      if (ov0 > 2) {
+        var jump0 = Math.min(STRESS.jumpMax, 1 + STRESS.jumpPer * ov0), ax = 0, ay = 0;
+        for (i = 0; i < k; i++) { ax += X[i * 2]; ay += X[i * 2 + 1]; }
+        ax /= k; ay /= k;
+        for (i = 0; i < k; i++) { X[i * 2] = ax + (X[i * 2] - ax) * jump0; X[i * 2 + 1] = ay + (X[i * 2 + 1] - ay) * jump0; }
+      }
+    }
+    dirty = separate(X, k, dim, rad, passes);
     if (dirty && dim === 2 && k >= STRESS.jumpMin) {   // very crowded (about 2 or more touching pairs per item): one bigger stretch first instead of ten small ones; it stays well under what the small ones would reach
       var ov = overlapsPerItem(X, k, rad);
       if (ov > 2) {
@@ -1190,7 +1200,7 @@ var NFMEngine = (function () {
   /* Tuning knobs for the stress layout (the benchmark page changes them to compare settings; the app never does). */
   var exactNow = false;
   var previewCache = null;   // the grown-back picture of the biggest piece, kept by an early-preview build so the final build skips the work that made it
-  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, sepBigMin: 50000, sepPassesBig: 10, spread: 0.35, exactMax: 20000, exactIters: 0, multi: 1, multiMin: 4000, multiCoarse: 2000, multiEta: 0.12, multiIters: 3, multiJitter: 0.3, multiPiv: 6, multiNear: 6, jumpMin: 20000, jumpMax: 1.7, jumpPer: 0.2, previewMin: 40000, previewStop: false, previewHit: false };   // exactIters 0 = by size
+  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, sepBigMin: 50000, sepPassesBig: 10, spread: 0.35, exactMax: 20000, exactIters: 0, multi: 1, multiMin: 4000, multiCoarse: 2000, multiEta: 0.12, multiIters: 3, multiJitter: 0.3, multiPiv: 6, multiNear: 6, jumpMin: 20000, jumpFirstMin: 80000, jumpMax: 1.7, jumpPer: 0.2, previewMin: 40000, previewStop: false, previewHit: false };   // exactIters 0 = by size
 
   /**
    * "Best quality" stress for one connected piece: every pair of items is used, with the hop counts kept in one byte each (k*k bytes,
