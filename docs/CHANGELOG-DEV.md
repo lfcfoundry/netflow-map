@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.1645 · 2026-10-31
+
+### Quick
+Map canvas pixel ratio capped at 2 (was 2.5) in `stageSize` (src/app/30-map.js), like Pineapple Defense and Fancy Banana. The minimap was already capped at 2. From research round 27 (costs that grow with screen sharpness). A look change, on a card.
+
+### Details
+`dpr = Math.min(devicePixelRatio, 2)`; the 9 M pixel guard that steps the ratio down by 0.25 is unchanged. Only screens with a ratio above 2 change. Ratio check (qa-guide/pixel-ratio/dpr-check.js, Chromium 155, 412 by 860, 1,600-item map): ratio 1 0.66 M pixels, ratio 2 2.52 M, ratio 3 3.92 to 2.52 M. Tested in: Chromium 155, Firefox 158, WebKitGTK 2.52.6 at ratio 1 (suites); Chromium 155 at ratios 1, 2 and 3 (ratio check).
+
+### Deep
+Lab, Chromium 155, 412 by 860 window at ratio 3, 1,600-item map, early-stop A/B rule (after / before, 90% interval): busy time on all the browser's threads while panning and zooming 0.86 (0.84 to 1.00); the page's own thread alone is too noisy to call (1.05, 0.89 to 1.16; its work does not grow with pixels, the drawing threads' does). At rest the map draws nothing, so nothing changes there. Screenshots at ratio 3 with the cap off and on: 10.6% of screen pixels differ, almost all by a few levels at line and circle edges (0.0006% by more than 32 levels).
+
 ## 2026.10.31.1603 · 2026-10-31
 
 ### Quick
