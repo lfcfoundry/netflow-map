@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.1200 · 2026-10-31
+
+### Quick
+Two approved changes (both new behavior, so each was on a card). Crash-safe saves: every save of the map and of its view settings also goes to IndexedDB (`netflow-map-saves`, store `s`) with `durability: 'strict'`; at start a newer copy there is brought back with a toast. Packed undo: an undo step that keeps a whole map (a file was opened, or a change replaced most of the map) of 20,000 items or more is packed with LFC-pack on a worker while the page is idle; all of Undo is held to 16 MB.
+
+### Details
+`SAFE` (src/app/00-core.js): `set(k, text)` writes localStorage, a save number `nfm-seq:<k>` and the global `nfm-seq`, then puts `{seq, text}` in IndexedDB; `del`, `repair`, and `newer(k)`, which returns the IndexedDB copy only when its number is above localStorage's. Every save and delete of `nfm-graph` and `nfm-v:<name>` goes through it (saveGraph, saveView, map-file open, import, Reset every setting). Boot (src/app/99-boot.js) checks the graph and the view of the graph it will show, and brings them back only when nothing has changed since start. Packed undo (src/app/75-mapfile.js): `undoPackSoon` packs `{meta, nodes, links}` (meta = every other field of the graph) with `LfcPack.packTables` on a worker made from the page's LFC-pack text and ended 30 s after its last job; `undo()` unpacks it (`undoBusy` keeps a second press from running meanwhile); `undoCap` drops the oldest steps past 16 MB, counting a packed step by its bytes. Tests: 2 new browser checks (a packed step comes back exactly; a save lost from localStorage is found in the safe copy and put back).
+
+### Deep
+Chromium 155, the real app, 800 by 600 window, main-page heap after 3 full garbage collections, 16 MB table opened, 12 changes, a second 16 MB table, 12 changes, then 25 undos, each checked: simple table (188,000 items) 165.2 to 108.3 MB after the second table, 165.0 to 108.0 MB at the end; rich table (30,000 items) 56.8 to 43.4 and 57.7 to 44.4 MB (2 runs of the rich table, the same to 0.1 MB). 25 of 25 undos matched in every run. The undo of the packed step, including the map work after it: 2.8 s (simple) and 1.2 s (rich); the slowest plain undo was 1.9 to 2.2 s and 0.95 to 1.0 s. Change times stayed within run-to-run noise (rich: 8.9 / 8.6 s and 9.6 / 11.3 s for 12 changes in two pairs). Save cost (2,000-item map, 557 KB of text, median of 13): the page's own time 2.0 to 1.8 ms in Chromium and 2.0 to 3.0 ms in Firefox; IndexedDB reported it kept 14 ms (Chromium) and 11 ms (Firefox) after the call, off the page's work. Kill test (Puppeteer, same profile, SIGKILL to the whole browser): before, the change was lost when killed 2, 10 or 30 s after it in Chromium and 2 s in Firefox; now kept in 6 of 6 kills. WebKitGTK's test sessions can't keep a profile, so it was not kill-tested; its suite passes. Maps whose saved text is 1.8 MB or more are still not autosaved (unchanged).
+
 ## 2026.10.31.0958 · 2026-10-31
 
 ### Quick

@@ -189,9 +189,9 @@ var SAFE = (function () {
       return ok;
     },
     del: function (k) { LS.del(k); LS.del('nfm-seq:' + k); tx('readwrite', function (st) { st.delete(k); }).catch(function () { /* none */ }); },
-    /** The safe copy of key k ({ seq, text }) when it is newer than localStorage's, else null. */
     /** Puts a safe copy back into localStorage. */
     repair: function (k, r) { LS.set(k, r.text); LS.set('nfm-seq:' + k, String(r.seq)); },
+    /** The safe copy of key k ({ seq, text }) when it is newer than localStorage's, else null. */
     newer: function (k) {
       var have = +(LS.get('nfm-seq:' + k) || 0);
       return tx('readonly', function (st) { return st.get(k); }).then(function (r) {
@@ -277,7 +277,7 @@ var HOOKS = { graph: [], view: [] };
 function setGraph(g, push, keepView) {
   var rename = (S.graph.name !== g.name);
   if (rename) saveView.flush();   /* the old data's settings are saved under the old name before the name changes */
-  if (push !== false) { S.hist.push(NFMUndo.step(S.graph, g)); if (S.hist.length > 25) S.hist.shift(); }   /* a step keeps only what this change replaced (src/undo.js) */
+  if (push !== false) { var st = NFMUndo.step(S.graph, g); S.hist.push(st); if (S.hist.length > 25) S.hist.shift(); if (st.graph) undoPackSoon(st); undoCap(); }   /* a step keeps only what this change replaced (src/undo.js); a whole old map is packed (src/app/75-mapfile.js) */
   S.graph = g; S.gver++;
   if (!keepView || rename) skHist = [];   /* Sankey undo steps belong to one dataset */
   graphChanged(rename && !keepView);
@@ -312,9 +312,16 @@ function graphChanged(reloadView) {
   var cb = $('chk-badge'); if (cb) cb.hidden = true;
   if (S.tab === 'map') refreshMap('data');
 }
+var undoBusy = false;
 function undo() {
-  if (!S.hist.length) return;
-  undoTo(NFMUndo.back(S.hist.pop(), S.graph));
+  if (!S.hist.length || undoBusy) return;
+  var st = S.hist.pop();
+  if (st.bytes) {   /* a whole earlier map kept packed: read it back first */
+    undoBusy = true; toast('Undoing…', 20000);
+    undoUnpack(st).then(function (g) { undoBusy = false; undoTo(g); shareTextSoon(); }, function (err) { undoBusy = false; S.hist.push(st); toast('That step could not be undone (' + (err && err.message || err) + ').'); });
+    return;
+  }
+  undoTo(NFMUndo.back(st, S.graph));
 }
 function undoTo(g) {
   var rename = S.graph.name !== g.name;
