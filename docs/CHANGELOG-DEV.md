@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.1440 · 2026-10-31
+
+### Quick
+Invisible, same maps, nothing saved changes. `indexGraph()` (src/app/00-core.js) rebuilt `S.byId`, both link lists and the link kinds from nothing on every change; now, when a change keeps every item's place and id and every link's two ends (a rename, a group, a label, a link kind), it updates only the changed slots and keeps the link lists. `NFMColumns.num()` (src/columns.js) returns NaN at once for text whose first character can't start a number. Stacked on 2026.10.31.1410 (PR 112).
+
+### Details
+`changedSlots(a, b)` turns `NFMUndo.listDiff` into a list of changed slots (same length, a quarter or fewer changed; for the `{p, s, mid}` form it walks the middle stretch, since a single change comes back in that form, not as `at`). `IDX = {g, pos}` keeps the graph the index was built from and the id-to-slot map. The quick path needs 2,000 items or more, the same id in every changed node slot, and `S.byId.get(old.id) === old`; links are kept when neither list has loose entries and every changed link keeps `from` and `to`; kinds are worked out again unless no link changed. Anything else builds the index whole, as before. `IDX.why` says which path ran ('quick+links', 'quick', 'full', 'first', 'same'). `derive`, `profile` and `isStory` still run every change. `num()`: after trim, the first character must be a digit, `+ - . , (` or `$ € £ ¥`; every value the rest of the function accepts starts with one of these. New browser check: the index matches one built from nothing after a rename, a group, a link label, a link kind, a moved link, an id change, an add, a remove and an undo of each, with the expected path for each (`NFM.indexMatches`, `NFM.idx`).
+
+### Deep
+16 MB moderate table (188,000 items, 563,563 links), 800 by 600 window, worker awake, one-item rename, median of 5, longest freeze / page held in 3 s, all runs in one session against the 2026.10.31.1410 build. Base: Chromium 854 / 1,699 ms, Firefox 834 / 1,657, WebKitGTK 1,129 / 2,249. Index alone: 547 / 1,081, 466 / 918, 582 / 1,145. Number reader alone: 755 / 1,502, 870 / 1,723, 851 / 1,687. Both: 268 / 526, 387 / 756, 462 / 913. Together they save more than the two savings added up (Chromium: 307 + 99 = 406 ms alone, 586 ms together); why was not measured. `num()` gave the same answer as before on 400,000 random strings (digits, signs, marks, currency, spaces, letters). Early-stop A/B rule on a small map (1,500 rows, 6,003 items, 20 changes a round, after / before, 90% interval): Chromium ok 0.88 (0.78 to 1.04, noisy), Firefox faster 0.70 (0.50 to 0.74), WebKitGTK faster 0.30 (0.22 to 0.75, noisy). Left per change: `NFMColumns.profile` and `derive` over every item, and the report and states cards.
+
 ## 2026.10.31.1410 · 2026-10-31
 
 ### Quick

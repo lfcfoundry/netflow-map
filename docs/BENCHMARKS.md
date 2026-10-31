@@ -2024,3 +2024,16 @@ Cost of one save of a 2,000-item map (557 KB), median of 13: the page's own time
 Before / after; medians of 5 or 6. Early-stop A/B rule (after / before, 90% interval): opening netflow-test-map-30000.json, page held time: Chromium 0.86 (0.84 to 0.92), Firefox 0.91 (0.69 to 0.98), WebKitGTK 0.86 (0.73 to 0.95). Autosave of a 2,000-item map (fits; the same single write as before): Chromium 0.97 (0.82 to 1.02), Firefox 1.00 (0.88 to 1.00), WebKitGTK 1.00 (0.89 to 1.18, noisy; A/A on the same page 1.03, 1.00 to 1.09).
 
 Restart of a parked worker (not in this build, waiting for a decision): with its graph packed off the page, the page is held 9 to 22 ms instead of 0.8 to 1.1 s (Chromium), 9 to 13 ms instead of 1.0 s (Firefox), 12 to 184 ms instead of 1.8 to 2.1 s (WebKitGTK); the restart takes 2.1 to 3.0 s instead of 1.9 to 2.4 s, 2.9 to 3.6 instead of 1.8 to 2.2 s, 4.0 to 4.2 instead of 2.3 to 3.0 s.
+
+## 59. Changes on a big map: the item index and the number reader (2026.10.31)
+
+16 MB moderate table (188,000 items, 563,563 links), the real app in an 800 by 600 window, the layout worker awake, one item renamed. Median of 5; all runs in one session. Lower is better.
+
+| Longest freeze / page held in 3 s | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---:|---:|---:|
+| 2026.10.31.1410 (before) | 854 / 1,699 ms | 834 / 1,657 ms | 1,129 / 2,249 ms |
+| Index for changed items only | 547 / 1,081 ms | 466 / 918 ms | 582 / 1,145 ms |
+| Number reader quick reject only | 755 / 1,502 ms | 870 / 1,723 ms | 851 / 1,687 ms |
+| Both (2026.10.31.1440) | 268 / 526 ms | 387 / 756 ms | 462 / 913 ms |
+
+Early-stop A/B rule, small map (1,500 rows, 6,003 items), 20 changes a round, after / before with the 90% interval: Chromium ok 0.88 (0.78 to 1.04, 4 rounds, noisy), Firefox faster 0.70 (0.50 to 0.74, 4 rounds), WebKitGTK faster 0.30 (0.22 to 0.75, 6 rounds, noisy).
