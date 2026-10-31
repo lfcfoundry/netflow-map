@@ -36,7 +36,7 @@ var NFMEngineClient = (function () {
         return { gpuPiece: cap };
       }
       case 'compare': return E.compare(st.G, d.opts);
-      case 'layoutKey': return { layoutKey: E.layoutKey(st.G, d.opts) };
+      case 'layoutKey': return { layoutKey: E.layoutKey(st.G, d.opts, st) };
       case 'check': return API.CHK.run(st.G, d.opts);
       case 'simStart': {
         st.P = E.prepare(st.G, d.prep || {});
@@ -156,7 +156,7 @@ var NFMEngineClient = (function () {
   };
   /** Gives the engine a new graph. Call whenever the data changes. */
   Client.prototype.setGraph = function (graph) {
-    this.graph = graph; this.ver++; this.st = null;
+    this.graph = graph; this.ver++; this.st = null; this.lastPic = null;
     if (this.parked) return Promise.resolve(true);   // the fresh worker gets this graph when the next job starts it
     if (this.mode === 'worker') return this.call({ type: 'graph', graph: graph, ver: this.ver });
     return Promise.resolve(true);
@@ -248,16 +248,20 @@ var NFMEngineClient = (function () {
     if (!big) {
       var St = this.store, Tn0 = E && E.stressTuning;
       /* Saved layouts: a Network map of a few thousand items or more that was laid out before is put back from the browser's storage (nothing is sent anywhere); a new one is laid out as usual and then saved. */
-      if (St && E && opts && opts.view === 'network' && !opts.previewOnly && !opts.gpuPicture && !opts.saved && this.graph && this.graph.nodes.length >= (this.storeMin || 1500) && /^(stress|stressBest|force|radial|closeness)$/.test(opts.arrange || 'stress')) {
+      /* The last finished picture is also kept here, in memory, for the open map only (St or not): a change that moves nothing (a color, a link
+       * width, labels) gets the same key and puts the same places back instead of laying the map out again. A new graph drops it (setGraph). */
+      if (E && opts && opts.view === 'network' && !opts.previewOnly && !opts.gpuPicture && !opts.saved && this.graph && this.graph.nodes.length >= (this.storeMin || 1500) && /^(stress|stressBest|force|radial|closeness)$/.test(opts.arrange || 'stress')) {
         var gone = function () { if (tok !== self.buildTok) throw new Error('superseded'); };
+        var ver0 = this.ver, keep = function (rec) { if (rec && self.ver === ver0) self.lastPic = { ver: ver0, rec: rec }; };
         return this.run('layoutKey', opts).then(function (kr) {
           gone();
           var key = kr && kr.L && kr.L.layoutKey;
           if (!key) return self.buildPlain(opts, onPreview, tok, Tn0, false);
-          return St.get(key).then(function (rec) {
+          var mem = self.lastPic && self.lastPic.ver === ver0 && self.lastPic.rec.key === key ? self.lastPic.rec : null;
+          return (mem ? Promise.resolve(mem) : St ? St.get(key) : Promise.resolve(null)).then(function (rec) {
             gone();
-            if (rec) return self.run('build', Object.assign({}, opts, { saved: rec, saveKey: key })).then(function (r) { r.fromSaved = !!(r.L && r.L.fromSaved); return r; });
-            return self.buildPlain(Object.assign({}, opts, { saveKey: key }), onPreview, tok, Tn0, true).then(function (r) { if (r && r.L && r.L.saveLayout) St.put(r.L.saveLayout.key, r.L.saveLayout); return r; });
+            if (rec) { keep(rec); return self.run('build', Object.assign({}, opts, { saved: rec, saveKey: key })).then(function (r) { r.fromSaved = !!(r.L && r.L.fromSaved); r.fromMemory = !!mem && r.fromSaved; return r; }); }
+            return self.buildPlain(Object.assign({}, opts, { saveKey: key }), onPreview, tok, Tn0, true).then(function (r) { if (r && r.L && r.L.saveLayout) { keep(r.L.saveLayout); if (St) St.put(r.L.saveLayout.key, r.L.saveLayout); } return r; });
           });
         }, function (err) { if (err && err.message === 'superseded') throw err; return self.buildPlain(opts, onPreview, tok, Tn0, false); });
       }

@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.0826 · 2026-10-31
+
+### Quick
+Same pictures, no new settings. The saved-picture key (`layoutKey`, now `nfm-layout-3`) leaves out options that never move a Network item, and the engine client keeps the last finished picture in memory, so a color, link color or link width change puts the places back instead of laying out again. Saved pictures from earlier builds, and map files saved before this, are laid out once more (new key). Map items and links are made with every field up front; the fingerprints in topdown.test.js now sort field names first (same pictures).
+
+### Details
+`LOOK_ONLY` in src/engine.js lists the left-out options (colorBy, edgeColorBy, widthBy, widthMax, labelCol, linkLabels, wantFlow, traffic and the other views' settings); `agg` counts only with `sizeBy`. `layoutKey(graph, o, memo)` keeps the data's hash on `memo` (the helper's `st`, made fresh for each graph) and hashes only the options after that (330 ms saved per build at 100,000 items, Node). `Client.build` (src/engine-client.js) looks in `lastPic` (dropped by `setGraph`) before the browser store, and asks for the record even with the store off. `packFast` (src/pack.js) fills all columns in one pass, using `Object.values` after checking each row's field order; no code is built from text, since the helper runs under the page policy, which refuses it in all three browsers. Page timing at 100,000 items, 4 rounds, medians: link color 6.3 to 2.5 s Chromium, 7.2 to 2.8 s Firefox, 6.9 to 2.2 s WebKitGTK; first layout within 2% in all three (BENCHMARKS section 54).
+
+### Deep
+Found while hunting garbage collection: the build's own clock (L.ms) never saw the key, the hand-off or a look-only rebuild. Garbage, sampled during one 100,000-item build in Node: 941 to 742 MB (-21%). `gnode` makes every map item with all 41 fields in one order (-14% alone), links get their later fields up front (-3%), link details use plain loops (-6%), `networkLayout` uses `locArr` and a stamp array instead of a Map and Set per piece (-2%), and `fitScale` uses `hyp2`, V8's own two-number hypot written out (-4%; V8 makes an argument list per Math.hypot call). `hyp2` is used only when `HYP_SAME` finds it equal to Math.hypot on 4,000 pairs: true in Chromium and Node, false in Firefox and WebKitGTK, whose pictures would otherwise move a hair. Tried and dropped: a generated one-pass packer (2.6x, but refused by the page policy inside the helper); filling unpacked objects from a cloned template (within noise). Full collections per build (4 to 6) and their pauses vary by more than these changes move them. WebAssembly memory: each engine step makes its own instance, so nothing stays; the layered module keeps 6.8 MB after 50,000 items.
+
 ## 2026.10.30.2347 · 2026-10-30
 
 ### Quick

@@ -56,9 +56,63 @@ var NFMPack = (function () {
     var keys = Object.keys(rows[0]), K = keys.length;
     if (!K || keys.indexOf('__proto__') >= 0) return null;
     for (i = 0; i < n; i++) { var r = rows[i]; if (!r || typeof r !== 'object' || Object.keys(r).length !== K) return null; }
+    var fast = packFast(rows, keys, tr);
+    if (fast) return { n: n, keys: keys, cols: fast };
     var cols = [];
     for (c = 0; c < K; c++) cols.push(packColumn(rows, keys[c], tr));
     return { n: n, keys: keys, cols: cols };
+  }
+
+  /**
+   * The same columns as packColumn makes, filled in one pass over the rows instead of one pass per field: each row is read from memory
+   * once, not once per field (37 times for a map item). No code is built from text, so it also runs in a worker under the page's policy.
+   * Any row whose field has another type than the first row's gives null, and the column-by-column path decides (the same as before).
+   */
+  function packFast(rows, keys, tr) {
+    var n = rows.length, K = keys.length, kinds = [], c, i;
+    for (c = 0; c < K; c++) {
+      var v0 = rows[0][keys[c]], t = typeof v0;
+      kinds.push(t === 'number' ? 'n' : t === 'boolean' ? 'b' : t === 'string' ? 's' : Array.isArray(v0) ? 'l' : 'a');
+      if (kinds[c] === 'a') return null;
+    }
+    var D = [], L = [], S = [], T = [], O = [], key, v, a, j;
+    for (c = 0; c < K; c++) {
+      T.push(0);
+      D.push(kinds[c] === 'n' ? new Float64Array(n) : kinds[c] === 'b' ? new Uint8Array(n) : null);
+      L.push(kinds[c] === 's' ? new Int32Array(n) : null); S.push(kinds[c] === 's' ? new Array(n) : null);
+      O.push(kinds[c] === 'l' ? new Int32Array(n + 1) : null);
+    }
+    var kc = new Int8Array(K);
+    for (c = 0; c < K; c++) kc[c] = kinds[c] === 'n' ? 0 : kinds[c] === 'b' ? 1 : kinds[c] === 's' ? 2 : 3;
+    for (i = 0; i < n; i++) {
+      var r = rows[i], ks = Object.keys(r), vals;
+      for (c = 0; c < K; c++) if (ks[c] !== keys[c]) return null;   /* the same fields in the same order: then the values line up with the columns */
+      vals = Object.values(r);
+      for (c = 0; c < K; c++) {
+        v = vals[c];
+        switch (kc[c]) {
+          case 0: if (typeof v !== 'number') return null; D[c][i] = v; break;
+          case 1: if (typeof v !== 'boolean') return null; D[c][i] = v ? 1 : 0; break;
+          case 2: if (typeof v !== 'string') return null; L[c][i] = v.length; S[c][i] = v; T[c] += v.length; break;
+          default: if (!Array.isArray(v)) return null; for (j = 0; j < v.length; j++) if (typeof v[j] !== 'number') return null; T[c] += v.length; O[c][i + 1] = T[c];
+        }
+      }
+    }
+    var cols = [];
+    for (c = 0; c < K; c++) {
+      if (kinds[c] === 's' && T[c] > 400000000) return null;
+    }
+    for (c = 0; c < K; c++) {
+      var kc = kinds[c];
+      if (kc === 'n' || kc === 'b') { tr.push(D[c].buffer); cols.push({ k: kc, d: D[c] }); }
+      else if (kc === 's') { tr.push(L[c].buffer); cols.push({ k: 's', len: L[c], text: S[c].join('') }); }
+      else {
+        var off = O[c], flat = new Float64Array(T[c]), p = 0, key = keys[c];
+        for (i = 0; i < n; i++) { var a = rows[i][key]; for (var j = 0; j < a.length; j++) flat[p++] = a[j]; }
+        tr.push(off.buffer, flat.buffer); cols.push({ k: 'l', off: off, d: flat });
+      }
+    }
+    return cols;
   }
 
   /** False on a page whose own security policy leaves out 'unsafe-eval' (the Netflow Map pages): building code from text would only be refused and logged. Node and workers have no page, so they say yes. */
@@ -115,10 +169,14 @@ var NFMPack = (function () {
     if (!nodes) return r;
     var edges = packRows(r.edges, t0), pos = null, rest = {}, k;
     if (r.pos && typeof r.pos === 'object') {
-      var index = new Map(), i;
-      for (i = 0; i < r.nodes.length; i++) index.set(r.nodes[i], i);
+      var index = null, i;
       var pk = Object.keys(r.pos), pi = new Int32Array(pk.length), ok = pk.indexOf('__proto__') < 0;
-      for (i = 0; ok && i < pk.length; i++) { var at = index.get(r.pos[pk[i]]); if (at === undefined) { ok = false; break; } pi[i] = at; }
+      for (i = 0; ok && i < pk.length; i++) {
+        var it = r.pos[pk[i]], at = i < r.nodes.length && r.nodes[i] === it ? i : -1;   /* the usual case: the keys follow the item list, so no lookup table is made */
+        if (at < 0) { if (!index) { index = new Map(); for (var q2 = 0; q2 < r.nodes.length; q2++) if (!index.has(r.nodes[q2])) index.set(r.nodes[q2], q2); } at = index.has(it) ? index.get(it) : -1; }
+        if (at < 0) { ok = false; break; }
+        pi[i] = at;
+      }
       if (ok) { pos = { keys: pk, idx: pi }; t0.push(pi.buffer); }
     }
     for (k in r) if (Object.prototype.hasOwnProperty.call(r, k) && k !== 'nodes' && k !== 'edges' && !(pos && k === 'pos')) rest[k] = r[k];
