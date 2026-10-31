@@ -1134,6 +1134,23 @@ async function open() {
     say(r.rescued === true, 'when the list of drawing methods fails, switching falls back to the plain canvas and draws'); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   await settle(400);
+  /* separate pieces on helper threads: the page makes the helpers when the engine worker asks (a worker made inside a worker fails in WebKitGTK); the picture is the page engine's own */
+  try {
+    const r = await ev(async () => {
+      const c = NFM.client(); if (c.mode !== 'worker' || (navigator.hardwareConcurrency || 1) < 2) return { skip: c.mode + ', ' + navigator.hardwareConcurrency + ' cores' };
+      const nodes = [], edges = [];
+      for (let p = 0; p < 4; p++) { const g = NFMExamples.bigNetwork(700, 3, 11 + p); g.nodes.forEach((n) => nodes.push(Object.assign({}, n, { id: 'q' + p + '_' + n.id }))); g.edges.forEach((e) => edges.push(Object.assign({}, e, { from: 'q' + p + '_' + e.from, to: 'q' + p + '_' + e.to }))); }
+      const graph = { name: 'pieces', start: null, nodes, edges }, opts = { view: 'network', arrange: 'stress', colorBy: 'group' };
+      c.endHelpers(); await c.setGraph(graph);
+      const w = await c.build(opts), helpers = (c.helpers || []).length, E = NFM.engine();
+      const p = E.build(NFMColumns.derive(graph), opts);
+      const hash = (L) => { let h = 2166136261; for (const nd of L.nodes) { const s = nd.id + ':' + nd.cx.toFixed(3) + ',' + nd.cy.toFixed(3); for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0; } return h; };
+      const out = { helpers, same: hash(w.L) === hash(p), n: w.L.nodes.length };
+      c.endHelpers(); await c.setGraph(NFM.state.graph);   /* the app's own data back in the worker for the checks after this */
+      return out;
+    });
+    say(!!r.skip || (r.helpers >= 1 && r.same && r.n === 2800), 'a map of 4 separate pieces is laid out with helper threads the page made, and the picture is the same as the page engine\'s own: ' + JSON.stringify(r));
+  } catch (e) { say(false, 'the helper-thread check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   try {
   { const r = await ev(async () => {
       const c = NFM.client(); if (c.mode !== 'worker') return { skip: c.mode };

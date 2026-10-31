@@ -1554,6 +1554,116 @@ var NFMEngine = (function () {
    * (stress, minimized by stochastic gradient descent, Zheng, Pawar and Goodman 2018). Small graphs use every pair, large ones
    * use pivots. Components are laid out one by one and packed in rows. Seeded: same data, same picture.
    */
+  /**
+   * One connected piece of a Network map, laid out on its own: start spiral, the arrangement, stretch, push-apart and settle, then moved so
+   * its box starts at 0,0. members are the piece's items (indices into adj, sizeAt and locArr), root its best-connected item, SN a
+   * { at, run } stamp table as long as adj. It reads nothing else of the map, so a helper thread given the piece alone (items numbered
+   * 0 to k-1 in the same order, neighbors in the same order) works out exactly the same numbers.
+   */
+  function pieceBody(members, adj, locArr, sizeAt, root, rnd, arr, EDGE, SN) {
+    var k = members.length, X = new Float64Array(k * 2), loc = { get: function (g) { return locArr[g]; } };
+    var order = [root], seenRun = ++SN.run, seenAt = SN.at; seenAt[root] = seenRun;
+    for (var oi = 0; oi < order.length; oi++) { var ao = adj[order[oi]]; for (var aj = 0; aj < ao.length; aj++) { var w1 = ao[aj]; if (seenAt[w1] !== seenRun) { seenAt[w1] = seenRun; order.push(w1); } } }
+    for (var r1 = 0; r1 < order.length; r1++) { var a1 = r1 * 2.399963, rad1 = EDGE * 0.6 * Math.sqrt(r1 + 1), l1 = locArr[order[r1]]; X[l1 * 2] = rad1 * Math.cos(a1); X[l1 * 2 + 1] = rad1 * Math.sin(a1); }
+    if (arr === 'force' || arr === 'radial') {
+      if (arr === 'force') {
+        var lpairs = [], lmass = new Float64Array(k);
+        members.forEach(function (g, li) { lmass[li] = 1 + Math.sqrt(adj[g].length); adj[g].forEach(function (w) { var lw = loc.get(w); if (lw > li) lpairs.push(li, lw); }); });
+        if (FORCE2.stressMin && k >= FORCE2.stressMin && k < FORCE2.stressMax) {   // big maps start from the Distances picture (so far-apart items start far apart, and its multilevel start and WebAssembly do the heavy part), then a few gentle force rounds
+          stressComponent(X, k, members, adj, locArr, root, EDGE, rnd);
+          forceSim(X, k, 2, lpairs, lmass, FORCE2.polish, EDGE * 0.55, rnd, FORCE2.polishHi, FORCE2.polishLo);
+        } else {
+          var frounds = k <= 1000 ? 220 : k <= 5000 ? 240 : k <= 12000 ? 120 : 60;
+          if (!(FORCE_EXT.external && FORCE_EXT.external(X, k, lpairs, lmass, frounds))) forceSim(X, k, 2, lpairs, lmass, frounds, EDGE * 0.55, rnd);
+        }
+      } else {
+        var rpar = new Map([[root, -1]]), rkids = new Map(), rdep = new Map([[root, 0]]), rq = [root], rleaf = new Map(), rcount = [];
+        for (var rh = 0; rh < rq.length; rh++) { var ru = rq[rh]; rkids.set(ru, []); adj[ru].forEach(function (w) { if (!rpar.has(w)) { rpar.set(w, ru); rdep.set(w, rdep.get(ru) + 1); rkids.get(ru).push(w); rq.push(w); } }); }
+        for (var rr = rq.length - 1; rr >= 0; rr--) { var rn = rq[rr], kd = rkids.get(rn); rleaf.set(rn, kd.length ? kd.reduce(function (a, c) { return a + rleaf.get(c); }, 0) : 1); var dd0 = rdep.get(rn); rcount[dd0] = (rcount[dd0] || 0) + 1; }
+        var rrad = [0]; for (var rd = 1; rd < rcount.length; rd++) rrad[rd] = Math.max(rrad[rd - 1] + EDGE, rcount[rd] * 56 / (2 * Math.PI));
+        var span = new Map([[root, [0, 2 * Math.PI]]]);
+        rq.forEach(function (rn2) {
+          var sp = span.get(rn2), a0 = sp[0], tot = rleaf.get(rn2), kd2 = rkids.get(rn2), mid = (sp[0] + sp[1]) / 2, R = rrad[rdep.get(rn2)] || 0;
+          X[loc.get(rn2) * 2] = R * Math.cos(mid); X[loc.get(rn2) * 2 + 1] = R * Math.sin(mid);
+          kd2.forEach(function (c) { var w = (sp[1] - sp[0]) * rleaf.get(c) / tot; span.set(c, [a0, a0 + w]); a0 += w; });
+        });
+      }
+    } else if (arr === 'closeness') {
+      closenessComponent(X, k, members, adj, locArr, root, EDGE, rnd);
+    } else {
+    STRESS.previewHit = false;
+    stressComponent(X, k, members, adj, locArr, root, EDGE, rnd);
+    }
+    var rough = STRESS.previewHit; STRESS.previewHit = false;   // this piece stopped at the early-preview stage: no clean-up, the final build does it
+    /* push overlapping nodes apart (grid buckets, a few passes) */
+    if ((arr === 'stress' || arr === 'closeness') && STRESS.spread) {   // crowded pictures are first stretched so the items cover about a third of the page; then little is left to push apart
+      var bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity, discs = 0, rr0;
+      for (var si = 0; si < k; si++) { rr0 = sizeAt[members[si]] / 2 + 8; discs += Math.PI * rr0 * rr0; if (X[si * 2] < bx0) bx0 = X[si * 2]; if (X[si * 2] > bx1) bx1 = X[si * 2]; if (X[si * 2 + 1] < by0) by0 = X[si * 2 + 1]; if (X[si * 2 + 1] > by1) by1 = X[si * 2 + 1]; }
+      var f0 = Math.sqrt((discs / STRESS.spread) / (Math.max(1, bx1 - bx0) * Math.max(1, by1 - by0)));
+      if (f0 > 1) { f0 = Math.min(f0, 8); for (var sj = 0; sj < k * 2; sj++) X[sj] *= f0; }
+    }
+    if (!rough && ((arr !== 'stress' && arr !== 'closeness') || STRESS.sepPasses > 0)) clearOverlaps(X, k, 2, function (li) { return sizeAt[members[li]] / 2 + 8; }, arr === 'stress' || arr === 'closeness' ? (k > STRESS.sepBigMin ? STRESS.sepPassesBig : STRESS.sepPasses) : 30, STRESS.growRounds, STRESS.grow);
+    if (STRESS.settle && !rough) settleOverlaps(X, k, 2, function (li) { return sizeAt[members[li]] / 2 + 2; });
+    var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (var li4 = 0; li4 < k; li4++) { var rr = sizeAt[members[li4]] / 2; x0 = Math.min(x0, X[li4 * 2] - rr); x1 = Math.max(x1, X[li4 * 2] + rr); y0 = Math.min(y0, X[li4 * 2 + 1] - rr); y1 = Math.max(y1, X[li4 * 2 + 1] + rr); }
+    for (var li5 = 0; li5 < k; li5++) { X[li5 * 2] -= x0; X[li5 * 2 + 1] -= y0; }
+    return { X: X, w: x1 - x0 + 40, h: y1 - y0 + 40, rough: rough };
+  }
+  /* Pieces on helper threads. A piece of 2 to STRESS.fullMax items in the Distances arrangement draws exactly one random number (the seed
+   * of its WebAssembly sweeps) and reads nothing else of the map, so it can be laid out elsewhere from its own items and links, with that
+   * number drawn here in order: the same picture as laying it out here. buildPieces asks for them; the engine worker's helpers take the jobs. */
+  var PIECES = { on: true, minWork: 1000000, minPieces: 2, capturing: false, local: false, jobs: 0, sent: 0, error: '' };
+  function pieceOk(k) { return k >= Math.max(2, STRESS_WASM.minItems) && k <= STRESS.fullMax; }
+  /**
+   * build() for maps of many pieces, with the big all-pairs pieces laid out by run(jobs) (a promise of one { X, w, h, rough } per job, in
+   * order; helper threads in the engine worker). The first build stops after the pieces loop and hands back the jobs (pieces it laid out
+   * itself are kept); the second build is given every piece. Any failure of run: the jobs are laid out here, the same numbers.
+   */
+  function buildPieces(graph, o, run) {
+    var plan = null, first;
+    PIECES.capturing = true;
+    try { first = build(graph, o); } catch (err) { if (!err || err.message !== 'nfm-pieces') throw err; plan = err.pieces; plan.EDGE = err.EDGE; } finally { PIECES.capturing = false; }
+    if (!plan) return Promise.resolve(first);
+    PIECES.jobs += plan.jobs.length;
+    var local = function () { return plan.jobs.map(function (j) { return pieceRun(j.inp, j.draw, plan.EDGE); }); };
+    var tun = { STRESS: tuneCopy(STRESS), simd: STRESS_WASM.simd };
+    return Promise.resolve().then(function () { return run(plan.jobs, plan.EDGE, tun); }).then(function (res) {
+      var bad = !res || res.length !== plan.jobs.length;
+      for (var q = 0; !bad && q < res.length; q++) bad = !res[q] || !res[q].X || res[q].X.length !== 2 * plan.jobs[q].inp.k;
+      if (bad) throw new Error('the helpers gave back ' + (res && res.length) + ' pieces for ' + plan.jobs.length + ', or pieces of the wrong size');
+      PIECES.sent += res.length; return res;
+    }).catch(function (err) { PIECES.error = String(err && err.message || err); return local(); }).then(function (res) {
+      var give = Object.assign({}, plan.done);
+      plan.jobs.forEach(function (j, q) { give[j.ci] = res[q]; });
+      PIECES.give = give;
+      try { return build(graph, o); } finally { PIECES.give = null; }
+    });
+  }
+  /** The plain numbers and flags of a tuning object (what a helper needs to lay out a piece the same way). */
+  function tuneCopy(T) { var c = {}; for (var key in T) if (Object.prototype.hasOwnProperty.call(T, key) && (typeof T[key] === 'number' || typeof T[key] === 'boolean')) c[key] = T[key]; return c; }
+  /** In a helper: lay out one piece with the parent's tuning. */
+  function pieceJob(d) {
+    var keepS = tuneCopy(STRESS), keepSimd = STRESS_WASM.simd;
+    Object.assign(STRESS, d.tun.STRESS); STRESS_WASM.simd = d.tun.simd; exactNow = false;
+    try { return pieceRun(d.inp, d.draw, d.EDGE); } finally { Object.assign(STRESS, keepS); STRESS_WASM.simd = keepSimd; }
+  }
+  /** A piece as numbers only: its items 0 to k-1 in the piece's own order, neighbors in the same order, sizes, and the root. */
+  function pieceInput(members, adj, locArr, sizeAt, root) {
+    var k = members.length, off = new Int32Array(k + 1), m = 0, i, j;
+    for (i = 0; i < k; i++) { m += adj[members[i]].length; off[i + 1] = m; }
+    var nbr = new Int32Array(m), sizes = new Float64Array(k);
+    for (i = 0; i < k; i++) { var a = adj[members[i]]; for (j = 0; j < a.length; j++) nbr[off[i] + j] = locArr[a[j]]; sizes[i] = sizeAt[members[i]]; }
+    return { k: k, off: off, nbr: nbr, sizes: sizes, root: locArr[root] };
+  }
+  /** Lays out a piece given as pieceInput, with `draw` the one random number it uses (here, or in a helper thread). */
+  function pieceRun(inp, draw, EDGE) {
+    var k = inp.k, adj = new Array(k), members = new Array(k), ident = new Int32Array(k), used = 0, i;
+    for (i = 0; i < k; i++) { members[i] = i; ident[i] = i; adj[i] = Array.prototype.slice.call(inp.nbr, inp.off[i], inp.off[i + 1]); }
+    var rnd1 = function () { if (used++) throw new Error('a piece asked for a second random number'); return draw; };
+    var keep = STRESS.previewHit; STRESS.previewHit = false;
+    try { return pieceBody(members, adj, ident, inp.sizes, inp.root, rnd1, 'stress', EDGE, { at: new Int32Array(k), run: 0 }); }
+    finally { STRESS.previewHit = keep; }
+  }
   function networkLayout(P, G, opts) {
     opts = opts || {};
     var nodes = G.nodes, nb = nodes.length, i, e;
@@ -1572,7 +1682,7 @@ var NFMEngine = (function () {
       for (var h = 0; h < q.length; h++) { var aq = adj[q[h]]; for (var ai = 0; ai < aq.length; ai++) { var w0 = aq[ai]; if (comp[w0] < 0) { comp[w0] = cid; q.push(w0); } } }
       comps.push(q);
     }
-    var seenAt = new Int32Array(nb), seenRun = 0;   /* "already in the start order" for one piece: a stamp per item, not a new Set for each piece */
+    var SN = { at: new Int32Array(nb), run: 0 };   /* "already in the start order" for one piece: a stamp per item, not a new Set for each piece */
     var rnd = mulberry32(12345), EDGE = 130, locArr = new Int32Array(nb);
     var size = function (nd) { if (nd.sizeK !== undefined) return 20 + 52 * nd.sizeK; return 26 + Math.min(26, 8 * Math.sqrt((nd.traffic || 0))) + Math.min(14, Math.sqrt(adj[idxOf[nd.id]].length) * 3); };
     var sizeAt = new Float64Array(nb); for (i = 0; i < nb; i++) sizeAt[i] = size(nodes[i]);   /* each item's size worked out once: the push-apart and the packing ask for it about a million times at 100,000 items (the same numbers) */
@@ -1592,62 +1702,28 @@ var NFMEngine = (function () {
       return { kind: 'network', dir: 'none', nodes: nodes, edges: G.edges, pos: pos0, order: {}, width: sv.width, height: sv.height, crossings: 0, arrange: arr, is3d: false, rough: !!sv.rough, fromSaved: true };
     }
     var packs = [], roughAny = false;
-    comps.forEach(function (members) {
-      var k = members.length, loc = { get: function (g) { return locArr[g]; } };   /* an item's place in its piece, read from locArr (the same numbers): no Map for each piece */
-      for (var mi0 = 0; mi0 < k; mi0++) locArr[members[mi0]] = mi0;
-      var X = new Float64Array(k * 2);
-      if (k === 1) { packs.push({ members: members, X: X, w: size(nodes[members[0]]) + 20, h: size(nodes[members[0]]) + 20 }); return; }
-      /* start: a spiral in breadth-first order from the best-connected node, so neighbors begin close */
+    /* pieces for helper threads: only when there are enough of them and enough all-pairs work to pay for starting helpers */
+    var give = PIECES.give, plan = null;
+    if (!give && PIECES.on && PIECES.capturing && arr === 'stress' && !exactNow && !opts.previewOnly && !STRESS.external && !STRESS.previewStop && wasmLoad(STRESS_WASM)) {
+      var work = 0, cnt = 0;
+      for (i = 0; i < comps.length; i++) { var kc = comps[i].length; if (pieceOk(kc)) { work += kc * kc; cnt++; } }
+      if (cnt >= PIECES.minPieces && work >= PIECES.minWork) plan = { jobs: [], done: {} };
+    }
+    comps.forEach(function (members, ci) {
+      var k = members.length;
+      if (give && k > 1) { var gv = give[ci]; if (!gv || gv.X.length !== 2 * k) throw new Error('a piece came back for another map'); if (gv.rough) roughAny = true; packs.push({ members: members, X: gv.X, w: gv.w, h: gv.h }); return; }
+      for (var mi0 = 0; mi0 < k; mi0++) locArr[members[mi0]] = mi0;   /* an item's place in its piece */
+      if (k === 1) { packs.push({ members: members, X: new Float64Array(2), w: size(nodes[members[0]]) + 20, h: size(nodes[members[0]]) + 20 }); return; }
+      /* start (in pieceBody): a spiral in breadth-first order from the best-connected node, so neighbors begin close */
       var root = members[0];   /* the best-connected item, the lowest number on a tie: what sorting a copy picked, without the copy */
       for (var ri0 = 1; ri0 < k; ri0++) { var cand = members[ri0], dc = adj[cand].length - adj[root].length; if (dc > 0 || (dc === 0 && cand < root)) root = cand; }
-      var order = [root]; seenRun++; seenAt[root] = seenRun;
-      for (var oi = 0; oi < order.length; oi++) { var ao = adj[order[oi]]; for (var aj = 0; aj < ao.length; aj++) { var w1 = ao[aj]; if (seenAt[w1] !== seenRun) { seenAt[w1] = seenRun; order.push(w1); } } }
-      for (var r1 = 0; r1 < order.length; r1++) { var a1 = r1 * 2.399963, rad1 = EDGE * 0.6 * Math.sqrt(r1 + 1), l1 = locArr[order[r1]]; X[l1 * 2] = rad1 * Math.cos(a1); X[l1 * 2 + 1] = rad1 * Math.sin(a1); }
-      if (arr === 'force' || arr === 'radial') {
-        if (arr === 'force') {
-          var lpairs = [], lmass = new Float64Array(k);
-          members.forEach(function (g, li) { lmass[li] = 1 + Math.sqrt(adj[g].length); adj[g].forEach(function (w) { var lw = loc.get(w); if (lw > li) lpairs.push(li, lw); }); });
-          if (FORCE2.stressMin && k >= FORCE2.stressMin && k < FORCE2.stressMax) {   // big maps start from the Distances picture (so far-apart items start far apart, and its multilevel start and WebAssembly do the heavy part), then a few gentle force rounds
-            stressComponent(X, k, members, adj, locArr, root, EDGE, rnd);
-            forceSim(X, k, 2, lpairs, lmass, FORCE2.polish, EDGE * 0.55, rnd, FORCE2.polishHi, FORCE2.polishLo);
-          } else {
-            var frounds = k <= 1000 ? 220 : k <= 5000 ? 240 : k <= 12000 ? 120 : 60;
-            if (!(FORCE_EXT.external && FORCE_EXT.external(X, k, lpairs, lmass, frounds))) forceSim(X, k, 2, lpairs, lmass, frounds, EDGE * 0.55, rnd);
-          }
-        } else {
-          var rpar = new Map([[root, -1]]), rkids = new Map(), rdep = new Map([[root, 0]]), rq = [root], rleaf = new Map(), rcount = [];
-          for (var rh = 0; rh < rq.length; rh++) { var ru = rq[rh]; rkids.set(ru, []); adj[ru].forEach(function (w) { if (!rpar.has(w)) { rpar.set(w, ru); rdep.set(w, rdep.get(ru) + 1); rkids.get(ru).push(w); rq.push(w); } }); }
-          for (var rr = rq.length - 1; rr >= 0; rr--) { var rn = rq[rr], kd = rkids.get(rn); rleaf.set(rn, kd.length ? kd.reduce(function (a, c) { return a + rleaf.get(c); }, 0) : 1); var dd0 = rdep.get(rn); rcount[dd0] = (rcount[dd0] || 0) + 1; }
-          var rrad = [0]; for (var rd = 1; rd < rcount.length; rd++) rrad[rd] = Math.max(rrad[rd - 1] + EDGE, rcount[rd] * 56 / (2 * Math.PI));
-          var span = new Map([[root, [0, 2 * Math.PI]]]);
-          rq.forEach(function (rn2) {
-            var sp = span.get(rn2), a0 = sp[0], tot = rleaf.get(rn2), kd2 = rkids.get(rn2), mid = (sp[0] + sp[1]) / 2, R = rrad[rdep.get(rn2)] || 0;
-            X[loc.get(rn2) * 2] = R * Math.cos(mid); X[loc.get(rn2) * 2 + 1] = R * Math.sin(mid);
-            kd2.forEach(function (c) { var w = (sp[1] - sp[0]) * rleaf.get(c) / tot; span.set(c, [a0, a0 + w]); a0 += w; });
-          });
-        }
-      } else if (arr === 'closeness') {
-        closenessComponent(X, k, members, adj, locArr, root, EDGE, rnd);
-      } else {
-      STRESS.previewHit = false;
-      stressComponent(X, k, members, adj, locArr, root, EDGE, rnd);
-      }
-      var rough = STRESS.previewHit; STRESS.previewHit = false;   // this piece stopped at the early-preview stage: no clean-up, the final build does it
-      /* push overlapping nodes apart (grid buckets, a few passes) */
-      if ((arr === 'stress' || arr === 'closeness') && STRESS.spread) {   // crowded pictures are first stretched so the items cover about a third of the page; then little is left to push apart
-        var bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity, discs = 0, rr0;
-        for (var si = 0; si < k; si++) { rr0 = sizeAt[members[si]] / 2 + 8; discs += Math.PI * rr0 * rr0; if (X[si * 2] < bx0) bx0 = X[si * 2]; if (X[si * 2] > bx1) bx1 = X[si * 2]; if (X[si * 2 + 1] < by0) by0 = X[si * 2 + 1]; if (X[si * 2 + 1] > by1) by1 = X[si * 2 + 1]; }
-        var f0 = Math.sqrt((discs / STRESS.spread) / (Math.max(1, bx1 - bx0) * Math.max(1, by1 - by0)));
-        if (f0 > 1) { f0 = Math.min(f0, 8); for (var sj = 0; sj < k * 2; sj++) X[sj] *= f0; }
-      }
-      if (!rough && ((arr !== 'stress' && arr !== 'closeness') || STRESS.sepPasses > 0)) clearOverlaps(X, k, 2, function (li) { return sizeAt[members[li]] / 2 + 8; }, arr === 'stress' || arr === 'closeness' ? (k > STRESS.sepBigMin ? STRESS.sepPassesBig : STRESS.sepPasses) : 30, STRESS.growRounds, STRESS.grow);
-      if (STRESS.settle && !rough) settleOverlaps(X, k, 2, function (li) { return sizeAt[members[li]] / 2 + 2; });
-      if (rough) roughAny = true;
-      var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-      for (var li4 = 0; li4 < k; li4++) { var rr = sizeAt[members[li4]] / 2; x0 = Math.min(x0, X[li4 * 2] - rr); x1 = Math.max(x1, X[li4 * 2] + rr); y0 = Math.min(y0, X[li4 * 2 + 1] - rr); y1 = Math.max(y1, X[li4 * 2 + 1] + rr); }
-      for (var li5 = 0; li5 < k; li5++) { X[li5 * 2] -= x0; X[li5 * 2 + 1] -= y0; }
-      packs.push({ members: members, X: X, w: x1 - x0 + 40, h: y1 - y0 + 40 });
+      if (plan && pieceOk(k)) { plan.jobs.push({ ci: ci, inp: pieceInput(members, adj, locArr, sizeAt, root), draw: rnd() }); return; }
+      var pb = PIECES.local && arr === 'stress' && pieceOk(k) && !exactNow ? pieceRun(pieceInput(members, adj, locArr, sizeAt, root), rnd(), EDGE) : pieceBody(members, adj, locArr, sizeAt, root, rnd, arr, EDGE, SN);
+      if (plan) plan.done[ci] = pb;
+      if (pb.rough) roughAny = true;
+      packs.push({ members: members, X: pb.X, w: pb.w, h: pb.h });
     });
+    if (plan && plan.jobs.length) { var cap = new Error('nfm-pieces'); cap.pieces = plan; cap.EDGE = EDGE; throw cap; }   /* buildPieces sends the jobs out and builds again with every piece given */
     /* pack the components in rows, biggest first, aiming at a wide picture */
     var sorted = packs.slice().sort(function (a, b) { return b.members.length - a.members.length; });
     var area = 0;
@@ -2274,7 +2350,7 @@ var NFMEngine = (function () {
 
   return {
     MAP_W: MAP_W, MAP_H: MAP_H, VIEWS: VIEWS, TASKS: TASKS, prepare: prepare, importance: importance, flowExact: flowExact, flowSim: flowSim, absorb: absorb, endClasses: endClasses, spread: spread, seedsOf: seedsOf,
-    layoutKey: layoutKey, separateGroups: separateGroups, mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressWasm: STRESS_WASM, separate: separate, forceWasm: FORCE_WASM, stressTuning: STRESS, forceExt: FORCE_EXT, force3dTuning: FORCE3, force2dTuning: FORCE2,
+    layoutKey: layoutKey, separateGroups: separateGroups, mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressWasm: STRESS_WASM, separate: separate, forceWasm: FORCE_WASM, stressTuning: STRESS, pieces: PIECES, pieceRun: pieceRun, pieceJob: pieceJob, buildPieces: buildPieces, forceExt: FORCE_EXT, force3dTuning: FORCE3, force2dTuning: FORCE2,
     communities: communities, metrics: metrics, taskScore: taskScore, build: build, compare: compare, bfs: bfs, mapCrossPairs: mapCrossPairs, mapPlaceLine: mapPlaceLine, autoStart: autoStart
   };
 })();
