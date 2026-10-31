@@ -2,7 +2,7 @@
  * memory-compression.js: keep big data packed in memory (bytes, typed arrays, big lists of plain JavaScript objects) and bring it back exactly, fast. One file.
  * Part of JS-modules, https://github.com/lfcfoundry/JS-modules
  * Copyright (c) 2026 LFC Foundry. MIT License (see LICENSE at the repository root).
- * Version 2.6.2 (API 2)
+ * Version 2.6.6 (API 2)
  *
  * What it gives you (plain JavaScript, no dependencies, works offline, one file; sets MemoryCompression, and MemoryCompressionJSO as the object layer alone)
  *  - pack(value) / unpack(bytes) / view(bytes) on MemoryCompression choose the layer by themselves: bytes and typed arrays go through the packing core (as memory-compression 1.x did),
@@ -1166,20 +1166,20 @@
       var res = new Uint32Array(n), i; for (i = 0; i < n; i++) res[i] = a[i] - base;
       bpWrite(w, res, n, bw);
     }
-    function bpReadF(r, n, bw, base) {            // n values of bw bits, each plus base, as doubles
+    function bpReadF(r, n, bw, base, into) {      // n values of bw bits, each plus base, as doubles (into: a zeroed Float64Array of n to fill instead of making one)
       var kw = KWC, out, res, i, bytes, sP, oP, src;
       if (bw > 32) pfail('bad bit width');
-      if (!bw) { out = new Float64Array(n); if (base) out.fill(base); return out; }
+      if (!bw) { out = into || new Float64Array(n); if (base) out.fill(base); return out; }
       if (kw && n >= 1024) {
         bytes = Math.ceil(n * bw / 8); sP = kw.base; oP = kal(sP + bytes + 16);
         if (kwRoom(oP + n * 8 - kw.base + 64)) {
           src = r.bytes(bytes);
           new Uint8Array(kw.mem.buffer, sP, bytes + 8).fill(0, bytes).set(src);
           kw.x.bp_unpack(sP, n, bw, base, oP);
-          out = new Float64Array(n); out.set(new Float64Array(kw.mem.buffer, oP, n)); return out;
+          out = into || new Float64Array(n); out.set(new Float64Array(kw.mem.buffer, oP, n)); return out;
         }
       }
-      res = bpRead(r, n, bw); out = new Float64Array(n); for (i = 0; i < n; i++) out[i] = res[i] + base; return out;
+      res = bpRead(r, n, bw); out = into || new Float64Array(n); for (i = 0; i < n; i++) out[i] = res[i] + base; return out;
     }
     function bpRead(r, n, bw) {
       var out = new Uint32Array(n), bytes, src, tmp, mask, pos = 0, i, idx, off, v;
@@ -1292,8 +1292,8 @@
       for (i = 1; i < n; i++) { x = a[i] - a[i - 1]; x = x < 0 ? -2 * x - 1 : 2 * x; d[i - 1] = x; if (x > y) y = x; }
       return y;
     }
-    function undeltaOf(d, n, c0) {    // out[0] = c0; out[i] = out[i - 1] + unzigzag(d[i - 1])
-      var kw = KWC, dP, oP, out = new Float64Array(n), i, c = c0, z;
+    function undeltaOf(d, n, c0, into) {    // out[0] = c0; out[i] = out[i - 1] + unzigzag(d[i - 1])  (into: a zeroed Float64Array of n to fill)
+      var kw = KWC, dP, oP, out = into || new Float64Array(n), i, c = c0, z;
       if (kw && n >= 1024) {
         dP = kw.base; oP = kal(dP + n * 8);
         if (kwRoom(oP + n * 8 - kw.base + 64)) {
@@ -1410,12 +1410,12 @@
       return best;
     }
     function tryInt(sch, a, depth, opt, mm, bound) { try { return encIntWith(sch, a, depth, opt, mm, bound); } catch (e) { return null; } }
-    function decInts(r, n, depth) {
-      var sch = r.u8(), out = new Float64Array(n), i, mn, bw, res, d, c, z, g, b, m, vals, runs, o, k, keys, codes, ne, low, gaps, hi, lim1, p, sh, t, syms, rl, div;
+    function decInts(r, n, depth, into) {
+      var sch = r.u8(), out = into || new Float64Array(n), i, mn, bw, res, d, c, z, g, b, m, vals, runs, o, k, keys, codes, ne, low, gaps, hi, lim1, p, sh, t, syms, rl, div;
       if (depth > MAX_DEPTH) pfail('data nested too deep');
       if (sch === IS.RAW) { for (i = 0; i < n; i++) out[i] = r.f64(); return out; }
       if (sch === IS.CONST) { out.fill(r.zi()); return out; }
-      if (sch === IS.FOR) { mn = r.zi(); bw = r.u8(); return bpReadF(r, n, bw, mn); }
+      if (sch === IS.FOR) { mn = r.zi(); bw = r.u8(); return bpReadF(r, n, bw, mn, into); }
       if (sch === IS.ENT) {
         mn = r.zi(); sh = r.u8(); if (sh > 40) pfail('bad shift'); t = readTable(r); rl = r.vi();
         syms = ransDecode(r.bytes(rl), n, t.freq, t.cum, t.slot); low = bpRead(r, n, sh); div = Math.pow(2, sh);
@@ -1425,7 +1425,7 @@
       if (sch === IS.DELTA) {
         if (n < 1) pfail('bad column');
         c = r.zi(); d = decInts(r, n - 1, depth + 1);
-        return undeltaOf(d, n, c);
+        return undeltaOf(d, n, c, into);
       }
       if (sch === IS.DIV) { b = r.zi(); g = r.vi(); d = decInts(r, n, depth + 1); for (i = 0; i < n; i++) out[i] = d[i] * g + b; return out; }
       if (sch === IS.RLE) {
@@ -1443,7 +1443,7 @@
       }
       if (sch === IS.PFOR) {
         mn = r.zi(); bw = r.u8(); ne = r.vi(); if (ne > n || bw > 31) pfail('bad outliers');
-        out = bpReadF(r, n, bw, mn); gaps = decInts(r, ne, depth + 1); hi = decInts(r, ne, depth + 1); lim1 = Math.pow(2, bw);
+        out = bpReadF(r, n, bw, mn, into); gaps = decInts(r, ne, depth + 1); hi = decInts(r, ne, depth + 1); lim1 = Math.pow(2, bw);
         p = -1; for (k = 0; k < ne; k++) { p += gaps[k] + 1; if (!(p >= 0 && p < n)) pfail('bad outlier position'); out[p] += hi[k] * lim1; }
         return out;
       }
@@ -1512,8 +1512,8 @@
       }
       return w.out();
     }
-    function decALP(r, n, depth) {
-      var e = r.u8(), f = r.u8(), ne = r.vi(), ints, out = new Float64Array(n), i, gaps, near, at, p, k, c, q, z;
+    function decALP(r, n, depth, into) {
+      var e = r.u8(), f = r.u8(), ne = r.vi(), ints, out = into || new Float64Array(n), i, gaps, near, at, p, k, c, q, z;
       if (e > 22 || f > e || ne > n) pfail('bad decimal column');
       ints = decInts(r, n, depth + 1);
       for (i = 0; i < n; i++) out[i] = ints[i] * F10[f] / F10[e];
@@ -1759,10 +1759,11 @@
       if (!best || best.length >= a.length * 8) { best = rawDoubles(a); bs = CS.RAWF; }
       w = new Wr(); w.u8(bs); w.bytes(best); return w.out();
     }
-    function decChunk(r, n) {
+    function into1(out, at, n, got) { if (got.buffer !== out.buffer || got.byteOffset !== out.byteOffset + at * 8) out.set(got, at); }      // a block that was not decoded in place is copied in
+    function decChunk(r, n, into) {
       var id = r.u8(), out, i;
-      if (id === CS.INTS) return decInts(r, n, 0);
-      if (id === CS.ALP) return decALP(r, n, 0);
+      if (id === CS.INTS) return decInts(r, n, 0, into);
+      if (id === CS.ALP) return decALP(r, n, 0, into);
       if (id === CS.RD) return decRD(r, n, 0);
       if (id === CS.FDICT) return decFDict(r, n, 0);
       if (id === CS.PLANES) return decPlanes(r, n);
@@ -1806,12 +1807,26 @@
       var r = new Rd(bytes), n = r.vi(), c = r.vi(), out, i, len, c2;
       if (n !== count || c < 1 || c > 1048576) pfail('the data does not match the column');
       out = new Float64Array(n);
-      for (i = 0; i < n; i += c) { len = r.vi(); c2 = Math.min(c, n - i); out.set(decChunk(new Rd(r.bytes(len)), c2), i); }
+      for (i = 0; i < n; i += c) { len = r.vi(); c2 = Math.min(c, n - i); into1(out, i, c2, decChunk(new Rd(r.bytes(len)), c2, out.subarray(i, i + c2))); }
       return out;
     }
     function available() { return LE; }
-    function available() { return LE; }
-    return { pack: pack, unpack: unpack, available: available };
+    // unpackStart / unpackStep: the same answer as unpack(), a few blocks of 8,192 numbers at a time (each block stands alone), so a long column can be opened in short slices.
+    // st.out is the Float64Array when unpackStep has returned true (all blocks done).
+    function unpackStart(bytes, count, wasm) {
+      var r = new Rd(bytes), n = r.vi(), c = r.vi();
+      if (n !== count || c < 1 || c > 1048576) pfail('the data does not match the column');
+      return { r: r, n: n, c: c, i: 0, out: new Float64Array(n), wasm: wasm };
+    }
+    function unpackStep(st, blocks) {
+      var k, len, c2;
+      KWC = st.wasm === false ? null : kwGet();
+      try {
+        for (k = 0; k < blocks && st.i < st.n; k++) { len = st.r.vi(); c2 = Math.min(st.c, st.n - st.i); into1(st.out, st.i, c2, decChunk(new Rd(st.r.bytes(len)), c2, st.out.subarray(st.i, st.i + c2))); st.i += st.c; }
+      } finally { KWC = null; }
+      return st.i >= st.n;
+    }
+    return { pack: pack, unpack: unpack, available: available, unpackStart: unpackStart, unpackStep: unpackStep };
   })();
 
   // ================================================================ the object layer
@@ -3146,7 +3161,7 @@
 
   // builds rows from columns. Each column is described by [a, d, mode]: 0 a[i], 1 a[i] === 1, 2 d[a[i]], 3 d (a constant)
   function builder(keys, modes) {
-    var sig = 'b' + keys.join('\u0001') + '\u0002' + modes.join(''), f = GEN_CACHE[sig], j, src, expr, pk;
+    var sig = 'b' + JSON.stringify(keys) + '\u0002' + modes.join(''), f = GEN_CACHE[sig], j, src, expr, pk;
     if (f) return f;
     if (CAN_EVAL) {
       src = 'var out=new Array(n),i;for(i=0;i<n;i++){out[i]={';
@@ -3307,12 +3322,15 @@
   // 6 a pattern whose strings are put together per row (a.row(i); the slots' numbers and lookup tables are kept for the memory report). The first reads cut one string each, so opening a page and reading a row or two stays cheap.
   // A column that keeps being read (a scan, a list on screen) is turned into its strings in one pass after n/32 reads (at least 32; not for columns over 16,384 rows, so no read waits for a long pass), because cutting them all in a tight loop costs about a third of cutting them one by one;
   // it then becomes a plain mode 0 column (t stays, for the memory report), so later reads cost what any column costs.
+  // Modes 7 to 10 are for a nested column of a view (lazyNow): 7 records (an object made per row from its columns), 8 arrays (row ends plus one flat column), 9 tuples (an array made per row), 10 date-times (text made per row from the numbers);
+  // a.row(i) makes the value. They are never turned into plain arrays (that would hold every object), so each read makes its own value.
   // full() gives a plain array of the values.
   function Col(n, mode, a, d) { this.n = n; this.mode = mode; this.a = a; this.d = d; this.t = 0; this.hits = 0; }
   Col.prototype.get = function (i) { var m = this.mode; return m === 0 ? this.a[i] : m === 1 ? this.a[i] === 1 : m === 2 ? this.d[this.a[i]] : m === 3 ? this.d : this.cut(i); };   // kept small on purpose: it is read once per value in every row builder and must stay inlinable
   function lazyCol(n, kind, a) { var c = new Col(n, kind, a, null); c.t = kind; return c; }
   Col.prototype.cut = function (i) {                                  // one string of a column that is not made yet
     var a = this.a, m = this.mode;
+    if (m >= 7) return a.row(i);                                      // nested kinds and date-times: a value made per read
     if (this.n <= 16384 && ++this.hits > (this.n >> 5 > 32 ? this.n >> 5 : 32)) { this.fill(); return this.a[i]; }       // not for a column of more than 16,384 rows: making them all in one go would hold a slice of unpackAsync up
     return m === 5 ? a.big.substring(a.off[i], a.off[i + 1]) : m === 6 ? a.row(i) : fsGet(a, i);
   };
@@ -3347,6 +3365,8 @@
     return out;
   };
 
+  // lazyNow(): this column may be kept in pieces and made per row: a top-level column of a view, or one inside a nested column that is itself kept in pieces (lazyAt says which depth)
+  Dec.prototype.lazyNow = function () { return this.lazyText === true && this.depth === (this.lazyAt || 1); };
   Dec.prototype.column = function (n) {
     if (++this.depth > MAX_DEPTH) jfail('nested too deeply');
     var r = this.columnBody(n);
@@ -3435,7 +3455,7 @@
         a = new (m <= 256 ? Uint8Array : m <= 65536 ? Uint16Array : Uint32Array)(n);
         for (i = 0; i < n; i++) { if (!(t[i] >= 0 && t[i] < m)) jfail('dictionary index out of range'); a[i] = t[i]; }
         return new Col(n, 2, a, d);
-      case CT_STRR: t = this.rawStrings(n, false, this.lazyText && this.depth === 1); return t instanceof Col ? t : new Col(n, 0, t, null);
+      case CT_STRR: t = this.rawStrings(n, false, this.lazyNow()); return t instanceof Col ? t : new Col(n, 0, t, null);
       case CT_NULLABLE:
         m = c.varint(); if (m > n) jfail('bad count');
         kinds = this.blob(Uint8Array, n);
@@ -3449,7 +3469,10 @@
         return new Col(n, 0, out, null);
       case CT_TUPLE:
         k = c.varint(); if (k < 1 || k > 8) jfail('bad tuple'); this.spend(n * k);
-        var cols = []; for (j = 0; j < k; j++) cols.push(this.column(n));
+        var cols = [], lz = this.lazyNow(), la = this.lazyAt; if (lz) this.lazyAt = this.depth + 1;
+        for (j = 0; j < k; j++) cols.push(this.column(n));
+        this.lazyAt = la;
+        if (lz) return new Col(n, 9, { cols: cols, k: k, row: k === 2 ? function (i) { return [cols[0].get(i), cols[1].get(i)]; } : function (i) { var r = new Array(k), q; for (q = 0; q < k; q++) r[q] = cols[q].get(i); return r; } }, null);
         out = new Array(n);
         if (k === 2) {
           var c0 = cols[0], c1 = cols[1], x0 = c0.mode === 0 ? c0.a : null, x1 = c1.mode === 0 ? c1.a : null;
@@ -3461,7 +3484,15 @@
       case CT_ARRAYS:
         m = c.varint(); this.spend(m + n);
         lens = this.lengthCol(n);
+        var lz = this.lazyNow(), la = this.lazyAt; if (lz) this.lazyAt = this.depth + 1;
         flat = m > 0 ? this.column(m) : null;
+        this.lazyAt = la;
+        if (lz) {                                                                          // row ends and the one flat column; an array is made when its row is read
+          var ro = new Uint32Array(n + 1);
+          for (i = 0; i < n; i++) { ro[i + 1] = ro[i] + lens.get(i); if (ro[i + 1] > m) jfail('bad array lengths'); }
+          if (ro[n] !== m) jfail('bad array lengths');
+          return new Col(n, 8, { off: ro, flat: flat, row: flat === null ? function () { return []; } : flat.mode === 0 && Array.isArray(flat.a) ? function (i) { return flat.a.slice(ro[i], ro[i + 1]); } : function (i) { var b = ro[i], e = ro[i + 1], r = new Array(e - b), q; for (q = b; q < e; q++) r[q - b] = flat.get(q); return r; } }, null);
+        }
         out = new Array(n); var off = 0, len, row, fa = flat !== null && flat.mode === 0 && Array.isArray(flat.a) ? flat.a : null;
         for (i = 0; i < n; i++) {
           len = lens.get(i); if (off + len > m) jfail('bad array lengths');
@@ -3539,6 +3570,28 @@
     var out = new Array(n);
     timesJoin(g)(out, n, DT, di, HM, mi, SC, si, FR, fi);
     return out;
+  }
+  // The text of one date-time from its number, the calendar part kept for the last 256 distinct days; the column keeps just the numbers.
+  function timesLazy(n, L, g, ts) {
+    var per = g === 3 ? 1 : g === 5 ? 1440 : g === 6 ? 86400 : 86400000, ra = ts.mode === 3 ? null : ts.a, cv = ts.mode === 3 ? ts.d : 0, i, v;
+    for (i = 0; i < n; i++) { v = ra ? ra[i] : cv; if (v - v !== 0) jfail('bad date pattern'); if (!ra) break; }
+    var tags = new Float64Array(256).fill(NaN), strs = new Array(256).fill(''), last = NaN, lastDay = '';
+    function row(i) {
+      var v = ra ? ra[i] : cv, days = Math.floor(v / per), slot, day, rest, sec, ms, k;
+      if (days === last) day = lastDay;
+      else {
+        slot = days & 255;
+        if (tags[slot] === days) day = strs[slot]; else { day = dayText(days, L); tags[slot] = days; strs[slot] = day; }
+        last = days; lastDay = day;
+      }
+      if (g === 3) return day;
+      rest = (v - days * per) | 0;
+      if (g === 5) return day + pad((rest / 60) | 0, 2) + L[4] + pad(rest % 60, 2) + L[5];
+      if (g === 7) { ms = rest % 1000; sec = (rest - ms) / 1000 | 0; } else sec = rest;
+      k = (sec / 60) | 0;
+      return day + pad((k / 60) | 0, 2) + L[4] + pad(k % 60, 2) + L[5] + pad(sec - k * 60, 2) + L[6] + (g === 7 ? pad(ms, 3) + L[7] : '');
+    }
+    return new Col(n, 10, { ts: ts, row: row }, null);
   }
   function buildTimes(n, L, g, ts) {
     var per = g === 3 ? 1 : g === 5 ? 1440 : g === 6 ? 86400 : 86400000, ra = ts.mode === 3 ? null : ts.a, lo = Infinity, hi = -Infinity, i, v, span;
@@ -3646,7 +3699,7 @@
     }
     if (dec !== raw) jfail('FSST column decodes to the wrong size');
     a = { syms: syms, symLen: symLen, codes: codes, coff: coff, raw: raw, scratch: new Uint8Array(256), wasm: this.wasm };
-    if (this.lazyText && this.depth === 1) return lazyCol(n, 4, a);
+    if (this.lazyNow()) return lazyCol(n, 4, a);
     return new Col(n, 0, fsAll(a, n), null);
   };
   Dec.prototype.times = function (n) {
@@ -3657,6 +3710,7 @@
     for (j = 0; j < R; j++) { if (j < g) widths.push(TS_WIDTH[j]); else { widths.push(c.varint()); if (widths[j] === 1 || widths[j] > 15) jfail('bad date pattern'); } }
     ts = this.column(n);
     if (ts.mode !== 0 && ts.mode !== 3) jfail('bad date pattern');
+    if (R === g && this.lazyNow()) return timesLazy(n, L, g, ts);
     if (R === g && n >= 2048) return new Col(n, 0, buildTimes(n, L, g, ts), null);
     cols = tsUnpack(g, ts, n).map(function (a) { var k, x = a[0]; for (k = 1; k < n && a[k] === x; k++); return k === n ? new Col(n, 3, null, x) : new Col(n, 0, a, null); });   // a number that never changes becomes part of the text
     for (j = g; j < R; j++) cols.push(this.column(n));
@@ -3670,7 +3724,7 @@
     for (j = 0; j < R; j++) { w = c.varint(); if (w === 1 || w > 15) jfail('bad string pattern'); widths.push(w); }
     if (nt > 1) { tid = this.blob(Uint8Array, n); for (i = 0; i < n; i++) if (tid[i] >= nt) jfail('bad string pattern'); }
     for (j = 0; j < R; j++) cols.push(this.column(n));
-    return buildTemplate(n, tpls, R, widths, tid, cols, this.lazyText && this.depth === 1 && CAN_EVAL);
+    return buildTemplate(n, tpls, R, widths, tid, cols, this.lazyNow() && CAN_EVAL);
   };
   var ZEROS = '000000000000000';
   function pad(v, w) { var s = '' + v; return s.length >= w ? s : ZEROS.substring(0, w - s.length) + s; }
@@ -3835,8 +3889,17 @@
     if (q !== n) jfail('bad string lengths');
     return out;
   };
+  function recordRow(keys) {                                        // a function that gives a function making row i from the columns
+    var sig = 'r' + JSON.stringify(keys), f = GEN_CACHE[sig], j, src;
+    if (f) return f;
+    src = 'return function(i){return {';
+    for (j = 0; j < keys.length; j++) src += (j ? ',' : '') + (keys[j] === '__proto__' ? '["__proto__"]' : JSON.stringify(keys[j])) + ':c[' + j + '].get(i)';
+    f = new Function('c', src + '};}');
+    genStore(sig, f);
+    return f;
+  }
   Dec.prototype.records = function (n, register) {
-    var base = 0, c = this.c, ns = c.varint(), shapes = [], i, j, nk, keys, shapeOf = null, cols, sh, out, counts = [], modes, args, rows, pos, cnt;
+    var base = 0, c = this.c, ns = c.varint(), shapes = [], i, j, nk, keys, shapeOf = null, cols, sh, out, counts = [], modes, args, rows, pos, cnt, lz = !register && this.ver >= 2 && CAN_EVAL && this.lazyNow(), la = this.lazyAt;
     if (ns < 1 || ns > MAX_SHAPES || (register && ns !== 1)) jfail('bad shape count');
     if (register) { base = this.refs.length; this.spend(n); for (i = 0; i < n; i++) this.refs.push(RESERVED); }
     for (i = 0; i < ns; i++) {
@@ -3853,12 +3916,15 @@
       if (ns === 1 && this.ver >= 2) {                                            // a directory of sizes comes first; each column has its own key numbering
         var dirC = [], dirB = [], c0, b0, savedKeys;
         for (j = 0; j < keys.length; j++) { dirC.push(c.varint()); dirB.push(c.varint()); }
+        if (lz) this.lazyAt = this.depth + 1;
         for (j = 0; j < keys.length; j++) {
           c0 = c.p; b0 = this.bl.p; savedKeys = this.keys; this.keys = [];
           var col2 = this.column(cnt); this.keys = savedKeys;
           if (c.p - c0 !== dirC[j] || this.bl.p - b0 !== dirB[j]) jfail('a column does not match its directory entry');
           cols.push(col2); modes.push(col2.mode); args.push(col2.a, col2.d);
         }
+        this.lazyAt = la;
+        if (lz && ns === 1) return new Col(n, 7, { keys: keys, cols: cols, row: recordRow(keys)(cols) }, null);       // an object is made per row from the columns
       } else
       for (j = 0; j < keys.length; j++) {
         if (cnt > 0) { var col = this.column(cnt); cols.push(col); modes.push(col.mode); args.push(col.a, col.d); }
@@ -3942,8 +4008,8 @@
     if (t - SLICE_T + piece >= (ms || SLICE_MS)) return nextTask();
     PIECE_T = t; return RESOLVED;
   }
-  function stepFor(step, dt, left) {                                      // rows for the next chunk: aims at the time left in the slice (dt is 0 or 1 whole milliseconds in some browsers)
-    return Math.max(256, Math.min(65536, Math.floor(step * (dt > 0.05 ? Math.max(0.25, left) / dt : 2))));
+  function stepFor(step, dt, left, min) {                                      // rows for the next chunk: aims at the time left in the slice (dt is 0 or 1 whole milliseconds in some browsers)
+    return Math.max(min || 256, Math.min(65536, Math.floor(step * (dt > 0.05 ? Math.max(0.25, left) / dt : 2))));
   }
   function fusedSlicer(keys, types) {                                    // fills columns from row `from` up to `to`: 0, -1 (a row does not fit) or -(2 + j) (key j held a non-number), like fusedExtractor
     var sig = 'g' + keys.join('\u0001') + '\u0002' + types.join(''), f = GEN_CACHE[sig], j, src, nk = keys.length;
@@ -4001,10 +4067,10 @@
     }
     return attempt();
   }
-  function slicedLoop(n, work, ms) {                                          // work(from, to) -> true to go on, anything else stops with that value; chunks sized to the time left in the slice, a yield only when the slice is used up
+  function slicedLoop(n, work, ms, step0, stepMin) {                                          // work(from, to) -> true to go on, anything else stops with that value; chunks sized to the time left in the slice, a yield only when the slice is used up
     ms = ms || SLICE_MS;
     return new Promise(function (resolve, reject) {
-      var i = 0, step = 512;
+      var i = 0, step = step0 || 512;
       function go() {
         try {
           var t0, t1, to, r, dt;
@@ -4013,7 +4079,7 @@
             if (r !== true) { resolve(r); return; }
             i = to; t1 = PIECE_T = performance.now(); dt = t1 - t0;
             if (i >= n) { resolve(true); return; }
-            step = stepFor(step, dt, ms - (t1 - SLICE_T));
+            step = stepFor(step, dt, ms - (t1 - SLICE_T), stepMin);
             if (t1 - SLICE_T >= ms) { nextTask().then(go); return; }
           }
         } catch (err) { reject(err); }
@@ -4298,10 +4364,10 @@
     try {
       ct = c.u8();
       if (ct === CT_RECORDS) { if (c.varint() !== 1 || d.ver < 2) ct = -1; else c.p = p1 + 1; }
-      if (ct !== CT_RECORDS && ct !== CT_TUPLE && ct !== CT_ARRAYS) { c.p = p1; return Promise.resolve(d.column(n)); }
+      if (ct !== CT_RECORDS && ct !== CT_TUPLE && ct !== CT_ARRAYS && ct !== CT_ADAPT) { c.p = p1; return Promise.resolve(d.column(n)); }
       if (++d.depth > MAX_DEPTH) jfail('nested too deeply');
     } catch (err) { return Promise.reject(err); }
-    p = ct === CT_RECORDS ? d.recordsAsync(n) : ct === CT_TUPLE ? d.tupleAsync(n) : d.arraysAsync(n);
+    p = ct === CT_RECORDS ? d.recordsAsync(n) : ct === CT_TUPLE ? d.tupleAsync(n) : ct === CT_ADAPT ? d.adaptAsync(n) : d.arraysAsync(n);
     return p.then(function (col) { d.depth--; return col; });
   };
   Dec.prototype.recordsAsync = function (n) {                              // CT_RECORDS with one shape (format 2): the byte for the kind is read, the shape count is not
@@ -4333,6 +4399,28 @@
       for (k = 0; k < nk; k++) { args.push(cols[k].a); args.push(cols[k].d); }
       return slicedLoop(n, function (from, to) { args[1] = from; args[2] = to; f.apply(null, args); if (tell) tell(out, from, to); return true; }, UNPACK_SLICE_MS);
     }).then(function () { return new Col(n, 0, out, null); });
+  };
+  Dec.prototype.adaptAsync = function (n) {                                // CT_ADAPT, a number column from the picker: its blocks of 8,192 numbers are opened a few at a time
+    var d = this, c = d.c, e, k, m, a, st, bad = 'an adaptive number column is damaged';
+    d.spend(n);
+    e = c.u8(); k = c.u8(); m = c.varint();
+    if (e > 10 || k > 1) jfail('bad adaptive column');
+    a = d.bl.take(m);
+    if (!PK.available()) jfail('this file stores a number column with the number picker, which needs a little-endian machine');
+    try {
+      if (k) a = MC.unpack(a, { maxSize: m * 64 + n * 16 + 4096, wasm: d.wasm });
+      st = PK.unpackStart(a, n, d.wasm);
+    } catch (err) { jfail(bad); }
+    return slicedLoop(Math.ceil(n / st.c), function (from, to) {
+      try { PK.unpackStep(st, to - from); } catch (err) { jfail(bad); }
+      return true;
+    }, UNPACK_SLICE_MS, 2, 1).then(function () {
+      var t = st.out, p, q;
+      if (!(t instanceof Float64Array) || t.length !== n) jfail(bad);
+      if (e === 0) return new Col(n, 0, t, null);
+      p = P10[e]; q = new Float64Array(n);
+      return slicedLoop(n, function (from, to) { var i; for (i = from; i < to; i++) q[i] = t[i] / p; return true; }, UNPACK_SLICE_MS, 8192).then(function () { return new Col(n, 0, q, null); });
+    });
   };
   Dec.prototype.tupleAsync = function (n) {
     var d = this, c = d.c, k = c.varint(), cols = [], j = 0, out;
@@ -4457,6 +4545,9 @@
       }
       if (m === 4) return a.codes.byteLength + a.coff.byteLength + a.syms.length * 24 + 64;
       if (m === 5) return 16 + a.off.byteLength + a.big.length * (a.wide ? 2 : 1);
+      if (m === 7 || m === 9) { var t7 = 64, q7; for (q7 = 0; q7 < a.cols.length; q7++) t7 += colBytes(a.cols[q7]); return t7; }
+      if (m === 8) return 16 + a.off.byteLength + (a.flat ? colBytes(a.flat) : 0);
+      if (m === 10) return 4400 + colBytes(a.ts);
       if (m === 6) {                                                  // the numbers each slot reads and the tables of text it looks up
         var t = 16 + (a.tid ? a.tid.byteLength : 0), seen = [], j;
         for (j = 0; j < a.arrs.length; j++) if (a.arrs[j] && seen.indexOf(a.arrs[j]) < 0) { seen.push(a.arrs[j]); t += 16 + a.arrs[j].byteLength; }
