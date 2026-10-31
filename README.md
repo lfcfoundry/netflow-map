@@ -12,34 +12,31 @@ Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry.
 
 ## What it is and how it works
 
-Netflow Map is a free tool for seeing and analyzing relationships and flows. You give it a list of things and how they connect, and it draws a map you can read, then helps you ask questions of it. It does not care what the data describes or what it calls the parts: links and nodes, edges and vertices, pages and choices, or services and calls all have the same shape underneath, and the tool treats them the same way.
+Netflow Map is a free tool for seeing and analyzing how things connect and flow. It works with any kind of linked data: links and nodes, edges and vertices, pages and choices.
 
-It works in four steps, all inside your browser:
+How it works:
 
-1. **Read.** It takes tables (CSV, TSV, Excel), JSON graphs, outlines, Markdown notes, graph files (GraphML, GEXF, GML, DOT) and zips of any of these. It works out which columns hold the links, and reports in plain words what it kept, merged or skipped.
-2. **Lay out.** Nine views each answer a different question: Flow shows how things lead on from a start, Matrix shows who links to whom, Network shows what clusters together, and so on. In every network arrangement, no two items are left touching. The heavy work runs in a background helper with WebAssembly, so the page stays responsive: 30,000 items lay out in under a second, 100,000 in a few seconds.
-3. **Analyze.** The Check tab points out problems in the data, with a reason and a fix where one is safe. Choke points show the items every route must pass. A simulation sends up to 100,000 walkers through the map to give odds with error bars and to rank what-if changes.
-4. **Share.** Export pictures (SVG, PNG, an animated GIF), the data (JSON, CSV), or a one-page HTML report.
+1. **Read:** tables, Excel, JSON, outlines, Markdown notes, graph files, or a zip of them.
+2. **Lay out:** nine views, each answering a different question, with no two items touching.
+3. **Analyze:** find choke points, check the data, and simulate how flows spread.
+4. **Share:** export pictures, data, an animated GIF or a one-page report.
 
-All of this lives in one file, index.html. Nothing is uploaded and nothing is installed, and it needs no administrator rights and no special computing knowledge.
+It is one file that runs in your browser. Nothing is uploaded or installed.
 
 ## Why it exists
 
-Most data about connections is kept as lists: rows of who sends what to whom, files that link to other files, steps that hand work to other steps. A list hides its shape. A spreadsheet will not tell you which item everything else depends on, where flows pile up, or which groups barely talk to each other. Drawing the data helps, but drawing it by hand does not scale, and general-purpose tools often ask for one exact format, slow down past a few thousand items, or leave items piled on top of each other.
+Data about connections usually lives in lists, and a list hides its shape: what everything depends on, where flows pile up, which groups barely touch. Netflow Map draws that shape quickly and clearly, so the signal stands out from the noise, even at 100,000 items.
 
-Netflow Map is built to close that gap in three ways. It is data-agnostic, so the same tool works whether your links are called edges, choices, calls or references. It stays fast as the data grows, so you can look at the whole of it instead of a sample. And it is built to separate the signal from the noise: views that each answer one question, a guarantee that no two items overlap, a strongest-links slider and filters to thin out a dense map, and analysis that names the choke points and likely end points instead of leaving you to guess.
+It runs in the browser because almost every device has one. So it works offline and on locked-down computers, and your data stays with you.
 
-It runs as a single file in the browser because the browser is the most widely available place to run software. That is why it works offline, on locked-down work computers where nothing can be installed, and on almost any device, and why your data never leaves your computer.
+Where it helps:
 
-Some places it helps:
-
-- **Software systems:** which services call which, which ones the rest depend on, and how a change in one part spreads.
-- **Processes and handoffs:** where work moves between teams, where it waits, and which steps every job must pass.
-- **Supply chains and money flows:** how much moves along each route, and how the routes shift from one state to the next (baseline, year 1, year 2).
-- **Linked notes and wikis:** a folder of Markdown notes, to see which notes are hubs, which clusters form, and which links point to notes that do not exist yet.
-- **Branching stories and decision trees:** which paths people take, which endings they reach, and how likely each one is.
-- **Research networks:** citations, co-authors, or any edge list from GraphML, GEXF or a spreadsheet, up to 100,000 items.
-- **Teaching:** showing what a network is and how different layouts reveal different things, with nothing to set up in a classroom.
+- **Software systems:** which services depend on which.
+- **Processes:** where work waits, and which steps every job must pass.
+- **Supply chains and money flows:** how routes shift over time.
+- **Linked notes and wikis:** hubs, clusters and links to missing notes.
+- **Branching stories:** which endings people reach, and how often.
+- **Research networks:** citations, co-authors and other edge lists.
 
 <div align="center">
 
