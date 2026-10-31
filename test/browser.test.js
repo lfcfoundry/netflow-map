@@ -1151,6 +1151,44 @@ async function open() {
     });
     say(!!r.skip || (r.helpers >= 1 && r.same && r.n === 2800), 'a map of 4 separate pieces is laid out with helper threads the page made, and the picture is the same as the page engine\'s own: ' + JSON.stringify(r));
   } catch (e) { say(false, 'the helper-thread check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  /* Undo of a whole earlier map: a big one is packed on a thread of its own while the page is idle, and Undo reads it back exactly */
+  try {
+    const r = await ev(async () => {
+      const S = NFM.state, g0 = S.graph, mk = (nm, seed) => { const g = NFMExamples.bigNetwork(6000, 3, seed); g.name = nm; g.start = g.nodes[7].id; return NFMImport.sanitizeGraph(g); };
+      const a = mk('PackA', 21), b = mk('PackB', 22), ids = a.nodes.map((n) => n.id + '|' + n.label).join(','), links = a.edges.map((e) => e.from + '>' + e.to + ':' + e.value).join(',');
+      NFM.setGraph(a); NFM.setGraph(b);
+      const st = S.hist[S.hist.length - 1], t0 = performance.now();
+      while (!st.bytes && performance.now() - t0 < 15000) await new Promise((q) => setTimeout(q, 50));
+      const out = { packed: !!st.bytes, graphLetGo: st.graph === null, kb: st.bytes ? Math.round(st.bytes.length / 1024) : 0, items: a.nodes.length + a.edges.length };
+      document.getElementById('b-undo').click();
+      const t1 = performance.now(); while (S.graph.name !== 'PackA' && performance.now() - t1 < 15000) await new Promise((q) => setTimeout(q, 30));
+      out.back = S.graph.name; out.same = S.graph.nodes.map((n) => n.id + '|' + n.label).join(',') === ids && S.graph.edges.map((e) => e.from + '>' + e.to + ':' + e.value).join(',') === links && S.graph.start === a.start;
+      document.getElementById('b-undo').click(); out.home = S.graph === g0;
+      return out;
+    });
+    say(r.packed && r.graphLetGo && r.back === 'PackA' && r.same && r.home, 'opening another big map packs the earlier one for Undo, and Undo brings it back exactly: ' + JSON.stringify(r));
+  } catch (e) { say(false, 'the packed-undo check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  /* crash-safe saves: every save also goes to IndexedDB; when localStorage lost the newest one (a browser crash), the safe copy is the newer one */
+  try {
+    const r = await ev(async () => {
+      const S = NFM.state, g0 = S.graph, old = localStorage.getItem('nfm-graph');
+      NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SafeOne', nodes: [{ id: 'S1' }, { id: 'S2' }], edges: [{ from: 'S1', to: 'S2' }] }));
+      const t0 = performance.now(); let got = null;
+      while (performance.now() - t0 < 5000) {
+        const txt = localStorage.getItem('nfm-graph');
+        if (txt && txt.indexOf('SafeOne') >= 0) {   /* saved: now lose it from localStorage, as a crash would */
+          const seq = localStorage.getItem('nfm-seq:nfm-graph'); localStorage.setItem('nfm-graph', old || '{}'); localStorage.setItem('nfm-seq:nfm-graph', '0');
+          got = await NFM.safe.newer('nfm-graph'); NFM.safe.repair('nfm-graph', got || { text: txt, seq: +seq });
+          if (got) break;
+        }
+        await new Promise((q) => setTimeout(q, 40));
+      }
+      const out = { found: !!got, name: got ? JSON.parse(got.text).name : null, repaired: (localStorage.getItem('nfm-graph') || '').indexOf('SafeOne') >= 0, notNewerNow: (await NFM.safe.newer('nfm-graph')) === null };
+      document.getElementById('b-undo').click(); out.home = S.graph === g0;
+      return out;
+    });
+    say(r.found && r.name === 'SafeOne' && r.repaired && r.notNewerNow && r.home, 'a save lost from localStorage is found in the safe copy and put back: ' + JSON.stringify(r));
+  } catch (e) { say(false, 'the safe-save check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   try {
   { const r = await ev(async () => {
       const c = NFM.client(); if (c.mode !== 'worker') return { skip: c.mode };

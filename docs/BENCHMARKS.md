@@ -1984,3 +1984,27 @@ Chromium 155, the real app in an 800 by 600 window, data opened through the app'
 Before / after; lower is better. Opening took 5.6 / 5.6 s (simple) and 2.3 / 2.1 s (rich), 12 changes 24 / 23 s and 12.5 / 10 s, the slowest undo 2.6 / 2.7 s and 1.4 / 1.3 s (medians of 2; each change and undo is mostly the app working out the map's columns again, the same before and after).
 
 Node, 100,000 items, policies alone and stacked (retained heap, every undo checked): a second file 200 MB today, 151 MB without the kept cells, 78 MB when the old graph is also packed; 25 one-item renames 201 to 128 MB with difference steps alone, 79 MB stacked with lean cells and the merge-only base. Packing whole-map steps and a 16 MB cap on Undo change what Undo does, so they wait for a decision.
+
+## 57. Packed undo of a whole map, and crash-safe saves (2026.10.31)
+
+Same run as section 56 (Chromium 155, the real app, 800 by 600 window, main-page heap after three full garbage collections). The map from before a second file is packed with LFC-pack on a worker while the page is idle, and Undo is held to 16 MB.
+
+| Main-page heap after | Simple table, 16 MB (188,000 items) | Rich table, 16 MB (30,000 items) |
+|---|---:|---:|
+| Opening it | 102.2 / 102.5 MB | 39.6 / 39.7 MB |
+| 12 changes | 101.9 / 102.2 MB | 40.8 / 40.8 MB |
+| A second table of the same size | 165.2 / 108.3 MB | 56.8 / 43.4 MB |
+| 12 more changes | 165.0 / 108.0 MB (-35%) | 57.7 / 44.4 MB (-23%) |
+
+Before (section 56) / after; lower is better. Against the start of section 56: 287 to 108 MB (-62%) and 116 to 44 MB (-62%). 25 of 25 undos matched. The undo of the packed step took 2.8 s (simple) and 1.2 s (rich), including the map work after it; the slowest plain undo was 1.9 to 2.2 s and 0.95 to 1.0 s.
+
+Crash-safe saves, the whole browser killed (SIGKILL) and opened again with the same profile:
+
+| Killed after a change | Before | After |
+|---|---|---|
+| Chromium 155, 2 s | lost | kept 2 of 2 |
+| Chromium 155, 10 s | lost | (not rerun) |
+| Chromium 155, 30 s | lost | kept 2 of 2 |
+| Firefox 158, 2 s | lost | kept 2 of 2 |
+
+Cost of one save of a 2,000-item map (557 KB), median of 13: the page's own time 2.0 / 1.8 ms (Chromium) and 2.0 / 3.0 ms (Firefox); kept in IndexedDB 14 ms (Chromium) and 11 ms (Firefox) after the call, while the page goes on. WebKitGTK was not kill-tested (its test sessions can't keep a profile).

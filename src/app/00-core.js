@@ -152,12 +152,61 @@ function saveWarn(kind) {
   kind = kind === 'big' ? 'big' : 'fail'; if (saveWarned[kind]) return; saveWarned[kind] = true;   /* once for each of the two kinds of trouble */
   toast(kind === 'big' ? 'This data is too big to keep on this computer between visits. Use Export to keep your work.' : 'Your latest changes could not be saved on this computer (storage is full or blocked). Use Export to keep them.', 9000);
 }
-var saveView = debounce(function () { if (S.V && S.graph.nodes.length && !LS.set(VKEY(), JSON.stringify(S.V))) saveWarn('view'); }, 400);
+/*
+ * Safe saves. A browser that crashes or is killed loses the newest localStorage writes: in Chromium up to about a minute of them, in Firefox
+ * about 10 s (tested: an edit 30 s before the kill was gone on reopen in Chromium). Each save of the data and of its view settings is also
+ * written to IndexedDB, with 'strict' durability, which kept every completed save in both. Each save carries a number, also kept in
+ * localStorage; at start, when IndexedDB holds a newer save than localStorage, that one is brought back.
+ */
+var SAFE = (function () {
+  var dbP = null, seq = 0;
+  function open() {
+    if (dbP) return dbP;
+    dbP = new Promise(function (res, rej) {
+      if (TWIN || typeof indexedDB === 'undefined') return rej(new Error('no IndexedDB'));
+      var q = indexedDB.open('netflow-map-saves', 1);
+      q.onupgradeneeded = function () { q.result.createObjectStore('s'); };
+      q.onsuccess = function () { res(q.result); }; q.onerror = function () { rej(q.error); }; q.onblocked = function () { rej(new Error('blocked')); };
+    });
+    dbP.catch(function () { /* no safe copy: localStorage alone, as before */ });
+    return dbP;
+  }
+  function tx(mode, f) {
+    return open().then(function (db) {
+      return new Promise(function (res, rej) {
+        var t; try { t = db.transaction('s', mode, { durability: 'strict' }); } catch (e) { t = db.transaction('s', mode); }
+        var out = f(t.objectStore('s'));
+        t.oncomplete = function () { res(out && out.result); }; t.onerror = t.onabort = function () { rej(t.error || new Error('aborted')); };
+      });
+    });
+  }
+  return {
+    /** Saves text under a localStorage key and its safe copy; false when localStorage refused it. */
+    set: function (k, text) {
+      seq = Math.max(seq, +(LS.get('nfm-seq') || 0)) + 1;
+      var ok = LS.set(k, text); LS.set('nfm-seq:' + k, String(seq)); LS.set('nfm-seq', String(seq));
+      tx('readwrite', function (st) { st.put({ seq: seq, text: text }, k); }).catch(function () { /* the localStorage copy stands */ });
+      return ok;
+    },
+    del: function (k) { LS.del(k); LS.del('nfm-seq:' + k); tx('readwrite', function (st) { st.delete(k); }).catch(function () { /* none */ }); },
+    /** Puts a safe copy back into localStorage. */
+    repair: function (k, r) { LS.set(k, r.text); LS.set('nfm-seq:' + k, String(r.seq)); },
+    /** The safe copy of key k ({ seq, text }) when it is newer than localStorage's, else null. */
+    newer: function (k) {
+      var have = +(LS.get('nfm-seq:' + k) || 0);
+      return tx('readonly', function (st) { return st.get(k); }).then(function (r) {
+        if (r && r.seq) seq = Math.max(seq, r.seq);
+        return r && r.seq > have && typeof r.text === 'string' ? r : null;
+      }, function () { return null; });
+    }
+  };
+})();
+var saveView = debounce(function () { if (S.V && S.graph.nodes.length && !SAFE.set(VKEY(), JSON.stringify(S.V))) saveWarn('view'); }, 400);
 var savePrefs = debounce(function () { LS.set('nfm-prefs', JSON.stringify({ theme: S.theme, method: S.method })); }, 300);
 var saveGraph = debounce(function () {
-  if (!S.graph.nodes.length) { LS.del('nfm-graph'); return; }
+  if (!S.graph.nodes.length) { SAFE.del('nfm-graph'); return; }
   var txt = JSON.stringify(S.graph);
-  if (txt.length < 1800000) { if (!LS.set('nfm-graph', txt)) saveWarn('graph'); } else { LS.del('nfm-graph'); saveWarn('big'); }
+  if (txt.length < 1800000) { if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else { SAFE.del('nfm-graph'); saveWarn('big'); }
 }, 600);
 /** Saves that are still waiting for their delay are done now when the page is going away or hidden (a reload 600 ms after an edit used to lose it). */
 function flushSaves() { [saveGraph, saveView, savePrefs, typeof saveAdv === 'function' ? saveAdv : null].forEach(function (f) { if (f && f.flush) f.flush(); }); }
@@ -228,7 +277,7 @@ var HOOKS = { graph: [], view: [] };
 function setGraph(g, push, keepView) {
   var rename = (S.graph.name !== g.name);
   if (rename) saveView.flush();   /* the old data's settings are saved under the old name before the name changes */
-  if (push !== false) { S.hist.push(NFMUndo.step(S.graph, g)); if (S.hist.length > 25) S.hist.shift(); }   /* a step keeps only what this change replaced (src/undo.js) */
+  if (push !== false) { var st = NFMUndo.step(S.graph, g); S.hist.push(st); if (S.hist.length > 25) S.hist.shift(); if (st.graph) undoPackSoon(st); undoCap(); }   /* a step keeps only what this change replaced (src/undo.js); a whole old map is packed (src/app/75-mapfile.js) */
   S.graph = g; S.gver++;
   if (!keepView || rename) skHist = [];   /* Sankey undo steps belong to one dataset */
   graphChanged(rename && !keepView);
@@ -263,9 +312,16 @@ function graphChanged(reloadView) {
   var cb = $('chk-badge'); if (cb) cb.hidden = true;
   if (S.tab === 'map') refreshMap('data');
 }
+var undoBusy = false;
 function undo() {
-  if (!S.hist.length) return;
-  undoTo(NFMUndo.back(S.hist.pop(), S.graph));
+  if (!S.hist.length || undoBusy) return;
+  var st = S.hist.pop();
+  if (st.bytes) {   /* a whole earlier map kept packed: read it back first */
+    undoBusy = true; toast('Undoing…', 20000);
+    undoUnpack(st).then(function (g) { undoBusy = false; undoTo(g); shareTextSoon(); }, function (err) { undoBusy = false; S.hist.push(st); toast('That step could not be undone (' + (err && err.message || err) + ').'); });
+    return;
+  }
+  undoTo(NFMUndo.back(st, S.graph));
 }
 function undoTo(g) {
   var rename = S.graph.name !== g.name;

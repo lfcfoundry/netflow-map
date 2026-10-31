@@ -108,14 +108,24 @@ Shorter time is better. Each separate piece of 150 to 4,000 items is laid out on
 
 ## Memory with a 16 MB table (lab, Chromium, through the page)
 
-| After | Before | Now |
-|---|---|---|
-| Opening a 16 MB table (188,000 items) | 150 MB | 102 MB |
-| 12 changes | 185 MB | 102 MB |
-| A second 16 MB table | 252 MB | 165 MB |
-| 12 more changes | 287 MB | 166 MB |
+| After | Before | Small undo steps, shared text | Now, plus packed undo |
+|---|---|---|---|
+| Opening a 16 MB table (188,000 items) | 150 MB | 102 MB | 102 MB |
+| 12 changes | 185 MB | 102 MB | 102 MB |
+| A second 16 MB table | 252 MB | 165 MB | 108 MB |
+| 12 more changes | 287 MB | 166 MB | 108 MB |
 
-Lower is better. All 25 Undo steps still work. Undo keeps only what each change replaced, the opened table's cells are read again from its text when needed, and repeated text is kept once. Details: docs/BENCHMARKS.md section 56.
+Lower is better. All 25 Undo steps still work. Undo keeps only what each change replaced, the opened table's cells are read again from its text when needed, and repeated text is kept once. The whole map from before you open a file is packed into map-file bytes on a thread of its own, and all of Undo is held to 16 MB (past that, the oldest steps go). A table with more text in it (30,000 items): 116 MB before, 58 MB, now 44 MB. Details: docs/BENCHMARKS.md sections 56 and 57.
+
+## Saves that survive a crash (lab)
+
+| The browser was killed hard | Before | Now |
+|---|---|---|
+| Chromium, 2 s after a change | change lost | change kept (2 of 2) |
+| Chromium, 30 s after a change | change lost | change kept (2 of 2) |
+| Firefox, 2 s after a change | change lost | change kept (2 of 2) |
+
+A browser keeps its local storage in memory and writes it to disk later: Chromium up to about a minute later, Firefox about 10 s. Every save now also goes to the browser's database (IndexedDB), asked to reach the disk at once, and when the app opens with a newer copy there it brings it back and says so. A save of a 2,000-item map costs the page about 1 ms more in Firefox and nothing measurable in Chromium. Details: docs/BENCHMARKS.md section 57.
 
 ## What it does
 
