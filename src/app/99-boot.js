@@ -13,6 +13,7 @@
   client = new NFMEngineClient.Client(engineSrc, getEngine);
   client.store = typeof NFMLayoutStore !== 'undefined' && LS.get(SAVE_LAYOUTS_KEY) !== '0' ? NFMLayoutStore.open() : null;   // saved pictures of big Network maps, kept in this browser only
   client.holdIf = function () { return SIM.st === 'running'; };   /* a running simulation lives in the worker, so it stays */
+  client.keeper = typeof Worker !== 'undefined' && typeof DecompressionStream !== 'undefined' && typeof MessageChannel === 'function' ? LAYOUT_KEEPER : null;   /* a parked worker's graph is kept packed, so the restart needs no whole copy on the page (src/app/75-mapfile.js) */
   client.parkAfter = 4000;   /* a big map's engine worker is ended after 4 s of nothing to do (frees its copy of the graph); the next layout restarts it */
   startTwinGuard();
   var saved = LS.get('nfm-graph');

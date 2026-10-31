@@ -2037,3 +2037,18 @@ Restart of a parked worker (not in this build, waiting for a decision): with its
 | Both (2026.10.31.1440) | 268 / 526 ms | 387 / 756 ms | 462 / 913 ms |
 
 Early-stop A/B rule, small map (1,500 rows, 6,003 items), 20 changes a round, after / before with the 90% interval: Chromium ok 0.88 (0.78 to 1.04, 4 rounds, noisy), Firefox faster 0.70 (0.50 to 0.74, 4 rounds), WebKitGTK faster 0.30 (0.22 to 0.75, 6 rounds, noisy).
+
+## 60. Restarting the resting layout worker from its packed map (2026.10.31)
+
+16 MB moderate table (751,563 items and links), the real app in an 800 by 600 window. The worker is parked (ended to free memory) and restarted 3 times. Before = 2026.10.31.1440, after = 2026.10.31.1603 (the keeper on). Lower is better.
+
+| | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---:|---:|---:|
+| Page held at restart, before | 642 to 762 ms | 833 to 1,177 ms | 1,569 to 1,813 ms |
+| Page held at restart, after | 10 to 20 ms | 9 to 19 ms | 9 to 140 ms |
+| Restart until the worker has the map, before | 1.66 to 1.77 s | 1.34 to 2.01 s | 2.11 to 2.60 s |
+| Restart until the worker has the map, after | 2.07 to 2.37 s | 2.30 to 2.64 s | 2.87 to 3.08 s |
+| Page held at park, after | 9 to 23 ms | 12 to 28 ms | 13 to 29 ms |
+
+Packing on the keeper's thread: 3.3 to 4.3 s after the park, off the page.
+
