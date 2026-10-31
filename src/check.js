@@ -19,7 +19,8 @@ var NFMCheck = (function () {
     return s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9Ѐ-ӿ一-鿿]+/g, '');
   }
   function plural(n, one, many) { return n === 1 ? one : (many || one + 's'); }
-  function nf(n) { return Number(n).toLocaleString('en-US'); }
+  var NF = typeof Intl !== 'undefined' && Intl.NumberFormat ? new Intl.NumberFormat('en-US') : null;   /* kept: toLocaleString with a locale builds its rules on every call */
+  function nf(n) { return NF ? NF.format(Number(n)) : Number(n).toLocaleString('en-US'); }
   function median(sorted) { var n = sorted.length; return n ? (n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2) : NaN; }
   function pickRows(rows, n) { return rows.length > n ? rows.slice(0, n) : rows; }
   function trimmedEq(a, b) { return String(a) === String(b); }

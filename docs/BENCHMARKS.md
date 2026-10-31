@@ -2088,3 +2088,12 @@ Other apps' start (round 22, Chromium, kept profile): Pineapple Defense's first 
 Tried for the Firefox and WebKitGTK start and dropped: reading the map on a helper thread (the read is done before the page's first long script ends, but in Firefox the reply still lands about 20 ms after it, no gain; in WebKitGTK the helper sees an empty database on a page opened from a file, so the map would be lost); keeping the map packed (gzip or deflate, 1.74 M characters to 122 to 125 KB: the read gets 5 to 9 ms faster but unpacking costs 7 to 12 ms on the page) or as UTF-8 bytes (decoding adds 1 to 2 ms). The wait comes from the database's replies: they can only run on the page once its first long script has finished, so when the open is not done before that script starts (about half the Firefox starts), the read takes one more round trip after it.
 
 Second search (after the owner asked to keep looking): where the start waits, with marks in the page (Firefox, WebKitGTK; medians). The database open, started by the first script in the page head, completes 110 to 140 ms (Firefox) and 40 to 85 ms (WebKitGTK) after it starts, so it usually lands just after the page's long first script; the read then takes one more round trip (Firefox about 14 to 16 ms of waiting, WebKitGTK about 10 to 20 ms with the copy of the text). The shared localStorage has no such wait because both browsers load it before the page starts. Splitting the page's first script in two, so the reply could land between them, made Firefox slower still (1.78 against 1.33). Reading the text back and parsing it costs about the same from either place (Firefox 22 against 7 ms with parsing, WebKitGTK 26 against 18 ms, in a bare page).
+
+## 65. Kept number formatters (2026.10.31)
+
+Early-stop A/B rule, on the page: 5,000 `NFMColumns.fmt` plus 5,000 `fmtFull` calls. Before = 2026.10.31.1750, after = 2026.10.31.1815. Same text in all three browsers.
+
+| | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---:|---:|---:|
+| 10,000 numbers written out | 171.7 / 10.3 ms (0.05) | 78 / 4 ms (0.05) | 261 / 11 ms (0.05) |
+

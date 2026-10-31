@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.1815 · 2026-10-31
+
+### Quick
+`NFMColumns.fmt`, `fmtFull` and the new `NFMColumns.nf` (used by `nfmt` in src/app/00-core.js), and `nf` in src/check.js, use kept `Intl.NumberFormat('en-US')` objects instead of `toLocaleString('en-US', …)` on every call. Same text (the language defines toLocaleString as `new Intl.NumberFormat(locale, options).format`). From Story Editor's finding (a kept Intl.Collator) and JS-modules netflow-engine 2.2.3. vendor/netflow-scene.js already calls `NFMColumns.fmt`, so its labels get it too. Test fix: "zoom eases toward its target" waits for 3 equal zoom samples in a row (it stopped mid-easing once in WebKitGTK in a three-at-once run).
+
+### Details
+Per call, bare page: `toLocaleString('en-US')` Chromium 13.9 µs, Firefox 0.45, WebKitGTK 36.2; kept formatter 0.6 / 0.35 / 0.5. With `maximumFractionDigits: 3`: 25.5 / 17.3 / 38.7 against 1.05 / 0.4 / 0.7. Text compared: 200,000 random numbers in Node and 10,000 per browser through the page, no difference.
+
+### Deep
+Early-stop A/B rule, 5,000 `fmt` plus 5,000 `fmtFull` calls on the page: Chromium 171.7 to 10.3 ms (faster 0.05), Firefox 78 to 4 ms (0.05), WebKitGTK 261 to 11 ms (0.05). Other `toLocaleString` uses left as they are: tune and probe messages (a few per run), the engine's chapter labels (one per chapter), and probe.js, which uses the default locale on purpose.
+
 ## Tests only · 2026-10-31 (no new build, after 2026.10.31.1750)
 
 ### Quick

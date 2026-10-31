@@ -370,7 +370,7 @@ async function open() {
   await ev(() => NFM.runSearch(''));
   const k0 = await ev(() => NFM.state.view.k); await ev(() => NFM.zoomAt(500, 400, 2)); await sleep(30);
   const kMid = await ev(() => NFM.state.view.k); await sleep(700); let k1 = await ev(() => NFM.state.view.k);
-  for (let i = 0; i < 25; i++) { await sleep(100); const k = await ev(() => NFM.state.view.k); if (k === k1) break; k1 = k; }   /* until the easing has stopped (a loaded machine draws fewer frames in 700 ms), at most 2.5 s more */
+  for (let i = 0, still = 0; i < 40 && still < 3; i++) { await sleep(100); const k = await ev(() => NFM.state.view.k); still = k === k1 ? still + 1 : 0; k1 = k; }   /* until the easing has stopped: the same zoom 3 times in a row (a loaded machine can skip a frame for over 100 ms mid-easing, as WebKitGTK did in a three-at-once run), at most 4 s more */
   say(k1 > k0 * 1.8 && kMid < k1 * 0.999, `zoom eases toward its target: ${k0.toFixed(2)} -> ${kMid.toFixed(2)} -> ${k1.toFixed(2)}`);
   await ev(() => NFM.fitView(true)); await settle(200);
   const kb = await ev(() => { const r = document.getElementById('key').getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; });
