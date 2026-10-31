@@ -82,15 +82,32 @@
     for (i = 0; i < seg.length; i++) for (j = i + 1; j < seg.length; j++) { var s = seg[i], t = seg[j]; if (s[2] === t[2] || s[2] === t[3] || s[3] === t[2] || s[3] === t[3]) continue; if (ccw(s[0], s[1], t[0]) * ccw(s[0], s[1], t[1]) < 0 && ccw(t[0], t[1], s[0]) * ccw(t[0], t[1], s[1]) < 0) c++; }
     return c;
   }
+  /* crossings of what is drawn: each link as its polyline (through its bends or stand-in stops), every pair of segments of two links that share no item */
+  function polyCross(polys) {   // polys: [[from, to, [[x,y],...]], ...]
+    var S = [], c = 0, i, j;
+    polys.forEach(function (p) { var pts = p[2]; for (var k = 0; k + 1 < pts.length; k++) S.push([pts[k], pts[k + 1], p[0], p[1]]); });
+    var ccw = function (a, b, q) { return (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]); };
+    for (i = 0; i < S.length; i++) { var s = S[i], x0 = Math.min(s[0][0], s[1][0]), x1 = Math.max(s[0][0], s[1][0]);
+      for (j = i + 1; j < S.length; j++) { var t = S[j]; if (s[2] === t[2] || s[2] === t[3] || s[3] === t[2] || s[3] === t[3]) continue; if (Math.max(t[0][0], t[1][0]) < x0 || Math.min(t[0][0], t[1][0]) > x1) continue;
+        if (ccw(s[0], s[1], t[0]) * ccw(s[0], s[1], t[1]) < 0 && ccw(t[0], t[1], s[0]) * ccw(t[0], t[1], s[1]) < 0) c++; } }
+    return c;
+  }
+  function oursPolys(L) { var cp = {}; L.nodes.forEach(function (nd) { cp[nd.id] = [nd.x + nd.w / 2, nd.y + nd.h / 2]; }); var out = []; L.edges.forEach(function (e) { if (e.from === e.to || !cp[e.from] || !cp[e.to]) return; out.push([e.from, e.to, [cp[e.from]].concat(e.pts || [], [cp[e.to]])]); }); return out; }
   var centers = function (L) { var pos = {}; L.nodes.forEach(function (nd) { pos[nd.nodeId || nd.id] = [nd.x + nd.w / 2, nd.y + nd.h / 2]; }); return pos; };
   SUITES.vsFlow = async function (a) {   // a: { n, m, dagre, elk }
     var g = dag(a.n, a.m, a.n), out = { n: a.n, links: g.edges.length };
     var r = T(function () { return E.build(C.derive(clone(g)), { view: 'flow', colorBy: 'group' }); });
-    out.ours = { ms: r.ms, cross: crossings(centers(r.value), g.edges) };
-    if (a.dagre !== false) { var r2 = T(function () { var gr = new LIBS.dagre.graphlib.Graph(); gr.setGraph({ rankdir: 'LR', nodesep: 14, ranksep: 90 }); gr.setDefaultEdgeLabel(function () { return {}; }); g.nodes.forEach(function (x) { gr.setNode(x.id, { width: 176, height: 56 }); }); g.edges.forEach(function (e) { gr.setEdge(e.from, e.to); }); LIBS.dagre.layout(gr); var p = {}; gr.nodes().forEach(function (id) { var q = gr.node(id); p[id] = [q.x, q.y]; }); return p; });
-      out.dagre = { ms: r2.ms, cross: crossings(r2.value, g.edges) }; }
-    if (a.elk !== false) { var elk = new LIBS.ELK(); var r3 = await TA(async function () { var rs = await elk.layout({ id: 'root', layoutOptions: { 'elk.algorithm': 'layered', 'elk.direction': 'RIGHT', 'elk.spacing.nodeNode': '14', 'elk.layered.spacing.nodeNodeBetweenLayers': '90' }, children: g.nodes.map(function (x) { return { id: x.id, width: 176, height: 56 }; }), edges: g.edges.map(function (e, i) { return { id: 'e' + i, sources: [e.from], targets: [e.to] }; }) }); var p = {}; rs.children.forEach(function (q) { p[q.id] = [q.x + 88, q.y + 28]; }); return p; });
-      out.elk = { ms: r3.ms, cross: crossings(r3.value, g.edges) }; }
+    out.ours = { ms: r.ms, cross: crossings(centers(r.value), g.edges), drawn: polyCross(oursPolys(r.value)) };
+    if (a.dagre !== false) { var dpol = []; var r2 = T(function () { var gr = new LIBS.dagre.graphlib.Graph(); gr.setGraph({ rankdir: 'LR', nodesep: 14, ranksep: 90 }); gr.setDefaultEdgeLabel(function () { return {}; }); g.nodes.forEach(function (x) { gr.setNode(x.id, { width: 176, height: 56 }); }); g.edges.forEach(function (e) { gr.setEdge(e.from, e.to); }); LIBS.dagre.layout(gr); var p = {}; gr.nodes().forEach(function (id) { var q = gr.node(id); p[id] = [q.x, q.y]; }); dpol = gr.edges().map(function (ed) { return [ed.v, ed.w, [p[ed.v]].concat(gr.edge(ed).points.map(function (q) { return [q.x, q.y]; }), [p[ed.w]])]; }); return p; });
+      out.dagre = { ms: r2.ms, cross: crossings(r2.value, g.edges), drawn: polyCross(dpol) }; }
+    if (a.elk !== false) { var elk = new LIBS.ELK(), epol = []; var r3 = await TA(async function () { var rs = await elk.layout({ id: 'root', layoutOptions: { 'elk.algorithm': 'layered', 'elk.direction': 'RIGHT', 'elk.spacing.nodeNode': '14', 'elk.layered.spacing.nodeNodeBetweenLayers': '90' }, children: g.nodes.map(function (x) { return { id: x.id, width: 176, height: 56 }; }), edges: g.edges.map(function (e, i) { return { id: 'e' + i, sources: [e.from], targets: [e.to] }; }) }); var p = {}; rs.children.forEach(function (q) { p[q.id] = [q.x + 88, q.y + 28]; }); epol = (rs.edges || []).map(function (ed) { var sc = (ed.sections || [])[0], pts = sc ? [[sc.startPoint.x, sc.startPoint.y]].concat((sc.bendPoints || []).map(function (q) { return [q.x, q.y]; }), [[sc.endPoint.x, sc.endPoint.y]]) : []; return [ed.sources[0], ed.targets[0], [p[ed.sources[0]]].concat(pts, [p[ed.targets[0]]])]; }); return p; });
+      out.elk = { ms: r3.ms, cross: crossings(r3.value, g.edges), drawn: polyCross(epol) }; }
+    return out;
+  };
+  SUITES.vsFlowX = function (a) {   // experiments: a.opt goes to the engine build; inner = the module's own count (with stand-in stops)
+    var g = dag(a.n, a.m, a.n), out = { n: a.n };
+    var r = T(function () { return E.build(C.derive(clone(g)), Object.assign({ view: 'flow', colorBy: 'group' }, a.opt || {})); });
+    out.ours = { ms: r.ms, cross: crossings(centers(r.value), g.edges), inner: r.value.crossings, drawn: polyCross(oursPolys(r.value)) };
     return out;
   };
   SUITES.vsSankey = function (a) {   // a: { n, m }

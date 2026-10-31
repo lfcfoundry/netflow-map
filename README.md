@@ -62,84 +62,38 @@ Where it helps:
 |---|---|---|---|
 | Flow, top-down, choke points, lanes, shape, Sankey, arc, matrix and network. | Every network arrangement ends with a step that guarantees it, and a test checks it. | CSV, JSON, outlines, Excel, GraphML, GEXF, DOT, zips and Markdown notes. All 23 file kinds are opened in every browser test. | Up to 100,000 walkers with exact odds, error bars and what-if ranking. |
 
-## 5,000 items, moderate network (Node, one run)
+## Against d3-force, ForceAtlas2 and Cytoscape.js
 
-| Layout | Time | Items touching |
-|---|---|---|
-| Netflow Map (Stress) | 0.8 s | 0% |
-| d3-force | 11 s | 98.5% |
-| d3-force + forceCollide | 16 s | 12% |
-| ForceAtlas2 | 9.8 s | 98% |
+The same network (about 3 links per item, with groups) laid out by each library in the browser, Chromium 155, median of 3 runs (one run when over 600 ms). Every layout is drawn with Netflow Map's item sizes. Details: docs/BENCHMARKS.md section 67.
 
-Shorter time is better. The app keeps this guarantee at a small cost in truth, and docs/BENCHMARKS.md section 12 counts that cost.
+| 10,000 items | Layout time | Items touching |
+|---|---:|---:|
+| **Netflow Map** | **413 ms** | **0%** |
+| d3-force | 17.4 s | 20.9% |
+| d3-force + collide | 22.7 s | 23.7% |
+| ForceAtlas2 | 18.8 s | 3.7% |
 
-## 100,000 items, first layout (lab Chromium)
+At 10,000 items Netflow Map was 42 times faster than the fastest library in Chromium, 35 in Firefox 158 and 30 in WebKitGTK 2.52.6. Cytoscape.js (cose) took 20.9 s at 1,000 items against 131 ms.
 
-| Version | Time | What changed |
-|---|---|---|
-| Before October 30 | 7.2 s | |
-| Same-picture speedups | 5.5 s | hop counts on the small rough copy 4x faster; sizes worked out once |
-| Plus fewer push-apart passes | 4.0 s | maps over 50,000 items only; same truth score, page size and no touching |
-| Plus stretch first | about the same in Chromium; Firefox 4.6 to 4.1 s, WebKitGTK 4.2 to 3.8 s | maps over 80,000 items only; same page size, more even spacing, no touching |
-| Plus three small stacked changes | about the same in Chromium; Firefox 3.7 to 3.5 s, WebKitGTK 3.7 to 3.6 s | items move a few pixels on every flat map |
+## Flow view against dagre and ELK
 
-Shorter time is better. Firefox 158: 10.3 s to 9.1 s from the first step alone. Drawing far-out dotted links on 2,000 items went from 283 ms to 3 ms a picture. Details: docs/BENCHMARKS.md sections 49 to 52; developer notes in docs/CHANGELOG-DEV.md.
+1,000 items and 1,900 links with no loops, Chromium 155: Netflow Map 30 ms, dagre 8.4 s, ELK 2.1 s. dagre and ELK cross about half as many links today (47,009 against 25,448 and 24,920); a deeper crossing search that beats both is being built.
 
-## 100,000 items, changing a color (lab, through the page)
+## Sankey view against d3-sankey
 
-| Change | Chromium | Firefox | WebKitGTK |
-|---|---|---|---|
-| Link color | 6.3 to 2.5 s | 7.2 to 2.8 s | 6.9 to 2.2 s |
-| Link width | 6.1 to 2.6 s | 7.0 to 3.0 s | 7.4 to 2.3 s |
-| Item color (groups found) | 7.5 to 4.2 s | 8.5 to 5.4 s | 7.7 to 4.2 s |
+1,500 items, Chromium 155: d3-sankey 43 ms, Netflow Map 91 ms (the whole build), with fewer crossings (91,896 against 95,509; 5,574 against 7,223 at 400 items). Netflow Map also handles loops, which d3-sankey refuses.
 
-Shorter time is better. A change that moves nothing now keeps the finished picture instead of laying the map out again. Same picture, same first-layout time. Details: docs/BENCHMARKS.md section 54.
+## Reading a 16 MB table against Papa Parse and d3-dsv
 
-## Maps made of many separate pieces (lab, through the page)
+563,563 rows, median of 4 rotated turns. Before this build: Chromium 247 / 270 / 251 ms (Netflow Map / Papa Parse / d3-dsv), Firefox 236 / 291 / 322 ms, WebKitGTK 575 / 211 / 326 ms. Build 2026.10.31.1948 reads it 3.4 times faster in WebKitGTK (390 to 119 ms in an A/B run) and 1.4 times faster in Chromium.
 
-| Map | Chromium | Firefox | WebKitGTK |
-|---|---|---|---|
-| 10 pieces of 3,000 items | 12.2 to 5.6 s | 11.7 to 6.0 s | 12.2 to 6.3 s |
-| 3 pieces of 3,000 items | 3.3 to 1.4 s | 3.8 to 1.5 s | 4.0 to 1.7 s |
-| 30 pieces of 1,000 items | 5.0 to 2.5 s | 5.4 to 2.7 s | 5.2 to 3.1 s |
-| 4 pieces of 1,000 items | 0.62 to 0.31 s | 0.62 to 0.27 s | 0.72 to 0.37 s |
+## Memory to hold 100,000 items
 
-Shorter time is better. Each separate piece of 150 to 4,000 items is laid out on its own helper thread (up to 3, one fewer than the cores), the same picture. Maps of one piece, or with little work in total, are laid out as before. Details: docs/BENCHMARKS.md section 55.
+Chromium 155, JavaScript memory after a full clean-up: Netflow Map 41 MB, graphology 71 MB, Cytoscape.js 420 MB.
 
-## Memory with a 16 MB table (lab, Chromium, through the page)
+## Built for big maps
 
-| After | Before | Small undo steps, shared text | Now, plus packed undo |
-|---|---|---|---|
-| Opening a 16 MB table (188,000 items) | 150 MB | 102 MB | 102 MB |
-| 12 changes | 185 MB | 102 MB | 102 MB |
-| A second 16 MB table | 252 MB | 165 MB | 108 MB |
-| 12 more changes | 287 MB | 166 MB | 108 MB |
-
-Lower is better. All 25 Undo steps still work. Undo keeps only what each change replaced, the opened table's cells are read again from its text when needed, and repeated text is kept once. The whole map from before you open a file is packed into map-file bytes on a thread of its own, and all of Undo is held to 16 MB (past that, the oldest steps go). A table with more text in it (30,000 items): 116 MB before, 58 MB, now 44 MB. Details: docs/BENCHMARKS.md sections 56 and 57.
-
-## Changes on a big map (lab, 16 MB table)
-
-| Longest page freeze after a change | This morning | Now |
-|---|---|---|
-| Chromium | 1.5 s | 0.27 s |
-| Firefox | 1.8 s | 0.39 s |
-| WebKitGTK | 2.6 s | 0.46 s |
-
-Lower is better. Only what changed goes to the layout helper (1.8 s to 20 ms in Chromium), the autosave stops as soon as a map is too big to keep instead of writing all 61 MB of it, and the app's list of items and links is updated for the changed items only. Coming back to a big map after a rest no longer freezes the page either (0.6 to 1.8 s before, 8 to 32 ms now; the restart takes about 0.1 to 0.6 s longer). Details: docs/BENCHMARKS.md sections 58 to 60.
-
-The summary of what each column holds is now also updated for the changed items only: the page is held after a rename for 262 to 138 ms in Chromium, 292 to 91 ms in Firefox and 432 to 146 ms in WebKitGTK (Data tab shown, docs/BENCHMARKS.md section 63). Comparing the map before and after a change once instead of three times, and two counts kept between changes, brought that to 42 ms in Chromium, 22 ms in Firefox and 37 ms in WebKitGTK (section 66).
-
-## Saves that survive a crash (lab)
-
-| The browser was killed hard | Before | Now |
-|---|---|---|
-| Chromium, 2 s after a change | change lost | change kept (2 of 2) |
-| Chromium, 30 s after a change | change lost | change kept (2 of 2) |
-| Firefox, 2 s after a change | change lost | change kept (2 of 2) |
-
-A browser keeps its local storage in memory and writes it to disk later: Chromium up to about a minute later, Firefox about 10 s. Every save now also goes to the browser's database (IndexedDB), asked to reach the disk at once, and when the app opens with a newer copy there it brings it back and says so. A save of a 2,000-item map costs the page about 1 ms more in Firefox and nothing measurable in Chromium. Details: docs/BENCHMARKS.md section 57.
-
-A big saved map now lives only in that database, with a tiny note in local storage, so it no longer fills the small space that every app on this site shares (1.74 MB down to 1.3 KB in a lab run). Saving it holds the page less (Chromium 78 to 4 ms over five saves, Firefox 37 to 4 ms). Opening the app with a big saved map is a little faster in Chromium and about 20 ms slower in Firefox and WebKitGTK. Maps saved by older versions move over on first open. Details: docs/BENCHMARKS.md section 64.
+On a map of 188,000 items and 563,000 links in an 800 by 600 window: a rename holds the page about 40 ms in Chromium, 22 ms in Firefox and 37 ms in WebKitGTK; the resting layout helper wakes in about 20 to 32 ms; every change is also written to the browser's database and sent to disk at once, so a crash two seconds later loses nothing; a big saved map takes 1.3 KB of the small save space every page on a site shares, not 1.7 MB.
 
 ## What it does
 
