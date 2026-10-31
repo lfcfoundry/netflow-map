@@ -1865,3 +1865,16 @@ Over 50,000 items the first push-apart call now runs 10 passes instead of 30 (`S
 | 100,000 | 5,322 / 5,554 ms | 3,900 / 4,202 ms | 0.1785 / 0.1784 | same | 0 / 0 |
 
 Below 50,000 items the fewer passes sometimes left a page about 20% larger (10,000 items: 92 to 111 million square units) for about 5% less time, so smaller maps keep 30 passes and their pictures are unchanged. Pictures compared side by side before the choice: project files: netflow-map/push-apart-2026.10.30/push-apart-compare.html.
+
+## 51. Stretch first above 80,000 items (2026.10.30, chosen by the owner)
+
+When a piece has 80,000 or more items and starts with more than 2 touching pairs per item, the one stretch that used to come after the first 10 push-apart passes now comes before them (`STRESS.jumpFirstMin`). Moderate network, seed 11, 100,000 items, lab, three runs each in rotating order (lower is better):
+
+| Browser | Before | Stretch first | All four ideas stacked |
+|---|---:|---:|---:|
+| Chromium 155 | 6,056 / 5,116 / 4,495 ms | 4,822 / 5,012 / 5,147 ms | 5,124 / 5,662 / 4,703 ms |
+| Firefox 158 | 5,145 / 4,581 / 4,440 ms | 4,162 / 3,860 / 4,058 ms | 3,713 / 4,109 / 4,230 ms |
+| WebKitGTK 2.52.6 | 3,818 / 4,333 / 4,170 ms | 3,699 / 4,448 / 3,826 ms | 3,508 / 3,507 / 3,491 ms |
+
+Same page size (48,069 x 48,813), nothing touching. Middle half of the map: average gap to the nearest item 56.6 to 46.3 units, gap spread 0.41 to 0.30 (more even). Push-apart alone in Node: about 1.0 s to 0.70 s. "All four stacked" adds number keys in `mapGraph`, link objects with every field up front, and a grid-order walk in the wasm `separate`; it is not shipped, and the grid-order walk changes the picture. At 60,000 items the full stretch grew the page about 9%, so smaller maps keep the old order. Comparison pages: project files: netflow-map/stretch-first-2026.10.31/.
+

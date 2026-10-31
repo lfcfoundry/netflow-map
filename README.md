@@ -56,8 +56,9 @@ Shorter time is better. The app keeps this guarantee at a small cost in truth, a
 | Before October 30 | 7.2 s | |
 | Same-picture speedups | 5.5 s | hop counts on the small rough copy 4x faster; sizes worked out once |
 | Plus fewer push-apart passes | 4.0 s | maps over 50,000 items only; same truth score, page size and no touching |
+| Plus stretch first | about the same in Chromium; Firefox 4.6 to 4.1 s, WebKitGTK 4.2 to 3.8 s | maps over 80,000 items only; same page size, more even spacing, no touching |
 
-Shorter time is better. Firefox 158: 10.3 s to 9.1 s from the first step alone. Drawing far-out dotted links on 2,000 items went from 283 ms to 3 ms a picture. Details: docs/BENCHMARKS.md sections 49 and 50; developer notes in docs/CHANGELOG-DEV.md.
+Shorter time is better. Firefox 158: 10.3 s to 9.1 s from the first step alone. Drawing far-out dotted links on 2,000 items went from 283 ms to 3 ms a picture. Details: docs/BENCHMARKS.md sections 49 to 51; developer notes in docs/CHANGELOG-DEV.md.
 
 ## What it does
 
