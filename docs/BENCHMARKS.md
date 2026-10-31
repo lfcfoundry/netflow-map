@@ -1903,3 +1903,35 @@ A 30,000-item test map with its finished picture, LFC-pack as vendored. Lab, one
 | No picture at all (floor) | 696,882 B | 254 / 45 | 248 / 34 | 182 / 24 |
 
 The picture's part of the file goes from 476 KB to 114 KB (-76%). Full notes: /mnt/project-files/netflow-map/retest-2026.10.31/RETEST-DROPPED-IDEAS.md.
+
+## 54. Hidden costs around the build: look-only changes, the picture key, the hand-off, garbage (2026.10.31)
+
+Costs nobody was timing, because the build's own clock does not see them. Map: `bench/gen.js` moderate, 100,000 items, 299,795 links, Network view, Distances. Page timing goes through the app's own engine client (helper thread, picture key, browser store emptied first, packing, hand-off to the page), lab, 4 rounds alternating old and new pages, medians. Every row gives exactly the same picture as before in each browser (hash of every item's center).
+
+| 100,000 items, page | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---:|---:|---:|
+| First layout, before / after | 7.2 / 7.1 s | 6.6 / 6.6 s | 5.6 / 5.7 s |
+| Item color changed | 7.5 / 4.2 s | 8.5 / 5.4 s | 7.7 / 4.2 s |
+| Link color changed | 6.3 / 2.5 s | 7.2 / 2.8 s | 6.9 / 2.2 s |
+| Link width changed | 6.1 / 2.6 s | 7.0 / 3.0 s | 7.4 / 2.3 s |
+
+Shorter time is better. Item color here is "groups found", which also works out the groups.
+
+What was found and fixed:
+
+- **Look-only changes laid the whole map out again.** The picture key counted every option, so a new color made a new key: no saved picture matched, the layout ran again from scratch and a second copy of the same places was saved. The key now leaves out options that never move an item in the Network view (colors, link widths, labels, the other views' settings; how numbers combine only counts when item size is set). A test builds 12 sets of such options and checks the key and every place stay the same. The last finished picture is also kept in memory for the open map, so this works with the browser store switched off.
+- **The key re-read all the data on every build.** Hashing the whole graph as text took 330 ms at 100,000 items (Node), for every build. The data's part of the hash is now kept on the helper's copy of the graph, which never changes, so later keys hash only the options.
+- **Packing the result for the page read every item once per field.** One pass over the items now fills every column: 2.6x faster where code may be built from text, about 1.8x in the app (the helper runs under the page's policy, which refuses building code from text in all three browsers, so the shipped version does not). Same bytes as before.
+- **Garbage.** Sampled allocation during one build (Node 22, 100,000 items): 941 MB before, 742 MB after (-21%), from five same-picture changes tested alone, then together:
+
+| Change | Garbage made |
+|---|---:|
+| Before | 941 MB |
+| Map items made with every field up front, one shape | 805 MB (-14%) |
+| Link details without a function, list and copy per link | 881 MB (-6%) |
+| Two-number hypot written out (V8's own steps; used only where it matches this browser's Math.hypot exactly) | 900 MB (-4%) |
+| Links made with every later field up front | 914 MB (-3%) |
+| Pieces walked with typed arrays instead of a Map and Set per piece | 918 MB (-2%) |
+| All five | 742 MB (-21%) |
+
+Each alone and stacked keeps the exact picture. Full collections and their pauses vary run to run by more than these changes move them (4 to 6 per build), and first-layout time stays within noise in all three browsers. WebAssembly memory was checked too: the engine makes a new instance for each step, so its memory goes back after the step; the only one kept is the layered drawing module's (6.8 MB after a 50,000-item map).

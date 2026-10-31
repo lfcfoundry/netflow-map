@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Developer notes, in t
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## October 31
+
+- **2026.10.31.0826** Changing a color, link color or link width on a big network map is now 1.6 to 3.2 times faster: at 100,000 items, a new link color took 6 to 7 s and now takes 2.2 to 2.8 s. Before, any such change laid the whole map out again, even though nothing moves, and saved one more copy of the same picture in the browser. Now the finished picture is kept and put back. The picture is exactly the same and the first layout takes as long as before. Also: handing a finished map from the background worker to the page is faster, and a build makes about a fifth less garbage for the browser to clean up.
+
 ## October 30
 
 - **2026.10.30.2347** Saved map files (.json.lfc) with a finished network picture are about 31% smaller (a 30,000-item map: 1.17 MB to 0.81 MB). Item places are now kept as whole numbers, which moves an item at most half a unit, less than a pixel. Map files saved before this still open exactly as before. Also: Fit on the Matrix view now shows the grid's names and its note instead of cutting the note off at the right edge. The README and landing page show Matrix in place of Lanes, plus a 3D sphere of 3,000 items and the Top-down view, and "What it is and how it works" and "Why it exists" are rewritten, shorter, with a few examples of where it helps.

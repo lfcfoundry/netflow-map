@@ -85,6 +85,16 @@ Shorter time is better. The app keeps this guarantee at a small cost in truth, a
 
 Shorter time is better. Firefox 158: 10.3 s to 9.1 s from the first step alone. Drawing far-out dotted links on 2,000 items went from 283 ms to 3 ms a picture. Details: docs/BENCHMARKS.md sections 49 to 52; developer notes in docs/CHANGELOG-DEV.md.
 
+## 100,000 items, changing a color (lab, through the page)
+
+| Change | Chromium | Firefox | WebKitGTK |
+|---|---|---|---|
+| Link color | 6.3 to 2.5 s | 7.2 to 2.8 s | 6.9 to 2.2 s |
+| Link width | 6.1 to 2.6 s | 7.0 to 3.0 s | 7.4 to 2.3 s |
+| Item color (groups found) | 7.5 to 4.2 s | 8.5 to 5.4 s | 7.7 to 4.2 s |
+
+Shorter time is better. A change that moves nothing now keeps the finished picture instead of laying the map out again. Same picture, same first-layout time. Details: docs/BENCHMARKS.md section 54.
+
 ## What it does
 
 It has six tabs (the Map's left panel adds a Colors tab):
