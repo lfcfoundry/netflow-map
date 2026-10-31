@@ -16,26 +16,42 @@
   client.keeper = typeof Worker !== 'undefined' && typeof DecompressionStream !== 'undefined' && typeof MessageChannel === 'function' ? LAYOUT_KEEPER : null;   /* a parked worker's graph is kept packed, so the restart needs no whole copy on the page (src/app/75-mapfile.js) */
   client.parkAfter = 4000;   /* a big map's engine worker is ended after 4 s of nothing to do (frees its copy of the graph); the next layout restarts it */
   startTwinGuard();
-  var saved = LS.get('nfm-graph');
-  if (saved) { try { S.graph = NFMImport.sanitizeGraph(JSON.parse(saved)); S.gver++; } catch (e) { LS.del('nfm-graph'); } }
+  /* The saved map: in IndexedDB (a marker in localStorage says so, src/app/00-core.js SAFE), or as text in localStorage (an older build, a
+     page that closed while saving, or no IndexedDB). The IndexedDB read is the one wait before the first screen (about 20 ms for a big map). */
+  var savedLS = LS.get('nfm-graph');
+  if (savedLS === null && LS.get('nfm-graph-at') && typeof indexedDB !== 'undefined') {
+    (window.NFM_EARLY ? window.NFM_EARLY.then(function (x) { if (x && x.db) SAFE.adopt(x.db); return x && x.r && typeof x.r.text === 'string' ? x.r : x && x.db ? null : SAFE.read('nfm-graph'); }) : SAFE.read('nfm-graph'))
+      .then(function (r) { rest(r ? r.text : null, false); }, function () { rest(null, false); });
+  }
+  else rest(savedLS, true);
+  function rest(saved, fromLS) {
+  if (saved) { try { S.graph = NFMImport.sanitizeGraph(JSON.parse(saved)); S.gver++; } catch (e) { if (fromLS) LS.del('nfm-graph'); } }
   applyTheme(); placeChrome(); keyboardLift();
   if (window.matchMedia) ['(hover: none) and (pointer: coarse)', '(max-width:820px)'].forEach(function (q) { matchMedia(q).addEventListener('change', function () { placeChrome(); if (S.mapBuilt) renderMapUI(); }); });
   indexGraph(); loadView(); loadAdv();
   renderReport(); renderCols();
   $('b-undo').disabled = true;
   var bootVer = S.gver;
-  SAFE.newer('nfm-graph').then(function (r) {   /* the browser lost the newest saves (a crash soon after them): bring back the safe copies */
+  var newerOne = false;
+  (fromLS ? SAFE.newer('nfm-graph') : Promise.resolve(null)).then(function (r) {   /* the browser lost the newest saves (a crash soon after them): bring back the safe copies */
     var g = S.graph;
     if (r) { try { g = NFMImport.sanitizeGraph(JSON.parse(r.text)); } catch (e) { r = null; g = S.graph; } }
     var vk = 'nfm-v:' + (g.name || 'Untitled');
     return SAFE.newer(vk).then(function (rv) {
       if ((!r && !rv) || S.gver !== bootVer || S.hist.length) return;   /* nothing newer, or a change was already made: that one stands */
-      if (r) { SAFE.repair('nfm-graph', r); S.graph = g; S.gver++; }
+      if (r) { SAFE.repair('nfm-graph', r); S.graph = g; S.gver++; newerOne = true; }
       if (rv) SAFE.repair(vk, rv);
       graphChanged(true); toast('Brought back your latest changes: the browser had closed before keeping them.', 6000);
     });
+  }).then(function () {   /* a map kept as text in localStorage moves to IndexedDB (or goes, when IndexedDB holds a newer one) */
+    if (!fromLS || saved === null) return;
+    return SAFE.ready().then(function () {
+      if (LS.get('nfm-graph') !== saved) return;
+      if (newerOne) { LS.del('nfm-graph'); LS.del('nfm-seq:nfm-graph'); } else SAFE.set('nfm-graph', saved);
+    }, function () { /* no IndexedDB: it stays in localStorage */ });
   });
   client.start().then(function () { if (window.NFMReport) window.NFMReport.mark('engine-ready'); client.setTune(S.tune); client.setGraph(S.graph); maybeAskTune(); if (S.tab === 'map') refreshMap('boot'); });
   if (window.NFMReport) window.NFMReport.mark('first-screen');
   window.NFM = { groupSvg: groupSvg, svgText: svgText, mapFileBytes: mapFileBytes, openMapBytes: openMapBytes, neighborIds: neighborIds, routeIds: routeIds, gif: function () { return GX.result; }, gifRun: function (patch) { Object.assign(GX.opts, patch); return runGif(); }, gifTwin: function (patch) { return ensureMap().then(function () { return makeGif(Object.assign({}, GX.opts, patch, { preview: true, twin: true }), function () { }, function () { return false; }); }); }, pending: function () { return DEBOUNCING; }, moveItems: moveItems, dropItems: settleDrop, touch: function (v) { touchForce = v; placeChrome(); if (S.mapBuilt) renderMapUI(); }, state: S, engine: getEngine, client: function () { return client; }, manager: function () { return mgr; }, showTab: showTab, setGraph: setGraph, ingest: ingest, refreshMap: refreshMap, select: function (id) { setSel(id ? [id] : []); }, setSel: setSel, toggleChapter: toggleChapter, minimap: function () { var e = document.getElementById('minimap'); return { shown: !!(e && !e.hidden), w: e ? e.width : 0, h: e ? e.height : 0, box: e ? JSON.parse(JSON.stringify(e.getBoundingClientRect())) : null }; }, renderMinimap: renderMinimap, setV: setV, scheduleScene: scheduleScene, settleTurn: settleTurn, fitView: fitView, zoomAt: zoomAt, runSearch: runSearch, snapshot: snapshot, applySnapshot: applySnapshot, safe: SAFE, indexMatches: indexMatches, idx: IDX };
+  }
 })();

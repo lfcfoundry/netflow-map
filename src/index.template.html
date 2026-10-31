@@ -7,6 +7,9 @@
 <title>Netflow Map</title>
 <meta name="description" content="Bring in a table, JSON, an outline or a folder of notes, and see how everything connects. One file, works offline.">
 <!-- Netflow Map @@VERSION@@. Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry. https://github.com/lfcfoundry/netflow-map -->
+<script>/* The saved map is kept in IndexedDB (src/app/00-core.js SAFE): start reading it now, while the rest of the page loads, so the start waits less for it. */
+(function () { try { if (localStorage.getItem('nfm-graph') === null && localStorage.getItem('nfm-graph-at') && window.indexedDB) window.NFM_EARLY = new Promise(function (res) { var q = indexedDB.open('netflow-map-saves', 1); q.onupgradeneeded = function () { q.result.createObjectStore('s'); }; q.onsuccess = function () { var db = q.result; try { var g = db.transaction('s').objectStore('s').get('nfm-graph'); g.onsuccess = function () { res({ db: db, r: g.result }); }; g.onerror = function () { res({ db: db, r: null }); }; } catch (e) { res({ db: db, r: null }); } }; q.onerror = q.onblocked = function () { res(null); }; }); } catch (e) { /* no early read: the start reads it */ } })();
+</script>
 <style>
 @@CSS@@
 </style>
