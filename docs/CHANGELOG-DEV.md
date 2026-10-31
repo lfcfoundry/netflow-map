@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.1948 · 2026-10-31
+
+### Quick
+`parseDelimited` (src/importers.js) cuts a line with no quote by reading its characters (`charCodeAt` against the delimiter, `slice` per field) instead of `text.slice(line).split(d)`. Same rows, cell for cell; a delimiter longer than one character still uses `split`. No saved file, layout or setting is affected. New benchmark-only harness bench/vs-libs.js + bench/vs-libs-run.js (Netflow Map against d3-force, ForceAtlas2, Cytoscape.js, dagre, ELK, d3-sankey, Papa Parse, d3-dsv, graphology); bench/page.html loads pack, graph-walk, netflow-sankey and netflow-layers before the engine again.
+
+### Details
+16 MB table (`NFMGen.csv('moderate', 188000, 3)`), early-stop A/B rule, fresh page per sample: WebKitGTK 2.52.6 390 to 119 ms (faster 0.29), Chromium 155 229 to 167 ms (faster 0.73; first run 0.80 flagged noisy, rerun clean), Firefox 158 230 to 242 ms (ok 0.985, 0.956 to 1.03). Row hash identical. Variants tried in all three browsers (one page, 4 rotated turns): whole-text split, line slice + split, indexOf per field on the text, indexOf per field on the line slice, character scan; WebKitGTK's `String.prototype.split` was the cost (372 ms against 86 for the character scan).
+
+### Deep
+Found by the new library comparison (landing page): Netflow Map was 575 ms against Papa Parse 211 and d3-dsv 326 in WebKitGTK while fastest in Chromium and Firefox. Papa Parse also scans with indexOf/charCodeAt. The quoted-line path was already a character scan and is unchanged. Memory in the comparison is read over the DevTools protocol (`Runtime.getHeapUsage` after two `HeapProfiler.collectGarbage`): `performance.memory` gave negative or zero differences even with --enable-precise-memory-info.
+
 ## 2026.10.31.1830 · 2026-10-31
 
 ### Quick

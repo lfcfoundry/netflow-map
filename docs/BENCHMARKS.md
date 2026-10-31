@@ -2108,3 +2108,22 @@ Early-stop A/B rule, 800 by 600 window, 16 MB table (188,000 rows), Data tab sho
 
 Chromium profile of two renames (readable build): setGraph 340 to 95 ms; report 110 to 18; States card 78 to under 1; list comparisons 88 to 31.
 
+## 67. Against the open-source libraries, and tables in WebKitGTK (2026.10.31)
+
+`node bench/vs-libs-run.js <firefox|chromium|webkit> landing`, each job in a freshly loaded bench/page.html, one browser at a time. Times: median of 3 runs, one run when over 600 ms (table reading: median of 4 rotated turns). Network: GEN.graph('moderate', n, 11); every layout drawn with Netflow Map's item sizes, a point layout first scaled so its middle link is as long as ours. Flow and Sankey: random acyclic data (vs-libs.js `dag`); crossings are straight lines between item centers (Flow also counts the drawn polylines: 400 items ours 7,956, dagre 5,374, ELK 5,313; 1,000 items 31,870 / 23,965 / 22,602). Sankey data has the first column fed from the start item.
+
+| | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---|---|---|
+| Network 10,000: ours / d3-force / +collide / ForceAtlas2 | 413 ms / 17.4 s / 22.7 s / 18.8 s | 433 ms / 20.2 s / 32.6 s / 15.3 s | 457 ms / 13.9 s / 20.8 s / 157 s |
+| Items touching at 10,000: ours / d3 / +collide / FA2 | 0 / 20.9 / 23.7 / 3.7% | 0 / 17.5 / 19.0 / 1.5% | 0 / 18.4 / 21.1 / 1.7% |
+| Network 1,000 with Cytoscape.js cose | 131 ms against 20.9 s | 121 ms against 35.0 s | 136 ms against 26.2 s |
+| Flow 1,000 / 1,900: ours / dagre / ELK | 30 ms / 8.4 s / 2.1 s; crossings 47,009 / 25,448 / 24,920 | 40 ms / 7.1 s / 2.7 s | 49 ms / 10.2 s / 1.8 s |
+| Sankey 1,500: ours / d3-sankey | 91 ms / 43 ms; crossings 91,896 / 95,509 | 118 / 39 ms | 77 / 36 ms |
+| 16 MB table: ours / Papa Parse / d3-dsv (before this build) | 247 / 270 / 251 ms | 236 / 291 / 322 ms | 575 / 211 / 326 ms |
+| Memory to hold 100,000 items: ours / graphology / Cytoscape.js | 41 / 71 / 420 MB | not measured | not measured |
+
+Raw results: bench/results/vs-libs-*-landing.jsonl (Chromium Sankey rerun: vs-libs-chromium-sankey.jsonl, after the first-column fix in the data). Firefox's 5,000-item network row ran while a short Chromium check ran beside it.
+
+Table reading after this build (early-stop A/B rule, fresh page per sample): WebKitGTK 390 to 119 ms (0.29), Chromium 229 to 167 ms (0.73), Firefox ok (0.985).
+
+Gaps handed to JS-modules (briefs in project files: js-modules-research/): Flow crossings (netflow-layers deeper search: 400 items 4,992 and 1,000 items 22,225 in a prototype, below ELK and dagre) and Sankey speed (netflow-sankey relaxation 11 of about 26 ms per layout; the netflow-layers order pass before it can be skipped with identical crossing counts).

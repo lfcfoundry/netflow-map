@@ -1,0 +1,3 @@
+{"suite":"vsSankey","args":{"n":100,"m":150},"browser":"chromium 155.0.8059.39","ok":{"n":100,"links":162,"ours":{"ms":13.2,"cross":381,"placed":100,"notFinite":0,"columns":10,"netflowSankey":true},"d3sankey":{"ms":3.9,"cross":635}},"wallMs":826}
+{"suite":"vsSankey","args":{"n":400,"m":616},"browser":"chromium 155.0.8059.39","ok":{"n":400,"links":640,"ours":{"ms":32.4,"cross":5574,"placed":400,"notFinite":0,"columns":18,"netflowSankey":true},"d3sankey":{"ms":10.4,"cross":7223}},"wallMs":695}
+{"suite":"vsSankey","args":{"n":1500,"m":2283},"browser":"chromium 155.0.8059.39","ok":{"n":1500,"links":2331,"ours":{"ms":91.2,"cross":91896,"placed":1500,"notFinite":0,"columns":34,"netflowSankey":true},"d3sankey":{"ms":42.9,"cross":95509}},"wallMs":1077}
