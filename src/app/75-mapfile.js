@@ -81,7 +81,7 @@ function openMapBytes(u8) {
     if (doc.view && typeof doc.view === 'object') LS.set('nfm-v:' + g.name, JSON.stringify(doc.view)); else LS.del('nfm-v:' + g.name);
     var L = doc.layout, LX = L && L.key ? layoutXY(L) : null, put = LX && client.store ? client.store.put(L.key, { key: L.key, xy: LX, width: L.width, height: L.height, rough: false, startId: L.startId, imp: impFromText(L.imp) }).catch(function () { /* the layout is worked out again */ }) : Promise.resolve();
     return put.then(function () {
-      S.imp = { files: null, opts: {}, base: S.graph, mode: 'replace', res: { graph: g, report: { notes: ['Opened from a map file' + (L ? ' (with its saved picture)' : '') + ' in ' + ((performance.now() - t0) / 1000).toFixed(2) + ' s (unpacking the file ' + Math.round(tU) + ' ms).'] } }, name: g.name };
+      S.imp = { files: null, opts: {}, base: null, mode: 'replace', res: { graph: g, report: { notes: ['Opened from a map file' + (L ? ' (with its saved picture)' : '') + ' in ' + ((performance.now() - t0) / 1000).toFixed(2) + ' s (unpacking the file ' + Math.round(tU) + ' ms).'] } }, name: g.name };
       setGraph(g, true, false);
     });
   });

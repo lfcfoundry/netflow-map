@@ -106,6 +106,17 @@ Shorter time is better. A change that moves nothing now keeps the finished pictu
 
 Shorter time is better. Each separate piece of 150 to 4,000 items is laid out on its own helper thread (up to 3, one fewer than the cores), the same picture. Maps of one piece, or with little work in total, are laid out as before. Details: docs/BENCHMARKS.md section 55.
 
+## Memory with a 16 MB table (lab, Chromium, through the page)
+
+| After | Before | Now |
+|---|---|---|
+| Opening a 16 MB table (188,000 items) | 150 MB | 102 MB |
+| 12 changes | 185 MB | 102 MB |
+| A second 16 MB table | 252 MB | 165 MB |
+| 12 more changes | 287 MB | 166 MB |
+
+Lower is better. All 25 Undo steps still work. Undo keeps only what each change replaced, the opened table's cells are read again from its text when needed, and repeated text is kept once. Details: docs/BENCHMARKS.md section 56.
+
 ## What it does
 
 It has six tabs (the Map's left panel adds a Colors tab):
