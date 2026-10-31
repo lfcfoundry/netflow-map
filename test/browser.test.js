@@ -1135,6 +1135,31 @@ async function open() {
     say(r.rescued === true, 'when the list of drawing methods fails, switching falls back to the plain canvas and draws'); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   await settle(400);
+  /* the item index is updated for the changed items only when items keep their places and names; after every kind of change it matches one built from nothing */
+  try {
+    const r = await ev(async () => {
+      const S = NFM.state, g0 = S.graph, base = NFMImport.sanitizeGraph(Object.assign(NFMExamples.bigNetwork(1500, 3, 51), { name: 'IndexCheck' }));
+      const paths = {}; let name = '';
+      const step = (fn) => { const g = Object.assign({}, S.graph, { nodes: S.graph.nodes.slice(), edges: S.graph.edges.slice() }); fn(g); NFM.setGraph(g, true, true); paths[name] = NFM.idx.why; return NFM.indexMatches(); };
+      const out = {}, named = (n) => { name = n; return n; };
+      NFM.setGraph(base); out.start = NFM.indexMatches();
+      out[named('rename')] = step((g) => { g.nodes[7] = Object.assign({}, g.nodes[7], { label: 'renamed' }); });
+      out[named('group')] = step((g) => { g.nodes = g.nodes.map((n, i) => i % 9 ? n : Object.assign({}, n, { group: 'G9' })); });
+      out[named('linkLabel')] = step((g) => { g.edges[3] = Object.assign({}, g.edges[3], { label: 'l3' }); });
+      out[named('linkKind')] = step((g) => { g.edges[5] = Object.assign({}, g.edges[5], { kind: 'newkind' }); });
+      out[named('linkMoved')] = step((g) => { g.edges[6] = Object.assign({}, g.edges[6], { to: g.nodes[100].id }); });
+      out[named('idChange')] = step((g) => { const old = g.nodes[11].id; g.nodes[11] = Object.assign({}, g.nodes[11], { id: 'zz-new-id' }); g.edges = g.edges.map((e) => e.from === old ? Object.assign({}, e, { from: 'zz-new-id' }) : e.to === old ? Object.assign({}, e, { to: 'zz-new-id' }) : e); });
+      out[named('add')] = step((g) => { g.nodes.push({ id: 'added', label: 'added', group: '', valence: '', ghost: false, attrs: {} }); g.edges.push({ from: 'added', to: g.nodes[0].id, label: '', kind: '', attrs: {} }); });
+      out[named('remove')] = step((g) => { const id = g.nodes[20].id; g.nodes.splice(20, 1); g.edges = g.edges.filter((e) => e.from !== id && e.to !== id); });
+      document.getElementById('b-undo').click(); out.undo = NFM.indexMatches();
+      document.getElementById('b-undo').click(); document.getElementById('b-undo').click(); out.undo3 = NFM.indexMatches();
+      while (S.graph !== g0 && S.hist.length) { document.getElementById('b-undo').click(); await new Promise((q) => setTimeout(q, 0)); }
+      out.home = S.graph === g0 && NFM.indexMatches() === true;
+      return { out, paths };
+    });
+    const quick = r.paths.rename === 'quick+links' && r.paths.group === 'quick+links' && r.paths.linkLabel === 'quick+links' && r.paths.linkKind === 'quick+links' && r.paths.linkMoved === 'quick' && r.paths.idChange === 'full' && r.paths.add === 'full';
+    say(Object.values(r.out).every((v) => v === true) && quick, 'the item index, updated only for changed items when it can be, matches one built from nothing after every kind of change and undo: ' + JSON.stringify(r));
+  } catch (e) { say(false, 'the item-index check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   /* the layout worker gets only what changed when it has the graph before (graphDiff); its picture is the page engine's own, and a worker without that graph gets the whole one */
   try {
     const r = await ev(async () => {

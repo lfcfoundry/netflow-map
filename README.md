@@ -119,13 +119,13 @@ Lower is better. All 25 Undo steps still work. Undo keeps only what each change 
 
 ## Changes on a big map (lab, 16 MB table)
 
-| Longest page freeze after a change | Before | Now |
+| Longest page freeze after a change | This morning | Now |
 |---|---|---|
-| Chromium | 1.5 s | 0.9 s |
-| Firefox | 1.8 s | 1.0 s |
-| WebKitGTK | 2.6 s | 1.5 s |
+| Chromium | 1.5 s | 0.27 s |
+| Firefox | 1.8 s | 0.39 s |
+| WebKitGTK | 2.6 s | 0.46 s |
 
-Lower is better. Only what changed goes to the layout helper (1.8 s to 20 ms in Chromium), and the autosave stops as soon as a map is too big to keep instead of writing all 61 MB of it. Details: docs/BENCHMARKS.md section 58.
+Lower is better. Only what changed goes to the layout helper (1.8 s to 20 ms in Chromium), the autosave stops as soon as a map is too big to keep instead of writing all 61 MB of it, and the app's list of items and links is updated for the changed items only. Details: docs/BENCHMARKS.md sections 58 and 59.
 
 ## Saves that survive a crash (lab)
 

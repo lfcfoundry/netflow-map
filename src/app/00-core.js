@@ -293,12 +293,56 @@ function makeLinkLists(edges, pos, field, nNodes) {
     count: function (id) { var x = pos.get(id); if (x === undefined) return loose && loose.has(id) ? loose.get(id).length : 0; return off[x + 1] - off[x]; }
   };
 }
+/*
+ * The item index (S.byId, the two link lists, the link kinds) was built again from nothing on every change: on a 16 MB table about half a
+ * second of the page's time per change. A change made through the app replaces only the objects it changes, so when the items keep their
+ * places and names (a rename, a group, an outcome mark) the index is updated for the changed items only, and the link lists are kept when
+ * every link keeps its two ends. Anything else (items added, removed or renamed by id, links moved) builds it whole, as before.
+ */
+var IDX = { g: null, pos: null };
+/** The slots of list a (now) that differ from list b (before), when both have the same length and few differ; else null. */
+function changedSlots(a, b) {
+  if (a.length !== b.length) return null;
+  var d = NFMUndo.listDiff(a, b), out = [], i;
+  if (d.same) return out;
+  if (d.at) return d.at;
+  if (d.mid.length * 4 > a.length) return null;
+  for (i = d.p; i < d.p + d.mid.length; i++) if (a[i] !== b[i]) out.push(i);
+  return out;
+}
 function indexGraph() {
-  var g = S.graph, by = new Map(), pos = new Map(), kinds = new Set();
-  g.nodes.forEach(function (n, i) { by.set(n.id, n); pos.set(n.id, i); });
-  g.edges.forEach(function (e) { if (e.kind) kinds.add(e.kind); });
-  S.byId = by; S.outAdj = makeLinkLists(g.edges, pos, 'from', g.nodes.length); S.inAdj = makeLinkLists(g.edges, pos, 'to', g.nodes.length); S.kinds = Array.from(kinds).sort();
+  var g = S.graph, old = IDX.g, by = null, pos = null, links = false, kindsSame = false, i, k;
+  if (old && old !== g && S.byId && IDX.pos && old.nodes && old.edges && g.nodes.length + g.edges.length >= 2000 && typeof NFMUndo !== 'undefined') {
+    var dn = changedSlots(g.nodes, old.nodes), ok = !!dn;
+    for (i = 0; ok && i < dn.length; i++) { k = dn[i]; ok = g.nodes[k].id === old.nodes[k].id && S.byId.get(old.nodes[k].id) === old.nodes[k]; }
+    if (ok) {
+      by = S.byId; pos = IDX.pos;
+      for (i = 0; i < dn.length; i++) by.set(g.nodes[dn[i]].id, g.nodes[dn[i]]);
+      var de = changedSlots(g.edges, old.edges);
+      kindsSame = !!de && de.length === 0;
+      links = !S.outAdj.loose && !S.inAdj.loose && !!de;
+      for (i = 0; links && i < de.length; i++) { k = de[i]; links = g.edges[k].from === old.edges[k].from && g.edges[k].to === old.edges[k].to; }
+    }
+  }
+  if (!by) { by = new Map(); pos = new Map(); g.nodes.forEach(function (n, j) { by.set(n.id, n); pos.set(n.id, j); }); }
+  if (!kindsSame) { var kinds = new Set(); g.edges.forEach(function (e) { if (e.kind) kinds.add(e.kind); }); S.kinds = Array.from(kinds).sort(); }
+  var wasBy = S.byId; S.byId = by;
+  if (!links) { S.outAdj = makeLinkLists(g.edges, pos, 'from', g.nodes.length); S.inAdj = makeLinkLists(g.edges, pos, 'to', g.nodes.length); }
+  IDX.g = g; IDX.pos = pos; IDX.why = by === wasBy && old ? (links ? 'quick+links' : 'quick') : (old === g ? 'same' : !old ? 'first' : 'full');
   S.dg = NFMColumns.derive(g); S.prof = NFMColumns.profile(S.dg); S.story = NFMColumns.isStory(g);
+}
+/** For the checks: true when the index matches one built from nothing, else what differs. */
+function indexMatches() {
+  var g = S.graph, by = new Map(), pos = new Map(), bad = null;
+  g.nodes.forEach(function (n, j) { by.set(n.id, n); pos.set(n.id, j); });
+  if (by.size !== S.byId.size) return 'item count';
+  by.forEach(function (n, id) { if (!bad && S.byId.get(id) !== n) bad = 'item ' + id; });
+  var o = makeLinkLists(g.edges, pos, 'from', g.nodes.length), n2 = makeLinkLists(g.edges, pos, 'to', g.nodes.length);
+  var same = function (a, b) { if (!a || !b) return !a === !b; if (a.length !== b.length) return false; for (var q = 0; q < a.length; q++) if (a[q] !== b[q]) return false; return true; };
+  by.forEach(function (x, id) { if (!bad && (!same(o.get(id), S.outAdj.get(id)) || !same(n2.get(id), S.inAdj.get(id)))) bad = 'links of ' + id; });
+  var kinds = new Set(); g.edges.forEach(function (e) { if (e.kind) kinds.add(e.kind); });
+  if (!bad && Array.from(kinds).sort().join('|') !== S.kinds.join('|')) bad = 'kinds';
+  return bad || true;
 }
 /** One link of the layout, read without bringing a packed link list back (see src/layout-park.js). */
 function edgeOf(i) { var L = S.L; return L.edgeAt ? L.edgeAt(i) : L.edges[i]; }
