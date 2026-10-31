@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.0958 · 2026-10-31
+
+### Quick
+No behavior change, nothing saved changes. Page memory with big data: undo steps keep differences (new src/undo.js), the import keeps the file text instead of the parsed cells, the graph before an import is kept only when merging, and repeated text in an imported graph is pointed at one copy in idle slices.
+
+### Details
+`NFMUndo.step(old, new)` compares the two lists by reference and keeps the changed slots (same length, at most a quarter changed) or the stretch between the common start and end; a step where most of the map differs keeps the old graph whole, as before. `NFMUndo.back` rebuilds the old lists from the current ones. `leanImport` (src/app/10-data.js) drops `res.rows` and keeps `res.rowsFrom` (the file text, already held in `S.imp.files`) when one table file was read; `importRows` parses it again with the same separator for the mapping box. `S.imp.base` is null unless the import mode is merge. `shareTextSoon` (src/app/00-core.js) runs `NFMUndo.textSharer` in `requestIdleCallback` slices of 4,000 items after an import. Chromium 155, real app, 800 by 600 window, 2 rounds, main-page heap after a full garbage collection: 16 MB moderate table (188,000 items) open 149.5 to 102.3 MB, after 12 changes 184.5 to 102.0, second table 252.3 to 165.4, 12 more changes 287.2 to 165.6; 16 MB complex table (30,000 items) 115.5 to 57.7 MB at the end. Opening, editing and undo times within noise (BENCHMARKS section 56).
+
+### Deep
+Measured in Node first (100,000 items, 300,000 links): the imported graph is 67 MB, the parsed cells kept for the mapping box 49 MB, each undo step after an edit about 3 MB of copied reference lists, and the graph before a second file 75 MB, kept twice (Undo and `S.imp.base`). Repeated text: one string per cell, so 300,000 links labeled "step 5" held 300,000 copies; sharing cut the graph 67 to 51 MB (moderate) and 177 to 64 MB (complex). The sharer always writes the shared copy back: equal strings are === in JavaScript, so a "changed?" test never fired, and V8 only saved memory then because looking a string up as a key turns it into a pointer to one copy, which Firefox and WebKitGTK do not do. Tested alone and stacked (diffs, lean cells, merge-only base): stacked 280 to 155 MB in the Node mix. Not done here, on a card: packing whole-map undo steps and a 16 MB cap. Seen for later: the engine worker's copy of the graph (structured clone) is about 25% bigger than the page's and shares no text; sharing there saves 10% for 0.4 s of worker time. New test/undo.test.js: every kind of change alone and 40 in a row come back with the same objects; text sharing leaves every value alone, including __proto__ and constructor.
+
 ## 2026.10.31.0925 · 2026-10-31
 
 ### Quick

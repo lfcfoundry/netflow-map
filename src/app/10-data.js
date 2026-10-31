@@ -82,14 +82,14 @@ function ingest(files, extra) {
     var opts = Object.assign(importOptions(), extra || {}), res;
     try { res = NFMImport.importAny(files, opts); } catch (err) { renderError(err.message); return; }
     var base = S.graph, mode = importMode();
-    S.imp = { files: files, opts: opts, base: base, mode: mode, res: res, name: res.graph.name };
+    S.imp = leanImport({ files: files, opts: opts, base: mode === 'merge' ? base : null, mode: mode, res: res, name: res.graph.name });   /* the graph before is kept only to merge into again */
     var merged = mode === 'merge' && base.nodes.length, g = merged ? NFMImport.mergeGraphs(base, res.graph) : res.graph;
     g.name = merged ? base.name : res.graph.name;
     if (skippedCount) res.report.notes.push(plural(skippedCount, 'file was', 'files were') + ' skipped (not text, too large, or hidden).');
     skippedCount = 0;
     if (archiveNotes.length) { archiveNotes.forEach(function (n) { res.report.notes.push(n); }); archiveNotes = []; }
     LS.del('nfm-v:' + g.name);
-    setGraph(g, true, merged);
+    setGraph(g, true, merged); shareTextSoon();
     $('report').scrollIntoView({ behavior: 'auto', block: 'nearest' });
   });
 }
@@ -120,14 +120,25 @@ function bindIntake() {
     busy('Loading the example…');
     nextFrame().then(function () {
       var res = x.load(), base = S.graph, mode = importMode(), merged = mode === 'merge' && base.nodes.length;
-      S.imp = { files: null, opts: {}, base: base, mode: mode, res: res, name: res.graph.name };
+      S.imp = { files: null, opts: {}, base: mode === 'merge' ? base : null, mode: mode, res: res, name: res.graph.name };
       res.report.notes.push(x.blurb);
       LS.del('nfm-v:' + res.graph.name);
-      setGraph(merged ? NFMImport.mergeGraphs(base, res.graph) : res.graph, true, merged);
+      setGraph(merged ? NFMImport.mergeGraphs(base, res.graph) : res.graph, true, merged); shareTextSoon();
     });
   });
   $('b-undo').addEventListener('click', undo);
 }
+
+/* The cells of an imported table are kept for "Change how this table is read". They take more memory than the map itself (300,000 rows:
+   about 49 MB in Node, the map 75 MB), so when the file's text is at hand only the text is kept and the cells are read again from it when
+   a setting there changes: the same cells, since they come from the same text with the same separator. */
+function leanImport(imp) {
+  var r = imp.res;
+  if (r && r.rows && r.kind !== undefined && r.kind !== 'table') return imp;
+  if (r && r.rows && r.delimiter && imp.files && imp.files.length === 1 && typeof imp.files[0].text === 'string') { r.rowsFrom = imp.files[0].text; r.rows = null; }
+  return imp;
+}
+function importRows(imp) { var r = imp.res; return r.rows || NFMImport.parseDelimited(r.rowsFrom, r.delimiter); }
 
 /* ---------------------------------------------------------------- what I found */
 var ROLES = {
@@ -158,7 +169,7 @@ function renderReport() {
 }
 function renderMapping() {
   var box = $('mapping'), imp = S.imp;
-  if (!imp || !imp.res.rows || !imp.res.mapping) { box.hidden = true; return; }
+  if (!imp || !(imp.res.rows || imp.res.rowsFrom) || !imp.res.mapping) { box.hidden = true; return; }
   var m = imp.res.mapping, headers = m.headers;
   var sel = function (attrs, cur, items) { var s = h('select', attrs, items.map(function (o) { return opt(o[0], o[1], String(o[0]) === String(cur)); })); s.value = cur; return s; };
   var cols = [[-1, '(none)']].concat(headers.map(function (x, i) { return [i, x]; }));
@@ -173,8 +184,8 @@ function renderMapping() {
 }
 function bindMapping() {
   $('mapping').addEventListener('change', function (e) {
-    var imp = S.imp; if (!imp || !imp.res.rows) return;
-    var m = JSON.parse(JSON.stringify(imp.res.mapping)), d = imp.res.delimiter, rows = imp.res.rows, t = e.target;
+    var imp = S.imp; if (!imp || !(imp.res.rows || imp.res.rowsFrom)) return;
+    var m = JSON.parse(JSON.stringify(imp.res.mapping)), d = imp.res.delimiter, rows = importRows(imp), t = e.target;
     if (t.dataset.map === 'mode') {
       var f = NFMImport.guessMapping(rows); m.mode = t.value; m.cols = {};
       var keep = f.mode === t.value ? f.cols : {}; Object.keys(keep).forEach(function (k) { m.cols[k] = keep[k]; });
@@ -188,7 +199,7 @@ function bindMapping() {
     try { out = NFMImport.importTable(rows, m, imp.name, Object.assign({}, imp.opts, { delimiter: d })); } catch (err) { toast('That setting did not work: ' + err.message); return; }
     out.rows = rows; out.delimiter = d; out.mapping = m;
     out.report.notes.unshift('Read as a table with your settings, ' + out.report.rows + ' rows.');
-    imp.res = out;
+    imp.res = out; leanImport(imp);
     var g = imp.mode === 'merge' && imp.base.nodes.length ? NFMImport.mergeGraphs(imp.base, out.graph) : out.graph;
     imp.mapOpen = true;
     /* the table is read again from the import, so edits made since (Nodes tab, fixes, merges) are replaced: remember the graph as it was, one Undo brings it back */
