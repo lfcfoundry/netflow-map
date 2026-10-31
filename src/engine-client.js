@@ -135,12 +135,15 @@ var NFMEngineClient = (function () {
     };
     return P;
   }
-  var WORKER_MAIN = '\nvar warmBuild = ' + warmBuild.toString() + '\nfunction __warm(){warmBuild(__API);}\nvar dispatch = ' + dispatch.toString() + '\nvar helperPool = ' + helperPool.toString() + '\nvar __st={G:null,ver:-1,P:null,sim:null};var __API={E:NFMEngine,SIM:NFMSim,CHK:NFMCheck,C:NFMColumns};var __HP=helperPool(__API);self.onmessage=function(e){var d=e.data;try{' +
+  var WORKER_MAIN = '\nvar warmBuild = ' + warmBuild.toString() + '\nfunction __warm(){warmBuild(__API);}\nvar dispatch = ' + dispatch.toString() + '\nvar helperPool = ' + helperPool.toString() + '\nvar __st={G:null,R:null,ver:-1,P:null,sim:null};function __back(d,b){if(d.same)return b;if(d.at){var a=b.slice();for(var k=0;k<d.at.length;k++)a[d.at[k]]=d.was[k];return a;}return b.slice(0,d.p).concat(d.mid,b.slice(b.length-d.s));}var __API={E:NFMEngine,SIM:NFMSim,CHK:NFMCheck,C:NFMColumns};var __HP=helperPool(__API);self.onmessage=function(e){var d=e.data;try{' +
     'if(d.type==="port"){var pt=e.ports[0];pt.onmessage=function(m){var r1;try{r1=__API.E.pieceJob(m.data);}catch(er){pt.postMessage({ok:false,error:String(er&&er.message||er)});return;}pt.postMessage({ok:true,result:r1},r1.X&&r1.X.buffer?[r1.X.buffer]:[]);};return;}' +   // in a helper thread: pieces come on the port from the engine worker
     'if(d.type==="helpersOk"){__HP.can=true;__API.pieces=__HP.run;return;}' +
     'if(d.type==="helperPorts"){__HP.got(Array.prototype.slice.call(e.ports||[]),d.error);return;}' +
     'if(d.type==="helperFailed"){if(__HP.fail)__HP.fail("a helper failed ("+(d.error||"error")+")");else __HP.stop();return;}' +
-    'if(d.type==="graph"){__st.G=NFMColumns.derive(d.graph);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
+    'if(d.type==="graph"){__st.R=d.graph;__st.G=NFMColumns.derive(d.graph);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
+    'if(d.type==="graphDiff"){if(__st.ver!==d.base||!__st.R){self.postMessage({id:d.id,ok:true,result:"full"});return;}var R=__st.R,g={},k;for(k in d.meta)g[k]=d.meta[k];g.nodes=__back(d.nodes,R.nodes);g.edges=__back(d.edges,R.edges);__st.R=g;__st.G=NFMColumns.derive(g);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +   // only what changed since the graph it has (graphDiff below)
+    'if(d.type==="handOver"){var hp=e.ports[0];hp.postMessage({graph:__st.R,ver:__st.ver});hp.close();return;}' +   // parking: the graph goes to the keeper thread on a port, never through the page
+    'if(d.type==="graphFromPort"){var gp=e.ports[0];gp.onmessage=function(m){gp.close();__st.R=m.data.graph;__st.G=NFMColumns.derive(__st.R);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});};return;}' +
     'if(d.type==="ping"){self.postMessage({id:d.id,ok:true,result:"pong"});return;}' +
     'if(d.type==="warm"){var w0=Date.now();__warm();self.postMessage({id:d.id,ok:true,result:"warm",ms:Date.now()-w0});return;}' +
     'if(d.ver!==__st.ver)throw new Error("The worker has an older copy of the data.");' +
@@ -151,7 +154,7 @@ var NFMEngineClient = (function () {
 
   function Client(engineSrc, onMain) {
     this.src = engineSrc; this.onMain = onMain; this.w = null; this.mode = 'starting'; this.seq = 0; this.pending = new Map();
-    this.ver = 0; this.graph = null; this.queue = null; this.busy = null; this.why = '';
+    this.ver = 0; this.graph = null; this.sent = null; this.sentVer = -1; this.queue = null; this.busy = null; this.why = '';
     /* Parking (off unless the page sets parkAfter): when nothing has been asked for parkAfter ms, a big graph's worker is ended, which frees the graph copy and everything else it holds; the next job starts a fresh worker and sends the graph again. */
     this.parkAfter = 0; this.parkMin = 20000; this.parked = false; this.parks = 0; this.unparks = 0; this.unparkMs = 0; this.parkTimer = null; this.holdIf = null; this.keepWarm = false;
     this.warmAfter = 1500; this.warmed = false; this.warmTimer = null;
@@ -181,7 +184,7 @@ var NFMEngineClient = (function () {
   Client.prototype.start = function () {
     var self = this;
     return new Promise(function (resolve) {
-      var fallback = function (why) { self.mode = 'page'; self.why = why; if (self.w) { try { self.w.terminate(); } catch (e) { /* gone */ } self.w = null; self.endHelpers(); } resolve(self); };
+      var fallback = function (why) { self.mode = 'page'; self.why = why; self.sent = null; if (self.w) { try { self.w.terminate(); } catch (e) { /* gone */ } self.w = null; self.endHelpers(); } resolve(self); };
       try {
         var blob = new Blob([self.src + WORKER_MAIN], { type: 'text/javascript' }), url = URL.createObjectURL(blob);
         self.w = new Worker(url);
@@ -216,9 +219,9 @@ var NFMEngineClient = (function () {
     if (this.mode === 'page') return;
     var self = this, waiting = Array.from(this.pending.values());
     this.mode = 'page'; this.why = why; this.st = null;
-    if (this.w) { try { this.w.terminate(); } catch (e) { /* gone */ } this.w = null; } this.endHelpers();
+    if (this.w) { try { this.w.terminate(); } catch (e) { /* gone */ } this.w = null; } this.sent = null; this.kept = null; this.endHelpers();
     this.pending.clear();
-    waiting.forEach(function (p) { if (p.type === 'graph') p.resolve(true); else p.reject(new Error('The background engine stopped, so that step was canceled. Try again: the page will do the work itself now.')); });
+    waiting.forEach(function (p) { if (p.type === 'graph' || p.type === 'graphDiff' || p.type === 'graphFromPort') p.resolve(true); else p.reject(new Error('The background engine stopped, so that step was canceled. Try again: the page will do the work itself now.')); });
   };
   Client.prototype.onMsg = function (d) {
     if (d && d.type === 'needHelpers') { this.makeHelpers(d.n); return; }
@@ -233,16 +236,45 @@ var NFMEngineClient = (function () {
     if (this.parked) return this.unpark().then(function () { return self.call(msg); });
     return this.rawCall(msg);
   };
-  Client.prototype.rawCall = function (msg) {
+  Client.prototype.rawCall = function (msg, transfer) {
     var self = this, id = ++this.seq;
-    return new Promise(function (resolve, reject) { self.pending.set(id, { resolve: resolve, reject: reject, type: msg.type }); msg.id = id; try { self.w.postMessage(msg); } catch (err) { self.pending.delete(id); reject(err); } });
+    return new Promise(function (resolve, reject) { self.pending.set(id, { resolve: resolve, reject: reject, type: msg.type }); msg.id = id; try { self.w.postMessage(msg, transfer || []); } catch (err) { self.pending.delete(id); reject(err); } });
   };
-  /** Gives the engine a new graph. Call whenever the data changes. */
+  /** What the worker needs to go from graph a (which it has) to graph b: null when sending b whole is the better choice. */
+  function graphDiff(a, b) {
+    if (typeof NFMUndo === 'undefined' || !a.nodes || !a.edges || !b.nodes || !b.edges) return null;
+    var n = b.nodes.length + b.edges.length; if (n < 2000) return null;   // small: the whole graph is quick
+    var dn = NFMUndo.listDiff(b.nodes, a.nodes), de = NFMUndo.listDiff(b.edges, a.edges);
+    var held = function (d) { return d.same ? 0 : d.at ? d.at.length : d.mid.length; };
+    if ((held(dn) + held(de)) * 4 >= n) return null;
+    var meta = {}; Object.keys(b).forEach(function (k) { if (k !== 'nodes' && k !== 'edges') meta[k] = b[k]; });
+    return { meta: meta, nodes: dn, edges: de };
+  }
+  /**
+   * Gives the engine a new graph. Call whenever the data changes.
+   * Handing a whole graph to the worker copies every item and link on the page's own thread (structured clone): at 750,000 items and links
+   * that held the page 0.7 to 2 s on every change. A change made through the app copies the two lists and replaces only the objects it
+   * changes, so when the worker already has the graph before it, only the difference goes (graphDiff): the changed slots, or the stretch
+   * between a common start and end. The worker rebuilds the new lists from the ones it has. A big difference, a small graph, or a worker
+   * that does not have the graph before gets the whole graph, as before.
+   */
   Client.prototype.setGraph = function (graph) {
     this.graph = graph; this.ver++; this.st = null; this.lastPic = null;
     if (this.parked) return Promise.resolve(true);   // the fresh worker gets this graph when the next job starts it
-    if (this.mode === 'worker') return this.call({ type: 'graph', graph: graph, ver: this.ver });
-    return Promise.resolve(true);
+    if (this.mode !== 'worker') return Promise.resolve(true);
+    return this.sendGraph(this.call.bind(this));
+  };
+  /** Sends this.graph to the live worker: the difference from the graph it has (this.sent), or the whole graph. */
+  Client.prototype.sendGraph = function (call) {
+    var self = this, prev = this.sent, base = this.sentVer, graph = this.graph, ver = this.ver, msg = prev && this.w ? graphDiff(prev, graph) : null;
+    this.sent = graph; this.sentVer = ver;
+    if (!msg) return call({ type: 'graph', graph: graph, ver: ver });
+    msg.type = 'graphDiff'; msg.base = base; msg.ver = ver; this.diffs = (this.diffs || 0) + 1;
+    return call(msg).then(function (r) {
+      if (r === true || self.sent !== graph) return true;   // applied, or a newer graph went after it
+      self.fulls = (self.fulls || 0) + 1;
+      return call({ type: 'graph', graph: graph, ver: ver });   // the worker did not have the graph before: the whole graph
+    });
   };
   /** Runs a job (build, compare, check, simStart, simRun, simExact, sweep). If a newer request of the same kind arrives while one waits, only the newest waits its turn. */
   Client.prototype.run = function (type, opts, extra) {
@@ -291,8 +323,17 @@ var NFMEngineClient = (function () {
     if (this.mode !== 'worker' || !this.w || this.parked || this.busy || this.pending.size || this.keepWarm || (this.holdIf && this.holdIf())) return false;
     if (q) for (k in q) if (q[k]) return false;
     if (!this.graph || !this.graph.nodes || this.graph.nodes.length < this.parkMin) return false;
-    try { this.w.terminate(); } catch (e) { /* gone already */ } this.endHelpers();
-    this.w = null; this.parked = true; this.parks++;
+    var w = this.w, self = this;
+    this.endHelpers(); this.w = null; this.parked = true; this.parks++; this.kept = null;
+    /* With a keeper (set by the page), the worker's graph is packed off the page before the worker ends: it goes to the keeper's thread on
+       a port and comes back as bytes, so the restart needs no copy of the whole graph on the page's thread. */
+    if (this.keeper && this.sent && typeof MessageChannel === 'function') {
+      var from = this.sent, fromVer = this.sentVer, ch = new MessageChannel(), end = function () { try { w.terminate(); } catch (e) { /* gone */ } };
+      this.keepP = Promise.resolve().then(function () { var k = self.keeper.keep(ch.port2); w.postMessage({ type: 'handOver' }, [ch.port1]); return k; })
+        .then(function (bytes) { end(); if (self.parked && !self.w) self.kept = { bytes: bytes, from: from, ver: fromVer }; }, function () { end(); })
+        .then(function () { self.keepP = null; });
+    } else { try { w.terminate(); } catch (e) { /* gone already */ } }
+    this.sent = null;
     return true;
   };
   /** Starts a fresh worker and gives it the graph again (called by the next job). */
@@ -309,7 +350,20 @@ var NFMEngineClient = (function () {
         self.sendHelperSrc();
         self.attach(self.w);
         self.parked = false;
-        self.rawCall({ type: 'graph', graph: self.graph, ver: self.ver }).then(function () { self.unparkMs = Date.now() - t0; self.unparks++; self.unparkP = null; resolve(true); }, function (err) { fail('The background engine could not restart (' + (err && err.message || err) + ').'); });
+        var raw = self.rawCall.bind(self), done = function () { self.unparkMs = Date.now() - t0; self.unparks++; self.unparkP = null; resolve(true); };
+        var whole = function () { self.sent = null; return self.sendGraph(raw); };
+        (self.keepP || Promise.resolve()).then(function () {
+          var kept = self.kept; self.kept = null;
+          if (!kept || !self.keeper || (kept.from !== self.graph && !graphDiff(kept.from, self.graph))) return whole();   // nothing kept, or the data changed too much since
+          var ch = new MessageChannel();
+          return Promise.all([raw({ type: 'graphFromPort', ver: kept.ver }, [ch.port1]), self.keeper.give(kept.bytes, ch.port2)]).then(function () {
+            self.sent = kept.from; self.sentVer = kept.ver; self.fromKept = (self.fromKept || 0) + 1;
+            return kept.from === self.graph ? true : self.sendGraph(raw);   // changes made while parked go as a difference
+          }, function () {   /* the keeper failed: the worker's wait for the port is dropped and the whole graph goes, as before */
+            self.pending.forEach(function (p, id) { if (p.type === 'graphFromPort') { self.pending.delete(id); p.resolve(true); } });
+            return whole();
+          });
+        }).then(done, function (err) { fail('The background engine could not restart (' + (err && err.message || err) + ').'); });
       } catch (err) { fail('The background engine could not restart (' + String(err && err.message || err) + ').'); }
     });
     return this.unparkP;

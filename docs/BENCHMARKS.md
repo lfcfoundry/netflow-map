@@ -2008,3 +2008,19 @@ Crash-safe saves, the whole browser killed (SIGKILL) and opened again with the s
 | Firefox 158, 2 s | lost | kept 2 of 2 |
 
 Cost of one save of a 2,000-item map (557 KB), median of 13: the page's own time 2.0 / 1.8 ms (Chromium) and 2.0 / 3.0 ms (Firefox); kept in IndexedDB 14 ms (Chromium) and 11 ms (Firefox) after the call, while the page goes on. WebKitGTK was not kill-tested (its test sessions can't keep a profile).
+
+## 58. Changes on a big map: the hand-off to the layout worker, the autosave text, one parse (2026.10.31)
+
+16 MB moderate table (188,000 items, 563,563 links), the real app in an 800 by 600 window, the layout worker awake. Lower is better.
+
+| One change (rename one item) | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---:|---:|---:|
+| Hand-off to the layout worker, page time | 1,792 / 20 ms | 1,148 / 4 ms | 2,532 / 29 ms |
+| ... until the worker has it | 3,082 / 24 ms | 2,532 / 12 ms | 3,348 / 48 ms |
+| Autosave text (61 MB, too big to keep) | 392 / 7 ms | 373 / 14 ms | 430 / 11 ms |
+| Whole app change, longest freeze | 1,520 / 942 ms | 1,844 / 961 ms | 2,631 / 1,479 ms |
+| Whole app change, page held in 3 s | 3,449 / 1,931 ms | 4,061 / 1,908 ms | 5,613 / 2,945 ms |
+
+Before / after; medians of 5 or 6. Early-stop A/B rule (after / before, 90% interval): opening netflow-test-map-30000.json, page held time: Chromium 0.86 (0.84 to 0.92), Firefox 0.91 (0.69 to 0.98), WebKitGTK 0.86 (0.73 to 0.95). Autosave of a 2,000-item map (fits; the same single write as before): Chromium 0.97 (0.82 to 1.02), Firefox 1.00 (0.88 to 1.00), WebKitGTK 1.00 (0.89 to 1.18, noisy; A/A on the same page 1.03, 1.00 to 1.09).
+
+Restart of a parked worker (not in this build, waiting for a decision): with its graph packed off the page, the page is held 9 to 22 ms instead of 0.8 to 1.1 s (Chromium), 9 to 13 ms instead of 1.0 s (Firefox), 12 to 184 ms instead of 1.8 to 2.1 s (WebKitGTK); the restart takes 2.1 to 3.0 s instead of 1.9 to 2.4 s, 2.9 to 3.6 instead of 1.8 to 2.2 s, 4.0 to 4.2 instead of 2.3 to 3.0 s.

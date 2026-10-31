@@ -770,9 +770,10 @@ async function open() {
     const r4 = await ev(async () => {
       const t = document.getElementById('toast'), real = JSON.stringify; t.hidden = true; t.textContent = '';
       /* a small graph whose saved text is made to come out too long, so the page is not asked to hold megabytes */
-      JSON.stringify = function (v) { return v && v.name === 'SaveBig' ? 'x'.repeat(1900000) : real.apply(this, arguments); };
+      /* the autosave writes the items one at a time (graphText), so the long text comes from one item */
+      JSON.stringify = function (v) { return v && (v.name === 'SaveBig' || v.id === 'SaveBigA') ? 'x'.repeat(1900000) : real.apply(this, arguments); };
       try {
-        NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SaveBig', nodes: [{ id: 'A' }, { id: 'B' }], edges: [{ from: 'A', to: 'B' }] }));
+        NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SaveBig', nodes: [{ id: 'SaveBigA' }, { id: 'B' }], edges: [{ from: 'SaveBigA', to: 'B' }] }));
         await new Promise((q) => setTimeout(q, 1000));
       } finally { JSON.stringify = real; }
       return { shown: !t.hidden, text: t.textContent };
@@ -1134,6 +1135,52 @@ async function open() {
     say(r.rescued === true, 'when the list of drawing methods fails, switching falls back to the plain canvas and draws'); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   await settle(400);
+  /* the layout worker gets only what changed when it has the graph before (graphDiff); its picture is the page engine's own, and a worker without that graph gets the whole one */
+  try {
+    const r = await ev(async () => {
+      const c = NFM.client(); if (c.mode !== 'worker') return { skip: c.mode };
+      const base = NFMExamples.bigNetwork(1500, 3, 31); base.name = 'diffs';
+      const opts = { view: 'network', arrange: 'stress', colorBy: 'group' }, E = NFM.engine();
+      const hash = (L) => { let h = 2166136261; for (const nd of L.nodes) { const s = nd.id + ':' + nd.cx.toFixed(3) + ',' + nd.cy.toFixed(3) + ':' + nd.label; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0; } return h; };
+      const step = (g, fn) => { const n = Object.assign({}, g, { nodes: g.nodes.slice(), edges: g.edges.slice() }); fn(n); return n; };
+      if (c.parked) await c.unpark();
+      await c.setGraph(base); const d0 = c.diffs || 0, f0 = c.fulls || 0;
+      let g = base; const out = { same: [] };
+      const edits = [
+        (n) => { n.nodes[5] = Object.assign({}, n.nodes[5], { label: 'renamed' }); },
+        (n) => { n.edges.splice(40, 3); },
+        (n) => { n.nodes.push({ id: 'new1', label: 'new1', group: 'g9', valence: '', ghost: false, attrs: {} }); n.edges.push({ from: 'new1', to: n.nodes[0].id, label: '', kind: '', attrs: {} }); },
+        (n) => { const id = n.nodes[9].id; n.nodes.splice(9, 1); n.edges = n.edges.filter((x) => x.from !== id && x.to !== id); },
+        (n) => { n.start = n.nodes[3].id; n.nodes = n.nodes.map((x, i) => i % 50 === 0 ? Object.assign({}, x, { group: 'G2' }) : x); }
+      ];
+      for (const fn of edits) { g = step(g, fn); await c.setGraph(g); const w = await c.build(opts); out.same.push(hash(w.L) === hash(E.build(NFMColumns.derive(g), opts))); }
+      out.diffs = (c.diffs || 0) - d0;
+      c.sentVer = -5; g = step(g, (n) => { n.nodes[1] = Object.assign({}, n.nodes[1], { label: 'after a lost copy' }); }); await c.setGraph(g);   /* the worker no longer matches: it must get the whole graph */
+      const w2 = await c.build(opts); out.fullBack = (c.fulls || 0) - f0; out.sameAfter = hash(w2.L) === hash(E.build(NFMColumns.derive(g), opts));
+      await c.setGraph(NFM.state.graph);
+      return out;
+    });
+    say(!!r.skip || (r.same.length === 5 && r.same.every(Boolean) && r.diffs === 5 && r.fullBack === 1 && r.sameAfter), 'changes reach the layout worker as differences, and its pictures match the page engine\'s; a worker without the graph before gets the whole graph: ' + JSON.stringify(r));
+  } catch (e) { say(false, 'the graph-difference check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  /* a parked layout worker's graph is packed off the page by the keeper; the restart takes it from there (plus any change made meanwhile) and lays out the same picture */
+  try {
+    const r = await ev(async () => {
+      const c = NFM.client(); if (c.mode !== 'worker' || !c.keeper) return { skip: c.mode + ', keeper ' + !!c.keeper };
+      const opts = { view: 'network', arrange: 'stress', colorBy: 'group' }, E = NFM.engine(), min = c.parkMin;
+      const hash = (L) => { let h = 2166136261; for (const nd of L.nodes) { const s = nd.id + ':' + nd.cx.toFixed(3) + ',' + nd.cy.toFixed(3) + ':' + nd.label; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0; } return h; };
+      const g0 = NFMExamples.bigNetwork(1500, 3, 41); g0.name = 'kept'; g0.start = g0.nodes[2].id;
+      if (c.parked) await c.unpark();
+      await c.setGraph(g0); c.parkMin = 0; const k0 = c.fromKept || 0;
+      const parked = c.park(); const t0 = performance.now(); while (c.keepP && performance.now() - t0 < 15000) await new Promise((q) => setTimeout(q, 30));
+      const out = { parked, kept: !!(c.kept && c.kept.bytes && c.kept.bytes.length) };
+      const g1 = Object.assign({}, g0, { nodes: g0.nodes.slice(), edges: g0.edges.slice() }); g1.nodes[4] = Object.assign({}, g1.nodes[4], { label: 'changed while parked' }); g1.edges.splice(10, 2);
+      await c.setGraph(g1);
+      const w = await c.build(opts); out.fromKept = (c.fromKept || 0) - k0; out.same = hash(w.L) === hash(E.build(NFMColumns.derive(g1), opts));
+      c.parkMin = min; await c.setGraph(NFM.state.graph);
+      return out;
+    });
+    say(!!r.skip || (r.parked && r.kept && r.fromKept === 1 && r.same), 'a parked layout worker\'s graph is kept packed off the page, and the restart from it (with a change made meanwhile) lays out the same picture: ' + JSON.stringify(r));
+  } catch (e) { say(false, 'the kept-graph check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   /* separate pieces on helper threads: the page makes the helpers when the engine worker asks (a worker made inside a worker fails in WebKitGTK); the picture is the page engine's own */
   try {
     const r = await ev(async () => {
