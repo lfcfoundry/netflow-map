@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.30.2233 · 2026-10-30
+
+### Quick
+Network pieces over 80,000 items stretch once before the first push-apart passes instead of after them (stretch first). Pictures of such maps change slightly; smaller maps are unchanged. Saved layouts of big maps are laid out once more.
+
+### Details
+`clearOverlaps` in `src/engine.js`: when `k >= STRESS.jumpFirstMin` (80,000, new, part of the saved-layout fingerprint) and `overlapsPerItem` is over 2, the existing stretch (`1 + jumpPer * overlaps`, at most `jumpMax`) runs first. 100,000 items, lab, 3 runs each, medians: Firefox 158 4,581 to 4,058 ms, WebKitGTK 4,170 to 3,826 ms, Chromium 5,116 to 5,012 ms (old runs 4,495 to 6,056, inside the noise). Push-apart alone in Node: about 1.0 to 0.70 s.
+
+### Deep
+At 100,000 items the first 10 passes cut touching pairs only from 4.68 to 4.44 per item and cost about 0.5 s because the middle is so crowded; stretching first leaves 1.40 per item after them. Same page size (48,069 x 48,813), 0 touching. Middle half: average edge-to-edge gap to the nearest item 56.6 to 46.3, spread of gaps (coefficient of variation) 0.41 to 0.30, so tighter but more even. Gentler first stretches were tested (0.75: 0.28 spread, 1% smaller page, unsteady time; 0.5: 0.33, 5% larger page); the owner chose the full stretch from a side-by-side page. At 60,000 items the full stretch grew the page about 9%, hence 80,000. Also tested alone and stacked, not shipped here: number keys when merging links, link objects made with every field up front, and a grid-order walk in the wasm push-apart (all inside Node noise alone; all four stacked gave WebKitGTK 3,507 ms against 3,826 ms for stretch first alone, being followed up). Tests: Node 40 files; Chromium 209, WebKitGTK 197, Firefox 186 (11 card checks skipped in the lab). BENCHMARKS section 51.
+
 ## 2026.10.30.2131 · 2026-10-30
 
 ### Quick
