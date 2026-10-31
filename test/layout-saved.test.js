@@ -37,6 +37,9 @@ const g1 = GEN.graph('moderate', 1600, 5), O = { view: 'network', arrange: 'stre
     const g2 = JSON.parse(JSON.stringify(g1)); g2.edges.pop(); const G2 = derive(g2);
     ok(E.layoutKey(G2, O, memo) === E.layoutKey(derive(g2), O), 'another graph is not given the kept part');
     E.build(G, O); ok(E.layoutKey(G, O) === k0, 'a build leaves the data unchanged');
+    memo.G = G2; ok(E.layoutKey(G2, O, memo) === E.layoutKey(derive(g2), O), 'the worker gets a new graph of the same size: hashed afresh, not the old one\'s key');
+    const g3 = JSON.parse(JSON.stringify(g1)); g3.edges[0].to = g3.nodes[5].id; const G3 = derive(g3); memo.G = G3;
+    ok(E.layoutKey(G3, O, memo) !== k0 && E.layoutKey(G3, O, memo) === E.layoutKey(derive(g3), O), 'an edited link with the same item count gets its own key');
   });
   run('a saved picture gives exactly the positions a new layout gives, and says so', () => {
     const key = E.layoutKey(derive(g1), O), a = E.build(derive(g1), Object.assign({}, O, { wantSave: true, saveKey: key })); ok(a.saveLayout && a.saveLayout.xy.length === 2 * a.nodes.length, 'asked to keep it');
@@ -63,6 +66,12 @@ const g1 = GEN.graph('moderate', 1600, 5), O = { view: 'network', arrange: 'stre
     cl.lastPic = null;   /* a later visit: nothing kept in memory */
     const second = await cl.build(O); ok(second.fromSaved && cl.store.hits === 1, 'second: from storage'); ok(same(first.L, second.L), 'same picture');
     cl.graph = derive(Object.assign({}, g1, { edges: g1.edges.slice(1) })); cl.ver++; const third = await cl.build(O); ok(!third.fromSaved, 'a changed map is laid out again');
+  });
+  run('worker path: a second map with the same number of items never gets the first map\'s saved picture', async () => {
+    const st = { G: null, ver: 0 }, ga = derive(g1), g2 = JSON.parse(JSON.stringify(g1)); g2.edges.reverse(); g2.edges.forEach((e, i) => { if (i % 3 === 0) e.to = g2.nodes[(i * 7) % g2.nodes.length].id; });
+    st.G = ga; const ka = E.layoutKey(ga, O, st);
+    st.G = derive(g2); const kb = E.layoutKey(st.G, O, st);   /* what the worker does when the page sends a new graph */
+    ok(ka !== kb, 'same key for two different maps of ' + g1.nodes.length + ' items');
   });
   run('client: a color change puts the same places back from memory, with no storage at all; new data drops it', async () => {
     const cl = new Client('', () => E); cl.mode = 'page'; cl.graph = derive(g1); cl.ver = 1; cl.store = null; cl.storeMin = 100;
