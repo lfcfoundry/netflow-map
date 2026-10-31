@@ -88,7 +88,7 @@ function ingest(files, extra) {
     if (skippedCount) res.report.notes.push(plural(skippedCount, 'file was', 'files were') + ' skipped (not text, too large, or hidden).');
     skippedCount = 0;
     if (archiveNotes.length) { archiveNotes.forEach(function (n) { res.report.notes.push(n); }); archiveNotes = []; }
-    LS.del('nfm-v:' + g.name);
+    SAFE.del('nfm-v:' + g.name);
     setGraph(g, true, merged); shareTextSoon();
     $('report').scrollIntoView({ behavior: 'auto', block: 'nearest' });
   });
@@ -122,7 +122,7 @@ function bindIntake() {
       var res = x.load(), base = S.graph, mode = importMode(), merged = mode === 'merge' && base.nodes.length;
       S.imp = { files: null, opts: {}, base: mode === 'merge' ? base : null, mode: mode, res: res, name: res.graph.name };
       res.report.notes.push(x.blurb);
-      LS.del('nfm-v:' + res.graph.name);
+      SAFE.del('nfm-v:' + res.graph.name);
       setGraph(merged ? NFMImport.mergeGraphs(base, res.graph) : res.graph, true, merged); shareTextSoon();
     });
   });

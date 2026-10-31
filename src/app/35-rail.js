@@ -595,7 +595,7 @@ function panelViews() {
   kids.push(section('Open a shared view', [paste, h('button', { onclick: function () { var snap = decodeView(paste.value); if (!snap || !applySnapshot(snap)) toast('That does not look like shared view text.'); else toast('Opened the shared view. Use the same data for it to make sense.'); } }, 'Open it')]));
   var title = h('input', { type: 'text', placeholder: 'Poster title', value: S.graph.name, 'aria-label': 'Poster title' }), cap2 = h('input', { type: 'text', placeholder: 'A line under the title (optional)', 'aria-label': 'Poster caption' });
   kids.push(section('Poster', [title, cap2, h('button', { onclick: function () { printPoster(title.value, cap2.value); } }, 'Print or save as PDF')]));
-  kids.push(h('button', { class: 'sm', onclick: function () { LS.del(VKEY()); S.V = defaultView(); loadView(); saveView(); S.styleMap = null; refreshMap('options'); renderRail(true); } }, 'Reset every setting for this data'));
+  kids.push(h('button', { class: 'sm', onclick: function () { SAFE.del(VKEY()); S.V = defaultView(); loadView(); saveView(); S.styleMap = null; refreshMap('options'); renderRail(true); } }, 'Reset every setting for this data'));
   return kids;
 }
 function printPoster(title, caption) {
