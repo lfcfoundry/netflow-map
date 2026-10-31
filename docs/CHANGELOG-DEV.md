@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.30.2347 · 2026-10-30
+
+### Quick
+Map files store the layout as `layout.x` and `layout.y` lists of whole numbers instead of `layout.xy` (base64 of Float64 x,y pairs). Files with `xy` still open, with their exact places. The browser's own layout store is unchanged (still exact). Matrix Fit takes the whole grid layout. README and landing screenshots changed; "What it is and how it works" and "Why it exists" rewritten with use cases (no Story Editor background).
+
+### Details
+`mapFileLayout` (src/app/75-mapfile.js) rounds each place with `Math.round`; `layoutXY` turns either kind of layout back into the Float64Array the store expects, and returns null (the picture is worked out again) when the lists are missing or of different lengths. 30,000-item map: 1,172,668 to 810,965 bytes (-31%), layout part 476 KB to 114 KB (-76%); save and open within noise in all three browsers (BENCHMARKS section 53). New browser check: a 1,600-item network saves whole numbers at most 0.5 off, reopens with exactly those, and a hand-made old-style file reopens with the exact places. `fitTarget` (src/app/30-map.js) on a Matrix with no selection takes 0,0 to `L.width + 150`, `L.height`, because the scene's box covers only the squares, so the names and the 300-unit note were cut off. The engine's `matrixLayout` width is unchanged, so the layout fingerprints in topdown.test.js still match.
+
+### Deep
+Retested from the dropped list under the stacking rule: plain numbers alone saved 2% and 4-byte rounding alone 21%; whole numbers as two separate lists save 31%, more than the sum (23%), most likely because LFC-pack can store a column of whole numbers as integers, which neither base64 text nor a list of fractions allows. Cost: a reopened item sits up to half a unit off. Items are 26 to 66 units wide and the push-apart keeps at least 6 units between them, so no two can start touching.
+
 ## 2026.10.30.2252 · 2026-10-30
 
 ### Quick

@@ -276,6 +276,28 @@ async function open() {
     });
     say(/LFC1/.test(r.magic) && JSON.stringify(r.before) === JSON.stringify(r.after), 'a map file (' + r.bytes + ' bytes, LFC1) opens as the same map: ' + r.before.n + ' items, ' + r.before.m + ' links, states "' + r.before.st + '", color by ' + r.before.color + (JSON.stringify(r.before) === JSON.stringify(r.after) ? '' : ' | ' + JSON.stringify(r.after)));
   } catch (e) { say(false, 'the map file round trip stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  /* a map file keeps the picture's places as whole numbers (x and y lists, off by at most half a unit) and opens with them; files from before, with the exact places as xy text, still open with those */
+  try {
+    const r = await ev(async () => {
+      const S = NFM.state, back = S.graph, v0 = { view: S.V.view, arrange: S.V.arrange }, g = NFMExamples.bigNetwork(1600, 4, 7); g.name = 'Places';   /* 1,600: pictures are kept from 1,500 items */
+      NFM.setGraph(g, true); NFM.setV({ view: 'network', arrange: 'stress' });
+      const t0 = performance.now(); let doc = null;
+      while (performance.now() - t0 < 20000) { await new Promise((ok) => setTimeout(ok, 250)); if (!S.scene || S.L.view !== 'network' || NFM.pending()) continue; doc = await LfcPack.unpackTables(await NFM.mapFileBytes()); if (doc.layout) break; }
+      if (!doc || !doc.layout) { NFM.setGraph(back, true); NFM.setV(v0); return { none: true }; }
+      const L = doc.layout, st = NFM.client().store, exact = Float64Array.from((await st.get(L.key)).xy);
+      let worst = 0; for (let i = 0; i < L.x.length; i++) worst = Math.max(worst, Math.abs(L.x[i] - exact[2 * i]), Math.abs(L.y[i] - exact[2 * i + 1]));
+      const whole = L.x.length * 2 === exact.length && L.x.every(Number.isInteger) && L.y.every(Number.isInteger) && !('xy' in L);
+      await NFM.openMapBytes(await LfcPack.packTables(doc));
+      const a = (await st.get(L.key)).xy; let reopened = a.length === exact.length; for (let i = 0; i < L.x.length && reopened; i++) reopened = a[2 * i] === L.x[i] && a[2 * i + 1] === L.y[i];
+      const u = new Uint8Array(exact.buffer); let bin = ''; for (let i = 0; i < u.length; i++) bin += String.fromCharCode(u[i]);
+      const old = Object.assign({}, doc, { layout: { key: L.key, xy: btoa(bin), width: L.width, height: L.height, startId: L.startId, imp: L.imp } });
+      await NFM.openMapBytes(await LfcPack.packTables(old));
+      const b = (await st.get(L.key)).xy; let oldOk = b.length === exact.length; for (let i = 0; i < b.length && oldOk; i++) oldOk = b[i] === exact[i];
+      NFM.setGraph(back, true); NFM.setV(v0); const t1 = performance.now(); while (performance.now() - t1 < 15000 && (!S.scene || S.L.view !== v0.view || S.graph !== back || NFM.pending())) await new Promise((ok) => setTimeout(ok, 100));
+      return { n: L.x.length, worst, whole, reopened, oldOk };
+    });
+    say(!r.none && r.whole && r.worst <= 0.5 && r.reopened && r.oldOk, r.none ? 'a map file did not keep the picture' : 'a map file keeps the ' + r.n + ' places as whole numbers (at most ' + r.worst.toFixed(2) + ' off) and opens with them; an older file with exact places still opens with those' + (r.whole && r.reopened && r.oldOk ? '' : ' | ' + JSON.stringify(r)));
+  } catch (e) { say(false, 'the map file places check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   /* the grouped SVG keeps every item and every link and is smaller than the full one */
   try {
     const r = await ev(() => {
