@@ -4,6 +4,14 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## Tests only · 2026-10-31 (no new build, after 2026.10.31.1750)
+
+### Quick
+bench/webkit-driver.js: when WebKitWebDriver does not start, the error now says whether it ended (and its exit code) and its last error lines, and `launch` tries once more on a new port, printing a `note:` line. Twice in Netflow's three-browsers-at-once trial (runs 5 and 7 of 8) the driver never answered while Chromium and Firefox were starting; WebKitGTK alone always started.
+
+### Details
+The driver's stderr is kept (last 600 characters; the harmless dbus "Failed to set fd limit" line is left out of the message). A launch with a fixed `port` is not retried. A bare start of the driver with the two other suites running took 0.16 to 0.18 s (idle: 0.16 s), so the failures are not from load. Trial log: /mnt/project-files/netflow-map/qa-parallel-log.md.
+
 ## 2026.10.31.1750 · 2026-10-31
 
 ### Quick
