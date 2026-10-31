@@ -1190,7 +1190,7 @@ var NFMEngine = (function () {
   /* Tuning knobs for the stress layout (the benchmark page changes them to compare settings; the app never does). */
   var exactNow = false;
   var previewCache = null;   // the grown-back picture of the biggest piece, kept by an early-preview build so the final build skips the work that made it
-  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, spread: 0.35, exactMax: 20000, exactIters: 0, multi: 1, multiMin: 4000, multiCoarse: 2000, multiEta: 0.12, multiIters: 3, multiJitter: 0.3, multiPiv: 6, multiNear: 6, jumpMin: 20000, jumpMax: 1.7, jumpPer: 0.2, previewMin: 40000, previewStop: false, previewHit: false };   // exactIters 0 = by size
+  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, sepBigMin: 50000, sepPassesBig: 10, spread: 0.35, exactMax: 20000, exactIters: 0, multi: 1, multiMin: 4000, multiCoarse: 2000, multiEta: 0.12, multiIters: 3, multiJitter: 0.3, multiPiv: 6, multiNear: 6, jumpMin: 20000, jumpMax: 1.7, jumpPer: 0.2, previewMin: 40000, previewStop: false, previewHit: false };   // exactIters 0 = by size
 
   /**
    * "Best quality" stress for one connected piece: every pair of items is used, with the hop counts kept in one byte each (k*k bytes,
@@ -1588,7 +1588,7 @@ var NFMEngine = (function () {
         var f0 = Math.sqrt((discs / STRESS.spread) / (Math.max(1, bx1 - bx0) * Math.max(1, by1 - by0)));
         if (f0 > 1) { f0 = Math.min(f0, 8); for (var sj = 0; sj < k * 2; sj++) X[sj] *= f0; }
       }
-      if (!rough && ((arr !== 'stress' && arr !== 'closeness') || STRESS.sepPasses > 0)) clearOverlaps(X, k, 2, function (li) { return sizeAt[members[li]] / 2 + 8; }, arr === 'stress' || arr === 'closeness' ? STRESS.sepPasses : 30, STRESS.growRounds, STRESS.grow);
+      if (!rough && ((arr !== 'stress' && arr !== 'closeness') || STRESS.sepPasses > 0)) clearOverlaps(X, k, 2, function (li) { return sizeAt[members[li]] / 2 + 8; }, arr === 'stress' || arr === 'closeness' ? (k > STRESS.sepBigMin ? STRESS.sepPassesBig : STRESS.sepPasses) : 30, STRESS.growRounds, STRESS.grow);
       if (STRESS.settle && !rough) settleOverlaps(X, k, 2, function (li) { return sizeAt[members[li]] / 2 + 2; });
       if (rough) roughAny = true;
       var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;

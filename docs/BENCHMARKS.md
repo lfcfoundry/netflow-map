@@ -1855,3 +1855,13 @@ Pictures: 100.000% of pixels the same in all three browsers (3,000 items). Page 
 | WebKitGTK 2.52.6 | 30,000 | 1,895 / 1,731 | 1,280 / 1,240 | 32% faster |
 
 **Left:** the push-apart is now the largest step (about half the time at 100,000 items). Faster versions of it change the picture slightly (fewer passes, or a different order of pushes), so they need a look first.
+
+## 50. Fewer push-apart passes above 50,000 items (2026.10.30, chosen by Jawad)
+
+Over 50,000 items the first push-apart call now runs 10 passes instead of 30 (`STRESS.sepPassesBig`, `STRESS.sepBigMin`); the grow rounds and the settle step that guarantees no two items touch are unchanged. Moderate network, lab Chromium, two runs each:
+
+| Items | 30 passes | 10 passes | Truth (lower is truer) | Page area | Touching |
+|---:|---:|---:|---:|---:|---:|
+| 100,000 | 5,322 / 5,554 ms | 3,900 / 4,202 ms | 0.1785 / 0.1784 | same | 0 / 0 |
+
+Below 50,000 items the fewer passes sometimes left a page about 20% larger (10,000 items: 92 to 111 million square units) for about 5% less time, so smaller maps keep 30 passes and their pictures are unchanged. Pictures compared side by side before the choice: /mnt/project-files/netflow-map/push-apart-2026.10.30/push-apart-compare.html.

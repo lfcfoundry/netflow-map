@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39,
 
 ## October 30
 
+- **2026.10.30.2122** Network maps over 50,000 items lay out about a quarter faster the first time: the step that pushes touching items apart does 10 rounds instead of 30. The picture moves very slightly, with the same truth score, the same page size and still nothing touching. Smaller maps are unchanged.
 - **2026.10.30.2018** Big network maps lay out faster the first time, with exactly the same picture: 100,000 items about 23% faster in Chromium and 13% in Firefox, and 30,000 items about 32% faster in WebKitGTK. The small copy of the map that the layout starts from now works out its hop counts with far fewer steps, and each item's size is worked out once instead of about ten times.
 - **2026.10.30.1817** Big 3D maps with dotted links turn much faster. Dotted links that are zoomed so far out that the dots are under 2 pixels apart now draw as one thin solid line with the same average ink, and the dots come back as soon as you zoom in. In a lab run on 2,000 items, drawing a picture went from about 280 ms to about 3 ms, and the picture differed in 0.01% of its pixels.
 
