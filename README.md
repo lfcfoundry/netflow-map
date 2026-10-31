@@ -117,6 +117,16 @@ Shorter time is better. Each separate piece of 150 to 4,000 items is laid out on
 
 Lower is better. All 25 Undo steps still work. Undo keeps only what each change replaced, the opened table's cells are read again from its text when needed, and repeated text is kept once. The whole map from before you open a file is packed into map-file bytes on a thread of its own, and all of Undo is held to 16 MB (past that, the oldest steps go). A table with more text in it (30,000 items): 116 MB before, 58 MB, now 44 MB. Details: docs/BENCHMARKS.md sections 56 and 57.
 
+## Changes on a big map (lab, 16 MB table)
+
+| Longest page freeze after a change | Before | Now |
+|---|---|---|
+| Chromium | 1.5 s | 0.9 s |
+| Firefox | 1.8 s | 1.0 s |
+| WebKitGTK | 2.6 s | 1.5 s |
+
+Lower is better. Only what changed goes to the layout helper (1.8 s to 20 ms in Chromium), and the autosave stops as soon as a map is too big to keep instead of writing all 61 MB of it. Details: docs/BENCHMARKS.md section 58.
+
 ## Saves that survive a crash (lab)
 
 | The browser was killed hard | Before | Now |

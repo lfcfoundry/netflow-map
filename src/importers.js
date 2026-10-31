@@ -449,7 +449,8 @@ var NFMImport = (function () {
   }
   function importJSON(text, name, opts) {
     var data;
-    try { data = JSON.parse(stripBom(text)); }
+    var had = PARSED; PARSED = null;
+    try { data = had && had.text === text ? had.value : JSON.parse(stripBom(text)); }
     catch (err) {
       var lines = stripBom(text).split(LINEBREAK).filter(function (l) { return l.trim(); });
       try { data = lines.map(function (l) { return JSON.parse(l); }); } catch (e2) { throw new Error('This is not valid JSON: ' + err.message); }
@@ -1092,11 +1093,14 @@ var NFMImport = (function () {
   }
 
   /* ------------------------------------------------------------ choosing a reader */
+  /* The value sniff() parsed while checking for JSON, kept for importJSON right after it: a big JSON file was parsed twice, once only to learn
+     that it is JSON (7.2 MB: 35 ms in Chromium, 52 in Firefox, 68 in WebKitGTK). Used once, by the same text, then let go. */
+  var PARSED = null;
   function sniff(text, filename) {
     var t = stripBom(String(text)).trim(), ext = (filename || '').toLowerCase().split('.').pop();
     if (!t) return 'empty';
     if (ext === 'json' || ext === 'canvas' || ext === 'jsonl' || ext === 'ndjson' || /^[\[{]/.test(t)) {
-      try { JSON.parse(t); return 'json'; } catch (e) {
+      try { PARSED = { text: text, value: JSON.parse(t) }; return 'json'; } catch (e) {
         if (ext === 'json' || ext === 'canvas' || ext === 'jsonl' || ext === 'ndjson') return 'json';   /* JSON Lines (one record a line) used to fall through to the table reader and came out as text cells; importJSON reads them line by line */
         if (t.charAt(0) === '{' && t.split(LINEBREAK).every(function (l) { if (!l.trim()) return true; try { JSON.parse(l); return true; } catch (e3) { return false; } })) return 'json';
       }
@@ -1145,7 +1149,8 @@ var NFMImport = (function () {
       catch (e) { if (files.length === 1) throw e; if (!firstErr) firstErr = e; skippedFiles.push('"' + f.name + '" was skipped: ' + e.message.replace(/^"[^"]*" /, '')); return null; }
     }).filter(Boolean);
     function readOne(f) {
-      var kind = fmt || sniff(f.text, f.name);
+      PARSED = null; var kind = fmt || sniff(f.text, f.name);
+      if (kind !== 'json') PARSED = null;
       if (kind === 'empty') throw new Error('"' + f.name + '" is empty.');
       var nm = f.name.replace(/\.[^.]+$/, '');
       var out = kind === 'table' ? importDelimited(f.text, nm, opts) : kind === 'json' ? importJSON(f.text, nm, opts) : kind === 'arrows' ? importArrows(f.text, nm, opts) : kind === 'graphml' ? importGraphML(f.text, nm, opts) : kind === 'gexf' ? importGEXF(f.text, nm, opts) : kind === 'gml' ? importGML(f.text, nm, opts) : kind === 'dot' ? importDOT(f.text, nm, opts) : kind === 'xml' ? xmlNotGraph(f.name) : kind === 'notes' ? importNotes([f], nm, opts) : importOutline(f.text, nm, opts);
