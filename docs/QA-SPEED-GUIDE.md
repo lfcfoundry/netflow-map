@@ -282,4 +282,19 @@ Short answer: no tool turns live JavaScript data into something small and back a
 
 ---
 
+## 16. Run only the blocks a change touches (2026-10-31)
+
+**Measured** (this cloud machine, quick sizes): the whole browser test takes Chromium about 190 s, Firefox about 130 s and WebKitGTK about 130 s, one after another. One block alone takes 1 to 72 s, most of it 2 to 6 s (the page starts in about 2 to 3 s).
+
+- `NFM_ONLY=4,8,index node test/browser.test.js chromium` runs only those blocks. Numbers are the bug-hunt sections 1 to 9; names are the other blocks (engines, data, views, colors, moves, itself, states, big, turn3d, index, graphdiff, keeper, pieces, undopack, safe, pan, gone, report, linklists). A part of a block (topdown, sankey, mapfile, select, search, network, backends, webgpu, webgl, styled, checks, sim, phone, looks) runs its whole block, because the parts share one map.
+- Every run, full or not, ends with `seconds by block: ...` and the ok lines of each block. The slowest blocks today: section 4 (GIF and video, about 72 s in Chromium and Firefox), turn3d (19 s), section 8 (17 s), moves (12 s).
+- A partial run first draws a small map and tells the drawing manager that WebGL 2 and WebGPU work, which is the state the full run's first blocks leave; without that, section 8 drew with Canvas 2D and two picture checks differed. It never compares the baseline count and says "partial run: not a release result".
+- `node test/all.js --changed` prints the blocks for the files changed since the last commit (test/browser-blocks.js, hand-written). A file every block uses (00-core.js, 99-boot.js, app.css, the page template) or one not in the map runs every block. test/browser-blocks.test.js checks that every block named in the map exists.
+- Each block was run alone in Chromium, and the full run still prints the same ok lines. The release run stays the full run in all three browsers.
+- **Trap found:** blocks that looked independent leaned on earlier ones in four ways: a page helper defined in an earlier block (`window.__px`), a list of saved files read by position while the page made other files, the drawing backend the earlier blocks had switched to, and a map job still running from the check before (a race seen once in Firefox). Run each block alone once after adding one.
+
+The "fewer ok lines than the last all-green run" guard now counts drawing checks that print "not available here" (no WebGL 2 or WebGPU on this machine) as skipped instead of missing, so Firefox here no longer fails it (195 ok + 6 skipped against 197). With no such notes the rule is as strict as before, and a run with skips never saves a new baseline.
+
+---
+
 *Time and compute for writing this document: reported in the chat reply.*

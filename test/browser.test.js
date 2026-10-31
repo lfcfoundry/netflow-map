@@ -10,7 +10,16 @@ if (['chromium', 'firefox', 'webkit'].indexOf(which) < 0) { console.error('unkno
 const strict = which === 'chromium' || !!process.env.NFM_STRICT;
 const flags = ['--no-sandbox', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist'];
 const T0 = Date.now(); let tLast = T0;   /* NFM_TIMES=1 puts the seconds since the last line in front of every line: where the time goes */
-let fails = 0, oks = 0; const say = (ok, t) => { if (ok === false) fails++; if (ok === true) oks++; const now = Date.now(), pre = process.env.NFM_TIMES ? String(((now - tLast) / 1000).toFixed(1)).padStart(5) + 's ' : ''; tLast = now; console.log(pre + (ok === true ? 'ok   ' : ok === false ? 'FAIL ' : 'note ') + t); };
+/* NFM_ONLY=4,8,index (or test/all.js --page-only=...): run only these blocks (numbers are the bug-hunt sections; names as in blk() below; a part of a
+   block, like sankey, runs its whole block). The page start and the setup before section 1 always run. A partial run is never a release result:
+   the baseline count is not compared. Every run prints the seconds and ok lines of each block at the end. */
+const ONLY = process.env.NFM_ONLY ? String(process.env.NFM_ONLY).split(',').map((x) => x.trim()).filter(Boolean) : null;
+const PART = { topdown: 'views', sankey: 'views', mapfile: 'views', select: 'views', search: 'views', network: 'views', backends: 'views', webgpu: 'views', webgl: 'views', styled: 'views', checks: 'states', sim: 'states', phone: 'states', looks: 'big' };
+const want = (b) => !ONLY || ONLY.some((x) => x === b || PART[x] === b);
+const BLK = { cur: 'start', t: Date.now(), list: [] }; let skippedGfx = 0;
+const blkOf = (name) => { let b = BLK.list.find((x) => x.name === name); if (!b) BLK.list.push(b = { name, s: 0, ok: 0 }); return b; };
+const blk = (name) => { const now = Date.now(); blkOf(BLK.cur).s += (now - BLK.t) / 1000; BLK.cur = name; BLK.t = now; blkOf(name); };
+let fails = 0, oks = 0; const say = (ok, t) => { if (ok === false) fails++; if (ok === true) { oks++; blkOf(BLK.cur).ok++; } if (ok === null && /not available here/.test(t)) skippedGfx++; const now = Date.now(), pre = process.env.NFM_TIMES ? String(((now - tLast) / 1000).toFixed(1)).padStart(5) + 's ' : ''; tLast = now; console.log(pre + (ok === true ? 'ok   ' : ok === false ? 'FAIL ' : 'note ') + t); };
 let slept = 0, sleeps = 0; const sites = {}; const sleep = (ms) => { slept += ms; sleeps++; if (process.env.NFM_TIMES) { const m = /browser\.test\.js:(\d+)/.exec(new Error().stack.split('\n').slice(2).join('\n')); const k = m ? m[1] : '?'; sites[k] = (sites[k] || 0) + ms; } return new Promise((r) => setTimeout(r, ms)); };
 /* Short pauses only let the screen catch up after a click or drag. Wait for three real animation frames plus a quarter of the old pause instead of the whole pause (NFM_SLOW=1 restores the full pauses). Long pauses (over 450 ms) are real time (easing, playback) and stay as they were. */
 
@@ -51,6 +60,14 @@ async function open() {
   await ev(() => NFMRender.setWebGPUDrawing(true));   /* the app does not draw with WebGPU; the tests still check that code */
   await D.wait(() => window.NFM && NFM.client() && NFM.client().mode !== 'starting', null, 20000);
   say(true, 'page loaded; engine runs in the ' + (await ev(() => NFM.client().mode)));
+  /* Pictures are kept in the page and compared there: sending a million-number array through the browser driver cost about 15 s per picture (Chromium) and was most of this test's time. */
+  await ev(() => { window.__px = { keep: {}, cmp(k, base) { const A = this.keep[base], B = this.keep[k]; if (!A || !B || A.width !== B.width || A.height !== B.height) return { same: false, mean: 0, bad: 0 }; let sum = 0, bad = 0; const n = A.data.length / 4; for (let i = 0; i < A.data.length; i += 4) { const d = (Math.abs(A.data[i] - B.data[i]) + Math.abs(A.data[i + 1] - B.data[i + 1]) + Math.abs(A.data[i + 2] - B.data[i + 2])) / 3; sum += d; if (d > 40) bad++; } return { same: true, mean: sum / n, bad: bad / n }; } }; });
+  if (ONLY) {   /* a partial run starts from what the full run's first blocks leave: a small map drawn once, and the drawing manager told WebGL 2 and WebGPU work
+                  (the backends block does that), so later blocks draw with the same backend as in the full run */
+    await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(60, 3, 5)); NFM.showTab('map'); }); await D.wait(() => NFM.manager() && NFM.manager().r && NFM.state.scene && NFM.state.sceneOk && !NFM.state.mapBusy, null, 30000).catch(() => {});
+    await ev(async () => { const m = NFM.manager(); if (!m) return; m.canary = Object.assign({}, m.canary || {}, { webgl2: { ok: true }, webgpu: { ok: true } }); await m.use('auto'); });
+  }
+  if (want('engines')) { blk('engines');
   /* the WebAssembly Force rounds (wasm/force.c) in the browser's own helper: they must run there and match the JavaScript rounds to the last digit */
   const fw = await ev(() => new Promise((resolve) => {
     const body = ";self.onmessage=function(){var k=400,X=new Float64Array(k*2),pairs=[],mass=new Float64Array(k),s=7,r=function(){s=(s*1664525+1013904223)>>>0;return s/4294967296;},i;for(i=0;i<k*2;i++)X[i]=(r()-.5)*800;for(i=1;i<k;i++)pairs.push(i,Math.floor(r()*i));for(i=0;i<k;i++)mass[i]=1+(i%3);var W=NFMEngine.forceWasm;" +
@@ -80,6 +97,8 @@ async function open() {
   say(sx.stress3d && sx.closeness && sx.stress3d.used === true && sx.stress3d.jsUsed === false && sx.stress3d.diff === 0 && sx.closeness.used === true && sx.closeness.jsUsed === false && sx.closeness.diff === 0, 'the WebAssembly Distances 3D and Closeness rounds run in the helper and give exactly the JavaScript pictures: ' + JSON.stringify(sx));
 
 
+  }
+  if (want('data')) { blk('data');
   /* Data tab */
   await ev(() => NFM.ingest([{ name: 'e.csv', text: 'source,target,weight,cost\nA,B,2,5\nB,C,1,7\nA,C,3,1\nC,D,1,9\n' }]));
   const st = await ev(() => ({ n: NFM.state.graph.nodes.length, m: NFM.state.graph.edges.length, w: NFM.state.V.widthBy }));
@@ -133,6 +152,8 @@ async function open() {
     await ev(() => NFM.showTab('data'));
   }
 
+  }
+  if (want('views')) { blk('views');
   /* Examples and every view */
   await ev(() => NFM.showTab('data')); await set('#examples', 'story'); await click('#b-example'); await click('#tabbtn-map');
   await D.wait(() => NFM.state.scene && NFM.manager() && NFM.manager().r, null, 30000);
@@ -147,6 +168,7 @@ async function open() {
     if (v === 'flow' || v === 'sankey' || v === 'network') await D.shot(path.join(outDir, `nfm-${which}-${v}.png`));
   }
 
+  blk('topdown');
   /* Top-down choices: story order, tags, must-pass column, harder untangling, columns, step numbers, group columns (defaults must leave the picture as it was) */
   {
     const mkStory = () => { /* a long story-shaped map made in the page: chapters of 2-4 branches that merge, side links, shortcuts, links back */
@@ -238,6 +260,7 @@ async function open() {
     await D.wait(() => NFM.state.scene && NFM.manager() && NFM.manager().r && NFM.state.L && NFM.state.L.nodes.length < 60, null, 30000); await settle(200);
   }
 
+  blk('sankey');
   /* Sankey pictures: click and right-click on links, bars and labels, drag a bar, hand edits, undo */
   {
     await ev(() => NFM.setV({ view: 'sankey' })); await D.wait(() => NFM.state.L.view === 'sankey' && NFM.state.scene.view === 'sankey' && NFM.state.L.sk, null, 20000); await settle(300);
@@ -264,6 +287,7 @@ async function open() {
     await ev(() => { NFM.state.V.sk = null; NFM.setV({ view: 'flow' }); }); await settle(200);
   }
 
+  blk('mapfile');
   /* the map file (.json.lfc): the data, the states and the view go in and come back the same */
   try {
     const r = await ev(async () => {
@@ -322,6 +346,7 @@ async function open() {
     say(r.none ? false : r.same && r.badSame && r.saved, r.none ? 'a saved layout did not keep the importance answers' : 'a saved layout keeps the start item and importance answers: opening with them gives the same map as working them out again (' + r.n + ' items; answers that do not fit are ignored)');
   } catch (e) { say(false, 'the saved importance check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  blk('select');
   /* select, details, keyboard */
   await ev(() => NFM.setV({ view: 'flow' })); await D.wait(() => NFM.state.L.view === 'flow' && NFM.state.scene.view === 'flow'); await settle(300);
   const pos = await ev(() => { const n = NFM.state.scene.nodes.find((x) => x.nodeId === 'hall'), S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + (n.x + n.w / 2) * S.view.k + S.view.tx, r.top + (n.y + n.h / 2) * S.view.k + S.view.ty]; });
@@ -338,12 +363,14 @@ async function open() {
   const after = await ev(() => Array.from(NFM.state.sel)[0]); say(!!after && after !== 'hall', 'arrow key follows a link to ' + after);
   await D.press('Escape'); await settle(300);
 
+  blk('search');
   /* search, zoom, key, filters */
   await ev(() => NFM.runSearch('lens')); await settle(200);
   say(await ev(() => NFM.state.search.hits.has('lens') && NFM.state.search.hits.size >= 1), 'search finds items');
   await ev(() => NFM.runSearch(''));
   const k0 = await ev(() => NFM.state.view.k); await ev(() => NFM.zoomAt(500, 400, 2)); await sleep(30);
-  const kMid = await ev(() => NFM.state.view.k); await sleep(700); const k1 = await ev(() => NFM.state.view.k);
+  const kMid = await ev(() => NFM.state.view.k); await sleep(700); let k1 = await ev(() => NFM.state.view.k);
+  for (let i = 0; i < 25; i++) { await sleep(100); const k = await ev(() => NFM.state.view.k); if (k === k1) break; k1 = k; }   /* until the easing has stopped (a loaded machine draws fewer frames in 700 ms), at most 2.5 s more */
   say(k1 > k0 * 1.8 && kMid < k1 * 0.999, `zoom eases toward its target: ${k0.toFixed(2)} -> ${kMid.toFixed(2)} -> ${k1.toFixed(2)}`);
   await ev(() => NFM.fitView(true)); await settle(200);
   const kb = await ev(() => { const r = document.getElementById('key').getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; });
@@ -353,6 +380,7 @@ async function open() {
   await ev(() => document.querySelector('#rt-filter').click()); await settle(150);
   say(await ev(() => document.querySelectorAll('#railbody details.acc').length >= 1), 'filter panel lists facets with counts');
 
+  blk('network');
   /* network: arrangements, 3D, dragging a node */
   await ev(() => NFM.setV({ view: 'network', arrange: 'force3d' })); await D.wait(() => NFM.state.L.is3d && NFM.state.scene.is3d, null, 20000);
   const yaw0 = await ev(() => NFM.state.V.cam.yaw); await D.drag(700, 400, 820, 380); await settle(250);
@@ -371,9 +399,9 @@ async function open() {
   say(await ev((id) => !!(NFM.state.V.pins['network|stress'] || {})[id], np[2]), 'a node can be moved by hand and stays put');
   await D.click(300, 700);
 
+  blk('backends');
   /* backends agree */
-  /* Pictures are kept in the page and compared there: sending a million-number array through the browser driver cost about 15 s per picture (Chromium) and was most of this test's time. */
-  await ev(() => { window.__px = { keep: {}, cmp(k, base) { const A = this.keep[base], B = this.keep[k]; if (!A || !B || A.width !== B.width || A.height !== B.height) return { same: false, mean: 0, bad: 0 }; let sum = 0, bad = 0; const n = A.data.length / 4; for (let i = 0; i < A.data.length; i += 4) { const d = (Math.abs(A.data[i] - B.data[i]) + Math.abs(A.data[i + 1] - B.data[i + 1]) + Math.abs(A.data[i + 2] - B.data[i + 2])) / 3; sum += d; if (d > 40) bad++; } return { same: true, mean: sum / n, bad: bad / n }; } }; });
+  /* (window.__px, the in-page picture keeper, is set at the start so blocks that compare pictures also run alone) */
   const snap = async (be, key) => ev(async ([be, key]) => {
     const m = NFM.manager(); if (be !== 'canvas2d') m.canary[be] = { ok: true };
     try { await m.use(be); } catch (e) { return { err: e.message }; }
@@ -390,6 +418,7 @@ async function open() {
   }
   await ev(() => NFM.manager().use('auto'));
 
+  blk('webgpu');
   /* WebGPU keeps its graphics-memory buffers between pictures: a smaller scene drawn over a bigger one, and the old make-new-buffers way, must give exactly the pictures a fresh drawing gives */
   const offhost = await ev(async () => {   /* the picture on an off-screen host (what a drawing worker uses) is the same as on the page */
     const sc = NFM.state.scene, v = { k: 0.6, tx: 20, ty: 20 }, div = document.createElement('div');
@@ -418,6 +447,7 @@ async function open() {
   else say(kept.keptB && kept.keptA && kept.oldB && kept.oldA && kept.fresh && kept.differ, 'WebGPU with kept buffers draws exactly the same pictures as new buffers each time (small over big, big over small, old way, new renderer): ' + JSON.stringify(kept));
   await ev(() => NFM.manager().use('auto'));
 
+  blk('webgl');
   /* WebGL 2 builds each plain straight link from 9 numbers (two end points, half width, color) in the vertex shader; the picture must be the one the six-corner records give, also after items are moved and for a scene that has to keep the old path */
   const inst = await ev(async () => {
     const m = NFM.manager(); m.canary.webgl2 = { ok: true };
@@ -447,6 +477,7 @@ async function open() {
   else say(inst.links > 0 && !inst.oldUsed && inst.newUsed && inst.probeOk && inst.same && inst.mean <= 0.5 && inst.bad < 0.005 && (!inst.moved || (inst.moved.patched && inst.moved.cmp.same && inst.moved.cmp.mean <= 0.5 && inst.moved.cmp.bad < 0.005)) && (!inst.hasOther || !inst.mixedUsed), 'WebGL 2 straight links built from 9 numbers each draw the picture the six-corner records give (also after a move, and a map with arrows or curves keeps the old path): ' + JSON.stringify(inst));
   await ev(() => NFM.manager().use('auto'));
 
+  blk('styled');
   /* styled shapes, icons and group blobs draw the same in every backend */
   await ev(() => { NFM.state.V.rules = [{ id: 1, target: 'nodes', on: true, when: { type: 'all' }, set: { shape: 'hexagon', scale: 1.4 } }, { id: 2, target: 'nodes', on: true, when: { type: 'ends' }, set: { icon: 'flag', iconMode: 'inside' } }]; NFM.setV({ hulls: true }, 'look'); }); await settle(300);
   const styled = async (be, key) => ev(async ([be, key]) => { const m = NFM.manager(); if (be !== 'canvas2d') m.canary[be] = { ok: true }; await m.use(be); if (m.r.name !== be) return { err: 'n/a' }; NFM.state.view = { k: 0.9, tx: 40, ty: 40 }; m.r.draw(NFM.state.view); const s = m.r.snapshot(); await m.r.flush(); window.__px.keep[key] = s; return {}; }, [be, key]);
@@ -458,6 +489,8 @@ async function open() {
   }
   await ev(() => NFM.manager().use('auto'));
 
+  }
+  if (want('colors')) { blk('colors');
   /* the Colors tab: a look changes the scene's theme, rides along in shared view text, is cleaned when it comes from outside, and "My looks" keep it */
   await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(300, 3, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'circle' }); });
   await D.wait(() => !NFM.pending() && NFM.state.scene, null, 60000);
@@ -481,6 +514,8 @@ async function open() {
   say(lk.cleanBg !== 'url(javascript:1)' && lk.cleanFg === '#102030' && lk.cleanFont === 'system' && lk.cleanScale === 3, `Colors tab: a look from outside is cleaned (bad color dropped, font ${lk.cleanFont}, size ${lk.cleanScale}); the good color stays`);
   say(lk.saved && lk.reset, 'Colors tab: "My looks" keeps a named look in this browser and "Back to the normal look" resets');
 
+  }
+  if (want('moves')) { blk('moves');
   /* moving items by hand on a big flat map takes the in-place way (only the touched dots and links are sent) and draws exactly what building the whole picture again draws */
   await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(1500, 4, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'circle' }); });
   await D.wait(() => !NFM.pending() && NFM.state.scene && NFM.state.L && NFM.state.L.n > 1000 && typeof NFM.state.scene.moveNodes === 'function', null, 60000);
@@ -501,7 +536,9 @@ async function open() {
     const c = await ev(([k, b]) => window.__px.cmp(k, b), ['mv_fast_' + be, 'mv_full_' + be]);
     say(r.fast && r.rebuilt && r.box && c.same && c.mean === 0, `${be}: moving 4 items on a 1,500-item map with the links packed takes the in-place way (list stays packed), the drop settles in place with the same outer box, and draws exactly what a full rebuild draws (mean difference ${c.mean.toFixed(3)}/255)`);
   }
+  }
 
+  if (want('itself')) { blk('itself');
   /* the app's own steps as an example, and the tuning test's question */
   await ev(() => NFM.showTab('data')); await set('#examples', 'itself'); await click('#b-example');
   await D.wait(() => NFM.state.graph.nodes.length === 26, null, 20000);
@@ -528,6 +565,8 @@ async function open() {
   await ev(() => { [...document.querySelectorAll('#dlg-body button')].find((b) => /Cancel/.test(b.textContent)).click(); }); await settle(200);
   say(await ev(() => !document.getElementById('dlg').open), 'cancelling the tuning question closes it and changes nothing');
 
+  }
+  if (want('states')) { blk('states');
   /* states: timeline, play, widths change between states, GIF and HTML report */
   await ev(() => NFM.showTab('data')); await set('#examples', 'states'); await click('#b-example');
   await D.wait(() => NFM.state.graph.states && !document.getElementById('states').hidden, null, 20000);
@@ -550,9 +589,11 @@ async function open() {
   const gifInfo = await ev(async () => { const im = document.querySelector('#gif-out img'), b = new Uint8Array(await window.__blobs[im.src].arrayBuffer()); return { head: String.fromCharCode(...b.slice(0, 6)), w: im.naturalWidth, bytes: b.length, text: document.getElementById('gif-out').innerText }; });
   say(gifInfo.head === 'GIF89a' && gifInfo.w === 960 && gifInfo.bytes > 5000, 'the GIF is made: ' + gifInfo.text.split('\n')[0]);
   say(await ev(() => !!Array.from(document.querySelectorAll('#gif-out button')).find((b) => /HTML report/.test(b.textContent))), 'the HTML report is offered');
+  blk('checks');
   /* checks tab, advanced tab (one-button device check), export */
   await click('#tabbtn-check'); await D.wait(() => document.querySelector('#check-body .verdict'), null, 20000);
   say(await ev(() => document.querySelectorAll('#check-body .find, #check-body .verdict').length >= 1), 'the Check tab reports');
+  blk('sim');
   /* simulation: dice agree with the exact odds, and the Map can show the result */
   await click('#tabbtn-adv'); await settle(200); await click('#sim-run');
   await D.wait(() => /Done\./.test(document.getElementById('sim-results').innerText), null, 60000);
@@ -573,6 +614,7 @@ async function open() {
   await click('#tabbtn-export'); await settle(200);
   say(await ev(() => document.querySelectorAll('#export-body button').length >= 6), 'the Export tab offers its buttons');
 
+  blk('phone');
   /* phone */
   await D.size(412, 800); await settle(300);
   say((await ev(() => getComputedStyle(document.querySelector('.tabs')).position)) === 'fixed', 'on a phone the tabs move to the bottom');
@@ -595,12 +637,15 @@ async function open() {
   await ev(() => NFM.touch(null)); await D.size(1100, 720); await settle(200);
 
 
+  }
+  if (want('big')) { blk('big');
   /* a big Network map shows a rough picture first and the finished one replaces it (the size limit is lowered here so a 5,000-item map counts as big) */
   await ev(() => { NFM.engine().stressTuning.previewMin = 1000; NFM.state.roughCount = 0; NFM.setGraph(NFMExamples.bigNetwork(5000, 4, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'stress' }); });
   await D.wait(() => NFM.state.L && NFM.state.L.view === 'network' && NFM.state.sceneOk && NFM.state.scene && NFM.state.L.nodes.length > 4900, null, 90000); await settle(300);
   say(await ev(() => NFM.state.roughCount >= 1 && !NFM.state.L.rough && NFM.state.sceneOk), 'a big map: rough picture shown first, then replaced by the finished one');
   await ev(() => { NFM.engine().stressTuning.previewMin = 40000; });
 
+  blk('looks');
   /* a change of looks only (a color choice the engine does not use) makes a new picture from the layout already on the stage instead of working the layout out again; the picture is the one a full rebuild gives, and a change the engine does use still rebuilds */
   { const idle = () => NFM.state.sceneOk && !NFM.state.mapBusy && NFM.state.scene, was = await ev(() => NFM.state.V.colorBy);
     await ev(() => { NFM.setV({ colorBy: 'group' }); }); await D.wait(idle, null, 60000); await settle(200);   /* the network starts on found groups, which the engine uses; start the check from plain groups */
@@ -615,6 +660,8 @@ async function open() {
     say(await ev(() => window.__nb === 2), 'a color choice the engine uses (found groups) still works the layout out again');
     await ev((c) => { NFM.setV({ colorBy: c }); }, was); await D.wait(() => NFM.state.sceneOk && !NFM.state.mapBusy, null, 60000); await settle(200); }
 
+  }
+  if (want('turn3d')) { blk('turn3d');
   /* turning a big 3D map on the card: the picture while turning is the ordinary picture, labels and selection survive, and the full picture comes back once the turning stops */
   await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(800, 9, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'force3d' }); });
   await D.wait(() => NFM.state.L && NFM.state.L.is3d && NFM.state.scene && NFM.state.scene.is3d && NFM.state.L.nodes.length > 750, null, 90000); await settle(300);
@@ -676,9 +723,13 @@ async function open() {
     say(res.sel && res.dim, `${be}: selecting while turning dims the rest at once`);
   }
   await ev(() => NFM.manager().use('auto'));
+  }
+  blk('setup');
   /* ================================================================ bug-hunt regression checks
      Each check below was seen FAILING on the build from before its fix (and passing after it). Odd names, saving, undo, export of fresh data, input, rules, the engine worker and the drawing manager. */
   await D.size(1100, 720); await settle(200);
+  /* section 4 replaces these two for good; set here so any section run alone (NFM_ONLY) sees the same page as in the full run */
+  await ev(() => { window.__blobs = []; const o = URL.createObjectURL; URL.createObjectURL = function (b) { if (Array.isArray(window.__blobs)) window.__blobs.push(b); return o.call(URL, b); }; window.print = () => { window.__poster = (document.getElementById('poster-img') || {}).innerHTML || ''; }; });
   const W = (fn, arg, ms) => D.wait(fn, arg, ms || 20000).then(() => true, () => false);
   const mkG = (name, ids, links, attrs) => ({ name, nodes: ids.map((id) => Object.assign({ id, label: id }, attrs && attrs[id] ? { attrs: attrs[id] } : {})), edges: (links || ids.slice(1).map((id, i) => [ids[i], id])).map((l) => ({ from: l[0], to: l[1] })) });
   const load = (g, tab) => ev(([gg, t]) => { NFM.setGraph(NFMImport.sanitizeGraph(gg)); if (t) NFM.showTab(t); }, [g, tab || null]);
@@ -686,6 +737,7 @@ async function open() {
   const loadStory = () => ev(() => { NFM.setGraph(NFMExamples.LIST.filter((e) => e.id === 'story')[0].load().graph); NFM.showTab('map'); });
   const mapShows = (first) => W((lb) => { const S = NFM.state; return S.tab === 'map' && S.L && S.L.nodes.some((n) => n.label === lb || n.nodeId === lb) && S.scene && S.scene.nodes.length > 0; }, first);
 
+  if (want('1')) { blk('1');
   /* 1. odd names as keys in plain objects */
   try {
   { const r = await ev(() => {
@@ -740,6 +792,8 @@ async function open() {
     await ev(() => { delete NFM.state.V.pins['network|stress']; }); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  }
+  if (want('2')) { blk('2');
   /* 2. saving: told when it fails, flushed when the page goes away */
   try {
   { await load(mkG('SaveA', ['A', 'B']), 'data');
@@ -782,6 +836,8 @@ async function open() {
     await load(mkG('SaveEnd', ['A', 'B']), 'data'); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  }
+  if (want('3')) { blk('3');
   /* 3. changing how the table is read keeps an Undo step for edits made since */
   try {
   { await ev(() => NFM.showTab('data'));
@@ -800,10 +856,12 @@ async function open() {
     say(/read the table again/i.test(r.toast || '') && /undone/i.test(r.toast || ''), 'changing how the table is read says so in one line and mentions Undo: ' + JSON.stringify(r.toast)); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  }
+  if (want('4')) { blk('4');
   /* 4. export, poster and the GIF use the data as it is now */
   try {
-  { await ev(() => { window.__blobs = []; const o = URL.createObjectURL; URL.createObjectURL = function (b) { window.__blobs.push(b); return o.call(URL, b); }; window.print = () => { window.__poster = (document.getElementById('poster-img') || {}).innerHTML || ''; }; });
-    const svgBlob = async (n) => { if (!(await W((k) => window.__blobs.length > k, n - 1, 15000))) return null; return ev(async (k) => await window.__blobs[k].text(), n - 1); };
+  { await ev(() => { window.__blobs = []; });   /* the blob catcher and the print stand-in are set in the setup above */
+    const svgBlob = async (n) => { if (!(await W((k) => window.__blobs.filter((b) => /svg/.test(b.type)).length > k, n - 1, 15000))) return null; return ev(async (k) => await window.__blobs.filter((b) => /svg/.test(b.type))[k].text(), n - 1); };   /* by type: other files (a worker's code) can be made meanwhile */
     await load(mkG('ExpOld', ['OldAlpha', 'OldBeta', 'OldGamma']), 'map'); await mapShows('OldAlpha');
     await ev(() => NFM.showTab('export')); await settle(200);
     const clickBtn = (re) => ev((src) => { const b = [...document.querySelectorAll('#export-body button')].find((x) => new RegExp(src).test(x.textContent)); b.click(); }, re.source);
@@ -897,6 +955,8 @@ async function open() {
     say(await ev(() => (document.getElementById('gif-out') || {}).textContent) === 'Canceled.', 'canceling the GIF says "Canceled." (American spelling)'); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  }
+  if (want('5')) { blk('5');
   /* 5. undo: Sankey steps belong to one dataset; going back across a rename brings back the other data's settings */
   try {
   { await loadStory(); await ev(() => NFM.setV({ view: 'sankey' })); await W(() => NFM.state.L && NFM.state.L.view === 'sankey' && NFM.state.L.sk && NFM.state.scene && NFM.state.scene.view === 'sankey');
@@ -920,6 +980,8 @@ async function open() {
     say(r.name === 'UndoOne' && r.hulls === true && r.savedOne && !r.savedTwoHulls, 'undoing back to the earlier data brings back its own settings and does not save the later data\'s settings over them: ' + JSON.stringify(r)); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  }
+  if (want('6')) { blk('6');
   /* 6. a chosen link stays the same link when the view changes */
   try {
   { await loadStory(); await ev(() => NFM.setV({ view: 'flow' })); await W(() => NFM.state.L && NFM.state.L.view === 'flow' && NFM.state.scene && NFM.state.scene.view === 'flow');
@@ -938,6 +1000,8 @@ async function open() {
       say(r.ok, 'a chosen link stays the same link (or is let go) when the view changes, instead of pointing at another link: ' + JSON.stringify(r)); } }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  }
+  if (want('7')) { blk('7');
   /* 7. input */
   try {
   { await load(mkG('InputFlow', ['A', 'B', 'C', 'D']), 'map'); await ev(() => NFM.setV({ view: 'flow' })); await mapShows('A'); await settle(300);
@@ -970,6 +1034,8 @@ async function open() {
     await ev(() => { const lab = [...document.querySelectorAll('#railbody label')].find((l) => /Spin slowly/.test(l.textContent)); lab.querySelector('input').click(); }); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  }
+  if (want('8')) { blk('8');
   /* 8. style rules, link filters, the tuning dialog, the odds table, the sweep */
   try {
   { await load(mkG('RuleBlank', ['A', 'B', 'C', 'D'], [['A', 'B'], ['B', 'C'], ['C', 'D']], { A: { score: 3 }, B: { score: 7 }, D: { score: '' } }), 'map'); await mapShows('A');
@@ -1072,6 +1138,10 @@ async function open() {
     const packed = await ev(() => NFM.state.scene.curvesPacked());
     if (!packed) say(false, 'scene links were not packed after the idle time (' + n0 + ' links)');
     else {
+      await ev(async () => {   /* wait until the picture holds still (two looks 150 ms apart the same, at most 4 s): drawn with Canvas 2D from the start, as on a machine without a fast graphics card or in a block run alone, the last finishing touches can land after the wait above */
+        const cv = document.querySelector('#map canvas, canvas'), look = () => { const o = document.createElement('canvas'); o.width = cv.width; o.height = cv.height; const c = o.getContext('2d'); c.drawImage(cv, 0, 0); const b = c.getImageData(0, 0, o.width, o.height).data; let h = 0; for (let k = 0; k < b.length; k += 7) h = (h * 31 + b[k]) | 0; return h; };
+        let last = look(); for (let t = 0; t < 27; t++) { await new Promise((q) => setTimeout(q, 150)); const now = look(); if (now === last) break; last = now; }
+      });
       await ev(() => { const cv = document.querySelector('#map canvas, canvas'), o = document.createElement('canvas'); o.width = cv.width; o.height = cv.height; const c = o.getContext('2d'); c.drawImage(cv, 0, 0); window.__pa = c.getImageData(0, 0, o.width, o.height).data; });
       const pick = await ev(() => { const sc = NFM.state.scene, c0 = sc.curveAt(0), r = NFMScene.pickEdge(sc, (c0.P[0] + c0.P[6]) / 2, (c0.P[1] + c0.P[7]) / 2, 8); return { edge: r && r.edge, packed: sc.curvesPacked(), n: sc.curveCount() }; });
       say(pick.edge === (await ev(() => NFM.state.scene.curveAt(0).edge)) && pick.packed, 'a link can be picked while the links are packed, and picking leaves them packed: ' + JSON.stringify(pick));
@@ -1114,6 +1184,8 @@ async function open() {
     await ev(() => { NFM.setGraph(window.__g1, false, true); NFM.setV(window.__v1); if (window.__tab1 && window.__tab1 !== 'map') NFM.showTab(window.__tab1); }); await D.wait(() => NFM.state.sceneOk && !NFM.state.mapBusy, null, 30000).catch(() => {});
   } catch (e) { say(false, 'the packed layout links stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  }
+  if (want('9')) { blk('9');
   /* 9. the drawing manager never keeps a destroyed renderer; a worker that dies mid-job does not wedge the engine */
   try {
   { const r = await ev(async () => {
@@ -1135,6 +1207,8 @@ async function open() {
     say(r.rescued === true, 'when the list of drawing methods fails, switching falls back to the plain canvas and draws'); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   await settle(400);
+  }
+  if (want('index')) { blk('index');
   /* the item index is updated for the changed items only when items keep their places and names; after every kind of change it matches one built from nothing */
   try {
     const r = await ev(async () => {
@@ -1160,6 +1234,8 @@ async function open() {
     const quick = r.paths.rename === 'quick+links' && r.paths.group === 'quick+links' && r.paths.linkLabel === 'quick+links' && r.paths.linkKind === 'quick+links' && r.paths.linkMoved === 'quick' && r.paths.idChange === 'full' && r.paths.add === 'full';
     say(Object.values(r.out).every((v) => v === true) && quick, 'the item index, updated only for changed items when it can be, matches one built from nothing after every kind of change and undo: ' + JSON.stringify(r));
   } catch (e) { say(false, 'the item-index check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  }
+  if (want('graphdiff')) { blk('graphdiff');
   /* the layout worker gets only what changed when it has the graph before (graphDiff); its picture is the page engine's own, and a worker without that graph gets the whole one */
   try {
     const r = await ev(async () => {
@@ -1187,6 +1263,8 @@ async function open() {
     });
     say(!!r.skip || (r.same.length === 5 && r.same.every(Boolean) && r.diffs === 5 && r.fullBack === 1 && r.sameAfter), 'changes reach the layout worker as differences, and its pictures match the page engine\'s; a worker without the graph before gets the whole graph: ' + JSON.stringify(r));
   } catch (e) { say(false, 'the graph-difference check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  }
+  if (want('keeper')) { blk('keeper');
   /* a parked layout worker's graph is packed off the page by the keeper; the restart takes it from there (plus any change made meanwhile) and lays out the same picture */
   try {
     const r = await ev(async () => {
@@ -1206,6 +1284,8 @@ async function open() {
     });
     say(!!r.skip || (r.parked && r.kept && r.fromKept === 1 && r.same), 'a parked layout worker\'s graph is kept packed off the page, and the restart from it (with a change made meanwhile) lays out the same picture: ' + JSON.stringify(r));
   } catch (e) { say(false, 'the kept-graph check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  }
+  if (want('pieces')) { blk('pieces');
   /* separate pieces on helper threads: the page makes the helpers when the engine worker asks (a worker made inside a worker fails in WebKitGTK); the picture is the page engine's own */
   try {
     const r = await ev(async () => {
@@ -1223,6 +1303,8 @@ async function open() {
     });
     say(!!r.skip || (r.helpers >= 1 && r.same && r.n === 2800), 'a map of 4 separate pieces is laid out with helper threads the page made, and the picture is the same as the page engine\'s own: ' + JSON.stringify(r));
   } catch (e) { say(false, 'the helper-thread check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  }
+  if (want('undopack')) { blk('undopack');
   /* Undo of a whole earlier map: a big one is packed on a thread of its own while the page is idle, and Undo reads it back exactly */
   try {
     const r = await ev(async () => {
@@ -1240,6 +1322,8 @@ async function open() {
     });
     say(r.packed && r.graphLetGo && r.back === 'PackA' && r.same && r.home, 'opening another big map packs the earlier one for Undo, and Undo brings it back exactly: ' + JSON.stringify(r));
   } catch (e) { say(false, 'the packed-undo check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  }
+  if (want('safe')) { blk('safe');
   /* crash-safe saves: every save also goes to IndexedDB; when localStorage lost the newest one (a browser crash), the safe copy is the newer one */
   try {
     const r = await ev(async () => {
@@ -1264,6 +1348,10 @@ async function open() {
   try {
   { const r = await ev(async () => {
       const c = NFM.client(); if (c.mode !== 'worker') return { skip: c.mode };
+      /* start from an idle engine: a map job still running from the check before (the undo there) would be the one the crash cancels, and this
+         job would then run on the page and succeed (seen once in Firefox) */
+      for (let i = 0; i < 300 && (c.busy || c.pending.size || (c.queues && Object.keys(c.queues).some((k) => c.queues[k]))); i++) await new Promise((q) => setTimeout(q, 50));
+      if (c.mode !== 'worker' || c.parked) return { skip: c.parked ? 'parked' : c.mode };
       const realPost = c.w.postMessage; c.w.postMessage = function () { /* the dying worker never answers */ };
       const opts = { view: 'flow', colorBy: 'group' }, p = c.build(opts).then(() => 'resolved', (e) => 'rejected: ' + e.message);
       const busyBefore = !!c.busy; c.w.dispatchEvent(new ErrorEvent('error', { message: 'test crash' }));
@@ -1277,10 +1365,12 @@ async function open() {
     say(!r.skip && r.busyBefore && /^rejected: .*(stopped|canceled)/i.test(r.first || '') && !r.busyAfter && r.mode === 'page' && r.second === 'built', 'a worker that dies in the middle of a job: the job fails in plain words, the engine is free again, and later maps are built on the page: ' + JSON.stringify(r)); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  }
+  if (want('pan')) { blk('pan');
   /* Canvas 2D panning and zooming of a slow-to-draw map slides the last full picture, then draws the real one again when the camera stops: at rest the picture is exactly the full draw (0.000/255), the slid picture in between stays close, and the settle draw is asked for */
   try {
     await ev(() => { NFM.setGraph(NFMExamples.bigNetwork(1500, 4, 7)); NFM.showTab('map'); NFM.setV({ view: 'network', arrange: 'circle' }); });
-    await D.wait(() => !NFM.pending() && NFM.state.scene, null, 60000);
+    await D.wait(() => !NFM.pending() && NFM.state.scene && NFM.state.sceneOk && !NFM.state.mapBusy && NFM.state.L && NFM.state.L.nodes.length > 1400, null, 60000);   /* the finished 1,500-item picture: a new scene arriving mid-check drops the kept picture */
     const r = await ev(async () => {
       const m = NFM.manager(); await m.use('canvas2d'); if (m.r.name !== 'canvas2d' || !m.r.fastMove) return { err: 'n/a' };
       const frames = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))), W = NFM.state.stageW, H = NFM.state.stageH;
@@ -1310,12 +1400,16 @@ async function open() {
     }
   } catch (e) { say(false, 'Canvas 2D panning stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  }
+  if (want('gone')) { blk('gone');
   /* selecting an item that is gone (a click on the old picture while new data is still being laid out) is ignored instead of throwing in the details panel */
   try {
     const r = await ev(() => { let threw = '', sel = -1; try { NFM.setSel(['no such item']); sel = NFM.state.sel.size; } catch (e) { threw = String(e && e.message || e); } return { threw, sel }; });
     say(!r.threw && r.sel === 0, 'selecting an item that is no longer in the data is ignored' + (r.threw ? ' (threw: ' + r.threw + ')' : ''));
   } catch (e) { say(false, 'selecting a missing item stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 
+  }
+  if (want('report')) { blk('report');
   /* hidden speed and error buttons (shared field-report): five quick taps in the top-left corner open them; the report lists the layout and scene build times; the page raising a test error shows in the error log */
   try {
     for (let i = 0; i < 5; i++) { await D.click(20, 20); await settle(60); }
@@ -1323,6 +1417,8 @@ async function open() {
     const fr = await ev(async () => { const R = window.NFMReport; if (!R) return { none: true }; const o = { open: R.isOpen(), btns: [...document.querySelectorAll('button')].map((x) => x.textContent).filter((t) => /^Save (speed report|error log)$/.test(t)), speed: R.speedText() }; R.close(); return o; });
     say(!fr.none && fr.open && fr.btns.length === 2 && /layout [\d,]+ items/.test(fr.speed) && /first-screen/.test(fr.speed), 'five taps in the top-left corner open Save speed report and Save error log, and the speed report lists the first screen and the layout times' + (fr.speed ? '' : ' (no report)') + (process.env.NFM_DEBUG_FR ? ' ' + JSON.stringify({ o: fr.open, b: fr.btns, s: String(fr.speed).slice(-500) }) : ''));
   } catch (e) { say(false, 'the hidden speed and error buttons stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
+  }
+  if (want('linklists')) { blk('linklists');
 
   {   /* the link lists (offset arrays) give exactly what the old Map of arrays gave: same links, same order, for every item, with a link that names a missing item as well */
     const res = await ev(() => {
@@ -1344,6 +1440,8 @@ async function open() {
     });
     say(res.bad === 0 && res.n > 300, `link lists (and the neighbor and route walks): the same links in the same order as the old lists for ${res.n} items (${res.edges} links, two naming an item that is not there): ${res.bad} differences`);
   }
+  }
+  blk('end');
   say(errs.length === 0, 'no errors in the console' + (errs.length ? ': ' + errs.slice(0, 4).join(' | ') : ''));
   const pol = await ev(async () => {   // after the console check on purpose: a refused fetch is logged. (A page policy does not hold the test's own evaluate to the eval rule, so the eval refusal is not tested here; WebAssembly under the policy is covered by the two helper-thread checks above.)
     const o = {}; const m = document.querySelector('meta[http-equiv="Content-Security-Policy"]'); o.meta = m ? m.content : '';
@@ -1352,9 +1450,10 @@ async function open() {
   });
   say(/script-src 'unsafe-inline' 'wasm-unsafe-eval'/.test(pol.meta) && !/'unsafe-eval'/.test(pol.meta) && /connect-src 'none'/.test(pol.meta) && pol.fetchNow === 'refused', 'the page policy allows WebAssembly and nothing looser (no eval, no network): fetch ' + pol.fetchNow);
   await D.close(); if (process.env.NFM_TIMES) console.log(`total ${((Date.now() - T0) / 1000).toFixed(1)} s, of which fixed waits: ${sleeps} sleeps = ${(slept / 1000).toFixed(1)} s` + '; by line: ' + Object.entries(sites).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => k + ':' + v).join(' ')); {   /* a run that quietly skips checks must fail: fewer ok lines than the last all-green run of this browser is a failure (NFM_BLESS=1 after a reviewed change saves the new count) */
-    const BL = require('./baseline.js'), v = BL.verdict(which, oks, fails, process.env.NFM_PAGE);
+    blk('done'); console.log('seconds by block: ' + BLK.list.filter((x) => x.name !== 'done' && (x.s >= 0.05 || x.ok)).map((x) => x.name + ' ' + x.s.toFixed(1) + (x.ok ? ' (' + x.ok + ' ok)' : '')).join(', '));
+    const BL = require('./baseline.js'), v = BL.verdict(which, oks, fails, process.env.NFM_PAGE, null, { skipped: skippedGfx, partial: !!ONLY });
     console.log(v.line); if (v.fail) fails++;
-    if (process.env.NFM_BLESS === '1' && !fails && !process.env.NFM_PAGE) console.log(BL.bless(which, oks));
+    if (process.env.NFM_BLESS === '1' && !fails && !process.env.NFM_PAGE) console.log(skippedGfx || ONLY ? 'baseline not saved: ' + (ONLY ? 'a partial run' : skippedGfx + ' drawing checks had no graphics here') : BL.bless(which, oks));
   }
   console.log(fails ? `${fails} FAILED` : 'browser test: all passed'); process.exitCode = fails ? 1 : 0;
 })().catch((e) => { console.log('crash', e && e.stack || e); process.exit(2); });
