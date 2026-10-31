@@ -190,7 +190,8 @@ EXP("separate") i32 separate(double *X, i32 k, const double *rads, double rmax, 
     for (i32 i = 0; i < k; i++) sorted[start[cellOf[i]]++] = i;
     for (i32 c = ncell; c > 0; c--) start[c] = start[c - 1];
     start[0] = 0; moved = 0;
-    for (i32 i = 0; i < k; i++) {
+    for (i32 s = 0; s < k; s++) {   /* items in grid order, cell by cell (the pairs are the same; walking neighbors in memory order was 2 to 6% faster stacked with the other October 30 changes in Firefox and WebKitGTK) */
+      i32 i = sorted[s];
       i32 ci = cellOf[i]; double ra = rads[i];
       for (i32 row = -1; row <= 1; row++) {
         i32 from = start[ci + row * GW - 1], to = start[ci + row * GW + 2];

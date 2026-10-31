@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.30.2252 · 2026-10-30
+
+### Quick
+Three stacked layout changes (owner's pick after testing each alone and all together) and a JSON Lines fix. Pictures of every flat map move slightly (push-apart order), so saved layouts are laid out once more. `.jsonl` and `.ndjson` files now open as JSON records.
+
+### Details
+`mapGraph` merges links on a number key (`groupIx`) instead of a text key and makes each link with every later field up front; `separate` (wasm/stress.c and its JavaScript twin, 2D only) walks items in grid order (`sorted`), the same pairs. 100,000 items, lab, medians (stretch first, then all three): Chromium 155 3,769 to 3,788 ms (5 runs), Firefox 158 3,714 to 3,485 ms (5), WebKitGTK 2.52.6 3,720 to 3,553 ms (6). `sniff` in src/importers.js returns `json` for `.jsonl`/`.ndjson` (and for pasted text whose every line is a JSON object). New test/file-types.js and test/file-types.test.js; the browser test feeds all 23 extensions and a saved `.json.lfc` through `#in-files`.
+
+### Deep
+Alone, each of the three was inside the noise; the two same-picture ones together were 2% faster in Firefox and WebKitGTK but 5.3% slower in Chromium (3,970 ms), so they ship only with the grid-order walk, which brings Chromium back to flat. The positions of the pair alone hash identical to before. JSON Lines: `importJSON` already read one record a line, but `sniff` fell through to the table reader when the whole text did not parse, so items came out named `{"from":"A"`; found by the new every-file-type test. The test checks that its list matches `TEXT_EXT` and `ARCHIVE_EXT` in src/app/10-data.js. Screenshots in images/ retaken in the dark theme from this build. BENCHMARKS section 52.
+
 ## 2026.10.30.2233 · 2026-10-30
 
 ### Quick

@@ -36,7 +36,7 @@ The Story Editor map shows how pages lead on to each other and where players get
 
 | Nine views | No two items touch | Reads almost anything | Simulation |
 |---|---|---|---|
-| Flow, top-down, choke points, lanes, shape, Sankey, arc, matrix and network. | Every network arrangement ends with a step that guarantees it, and a test checks it. | CSV, JSON, outlines, Excel, GraphML, GEXF, DOT, zips and Markdown notes. | Up to 100,000 walkers with exact odds, error bars and what-if ranking. |
+| Flow, top-down, choke points, lanes, shape, Sankey, arc, matrix and network. | Every network arrangement ends with a step that guarantees it, and a test checks it. | CSV, JSON, outlines, Excel, GraphML, GEXF, DOT, zips and Markdown notes. All 23 file kinds are opened in every browser test. | Up to 100,000 walkers with exact odds, error bars and what-if ranking. |
 
 ## 5,000 items, moderate network (Node, one run)
 
@@ -57,8 +57,9 @@ Shorter time is better. The app keeps this guarantee at a small cost in truth, a
 | Same-picture speedups | 5.5 s | hop counts on the small rough copy 4x faster; sizes worked out once |
 | Plus fewer push-apart passes | 4.0 s | maps over 50,000 items only; same truth score, page size and no touching |
 | Plus stretch first | about the same in Chromium; Firefox 4.6 to 4.1 s, WebKitGTK 4.2 to 3.8 s | maps over 80,000 items only; same page size, more even spacing, no touching |
+| Plus three small stacked changes | about the same in Chromium; Firefox 3.7 to 3.5 s, WebKitGTK 3.7 to 3.6 s | items move a few pixels on every flat map |
 
-Shorter time is better. Firefox 158: 10.3 s to 9.1 s from the first step alone. Drawing far-out dotted links on 2,000 items went from 283 ms to 3 ms a picture. Details: docs/BENCHMARKS.md sections 49 to 51; developer notes in docs/CHANGELOG-DEV.md.
+Shorter time is better. Firefox 158: 10.3 s to 9.1 s from the first step alone. Drawing far-out dotted links on 2,000 items went from 283 ms to 3 ms a picture. Details: docs/BENCHMARKS.md sections 49 to 52; developer notes in docs/CHANGELOG-DEV.md.
 
 ## What it does
 
@@ -115,6 +116,7 @@ node tools/build.mjs --dev           # readable, larger file
 node tools/build.mjs --pack          # also writes index.packed.html, a self-extracting copy (our lzma-pack module) for downloads outside git
 node test/all.js                     # every Node test below, four at a time (about 25 s); add --full for the 90 s fuzz run
 node test/archive.test.js            # zips, Excel and graph files, including zip bombs, bad checksums and cut-off files
+node test/file-types.test.js         # every file kind the Data tab takes (23) opens as the same small map and lays out
 node --expose-gc test/fuzz.test.js 90  # about 90 s of random and hostile input, layout shapes, dense links and leak loops
 node test/importers.test.js          # 19 quick checks of the readers, including 6,000 random tables against a plain reader
 node test/stress-wasm.test.js        # the WebAssembly Distances layout and push-apart give exactly the JavaScript picture (also with a 700-hop chain and with WebAssembly missing)
