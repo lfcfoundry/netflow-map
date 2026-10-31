@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39,
 
 ## October 31
 
+- **2026.10.31.0846** Fixed: after opening a second network map of 1,500 items or more with the same number of items as the first, in the same session, the app could show the first map's places instead of laying out the new one (since 2026.10.31.0826). Pictures saved in the browser since then are no longer used, so big maps are laid out once more.
 - **2026.10.31.0826** Changing a color, link color or link width on a big network map is now 1.6 to 3.2 times faster: at 100,000 items, a new link color took 6 to 7 s and now takes 2.2 to 2.8 s. Before, any such change laid the whole map out again, even though nothing moves, and saved one more copy of the same picture in the browser. Now the finished picture is kept and put back. The picture is exactly the same and the first layout takes as long as before. Also: handing a finished map from the background worker to the page is faster, and a build makes about a fifth less garbage for the browser to clean up.
 
 ## October 30
