@@ -2255,6 +2255,19 @@ var NFMEngine = (function () {
       if (amountMass) { var av = widthV[gi]; e.flow = av === av && av > 0 && amountMax > 0 ? av / amountMax : 0; }
     });
     if (amountMass) { var gj = 0; G.nodes.forEach(function (n) { n.visits = amountMax > 0 ? amountMass[gj] / amountMax : 0; gj++; }); }
+    /* a Sankey whose start item has no links out has nothing flowing: draw the link weights instead of one empty column (the page says so) */
+    var weightsFallback = false;
+    if (flowing && !amountMass && G.edges.length && !G.edges.some(function (e) { return e.from !== e.to && e.flow > 1e-12; })) {
+      var gix = new Map(), wIn = new Float64Array(G.nodes.length), wOut = new Float64Array(G.nodes.length), wMax = 0, mMax = 0;
+      G.nodes.forEach(function (n, k) { gix.set(n.id, k); });
+      G.edges.forEach(function (e) { if (e.from !== e.to && e.weight > 0) { wOut[gix.get(e.from)] += e.weight; wIn[gix.get(e.to)] += e.weight; if (e.weight > wMax) wMax = e.weight; } });
+      for (var wk = 0; wk < wIn.length; wk++) mMax = Math.max(mMax, wIn[wk], wOut[wk]);
+      if (mMax > 0) {
+        G.edges.forEach(function (e) { e.flow = e.from !== e.to && e.weight > 0 ? e.weight / mMax : 0; });
+        G.nodes.forEach(function (n, k) { n.visits = Math.max(wIn[k], wOut[k]) / mMax; });
+        weightsFallback = true;
+      }
+    }
     /* groups for lanes and for the "groups" score */
     var cls = {}, laneNames = [], laneOfBox = {};
     var useLanes = view === 'lanes' || true;
@@ -2313,7 +2326,8 @@ var NFMEngine = (function () {
     }
     Lr.n = P.n; Lr.m = P.m; Lr.startId = P.start >= 0 ? P.nodes[P.start].id : null; Lr.autoStart = P.autoStart;
     Lr.flow = flow ? { exact: flow.exact, note: flow.note || '', mode: flow.mode, runs: flow.runs, outcome: flow.outcome, K: flow.K || 0, classes: flow.classes || null, story: !!flow.story } : (amounts ? { exact: true, mode: 'amounts', runs: 1, outcome: null, K: 0, classes: null, story: false } : null);
-    Lr.amounts = !!amountMass;
+    Lr.amounts = !!amountMass || weightsFallback;
+    if (weightsFallback) Lr.weightsFallback = true;
     Lr.ch = { size: sizeR ? Object.assign({ ch: o.sizeBy }, sizeR) : null, width: widthR ? Object.assign({ ch: o.widthBy }, widthR) : null, color: colR ? Object.assign({ ch: colCh, kind: 'num' }, colR) : (cmode.t === 'cat' ? { ch: colCh, kind: 'cat' } : null), ecolor: ecR ? Object.assign({ ch: o.edgeColorBy, kind: 'num' }, ecR) : (ecT && ecT.t === 'col' ? { ch: o.edgeColorBy, kind: 'cat' } : null), linkLabels: o.linkLabels || '' };
     Lr.groups = laneNames;
     if (view === 'shape') {
