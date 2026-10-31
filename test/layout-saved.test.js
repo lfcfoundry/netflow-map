@@ -21,6 +21,23 @@ const g1 = GEN.graph('moderate', 1600, 5), O = { view: 'network', arrange: 'stre
     ok(E.layoutKey(derive(g1), { view: 'flow' }) === null, 'not a Network view: no key');
     return k1;
   });
+  run('options that move nothing (colors, link widths, labels, other views\' settings) keep the key and the places', () => {
+    const base = E.build(derive(g1), O), k0 = E.layoutKey(derive(g1), O), cols = Object.keys(g1.nodes[0].attrs || {}), ecol = Object.keys(g1.edges[0].attrs || {});
+    const looks = [{ colorBy: 'found' }, { colorBy: cols[0] || 'group' }, { colorBy: 'odds' }, { colorBy: 'heat', wantFlow: true }, { edgeColorBy: ecol[0] || 'kind' }, { edgeColorBy: 'kind' }, { widthBy: 'weight', widthMax: 9 },
+      { labelCol: 'id', linkLabels: 'all' }, { traffic: true }, { agg: 'max' }, { dir: 'TB', spread: 'wide', rows: 'story', bundle: true, wrap: true, downLanes: true, laneBy: 'group', tagLen: 3, spineCol: 'x', better: true },
+      { openCh: { a: 1 }, chapters: 1, chapterMin: 3, chapterCap: 9, partsAbove: 10, fold: false, merge: true, taper: true, sk: { gap: 3 }, amounts: true }];
+    looks.forEach((x) => { const o = Object.assign({}, O, x); ok(E.layoutKey(derive(g1), o) === k0, 'key moved with ' + JSON.stringify(x)); ok(same(base, E.build(derive(g1), o)), 'places moved with ' + JSON.stringify(x)); });
+    const sized = Object.assign({}, O, { sizeBy: 'sys:degree' });
+    ok(E.layoutKey(derive(g1), sized) !== k0, 'item size counts'); ok(E.layoutKey(derive(g1), Object.assign({ agg: 'max' }, sized)) !== E.layoutKey(derive(g1), sized), 'with sizes, how numbers combine counts');
+    return looks.length + ' option sets';
+  });
+  run('the data part of the key is kept for one graph copy only, and gives the same key', () => {
+    const G = derive(g1), memo = { G: G }, k0 = E.layoutKey(derive(g1), O);
+    ok(E.layoutKey(G, O, memo) === k0 && memo.layoutHash, 'same key, kept'); ok(E.layoutKey(G, Object.assign({}, O, { arrange: 'closeness' }), memo) === E.layoutKey(derive(g1), Object.assign({}, O, { arrange: 'closeness' })), 'options still count');
+    const g2 = JSON.parse(JSON.stringify(g1)); g2.edges.pop(); const G2 = derive(g2);
+    ok(E.layoutKey(G2, O, memo) === E.layoutKey(derive(g2), O), 'another graph is not given the kept part');
+    E.build(G, O); ok(E.layoutKey(G, O) === k0, 'a build leaves the data unchanged');
+  });
   run('a saved picture gives exactly the positions a new layout gives, and says so', () => {
     const key = E.layoutKey(derive(g1), O), a = E.build(derive(g1), Object.assign({}, O, { wantSave: true, saveKey: key })); ok(a.saveLayout && a.saveLayout.xy.length === 2 * a.nodes.length, 'asked to keep it');
     const b = E.build(derive(g1), Object.assign({}, O, { saved: a.saveLayout, saveKey: key })); ok(b.fromSaved, 'used'); ok(same(a, b), 'same positions');
@@ -43,8 +60,17 @@ const g1 = GEN.graph('moderate', 1600, 5), O = { view: 'network', arrange: 'stre
     const cl = new Client('', () => E); cl.mode = 'page'; cl.graph = derive(g1); cl.ver = 1; cl.store = new S.Store(S.memoryBackend()); cl.storeMin = 100;
     cl.runPage = null;
     const first = await cl.build(O); await new Promise((r) => setTimeout(r, 30)); ok(!first.fromSaved && cl.store.saves === 1, 'first: laid out, saved ' + cl.store.saves);
+    cl.lastPic = null;   /* a later visit: nothing kept in memory */
     const second = await cl.build(O); ok(second.fromSaved && cl.store.hits === 1, 'second: from storage'); ok(same(first.L, second.L), 'same picture');
     cl.graph = derive(Object.assign({}, g1, { edges: g1.edges.slice(1) })); cl.ver++; const third = await cl.build(O); ok(!third.fromSaved, 'a changed map is laid out again');
+  });
+  run('client: a color change puts the same places back from memory, with no storage at all; new data drops it', async () => {
+    const cl = new Client('', () => E); cl.mode = 'page'; cl.graph = derive(g1); cl.ver = 1; cl.store = null; cl.storeMin = 100;
+    const first = await cl.build(O); ok(!first.fromSaved && cl.lastPic, 'first: laid out and kept');
+    const second = await cl.build(Object.assign({}, O, { colorBy: 'found', widthBy: 'weight' })); ok(second.fromSaved && second.fromMemory, 'recolor: from memory'); ok(same(first.L, second.L), 'same places');
+    const plain = E.build(derive(g1), Object.assign({}, O, { colorBy: 'found', widthBy: 'weight' })); ok(plain.nodes.every((n, i) => n.group === second.L.nodes[i].group), 'and the new colors');
+    await cl.setGraph(derive(Object.assign({}, g1, { edges: g1.edges.slice(1) }))); ok(cl.lastPic === null, 'new data: dropped');
+    const third = await cl.build(O); ok(!third.fromSaved, 'a changed map is laid out again');
   });
   for (const [name, fn] of seq) { const t0 = Date.now(); try { const r = await fn(); console.log('ok   ' + name + ' (' + (Date.now() - t0) + ' ms)' + (r ? ' ' + r : '')); } catch (e) { bad++; console.log('FAIL ' + name + ': ' + (e && e.message || e)); } }
   console.log(bad ? bad + ' failed' : 'all passed'); process.exit(bad ? 1 : 0);

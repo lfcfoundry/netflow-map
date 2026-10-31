@@ -587,6 +587,14 @@ var NFMEngine = (function () {
   }
 
   /* ---------------------------------------------------------------- 4. what to draw: runs folded, arrows merged */
+  /* One box with every field the build and the Network layout fill in, made up front in one order: each box keeps one shape instead of
+   * growing its store of fields one field at a time, which left about 130 MB of copies for the collector at 100,000 items (BENCHMARKS section 54). */
+  function gnode(id, pages, run, chapter, chKey, part) {
+    return { id: id, pages: pages, run: run, chapter: chapter, chKey: chKey, part: part,
+      traffic: 0, choke: false, visits: 0, pGood: 0, pBad: 0, pNeutral: 0, pi: 0, dom: -1, domP: 0, label: '', sub: '', nodeId: '', group: '',
+      sizeV: NaN, colorV: NaN, start: false, end: false, valence: '', unreached: false, deg: 0, inN: 0, outN: 0, inW: 0, outW: 0, ghost: false,
+      sizeK: undefined, k: 1, w: 0, h: 0, x: undefined, y: undefined, shape: undefined, layer: undefined, cx: undefined, cy: undefined };
+  }
   function mapGraph(P, imp, opts) {
     opts = opts || {};
     var n = P.n, i, k, e;
@@ -623,7 +631,7 @@ var NFMEngine = (function () {
       var ri2 = runOf[i], ci2 = chOf[i];
       if (ci2 >= 0 && chapters[ci2].pages[0] !== i) continue;
       if (ri2 >= 0 && runs[ri2][0] !== i) continue;
-      var node = ci2 >= 0 ? { id: 'ch:' + i, pages: chapters[ci2].pages.slice(), run: false, chapter: true, chKey: chapters[ci2].key, part: chapters[ci2].kind === 'part' } : ri2 >= 0 ? { id: 'run:' + i, pages: runs[ri2].slice(), run: true } : { id: 'n' + i, pages: [i], run: false };
+      var node = ci2 >= 0 ? gnode('ch:' + i, chapters[ci2].pages.slice(), false, true, chapters[ci2].key, chapters[ci2].kind === 'part') : ri2 >= 0 ? gnode('run:' + i, runs[ri2].slice(), true, undefined, undefined, undefined) : gnode('n' + i, [i], false, undefined, undefined, undefined);
       node.pages.forEach(function (pg) { groupOf[pg] = node.id; groupIx[pg] = nodes.length; });
       nodes.push(node);
     }
@@ -633,7 +641,7 @@ var NFMEngine = (function () {
       if (ga === gb && fe !== te) continue;
       var key = ga * nG + gb;   /* a number, not text: no string made per link (the same links, merged the same way) */
       if (mergeOn) { var had = seen.get(key); if (had) { had.srcs.push(e); continue; } }
-      var ed = { from: groupOf[fe], to: groupOf[te], srcs: [e], label: '', count: 0, flow: 0, weight: 0, orig: null };   /* the fields the build fills in later, made up front in the same order, so every link keeps one shape */
+      var ed = { from: groupOf[fe], to: groupOf[te], srcs: [e], label: '', count: 0, flow: 0, weight: 0, orig: null, absent: undefined, widthV: NaN, colorV: NaN, colorC: '', kind: undefined, pts: undefined };   /* the fields the build fills in later, made up front in the same order, so every link keeps one shape */
       if (mergeOn) seen.set(key, ed);
       edges.push(ed);
     }
@@ -1309,13 +1317,29 @@ var NFMEngine = (function () {
     return { kc: kc, map: map, off: off2, nbr: nb2.slice(0, m) };
   }
   /** The scale (positions times it) at which the page's distances best fit the hop counts times EDGE, from a few breadth-first searches. */
+  /* Math.hypot of two numbers as V8 works it out (largest part first, then a compensated sum), written out: the same digits in Chromium and
+   * Node, and no list of arguments made for each call (25 MB of garbage at 100,000 items). */
+  function hyp2(a, b) {
+    a = a < 0 ? -a : a; b = b < 0 ? -b : b;
+    if (a !== a || b !== b) return a === Infinity || b === Infinity ? Infinity : NaN;
+    var m = a > b ? a : b; if (m === Infinity) return Infinity; if (m === 0) return 0;
+    var p = a / m, q = b / m, sum = p * p + q * q;
+    return Math.sqrt(sum) * m;
+  }
+  /* Used only where it gives exactly this browser's own Math.hypot (V8 does; Firefox and WebKit work hypot out another way, so they keep
+   * Math.hypot and their pictures stay exactly as before). Checked once on 4,000 pairs of every size. */
+  var HYP_SAME = (function () {
+    var s = 0x2545f491, r = function () { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; };
+    for (var i = 0; i < 4000; i++) { var a = (r() - 0.5) * Math.pow(10, (i % 9) - 2), b = (r() - 0.5) * Math.pow(10, ((i * 7) % 9) - 2); if (hyp2(a, b) !== Math.hypot(a, b)) return false; }
+    return true;
+  })();
   function fitScale(X, k, off, nbr, EDGE) {
     var dist = new Int32Array(k), queue = new Int32Array(k), num = 0, den = 0, ns = Math.min(8, k), s, t;
     for (s = 0; s < ns; s++) {
       var src = Math.floor(s * k / ns); dist.fill(-1); dist[src] = 0; queue[0] = src;
       var h = 0, tl = 1;
       while (h < tl) { var u = queue[h++]; for (var e = off[u]; e < off[u + 1]; e++) { var w = nbr[e]; if (dist[w] < 0) { dist[w] = dist[u] + 1; queue[tl++] = w; } } }
-      for (t = 0; t < k; t += 3) if (t !== src && dist[t] > 0) { var ex = Math.hypot(X[2 * src] - X[2 * t], X[2 * src + 1] - X[2 * t + 1]) / (dist[t] * EDGE); num += ex; den += ex * ex; }
+      for (t = 0; t < k; t += 3) if (t !== src && dist[t] > 0) { var dx0 = X[2 * src] - X[2 * t], dy0 = X[2 * src + 1] - X[2 * t + 1], ex = (HYP_SAME ? hyp2(dx0, dy0) : Math.hypot(dx0, dy0)) / (dist[t] * EDGE); num += ex; den += ex * ex; }
     }
     return den > 0 && num > 0 ? num / den : 1;
   }
@@ -1493,21 +1517,35 @@ var NFMEngine = (function () {
   /* Saved layouts (the page keeps finished Network pictures in the browser's own storage so a second open of the same map skips the layout). The key is a 106-bit fingerprint of everything
    * the layout can read: the data, the options of the build, the tuning numbers and the text of the layout code itself, so a changed map, option or method never reuses an old picture.
    * It is made from the data as it comes in (no start of a build needed), which costs about 16 ms for 10,000 items. */
-  var LAYOUT_EPOCH = 'nfm-layout-2', layoutCodeHash = null;
+  var LAYOUT_EPOCH = 'nfm-layout-3', layoutCodeHash = null;
   function fnv(h, s) { for (var i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0; return h; }
-  /** The fingerprint the page looks the saved picture up by (null when this build's picture cannot be saved: not the Network view, or a picture from the graphics card). */
-  function layoutKey(graph, o) {
+  /* Options that never move an item in the Network view: colors, link widths, labels, and the settings of the other views. They are left out
+   * of the key, so changing a color finds the picture already made instead of laying the whole map out again (6 s at 100,000 items) and
+   * saving a second copy of the same places. agg only matters through item sizes, so it counts when sizeBy is set. Each one is checked
+   * in test/layout-saved.test.js: the same places with and without it. */
+  var LOOK_ONLY = /^(saved|wantSave|saveKey|previewOnly|gpuPicture|forcePicture|colorBy|edgeColorBy|widthBy|widthMax|labelCol|linkLabels|wantFlow|traffic|dir|spread|rows|bundle|wrap|downLanes|laneBy|tagLen|spineCol|better|openCh|chapters|chapterMin|chapterCap|partsAbove|fold|merge|taper|sk|amounts)$/;
+  /** Two running hashes of a text, carried on from (h1, h2). */
+  function hash2(str, h) {
+    var h1 = h[0], h2 = h[1], c;
+    for (var i = 0; i < str.length; i++) { c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619) >>> 0; h2 = Math.imul(h2 + c + 1, 0xcc9e2d51) >>> 0; h2 ^= h2 >>> 15; }
+    return [h1, h2];
+  }
+  /** The fingerprint the page looks the saved picture up by (null when this build's picture cannot be saved: not the Network view, or a picture from the graphics card).
+   * `memo` (optional) is an object that lives as long as this exact graph does and is never changed (the worker's copy): the data's part of the
+   * hash is kept on it, so a second key for the same data hashes only the options (the data part is about 330 ms at 100,000 items). */
+  function layoutKey(graph, o, memo) {
     o = o || {};
     if (o.view !== 'network' || STRESS.external || FORCE_EXT.external || o.gpuPicture || o.forcePicture || o.previewOnly) return null;
     if (layoutCodeHash === null) {
       layoutCodeHash = fnv(fnv(fnv(fnv(fnv(0x811c9dc5, LAYOUT_EPOCH), networkLayout.toString()), stressComponent.toString()), forceSim.toString()), clearOverlaps.toString());
-      layoutCodeHash = fnv(fnv(fnv(fnv(fnv(fnv(layoutCodeHash, importance.toString()), autoStart.toString()), prepare.toString()), bfs.toString()), packImp.toString()), restoreImp.toString());   /* the saved answers of these steps are only good for the same code */
+      layoutCodeHash = fnv(fnv(fnv(fnv(fnv(fnv(layoutCodeHash, importance.toString()), autoStart.toString()), prepare.toString()), bfs.toString()), packImp.toString()), restoreImp.toString());   /* the saved answers of these steps are only good for the code that made them */
     }
-    var oo = {}, h1 = 2166136261, h2 = 0x9747b28c, i, c, str;
-    Object.keys(o).sort().forEach(function (k) { if (!/^(saved|wantSave|saveKey|previewOnly|gpuPicture|forcePicture)$/.test(k)) oo[k] = o[k]; });
-    str = JSON.stringify([LAYOUT_EPOCH, layoutCodeHash, STRESS, FORCE2, CLOSE, oo, graph]);
-    for (i = 0; i < str.length; i++) { c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619) >>> 0; h2 = Math.imul(h2 + c + 1, 0xcc9e2d51) >>> 0; h2 ^= h2 >>> 15; }
-    return LAYOUT_EPOCH + ':' + graph.nodes.length + ':' + h1.toString(36) + h2.toString(36);
+    var oo = {};
+    Object.keys(o).sort().forEach(function (k) { if (!LOOK_ONLY.test(k) && !(k === 'agg' && !o.sizeBy)) oo[k] = o[k]; });
+    var gh = memo && memo.G === graph && memo.layoutHash;
+    if (!gh) { gh = hash2(JSON.stringify(graph), [2166136261, 0x9747b28c]); if (memo && memo.G === graph) memo.layoutHash = gh; }
+    var h = hash2(JSON.stringify([LAYOUT_EPOCH, layoutCodeHash, STRESS, FORCE2, CLOSE, oo]), gh);
+    return LAYOUT_EPOCH + ':' + graph.nodes.length + ':' + h[0].toString(36) + h[1].toString(36);
   }
 
   /**
@@ -1530,9 +1568,10 @@ var NFMEngine = (function () {
       if (comp[i] >= 0) continue;
       var cid = comps.length, q = [i];
       comp[i] = cid;
-      for (var h = 0; h < q.length; h++) adj[q[h]].forEach(function (w) { if (comp[w] < 0) { comp[w] = cid; q.push(w); } });
+      for (var h = 0; h < q.length; h++) { var aq = adj[q[h]]; for (var ai = 0; ai < aq.length; ai++) { var w0 = aq[ai]; if (comp[w0] < 0) { comp[w0] = cid; q.push(w0); } } }
       comps.push(q);
     }
+    var seenAt = new Int32Array(nb), seenRun = 0;   /* "already in the start order" for one piece: a stamp per item, not a new Set for each piece */
     var rnd = mulberry32(12345), EDGE = 130, locArr = new Int32Array(nb);
     var size = function (nd) { if (nd.sizeK !== undefined) return 20 + 52 * nd.sizeK; return 26 + Math.min(26, 8 * Math.sqrt((nd.traffic || 0))) + Math.min(14, Math.sqrt(adj[idxOf[nd.id]].length) * 3); };
     var sizeAt = new Float64Array(nb); for (i = 0; i < nb; i++) sizeAt[i] = size(nodes[i]);   /* each item's size worked out once: the push-apart and the packing ask for it about a million times at 100,000 items (the same numbers) */
@@ -1553,15 +1592,16 @@ var NFMEngine = (function () {
     }
     var packs = [], roughAny = false;
     comps.forEach(function (members) {
-      var k = members.length, loc = new Map();
-      members.forEach(function (g, li) { loc.set(g, li); locArr[g] = li; });
+      var k = members.length, loc = { get: function (g) { return locArr[g]; } };   /* an item's place in its piece, read from locArr (the same numbers): no Map for each piece */
+      for (var mi0 = 0; mi0 < k; mi0++) locArr[members[mi0]] = mi0;
       var X = new Float64Array(k * 2);
       if (k === 1) { packs.push({ members: members, X: X, w: size(nodes[members[0]]) + 20, h: size(nodes[members[0]]) + 20 }); return; }
       /* start: a spiral in breadth-first order from the best-connected node, so neighbors begin close */
-      var root = members.slice().sort(function (a, b) { return adj[b].length - adj[a].length || a - b; })[0];
-      var seen = new Set([root]), order = [root];
-      for (var oi = 0; oi < order.length; oi++) adj[order[oi]].forEach(function (w) { if (!seen.has(w)) { seen.add(w); order.push(w); } });
-      order.forEach(function (g, r) { var a = r * 2.399963, rad = EDGE * 0.6 * Math.sqrt(r + 1); X[loc.get(g) * 2] = rad * Math.cos(a); X[loc.get(g) * 2 + 1] = rad * Math.sin(a); });
+      var root = members[0];   /* the best-connected item, the lowest number on a tie: what sorting a copy picked, without the copy */
+      for (var ri0 = 1; ri0 < k; ri0++) { var cand = members[ri0], dc = adj[cand].length - adj[root].length; if (dc > 0 || (dc === 0 && cand < root)) root = cand; }
+      var order = [root]; seenRun++; seenAt[root] = seenRun;
+      for (var oi = 0; oi < order.length; oi++) { var ao = adj[order[oi]]; for (var aj = 0; aj < ao.length; aj++) { var w1 = ao[aj]; if (seenAt[w1] !== seenRun) { seenAt[w1] = seenRun; order.push(w1); } } }
+      for (var r1 = 0; r1 < order.length; r1++) { var a1 = r1 * 2.399963, rad1 = EDGE * 0.6 * Math.sqrt(r1 + 1), l1 = locArr[order[r1]]; X[l1 * 2] = rad1 * Math.cos(a1); X[l1 * 2 + 1] = rad1 * Math.sin(a1); }
       if (arr === 'force' || arr === 'radial') {
         if (arr === 'force') {
           var lpairs = [], lmass = new Float64Array(k);
@@ -2123,14 +2163,15 @@ var NFMEngine = (function () {
       for (var gk = 0; gk < amountMass.length; gk++) { amountMass[gk] = Math.max(ins2[gk], outs2[gk]); if (amountMass[gk] > amountMax) amountMax = amountMass[gk]; }
     }
     G.edges.forEach(function (e) {
-      var gi = ei1++, labels = [], fw = 0, wsum = 0;
-      e.srcs.forEach(function (ei) {
-        var orig = P.edges[P.eorig[ei]];
-        if (orig.label && labels.length < 4) labels.push(orig.label);
+      var gi = ei1++, lab = '', nl = 0, fw = 0, wsum = 0, srcs = e.srcs, ns = srcs.length, origs = [];   /* plain loops: no function, label list or mapped copy made for each link */
+      for (var si = 0; si < ns; si++) {
+        var ei = srcs[si], oq = P.eorig[ei], orig = P.edges[oq];
+        origs.push(oq);
+        if (orig.label && nl < 4) { lab = nl ? lab + ' / ' + orig.label : '' + orig.label; nl++; }
         if (flow) fw += flow.moves[ei];
         wsum += P.w[ei];
-      });
-      e.label = labels.join(' / '); e.count = e.srcs.length; e.flow = fw; e.weight = wsum; e.orig = e.srcs.map(function (q) { return P.eorig[q]; });
+      }
+      e.label = lab; e.count = ns; e.flow = fw; e.weight = wsum; e.orig = origs;
       if (P.stated) e.absent = e.srcs.every(function (q) { return P.edges[P.eorig[q]].absent === true; });
       e.widthV = widthV ? widthV[gi] : NaN; e.colorV = ecV ? ecV[gi] : NaN;
       e.colorC = ecT && !ecNum ? (C.catOf(P.edges[P.eorig[e.srcs[0]]], ecT) || '(none)') : '';
