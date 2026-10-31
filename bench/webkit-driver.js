@@ -202,6 +202,14 @@ function makePage(port, sid, site) {
  * Resolves to { page, version, close() }. Never leaves a process behind: close() ends the whole process group, and so does exiting node.
  */
 async function launch(opts) {
+  /* The driver now and then fails to start while other browsers start beside it (Netflow's three-at-once trial, 2 of 7 runs): say why, and try once more on a new port. */
+  try { return await launchOnce(opts); } catch (e) {
+    if (!/did not start/.test(e.message) || (opts && opts.port)) throw e;
+    console.log('note: ' + e.message + ' Trying once more.');
+    return launchOnce(opts);
+  }
+}
+async function launchOnce(opts) {
   opts = opts || {};
   var kind = opts.browser || 'webkitgtk', driver = opts.driver || which('WebKitWebDriver');
   if (!driver) throw new Error('WebKitWebDriver was not found (install the webkitgtk packages from the test browsers branch, as root).');
@@ -213,13 +221,14 @@ async function launch(opts) {
   if (opts.deviceScaleFactor) env.GDK_SCALE = String(Math.round(opts.deviceScaleFactor));          // whole numbers only: 1, 2, 3
   if (opts.colorScheme === 'dark') env.GTK_THEME = 'Adwaita:dark';
   if (opts.reducedMotion) { var cfg = fs.mkdtempSync(path.join(require('os').tmpdir(), 'wkd-')); fs.mkdirSync(cfg + '/gtk-3.0'); fs.writeFileSync(cfg + '/gtk-3.0/settings.ini', '[Settings]\ngtk-enable-animations=false\n'); env.XDG_CONFIG_HOME = cfg; }
-  var proc = cp.spawn(cmd, argv, { env: env, detached: true, stdio: 'ignore' }), closed = false, exited = false;
-  proc.on('exit', function () { exited = true; });
+  var proc = cp.spawn(cmd, argv, { env: env, detached: true, stdio: ['ignore', 'ignore', 'pipe'] }), closed = false, exited = false, errTail = '', exitCode = null;
+  proc.stderr.on('data', function (d) { errTail = (errTail + d).slice(-600); });   /* kept for the message when it does not start */
+  proc.on('exit', function (c, s) { exited = true; exitCode = s || c; });
   var killAll = function () { if (!closed) { closed = true; try { process.kill(-proc.pid, 'SIGKILL'); } catch (e) { /* gone */ } } };
   process.on('exit', killAll); ['SIGINT', 'SIGTERM', 'SIGHUP'].forEach(function (s) { process.on(s, function () { killAll(); process.exit(1); }); });
   try {
     var up = false; for (var i = 0; i < 100 && !up && !exited; i++) { try { await call(port, 'GET', '/status', undefined, 1000); up = true; } catch (e) { await sleep(150); } }
-    if (!up) throw new Error('WebKitWebDriver did not start answering on port ' + port + '.');
+    if (!up) { var why = (exited ? ' It ended (' + exitCode + ').' : '') + (errTail.replace(/^.*Failed to set fd limit.*$/m, '').trim() ? ' Its last words: ' + errTail.replace(/^.*Failed to set fd limit.*$/m, '').trim().replace(/\s+/g, ' ').slice(-300) : ''); killAll(); throw new Error('WebKitWebDriver did not start answering on port ' + port + '.' + why); }
     var caps = kind === 'epiphany' ? { browserName: 'Epiphany', 'webkitgtk:browserOptions': { binary: opts.binary || which('epiphany') || '/usr/bin/epiphany', args: ['--automation-mode'] } } : {};
     var site = null;
     if (opts.serve) { var root = path.resolve(opts.serve === true ? process.cwd() : opts.serve); site = await servePages(root); site.root = root; }
