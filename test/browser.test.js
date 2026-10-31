@@ -1373,23 +1373,29 @@ async function open() {
     await D.wait(() => !NFM.pending() && NFM.state.scene && NFM.state.sceneOk && !NFM.state.mapBusy && NFM.state.L && NFM.state.L.nodes.length > 1400, null, 60000);   /* the finished 1,500-item picture: a new scene arriving mid-check drops the kept picture */
     const r = await ev(async () => {
       const m = NFM.manager(); await m.use('canvas2d'); if (m.r.name !== 'canvas2d' || !m.r.fastMove) return { err: 'n/a' };
+      /* only this check draws while it runs: a draw from the app in between (any redraw it asks for) cancels the settle timer the check waits for, which made it fail now and then */
+      const realDraw = m.r.draw; let ours = false; m.r.draw = function (v) { if (ours) return realDraw.call(this, v); };
+      const draw0 = (v) => { ours = true; try { realDraw.call(m.r, v); } finally { ours = false; } };
+      try {
       const frames = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))), W = NFM.state.stageW, H = NFM.state.stageH;
       const keep = async (key) => { const sn = m.r.snapshot(); await m.r.flush(); window.__px.keep[key] = sn; };
       await frames(); const v1 = { k: 0.6, tx: 30, ty: 20 }, v2 = { k: 0.6, tx: 30 + 36, ty: 20 + 15 }, v3 = { k: 0.66, tx: 30 - 20, ty: 20 - 8 };
       let settleAsked = 0; const inv = () => { settleAsked++; };
       m.r.fastMove(true);
-      m.r.draw(v1);   /* a full draw: the kept picture */
-      for (let i = 1; i <= 6; i++) m.r.draw({ k: v1.k, tx: v1.tx + (v2.tx - v1.tx) * i / 6, ty: v1.ty + (v2.ty - v1.ty) * i / 6, moved: true, invalidate: inv });
+      draw0(v1);   /* a full draw: the kept picture */
+      for (let i = 1; i <= 6; i++) draw0({ k: v1.k, tx: v1.tx + (v2.tx - v1.tx) * i / 6, ty: v1.ty + (v2.ty - v1.ty) * i / 6, moved: true, invalidate: inv });
       await keep('pan_slid');
-      await new Promise((res) => setTimeout(res, 260)); const asked = settleAsked;   /* 140 ms after the last moving draw */
-      m.r.draw(v2); await keep('pan_rest');   /* what the settle draw does: a full draw, not marked as moved */
-      m.r.fastMove(false); m.r.draw(v2); await keep('pan_full');
-      m.r.fastMove(true); m.r.draw(v1);
-      for (let i = 1; i <= 6; i++) m.r.draw({ k: v1.k + (v3.k - v1.k) * i / 6, tx: v1.tx + (v3.tx - v1.tx) * i / 6, ty: v1.ty + (v3.ty - v1.ty) * i / 6, moved: true, invalidate: inv });
-      await keep('zoom_slid'); m.r.draw(v3); await keep('zoom_rest'); m.r.fastMove(false); m.r.draw(v3); await keep('zoom_full');
-      m.r.fastMove(null); m.r.draw(v1); m.r.draw({ k: v1.k, tx: v1.tx + 9, ty: v1.ty, moved: true, invalidate: inv }); await keep('small_default');   /* a small, fast map: drawn in full by default */
-      m.r.draw({ k: v1.k, tx: v1.tx + 9, ty: v1.ty }); await keep('small_full');
+      await new Promise((res) => setTimeout(res, 260)); for (let w = 0; w < 40 && !settleAsked; w++) await new Promise((res) => setTimeout(res, 50));   /* 140 ms after the last moving draw (a busy machine runs timers late) */
+      const asked = settleAsked;
+      draw0(v2); await keep('pan_rest');   /* what the settle draw does: a full draw, not marked as moved */
+      m.r.fastMove(false); draw0(v2); await keep('pan_full');
+      m.r.fastMove(true); draw0(v1);
+      for (let i = 1; i <= 6; i++) draw0({ k: v1.k + (v3.k - v1.k) * i / 6, tx: v1.tx + (v3.tx - v1.tx) * i / 6, ty: v1.ty + (v3.ty - v1.ty) * i / 6, moved: true, invalidate: inv });
+      await keep('zoom_slid'); draw0(v3); await keep('zoom_rest'); m.r.fastMove(false); draw0(v3); await keep('zoom_full');
+      m.r.fastMove(null); draw0(v1); draw0({ k: v1.k, tx: v1.tx + 9, ty: v1.ty, moved: true, invalidate: inv }); await keep('small_default');   /* a small, fast map: drawn in full by default */
+      draw0({ k: v1.k, tx: v1.tx + 9, ty: v1.ty }); await keep('small_full');
       return { asked, W, H };
+      } finally { m.r.draw = realDraw; }
     });
     if (r.err) say(null, 'Canvas 2D panning: ' + r.err);
     else {

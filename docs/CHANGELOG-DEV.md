@@ -15,6 +15,17 @@ Map canvas pixel ratio capped at 2 (was 2.5) in `stageSize` (src/app/30-map.js),
 ### Deep
 Lab, Chromium 155, 412 by 860 window at ratio 3, 1,600-item map, early-stop A/B rule (after / before, 90% interval): busy time on all the browser's threads while panning and zooming 0.86 (0.84 to 1.00); the page's own thread alone is too noisy to call (1.05, 0.89 to 1.16; its work does not grow with pixels, the drawing threads' does). At rest the map draws nothing, so nothing changes there. Screenshots at ratio 3 with the cap off and on: 10.6% of screen pixels differ, almost all by a few levels at line and circle edges (0.0006% by more than 32 levels).
 
+## 2026.10.31.1730 · 2026-10-31
+
+### Quick
+`NFMColumns.profileUpdate(prev, a, b, dn, de)` (src/columns.js) works out the column profile of graph b from a's profile for the changed item and link slots only; `indexGraph` (src/app/00-core.js) uses it when the item index took its quick way and nothing is calculated (`derive(g) === g`). Same profile, field for field and in the same order, as `profile(b)`; checked on random edits in test/profile-update.test.js.
+
+### Details
+`profile()` now also keeps, per column, an update record (in a WeakMap keyed by the profile): the capped value counts finish() reads, where the column first appeared, where its 400th different value and its third sample appeared, whether any number has a fraction, and the raw min, max and sum. An update moves each changed value out of and into its column's record. A column whose record cannot be kept exact that way is read again alone, the way `profile()` reads it: a value changed at or before where its samples or its 400 values were collected, its lowest or highest number removed, a number with a fraction (a sum done in another order could differ in the last digit), the last copy of a capped value removed, or 400 different values reached. A whole new profile is made when a column appears, leaves, or would change its place in the order, or when items or links are added or removed. Tests: test/profile-update.test.js (720 random edits of every kind on 600 and 3,000 items, chained update on update; ordinary renames, groups, outcome marks and link kinds quick and identical 100 of 100).
+
+### Deep
+CPU profile of two renames on a 16 MB table (188,000 rows, Chromium, Data tab shown): `indexGraph` 304 to 73 ms in all, the column profile 248 ms to 32 ms (the label column, which holds few values in this table, is read again alone each time). Early-stop A/B rule, page held (heartbeat gaps over 50 ms plus the change itself) in the 2.5 s after one rename, 800 by 600 window: Chromium 262 to 138 ms (faster 0.53, 0.39 to 0.55), Firefox 292 to 91 ms (faster 0.29, 0.28 to 0.41), WebKitGTK 432 to 146 ms (faster 0.37, 0.35 to 0.38). 1,500-row map: 7 to 9 ms held before and after in all three; the page time of 20 renames there is faster too (Chromium 0.84, Firefox 0.53, WebKitGTK 0.63). Also: the browser check "Canvas 2D after a pan and a zoom" no longer lets the app draw while it runs (an app redraw cancelled the settle timer it waits for; QA saw it fail once in WebKitGTK alone), and it waits up to 2 s more for a late timer; 5 of 5 runs of that block alone pass in WebKitGTK. What is left per change there: the Data tab's report (about 54 ms, Chromium) and states suggestions (about 33 ms), and the undo and slot diffs (about 43 ms).
+
 ## 2026.10.31.1603 · 2026-10-31
 
 ### Quick

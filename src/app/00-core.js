@@ -311,14 +311,14 @@ function changedSlots(a, b) {
   return out;
 }
 function indexGraph() {
-  var g = S.graph, old = IDX.g, by = null, pos = null, links = false, kindsSame = false, i, k;
+  var g = S.graph, old = IDX.g, by = null, pos = null, links = false, kindsSame = false, i, k, dn = null, de = null;
   if (old && old !== g && S.byId && IDX.pos && old.nodes && old.edges && g.nodes.length + g.edges.length >= 2000 && typeof NFMUndo !== 'undefined') {
-    var dn = changedSlots(g.nodes, old.nodes), ok = !!dn;
+    dn = changedSlots(g.nodes, old.nodes); var ok = !!dn;
     for (i = 0; ok && i < dn.length; i++) { k = dn[i]; ok = g.nodes[k].id === old.nodes[k].id && S.byId.get(old.nodes[k].id) === old.nodes[k]; }
     if (ok) {
       by = S.byId; pos = IDX.pos;
       for (i = 0; i < dn.length; i++) by.set(g.nodes[dn[i]].id, g.nodes[dn[i]]);
-      var de = changedSlots(g.edges, old.edges);
+      de = changedSlots(g.edges, old.edges);
       kindsSame = !!de && de.length === 0;
       links = !S.outAdj.loose && !S.inAdj.loose && !!de;
       for (i = 0; links && i < de.length; i++) { k = de[i]; links = g.edges[k].from === old.edges[k].from && g.edges[k].to === old.edges[k].to; }
@@ -329,7 +329,11 @@ function indexGraph() {
   var wasBy = S.byId; S.byId = by;
   if (!links) { S.outAdj = makeLinkLists(g.edges, pos, 'from', g.nodes.length); S.inAdj = makeLinkLists(g.edges, pos, 'to', g.nodes.length); }
   IDX.g = g; IDX.pos = pos; IDX.why = by === wasBy && old ? (links ? 'quick+links' : 'quick') : (old === g ? 'same' : !old ? 'first' : 'full');
-  S.dg = NFMColumns.derive(g); S.prof = NFMColumns.profile(S.dg); S.story = NFMColumns.isStory(g);
+  /* the column profile: worked out for the changed items and links only when nothing is calculated (then S.dg is the graph itself) */
+  var dg = NFMColumns.derive(g), prof = null;
+  if (by === wasBy && dn && de && dg === g && IDX.dg === old && S.prof) prof = NFMColumns.profileUpdate(S.prof, old, g, dn, de);
+  IDX.prof = prof ? 'quick' : 'full';
+  S.dg = dg; IDX.dg = dg; S.prof = prof || NFMColumns.profile(dg); S.story = NFMColumns.isStory(g);
 }
 /** For the checks: true when the index matches one built from nothing, else what differs. */
 function indexMatches() {
