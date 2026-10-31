@@ -228,7 +228,7 @@ var HOOKS = { graph: [], view: [] };
 function setGraph(g, push, keepView) {
   var rename = (S.graph.name !== g.name);
   if (rename) saveView.flush();   /* the old data's settings are saved under the old name before the name changes */
-  if (push !== false) { S.hist.push(S.graph); if (S.hist.length > 25) S.hist.shift(); }
+  if (push !== false) { S.hist.push(NFMUndo.step(S.graph, g)); if (S.hist.length > 25) S.hist.shift(); }   /* a step keeps only what this change replaced (src/undo.js) */
   S.graph = g; S.gver++;
   if (!keepView || rename) skHist = [];   /* Sankey undo steps belong to one dataset */
   graphChanged(rename && !keepView);
@@ -238,6 +238,15 @@ function edit(fn, push) {
   var g = { name: S.graph.name, start: S.graph.start, flavor: S.graph.flavor, calc: S.graph.calc, roles: S.graph.roles, states: S.graph.states, nodes: S.graph.nodes.slice(), edges: S.graph.edges.slice() };
   fn(g);
   setGraph(g, push, true);
+}
+/** After a file is read: repeated texts in the map are pointed at one copy (src/undo.js textSharer), in short slices while the page is idle. */
+var shareJob = null;
+function shareTextSoon() {
+  var g = S.graph; if (!g || !g.nodes || g.nodes.length + g.edges.length < 2000) return;
+  var step = NFMUndo.textSharer(g), my = shareJob = {};
+  var later = typeof requestIdleCallback === 'function' ? function (f) { requestIdleCallback(f, { timeout: 1000 }); } : function (f) { setTimeout(f, 16); };
+  var go = function () { if (shareJob !== my) return; if (step(4000)) shareJob = null; else later(go); };
+  later(go);
 }
 function graphChanged(reloadView) {
   indexGraph();
@@ -256,7 +265,10 @@ function graphChanged(reloadView) {
 }
 function undo() {
   if (!S.hist.length) return;
-  var g = S.hist.pop(), rename = S.graph.name !== g.name;
+  undoTo(NFMUndo.back(S.hist.pop(), S.graph));
+}
+function undoTo(g) {
+  var rename = S.graph.name !== g.name;
   if (rename) { saveView.flush(); skHist = []; }   /* going back to other data: keep this data's settings under its own name, bring back the other's */
   S.graph = g; S.gver++; graphChanged(rename); toast('Undone.');
 }

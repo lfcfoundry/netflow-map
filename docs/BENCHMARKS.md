@@ -1969,3 +1969,18 @@ When helpers start. A piece qualifies when Distances lays it out in one go (150 
 Nothing was slower beyond noise, so helpers start at 1 million. Below it (2 pieces of 600 items is 0.7 million) starting a helper costs about what it saves.
 
 Why the page makes the helpers. The first version had the engine worker start them from its own text. In WebKitGTK a worker started inside a worker reports an error with no message and never runs, with or without the page policy (tested on a bare page), so every piece fell back to the worker and 10 pieces of 3,000 items took 10.6 to 11.8 s there. A worker started by the page and joined to the engine worker with a message port runs in all three browsers.
+
+## 56. Page memory with big data: undo steps, the opened table, repeated text (2026.10.31)
+
+Chromium 155, the real app in an 800 by 600 window, data opened through the app's own reader (`NFM.ingest`), main-page heap after three full garbage collections, 2 rounds (the numbers repeat to 0.3 MB). Changes are made the way the app makes them: rename one item, set a group on 2,000 items, set an ending on 300 scattered items, remove a link, remove an item, change the start. Undo is then pressed 25 times and every graph checked: 25 of 25 match in every run.
+
+| Main-page heap after | Simple table, 16 MB (188,000 items, 565,000 links) | Rich table, 16 MB (30,000 items) |
+|---|---:|---:|
+| Opening it | 149.5 / 102.3 MB | 70.8 / 39.6 MB |
+| 12 changes | 184.5 / 102.0 MB | 79.0 / 40.8 MB |
+| A second table of the same size | 252.3 / 165.4 MB | 107.4 / 56.8 MB |
+| 12 more changes | 287.2 / 165.6 MB (-42%) | 115.5 / 57.7 MB (-50%) |
+
+Before / after; lower is better. Opening took 5.6 / 5.6 s (simple) and 2.3 / 2.1 s (rich), 12 changes 24 / 23 s and 12.5 / 10 s, the slowest undo 2.6 / 2.7 s and 1.4 / 1.3 s (medians of 2; each change and undo is mostly the app working out the map's columns again, the same before and after).
+
+Node, 100,000 items, policies alone and stacked (retained heap, every undo checked): a second file 200 MB today, 151 MB without the kept cells, 78 MB when the old graph is also packed; 25 one-item renames 201 to 128 MB with difference steps alone, 79 MB stacked with lean cells and the merge-only base. Packing whole-map steps and a 16 MB cap on Undo change what Undo does, so they wait for a decision.
