@@ -127,7 +127,7 @@ Lower is better. All 25 Undo steps still work. Undo keeps only what each change 
 
 Lower is better. Only what changed goes to the layout helper (1.8 s to 20 ms in Chromium), the autosave stops as soon as a map is too big to keep instead of writing all 61 MB of it, and the app's list of items and links is updated for the changed items only. Coming back to a big map after a rest no longer freezes the page either (0.6 to 1.8 s before, 8 to 32 ms now; the restart takes about 0.1 to 0.6 s longer). Details: docs/BENCHMARKS.md sections 58 to 60.
 
-The summary of what each column holds is now also updated for the changed items only: the page is held after a rename for 262 to 138 ms in Chromium, 292 to 91 ms in Firefox and 432 to 146 ms in WebKitGTK (Data tab shown, docs/BENCHMARKS.md section 63).
+The summary of what each column holds is now also updated for the changed items only: the page is held after a rename for 262 to 138 ms in Chromium, 292 to 91 ms in Firefox and 432 to 146 ms in WebKitGTK (Data tab shown, docs/BENCHMARKS.md section 63). Comparing the map before and after a change once instead of three times, and two counts kept between changes, brought that to 42 ms in Chromium, 22 ms in Firefox and 37 ms in WebKitGTK (section 66).
 
 ## Saves that survive a crash (lab)
 

@@ -51,6 +51,23 @@ for (const [name, fn] of Object.entries(EDITS)) {
   const a = [1, 2, 3, 4, 5].map((v) => ({ v })), cases = [[], a.slice(0, 2), a.slice(1), a.slice().reverse(), a.concat([{ v: 6 }]), [{ v: 0 }].concat(a), a.slice(0, 2).concat(a.slice(3))];
   ok(cases.every((b) => same(U.listBack(U.listDiff(a, b), b), a)) && cases.every((b) => same(U.listBack(U.listDiff(b, a), a), b)), 'list differences come back exactly both ways (empty, shorter, reversed, longer, front and middle changes)');
 }
+// kept answers: the same pair, or the pair the other way round, in the same script gives what a fresh scan gives
+{
+  const a = Array.from({ length: 400 }, (_, i) => ({ i })), sc = a.slice(); [7, 90, 91, 300].forEach((k) => { sc[k] = { i: -k }; });
+  const many = a.map((o, i) => (i % 2 ? { i } : o)), ins = a.slice(0, 50).concat([{ i: 'x' }], a.slice(50)), cut = a.slice(0, 200).concat(a.slice(210));
+  const key = (d) => JSON.stringify(d);
+  let good = 0, total = 0;
+  [sc, many, ins, cut].forEach((b) => {
+    [[a, b], [b, a]].forEach(([x, y]) => {
+      U.forget(); const fresh = U.listDiff(x, y); U.forget();
+      U.listDiff(y, x); const flipped = U.listDiff(x, y), again = U.listDiff(x, y);
+      total++; if (key(fresh) === key(flipped) && again === flipped && (fresh.was || fresh.mid || []).every((v, j) => v === (flipped.was || flipped.mid)[j])) good++;
+    });
+  });
+  ok(good === total, 'a kept or turned-round difference matches a fresh one, values by reference (' + good + '/' + total + ')');
+  const d1 = U.listDiff(a, sc);
+  queueMicrotask(() => ok(U.listDiff(a, sc) !== d1, 'kept differences are let go when the script ends'));
+}
 // text sharing: in slices, every value the same afterwards
 {
   const g = I.importAny([{ name: 't.csv', text: G.csv('complex', 3000, 3).text }], {}).graph, before = JSON.stringify(g);
@@ -61,5 +78,4 @@ for (const [name, fn] of Object.entries(EDITS)) {
   const s0 = JSON.stringify(odd); U.textSharer(odd)(100);
   ok(JSON.stringify(odd) === s0, 'odd texts (__proto__, constructor, toString, empty, missing attrs) are left as they were');
 }
-if (fails) { console.log(fails + ' failed'); process.exit(1); }
-console.log('all passed');
+setTimeout(() => { if (fails) { console.log(fails + ' failed'); process.exit(1); } console.log('all passed'); }, 0);
