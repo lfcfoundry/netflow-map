@@ -22,6 +22,15 @@
   indexGraph(); loadView(); loadAdv();
   renderReport(); renderCols();
   $('b-undo').disabled = true;
+  SAFE.newer('nfm-graph').then(function (r) {   /* the browser lost the newest save (a crash soon after it): bring back the safe copy */
+    if (!r) return;
+    var g; try { g = NFMImport.sanitizeGraph(JSON.parse(r.text)); } catch (e) { return; }
+    var vk = 'nfm-v:' + (g.name || 'Untitled');
+    return SAFE.newer(vk).then(function (rv) {
+      SAFE.repair('nfm-graph', r); if (rv) SAFE.repair(vk, rv);
+      S.graph = g; S.gver++; graphChanged(true); toast('Brought back your latest changes: the browser had closed before keeping them.', 6000);
+    });
+  });
   client.start().then(function () { if (window.NFMReport) window.NFMReport.mark('engine-ready'); client.setTune(S.tune); client.setGraph(S.graph); maybeAskTune(); if (S.tab === 'map') refreshMap('boot'); });
   if (window.NFMReport) window.NFMReport.mark('first-screen');
   window.NFM = { groupSvg: groupSvg, svgText: svgText, mapFileBytes: mapFileBytes, openMapBytes: openMapBytes, neighborIds: neighborIds, routeIds: routeIds, gif: function () { return GX.result; }, gifRun: function (patch) { Object.assign(GX.opts, patch); return runGif(); }, gifTwin: function (patch) { return ensureMap().then(function () { return makeGif(Object.assign({}, GX.opts, patch, { preview: true, twin: true }), function () { }, function () { return false; }); }); }, pending: function () { return DEBOUNCING; }, moveItems: moveItems, dropItems: settleDrop, touch: function (v) { touchForce = v; placeChrome(); if (S.mapBuilt) renderMapUI(); }, state: S, engine: getEngine, client: function () { return client; }, manager: function () { return mgr; }, showTab: showTab, setGraph: setGraph, ingest: ingest, refreshMap: refreshMap, select: function (id) { setSel(id ? [id] : []); }, setSel: setSel, toggleChapter: toggleChapter, minimap: function () { var e = document.getElementById('minimap'); return { shown: !!(e && !e.hidden), w: e ? e.width : 0, h: e ? e.height : 0, box: e ? JSON.parse(JSON.stringify(e.getBoundingClientRect())) : null }; }, renderMinimap: renderMinimap, setV: setV, scheduleScene: scheduleScene, settleTurn: settleTurn, fitView: fitView, zoomAt: zoomAt, runSearch: runSearch, snapshot: snapshot, applySnapshot: applySnapshot };
