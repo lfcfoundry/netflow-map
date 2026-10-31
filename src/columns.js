@@ -25,6 +25,10 @@ var NFMColumns = (function () {
     if (v === undefined || v === null || typeof v === 'boolean') return NaN;
     var s = String(v).trim();
     if (!s || s.length > 40) return NaN;
+    /* a number starts with a digit, a sign, a dot or comma, "(" or a currency mark; anything else (most labels and names) is not one, so
+       the steps below are skipped: the column profile runs this on every cell after every change */
+    var c0 = s.charCodeAt(0);
+    if (!((c0 >= 48 && c0 <= 57) || c0 === 43 || c0 === 45 || c0 === 46 || c0 === 44 || c0 === 40 || c0 === 36 || c0 === 8364 || c0 === 163 || c0 === 165)) return NaN;
     var neg = false; dec = dec || '.';
     if (s.charAt(0) === '(' && s.charAt(s.length - 1) === ')') { neg = true; s = s.slice(1, -1).trim(); }
     s = s.replace(/[$€£¥]/g, '').replace(/\s*%$/, '').trim();
