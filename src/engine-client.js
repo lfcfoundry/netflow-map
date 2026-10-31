@@ -18,7 +18,7 @@ var NFMEngineClient = (function () {
           E.forceExt.external = function (X, k, pairs, mass, rounds) { if (k !== fp.k || pairs.length !== fp.pairs) return false; for (var q = 0; q < 2 * k; q++) X[q] = fp.X[q]; return true; };
           try { return E.build(st.G, o3); } finally { E.forceExt.external = null; }
         }
-        if (!gp) return E.build(st.G, d.opts);
+        if (!gp) return API.pieces && E.buildPieces ? E.buildPieces(st.G, d.opts, API.pieces) : E.build(st.G, d.opts);   // many big pieces: some go to helper threads (same picture)
         var o2 = Object.assign({}, d.opts); delete o2.gpuPicture;
         E.stressTuning.external = function (X, k) { if (k !== gp.k) return false; for (var q = 0; q < 2 * k; q++) X[q] = gp.X[q]; return true; };
         try { return E.build(st.G, o2); } finally { E.stressTuning.external = null; }
@@ -81,14 +81,72 @@ var NFMEngineClient = (function () {
     }
     return API.E.build(API.C.derive({ name: 'warm', start: null, nodes: nodes, edges: edges }), { view: 'network', colorBy: 'group' });
   }
-  var WORKER_MAIN = '\nvar warmBuild = ' + warmBuild.toString() + '\nfunction __warm(){warmBuild(__API);}\nvar dispatch = ' + dispatch.toString() + '\nvar __st={G:null,ver:-1,P:null,sim:null};var __API={E:NFMEngine,SIM:NFMSim,CHK:NFMCheck,C:NFMColumns};self.onmessage=function(e){var d=e.data;try{' +
+  /*
+   * Helper threads for the separate pieces of a Network map (engine buildPieces). Runs in the engine worker. The page makes the helpers when the
+   * worker asks (a worker made inside a worker fails in WebKitGTK) and gives each one a message port to this worker: up to 3 and one fewer than
+   * the processor's cores. This thread lays out pieces too, from the small end. Helpers are ended 30 s after their last job, which gives their
+   * memory back. Any trouble: the promise fails and the engine lays the pieces out itself (the same picture).
+   */
+  function helperPool(API) {
+    var P = { can: false, ports: [], idle: null, asked: null, made: 0, runs: 0, fail: null };
+    P.stop = function () { var had = P.ports.length; P.ports.forEach(function (pt) { try { pt.onmessage = null; pt.close(); } catch (e) { /* gone */ } }); P.ports = []; if (P.idle) clearTimeout(P.idle); P.idle = null; if (had) self.postMessage({ type: 'helpersDone' }); };
+    P.got = function (ports, error) {
+      var a = P.asked; P.asked = null;
+      if (!a) { ports.forEach(function (pt) { try { pt.close(); } catch (e) { /* gone */ } }); return; }
+      clearTimeout(a.t);
+      if (error || !ports.length) { a.bad(new Error(error || 'no helper threads')); return; }
+      ports.forEach(function (pt) { P.ports.push(pt); P.made++; }); a.ok();
+    };
+    P.need = function (n) {
+      if (n <= 0) return Promise.resolve();
+      return new Promise(function (ok, bad) {
+        P.asked = { ok: ok, bad: bad, t: setTimeout(function () { P.asked = null; bad(new Error('the page did not make helper threads in time')); }, 3000) };
+        self.postMessage({ type: 'needHelpers', n: n });
+      });
+    };
+    P.run = function (jobs, EDGE, tun) {
+      var cores = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 2, want = Math.min(3, cores - 1, jobs.length);
+      if (!P.can || want < 1) return Promise.reject(new Error('no helper threads'));
+      if (P.idle) { clearTimeout(P.idle); P.idle = null; }
+      P.runs++;
+      return P.need(want - P.ports.length).then(function () {
+        return new Promise(function (ok, bad) {
+          var order = jobs.map(function (j, q) { return q; }).sort(function (a, b) { return jobs[b].inp.k - jobs[a].inp.k || a - b; });
+          var res = new Array(jobs.length), lo = 0, hi = order.length, left = jobs.length, dead = false, hs = P.ports.slice(0, want);
+          var done = function () { if (--left === 0) { P.fail = null; hs.forEach(function (pt) { pt.onmessage = null; }); P.idle = setTimeout(P.stop, 30000); ok(res); } };
+          var fail = function (why) { if (dead) return; dead = true; P.fail = null; P.stop(); bad(new Error(why)); };
+          P.fail = fail;   // the page says a helper stopped
+          var feed = function (pt) {
+            if (dead || lo >= hi) return;
+            var q = order[lo++], j = jobs[q];
+            pt.onmessage = function (e) { var m = e.data; if (dead) return; if (!m || !m.ok) { fail(m && m.error || 'a helper failed'); return; } res[q] = m.result; done(); feed(pt); };
+            pt.postMessage({ type: 'piece', inp: j.inp, draw: j.draw, EDGE: EDGE, tun: tun });
+          };
+          hs.forEach(feed);
+          var mine = function () {   // this thread takes the smallest pieces, one at a time, so helper answers are read in between
+            if (dead || lo >= hi) return;
+            var q = order[--hi], j = jobs[q];
+            try { res[q] = API.E.pieceJob({ inp: j.inp, draw: j.draw, EDGE: EDGE, tun: tun }); } catch (err) { fail(String(err && err.message || err)); return; }
+            done(); setTimeout(mine, 0);
+          };
+          setTimeout(mine, 0);
+        });
+      });
+    };
+    return P;
+  }
+  var WORKER_MAIN = '\nvar warmBuild = ' + warmBuild.toString() + '\nfunction __warm(){warmBuild(__API);}\nvar dispatch = ' + dispatch.toString() + '\nvar helperPool = ' + helperPool.toString() + '\nvar __st={G:null,ver:-1,P:null,sim:null};var __API={E:NFMEngine,SIM:NFMSim,CHK:NFMCheck,C:NFMColumns};var __HP=helperPool(__API);self.onmessage=function(e){var d=e.data;try{' +
+    'if(d.type==="port"){var pt=e.ports[0];pt.onmessage=function(m){var r1;try{r1=__API.E.pieceJob(m.data);}catch(er){pt.postMessage({ok:false,error:String(er&&er.message||er)});return;}pt.postMessage({ok:true,result:r1},r1.X&&r1.X.buffer?[r1.X.buffer]:[]);};return;}' +   // in a helper thread: pieces come on the port from the engine worker
+    'if(d.type==="helpersOk"){__HP.can=true;__API.pieces=__HP.run;return;}' +
+    'if(d.type==="helperPorts"){__HP.got(Array.prototype.slice.call(e.ports||[]),d.error);return;}' +
+    'if(d.type==="helperFailed"){if(__HP.fail)__HP.fail("a helper failed ("+(d.error||"error")+")");else __HP.stop();return;}' +
     'if(d.type==="graph"){__st.G=NFMColumns.derive(d.graph);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
     'if(d.type==="ping"){self.postMessage({id:d.id,ok:true,result:"pong"});return;}' +
     'if(d.type==="warm"){var w0=Date.now();__warm();self.postMessage({id:d.id,ok:true,result:"warm",ms:Date.now()-w0});return;}' +
     'if(d.ver!==__st.ver)throw new Error("The worker has an older copy of the data.");' +
-    'var t0=Date.now();var r=dispatch(d,__st,__API);var tr=[];' +
-    'try{var pk=NFMPack.packResult(r,tr);r=pk;}catch(pe){tr=[];}' +   // big layouts travel as typed arrays (src/pack.js); any trouble: send the objects as they are
-    'self.postMessage({id:d.id,ok:true,result:r,ms:Date.now()-t0},tr);' +
+    'var t0=Date.now();var r=dispatch(d,__st,__API);' +
+    'var fin=function(r){var tr=[];try{var pk=NFMPack.packResult(r,tr);r=pk;}catch(pe){tr=[];}self.postMessage({id:d.id,ok:true,result:r,ms:Date.now()-t0},tr);};' +   // big layouts travel as typed arrays (src/pack.js); any trouble: send the objects as they are
+    'if(r&&typeof r.then==="function")r.then(fin,function(err){self.postMessage({id:d.id,ok:false,error:String(err&&err.message||err)});});else fin(r);' +   // a build with pieces on helpers answers later
     '}catch(err){self.postMessage({id:d.id,ok:false,error:String(err&&err.message||err)});}};';
 
   function Client(engineSrc, onMain) {
@@ -98,14 +156,37 @@ var NFMEngineClient = (function () {
     this.parkAfter = 0; this.parkMin = 20000; this.parked = false; this.parks = 0; this.unparks = 0; this.unparkMs = 0; this.parkTimer = null; this.holdIf = null; this.keepWarm = false;
     this.warmAfter = 1500; this.warmed = false; this.warmTimer = null;
   }
+  /** Tells the worker it may ask for helper threads (for maps of many big pieces), unless there is only one core or helpers are off. */
+  Client.prototype.sendHelperSrc = function () {
+    try { if (this.helpersOff || ((typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 1) < 2) return; this.w.postMessage({ type: 'helpersOk' }); } catch (e) { /* no helpers: pieces are laid out in the worker */ }
+  };
+  /** The worker asked for n helper threads: each is made from the worker's own text and gets one end of a message channel, the worker the other. */
+  Client.prototype.makeHelpers = function (n) {
+    var self = this, w = this.w, ports = [], url = null;
+    if (!w) return;
+    this.helpers = this.helpers || [];
+    try {
+      url = URL.createObjectURL(new Blob([this.src + WORKER_MAIN], { type: 'text/javascript' }));
+      for (var i = 0; i < n; i++) {
+        var h = new Worker(url), ch = new MessageChannel();
+        h.onerror = function (ev) { if (self.w) self.w.postMessage({ type: 'helperFailed', error: ev && ev.message || 'error' }); self.endHelpers(); };
+        h.postMessage({ type: 'port' }, [ch.port1]); ports.push(ch.port2); this.helpers.push(h);
+      }
+      w.postMessage({ type: 'helperPorts' }, ports);
+    } catch (err) { this.endHelpers(); try { w.postMessage({ type: 'helperPorts', error: String(err && err.message || err) }); } catch (e) { /* gone */ } }
+    if (url) URL.revokeObjectURL(url);
+  };
+  /** Ends the helper threads (the worker is done with them, or is ending). */
+  Client.prototype.endHelpers = function () { (this.helpers || []).forEach(function (h) { try { h.terminate(); } catch (e) { /* gone */ } }); this.helpers = []; };
   Client.prototype.start = function () {
     var self = this;
     return new Promise(function (resolve) {
-      var fallback = function (why) { self.mode = 'page'; self.why = why; if (self.w) { try { self.w.terminate(); } catch (e) { /* gone */ } self.w = null; } resolve(self); };
+      var fallback = function (why) { self.mode = 'page'; self.why = why; if (self.w) { try { self.w.terminate(); } catch (e) { /* gone */ } self.w = null; self.endHelpers(); } resolve(self); };
       try {
         var blob = new Blob([self.src + WORKER_MAIN], { type: 'text/javascript' }), url = URL.createObjectURL(blob);
         self.w = new Worker(url);
         URL.revokeObjectURL(url);
+        self.sendHelperSrc();
         self.attach(self.w, function (ev) { fallback('The worker could not start (' + (ev && ev.message || 'blocked') + ').'); });
         var t = setTimeout(function () { if (self.mode === 'starting') fallback('The worker did not answer in time.'); }, 3000);
         self.call({ type: 'ping' }).then(function () { clearTimeout(t); if (self.mode === 'starting') { self.mode = 'worker'; self.armWarm(); resolve(self); } }, function () { clearTimeout(t); fallback('The worker test failed.'); });
@@ -135,11 +216,13 @@ var NFMEngineClient = (function () {
     if (this.mode === 'page') return;
     var self = this, waiting = Array.from(this.pending.values());
     this.mode = 'page'; this.why = why; this.st = null;
-    if (this.w) { try { this.w.terminate(); } catch (e) { /* gone */ } this.w = null; }
+    if (this.w) { try { this.w.terminate(); } catch (e) { /* gone */ } this.w = null; } this.endHelpers();
     this.pending.clear();
     waiting.forEach(function (p) { if (p.type === 'graph') p.resolve(true); else p.reject(new Error('The background engine stopped, so that step was canceled. Try again: the page will do the work itself now.')); });
   };
   Client.prototype.onMsg = function (d) {
+    if (d && d.type === 'needHelpers') { this.makeHelpers(d.n); return; }
+    if (d && d.type === 'helpersDone') { this.endHelpers(); return; }
     var p = this.pending.get(d.id);
     if (!p) return;
     this.pending.delete(d.id);
@@ -208,7 +291,7 @@ var NFMEngineClient = (function () {
     if (this.mode !== 'worker' || !this.w || this.parked || this.busy || this.pending.size || this.keepWarm || (this.holdIf && this.holdIf())) return false;
     if (q) for (k in q) if (q[k]) return false;
     if (!this.graph || !this.graph.nodes || this.graph.nodes.length < this.parkMin) return false;
-    try { this.w.terminate(); } catch (e) { /* gone already */ }
+    try { this.w.terminate(); } catch (e) { /* gone already */ } this.endHelpers();
     this.w = null; this.parked = true; this.parks++;
     return true;
   };
@@ -223,6 +306,7 @@ var NFMEngineClient = (function () {
         var blob = new Blob([self.src + WORKER_MAIN], { type: 'text/javascript' }), url = URL.createObjectURL(blob);
         self.w = new Worker(url);
         URL.revokeObjectURL(url);
+        self.sendHelperSrc();
         self.attach(self.w);
         self.parked = false;
         self.rawCall({ type: 'graph', graph: self.graph, ver: self.ver }).then(function () { self.unparkMs = Date.now() - t0; self.unparks++; self.unparkP = null; resolve(true); }, function (err) { fail('The background engine could not restart (' + (err && err.message || err) + ').'); });
