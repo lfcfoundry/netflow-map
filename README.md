@@ -206,6 +206,8 @@ node test/limits.test.js             # a 20,000-page chain, 1,500 stacked diamon
 sh tools/fuzz-kit/run-netflow.sh all    # random pans, zooms, setting changes, item moves and file loads in the three test browsers (12 seeds of 250 operations each, about 10 min; needs puppeteer-core, CHROME and FIREFOX set)
 node test/browser.test.js chromium   # real browser run (see the file header for the browser programs it needs)
 node test/browser.test.js firefox    # add NFM_HEADFUL=1 NFM_STRICT=1 NFM_VK_ICD=<a vk_*_icd.json> under xvfb-run to also run WebGL 2 and WebGPU in Firefox
+NFM_ONLY=4,index node test/browser.test.js chromium   # only these blocks (seconds and ok lines per block print at the end of every run); a partial run is never a release result
+node test/all.js --changed           # Node tests for the files changed since the last commit, and the NFM_ONLY= blocks of the browser test they need
 sh tools/hooks/install.sh            # once per clone: house-rule commit hooks
 ```
 

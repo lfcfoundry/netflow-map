@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## Tests only · 2026-10-31 (no new build)
+
+### Quick
+The browser test can run single blocks (`NFM_ONLY=4,8,index`), prints the seconds and ok lines of every block at the end, and `node test/all.js --changed` names the blocks the changed files need. The baseline guard counts "not available here" drawing notes as skipped, which removes Firefox's false failure on machines without WebGL 2. The app is unchanged.
+
+### Details
+test/browser.test.js: each block is `if (want('name')) { blk('name'); ... }`; `want` reads NFM_ONLY (a part of a block runs its whole block). Moved to the start so blocks run alone: the in-page picture keeper (`window.__px`) and section 4's blob catcher and print stand-in. Section 4 finds its SVG files by type. A partial run first draws a 60-item map and sets the drawing manager's WebGL 2 and WebGPU canaries as the backends block does. The dying-worker check waits for an idle engine first. Section 8c waits for a still picture before its byte compare. The zoom-easing check waits for the easing to stop (up to 2.5 s more) instead of reading the zoom at a fixed 700 ms, which a loaded machine missed in the first three-browsers-at-once run. The Canvas 2D pan check waits for the finished 1,500-item picture (in WebKitGTK, run alone, a scene arriving mid-check dropped the kept picture). test/baseline.js: `verdict(..., {skipped, partial})`. New test/browser-blocks.js (changed file to blocks) and test/browser-blocks.test.js. docs/QA-SPEED-GUIDE.md section 16.
+
+### Deep
+Full runs before and after print the same ok lines (Chromium 218, WebKitGTK 206, Firefox 195). Each of the 28 blocks was run alone in Chromium (all pass), and moves, pan, report, 8 and safe alone in Firefox and WebKitGTK; before the fixes 5 failed alone (moves and pan: no `__px`; section 4: a worker's code file took slot 0 of the saved-file list; report: no map built yet; section 8: drawn with Canvas 2D, where two picture checks differ by up to 6 color levels in 19,615 of 2,939,200 bytes). That last difference is kept as a lead: the full run draws section 8 with WebGL 2 in Chromium, so it never showed there. The dying-worker check failed once in a Firefox full run ("first": "resolved"): the app's own map job from the check before was still running, the simulated crash canceled that one, and the test's job then ran on the page and succeeded.
+
 ## 2026.10.31.1440 · 2026-10-31
 
 ### Quick
