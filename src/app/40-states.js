@@ -22,6 +22,7 @@ function applyStatesSpec(spec) {
   S.V.state = 0; saveView(); setGraph(g, true, true);
   toast('Done: ' + plural(g.states.names.length, 'state') + '. Open the Map to see the timeline.');
 }
+var REP = new WeakMap();   /* link lists -> whether pairs repeat; weak, so no old list is held */
 function renderStatesCard() {
   var card = $('states'); if (!card) return;
   if (!S.graph.nodes.length || !S.graph.edges.length) { card.hidden = true; return; }
@@ -39,7 +40,9 @@ function renderStatesCard() {
     mount(card, kids); return;
   }
   kids.push(h('p', { class: 'muted small', style: { margin: 0 } }, 'If your data holds the same network at several times (baseline, year 1, year 2, an end state), I can animate how the links change. Two layouts work: one number column per state, or one column that names the state on repeated links.'));
-  var sug = { rows: [], cols: [] }; try { sug = NFMColumns.suggestStates(S.graph, S.prof) || sug; } catch (e) { /* none */ }
+  /* whether links repeat (from, to) pairs reads 50,000 links (about 33 ms on a 16 MB table); it is kept while the link lists are, since then no link changed ends */
+  var sug = { rows: [], cols: [] };
+  try { var rep = REP.get(S.outAdj); if (rep === undefined) { rep = NFMColumns.pairsRepeat(S.graph); REP.set(S.outAdj, rep); } sug = NFMColumns.suggestStates(S.graph, S.prof, rep) || sug; } catch (e) { /* none */ }
   sug.cols.forEach(function (c) {
     var nameInputs = c.names.map(function (n) { return h('input', { value: n, style: { width: '110px' }, 'aria-label': 'State name' }); });
     kids.push(h('div', { class: 'distbox' }, [h('h3', null, 'These columns look like states'), h('div', { class: 'chips' }, nameInputs),

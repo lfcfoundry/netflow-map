@@ -152,7 +152,9 @@ function renderReport() {
   var g = S.graph, card = $('report');
   if (!g.nodes.length && !S.imp) { card.hidden = true; return; }
   card.hidden = false;
-  var ghosts = g.nodes.filter(function (n) { return n.ghost; }).length, ends = g.nodes.filter(function (n) { return !S.outAdj.has(n.id); }).length;
+  /* items with no way on: counted from the link list's own numbers (on a 16 MB table a name lookup per item took about 27 ms of every change) */
+  var ghosts = g.nodes.filter(function (n) { return n.ghost; }).length, ends = S.outAdj.none ? S.outAdj.none() : -1;
+  if (ends < 0) ends = g.nodes.filter(function (n) { return !S.outAdj.has(n.id); }).length;
   var stat = function (b, s, small) { return h('div', { class: 'stat' }, [h('b', small ? { style: { fontSize: '15px' } } : null, b), h('span', null, s)]); };
   mount($('stats'), [stat(nfmt(g.nodes.length), word('items')), stat(nfmt(g.edges.length), word('links')), stat(nfmt(ends), 'with no way on'), ghosts ? stat(nfmt(ghosts), 'placeholders') : null,
     g.start ? stat((S.byId.get(g.start) || {}).label || g.start, 'start', true) : null,

@@ -493,13 +493,19 @@ var NFMColumns = (function () {
    *   rows  = a column on the links whose few distinct values repeat the same from-to pairs (one row per state)
    *   cols  = number columns on the links that look like one column per state (years, "Year 1", "Baseline"...)
    */
-  function suggestStates(g, prof) {
-    var out = { rows: [], cols: [] };
-    prof = prof || profile(g);
+  /** true when many of the first 50,000 links repeat a (from, to) pair, the sign of one row per link per state. Reads only from and to. */
+  function pairsRepeat(g) {
     var pairs = new Map();
     for (var i = 0; i < g.edges.length && i < 50000; i++) { var k = g.edges[i].from + '\u0001' + g.edges[i].to; pairs.set(k, (pairs.get(k) || 0) + 1); }
     var repeated = 0; pairs.forEach(function (c) { if (c > 1) repeated++; });
-    if (pairs.size && repeated / pairs.size > 0.3) {
+    return !!pairs.size && repeated / pairs.size > 0.3;
+  }
+  /** rep: pairsRepeat(g) when the caller kept it (it changes only when links change ends); else it is worked out here. */
+  function suggestStates(g, prof, rep) {
+    var out = { rows: [], cols: [] };
+    prof = prof || profile(g);
+    if (typeof rep !== 'boolean') rep = pairsRepeat(g);
+    if (rep) {
       prof.edges.forEach(function (c) {
         if (c.key === 'weight' || c.kind === 'number' && c.distinct > 12) return;
         if ((c.kind === 'category' || c.kind === 'date' || c.kind === 'number') && c.distinct >= 2 && c.distinct <= 24) out.rows.push({ key: c.key, name: c.name, values: c.kind === 'category' && c.cats ? c.cats.map(function (x) { return x[0]; }) : null });
@@ -565,6 +571,6 @@ var NFMColumns = (function () {
     return out;
   }
 
-  return { buildStates: buildStates, clearStates: clearStates, num: num, dateMs: dateMs, fmt: fmt, fmtFull: fmtFull, nf: function (n) { return NF_INT ? NF_INT.format(Number(n)) : Number(n).toLocaleString('en-US'); }, profile: profile, profileUpdate: update, findCol: findCol, numOf: numOf, catOf: catOf, split: split, guessRoles: guessRoles, isStory: isStory, compile: compile, derive: derive, suggestStates: suggestStates, nodeSys: nodeSys, FUNCS: Object.keys(FUNCS).concat(['if']) };
+  return { buildStates: buildStates, clearStates: clearStates, num: num, dateMs: dateMs, fmt: fmt, fmtFull: fmtFull, nf: function (n) { return NF_INT ? NF_INT.format(Number(n)) : Number(n).toLocaleString('en-US'); }, profile: profile, profileUpdate: update, findCol: findCol, numOf: numOf, catOf: catOf, split: split, guessRoles: guessRoles, isStory: isStory, compile: compile, derive: derive, suggestStates: suggestStates, pairsRepeat: pairsRepeat, nodeSys: nodeSys, FUNCS: Object.keys(FUNCS).concat(['if']) };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMColumns;
