@@ -363,7 +363,7 @@ function runSearch(q) {
 
 /* ---------------------------------------------------------------- the drawing backend */
 function stageSize() {
-  var r = stage.getBoundingClientRect(), w = Math.max(1, Math.round(r.width)), hh = Math.max(1, Math.round(r.height)), dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  var r = stage.getBoundingClientRect(), w = Math.max(1, Math.round(r.width)), hh = Math.max(1, Math.round(r.height)), dpr = Math.min(window.devicePixelRatio || 1, 2);
   while (w * hh * dpr * dpr > 9e6 && dpr > 1) dpr -= 0.25;
   return { w: w, h: hh, dpr: dpr };
 }
