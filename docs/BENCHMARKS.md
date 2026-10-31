@@ -2097,3 +2097,14 @@ Early-stop A/B rule, on the page: 5,000 `NFMColumns.fmt` plus 5,000 `fmtFull` ca
 |---|---:|---:|---:|
 | 10,000 numbers written out | 171.7 / 10.3 ms (0.05) | 78 / 4 ms (0.05) | 261 / 11 ms (0.05) |
 
+## 66. One list comparison per change, end count from the link list, states check kept (2026.10.31)
+
+Early-stop A/B rule, 800 by 600 window, 16 MB table (188,000 rows), Data tab shown. Before = 2026.10.31.1815, after = 2026.10.31.1830. Page held = heartbeat gaps over 50 ms plus the synchronous change, in the 2.5 s after one rename.
+
+| | Chromium 155 | Firefox 158 | WebKitGTK 2.52.6 |
+|---|---:|---:|---:|
+| Page held after a rename | 138 / 42 ms (0.32, noisy) | 82 / 22 ms (0.24) | 131 / 37 ms (0.25) |
+| 20 changes on a 1,500-row map (synchronous) | faster 0.69 (noisy) | faster 0.37 (noisy) | faster 0.43 (noisy) |
+
+Chromium profile of two renames (readable build): setGraph 340 to 95 ms; report 110 to 18; States card 78 to under 1; list comparisons 88 to 31.
+

@@ -10,9 +10,29 @@
  */
 var NFMUndo = (function () {
   'use strict';
+  /*
+   * One change asks for the same difference up to three times in one go: the undo step (before, after), the item index and the engine's
+   * hand-over (after, before). Each asks scans both whole lists (on a 16 MB table about 7 ms a scan). The last answers are kept until the
+   * current script finishes (a microtask clears them, so no old list is held after it); the same pair, or the same pair the other way round,
+   * is answered from them. The other way round has the same common start, end and changed slots; only the kept values come from the other list.
+   */
+  var KEPT = [], clearing = false;
+  var later = typeof queueMicrotask === 'function' ? queueMicrotask : function (f) { Promise.resolve().then(f); };
+  function forget() { KEPT = []; clearing = false; }
+  function keep(a, b, d) { KEPT.push({ a: a, b: b, na: a.length, nb: b.length, d: d }); if (KEPT.length > 4) KEPT.shift(); if (!clearing) { clearing = true; later(forget); } return d; }
+  function flip(d, a) {
+    if (d.at) return { at: d.at, was: d.at.map(function (i) { return a[i]; }) };
+    return { p: d.p, s: d.s, mid: a.slice(d.p, a.length - d.s) };
+  }
   /** How list a (before) differs from list b (after), by reference. */
   function listDiff(a, b) {
     if (a === b) return { same: true };
+    var q, k;
+    for (q = 0; q < KEPT.length; q++) { k = KEPT[q]; if (k.a === a && k.b === b && k.na === a.length && k.nb === b.length) return k.d; }
+    for (q = 0; q < KEPT.length; q++) { k = KEPT[q]; if (k.a === b && k.b === a && k.na === b.length && k.nb === a.length) return keep(a, b, flip(k.d, a)); }
+    return keep(a, b, scan(a, b));
+  }
+  function scan(a, b) {
     var n = Math.min(a.length, b.length), p = 0, s = 0, i;
     while (p < n && a[p] === b[p]) p++;
     while (s < n - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
@@ -79,6 +99,6 @@ var NFMUndo = (function () {
       return false;
     };
   }
-  return { step: step, back: back, listDiff: listDiff, listBack: listBack, textSharer: textSharer };
+  return { step: step, back: back, listDiff: listDiff, forget: forget, listBack: listBack, textSharer: textSharer };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMUndo;

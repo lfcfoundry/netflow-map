@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.1830 · 2026-10-31
+
+### Quick
+Three per-change costs on big tables, all exact (no saved file, layout or setting is affected). src/undo.js `listDiff` keeps its last answers until the current script ends (a microtask clears them) and answers the same pair, or the same pair turned round, from them: one change asked for the same difference three times (`NFMUndo.step`, the item index's `changedSlots`, the engine hand-over's `graphDiff`). The link lists (src/app/00-core.js `makeLinkLists`) gain `none()`, the count of items with no link, read from the offsets; the Data tab report uses it instead of `has(id)` per item. `NFMColumns.pairsRepeat` is split out of `suggestStates` (which takes it as an optional third argument), and the States card keeps its answer per link list object in a WeakMap.
+
+### Details
+`listDiff` keeps up to 4 answers with both lists and their lengths; a turned-round answer has the same common start, end and changed slots, with the kept values read from the other list (`flip`). Nothing is kept past the script, so no old list is held. `none()` returns -1 when two items share an id (then the report counts with `has` as before). The repeated-pairs check reads only `from` and `to` of the first 50,000 links; the link lists are kept by the item index only when every link keeps its two ends, so a kept list object means the same answer. `indexMatches` (used by the index browser check) now also compares `none()` and the kept repeated-pairs answer with fresh ones. test/undo.test.js: kept and turned-round answers match fresh ones (scattered slots, half changed, an insert, a cut, both ways, values by reference), and are let go after the script.
+
+### Deep
+Chromium CPU profile, two renames on a 16 MB table (188,000 rows, Data tab), readable build: setGraph inclusive 340 to 95 ms; renderReport 110 to 18 (the `has` lookups were 86); renderStatesCard 78 to under 1 (suggestStates' 50,000 joined keys); listDiff 88 to 31 (6 scans to 2). Early-stop A/B rule, page held (heartbeat gaps over 50 ms plus the synchronous change) in the 2.5 s after one rename, 800 by 600 window: Chromium 138 to 42 ms (faster 0.32, 0.16 to 0.69; flagged noisy in both runs, the first 148 to 38, 0.24), Firefox 82 to 22 ms (faster 0.24, 0.21 to 0.28), WebKitGTK 131 to 37 ms (faster 0.25, 0.22 to 0.28). Small map (1,500 rows, 6,003 items and links, 20 changes, synchronous time): Chromium faster 0.69 (0.50 to 0.92), Firefox 0.37 (0.33 to 0.47), WebKitGTK 0.43 (0.16 to 0.58), all flagged noisy with every interval under 1. Left per change on the 16 MB table (Chromium profile): the column profile update about 15 ms, one list scan about 15 ms, isStory about 5 ms.
+
 ## 2026.10.31.1815 · 2026-10-31
 
 ### Quick
