@@ -316,7 +316,9 @@ function makeLinkLists(edges, pos, field, nNodes) {
       return seen;
     },
     has: function (id) { var x = pos.get(id); if (x === undefined) return !!(loose && loose.has(id)); return off[x + 1] > off[x]; },
-    count: function (id) { var x = pos.get(id); if (x === undefined) return loose && loose.has(id) ? loose.get(id).length : 0; return off[x + 1] - off[x]; }
+    count: function (id) { var x = pos.get(id); if (x === undefined) return loose && loose.has(id) ? loose.get(id).length : 0; return off[x + 1] - off[x]; },
+    /** how many items have no link here, read from the typed list (no name lookups); -1 when two items share a name (then ask has() per item) */
+    none: function () { if (pos.size !== nNodes) return -1; var c = 0; for (var j = 0; j < nNodes; j++) if (off[j + 1] === off[j]) c++; return c; }
   };
 }
 /*
@@ -372,6 +374,10 @@ function indexMatches() {
   by.forEach(function (x, id) { if (!bad && (!same(o.get(id), S.outAdj.get(id)) || !same(n2.get(id), S.inAdj.get(id)))) bad = 'links of ' + id; });
   var kinds = new Set(); g.edges.forEach(function (e) { if (e.kind) kinds.add(e.kind); });
   if (!bad && Array.from(kinds).sort().join('|') !== S.kinds.join('|')) bad = 'kinds';
+  var none = S.outAdj.none ? S.outAdj.none() : -1;
+  if (!bad && none >= 0 && none !== g.nodes.filter(function (x) { return !S.outAdj.has(x.id); }).length) bad = 'count of items with no way on';
+  var rep = REP.get(S.outAdj);
+  if (!bad && rep !== undefined && rep !== NFMColumns.pairsRepeat(g)) bad = 'repeated pairs';
   return bad || true;
 }
 /** One link of the layout, read without bringing a packed link list back (see src/layout-park.js). */
