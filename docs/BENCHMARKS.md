@@ -1833,3 +1833,25 @@ Page tests 186 / 174 / 174 (same as before), fuzz 12 seeds, 3000 ops, no finding
 
 Pictures: 100.000% of pixels the same in all three browsers (3,000 items). Page tests 186 / 174 / 174, fuzz 12 seeds, 3000 ops, no findings, in all three. A first WebKitGTK run was 30% slower because the graphics-card path still unpacked the links; fixed before merging.
 
+
+## 49. A 100,000-item first layout: where the time goes, and two same-picture cuts (2026.10.30)
+
+**Where the time went** (lab, Chromium, moderate network of 100,000 items, Stress, engine on the page, about 7.2 s): the push-apart 2.9 s (37%; the first call of 30 passes is 1.5 s), the Stress layout 2.0 s, the rest (prepare, mapGraph, sizes, importance, fitScale, packing) about 2.5 s. Inside the Stress layout, the smallest copy the multilevel start makes (1,816 items with about 186 links each after six halvings) used every pair and spent 1.0 s on 1,816 breadth-first walks, more than the other six levels together.
+
+**What changed** (pictures identical to the last digit: the positions of all 100,000 items hash the same before and after, in every run and browser):
+1. `wasm/stress.c` `bfs`: once a level holds more than a twentieth of the items, each item not yet reached looks for one link into that level and stops at the first (bottom-up, Beamer, Asanovic and Patterson 2012). The hop counts are the same, so the pairs are the same. The 1,816-item step: 1.0 s to 0.25 s.
+2. `src/engine.js` `networkLayout`: each item's size is worked out once into a list; the push-apart and the packing asked for it about a million times through a text-keyed lookup (about 0.3 s).
+3. `wasm/stress.c` `separate`: pairs clearly apart skip the square root (the exact test still decides every close call). No measurable gain, kept because it is free.
+
+**Before and after** (ms, shorter is better; each run in a fresh page, old and new taken in turn):
+
+| Browser | Items | Before | After | Change |
+|---|---:|---:|---:|---:|
+| Chromium (Playwright build) | 100,000 | 7,232 (7,040 to 7,384) | 5,535 (5,328 to 5,701) | 23% faster |
+| Chromium (Playwright build) | 30,000 | 1,551 | 1,287 | 17% faster |
+| Chromium (Playwright build) | 10,000 | 752 | 653 | 13% faster |
+| Firefox 158 | 100,000 | 10,519 / 10,072 | 9,024 / 9,168 | 13% faster |
+| Firefox 158 | 10,000 | 906 | 858 | 5% faster |
+| WebKitGTK 2.52.6 | 30,000 | 1,895 / 1,731 | 1,280 / 1,240 | 32% faster |
+
+**Left:** the push-apart is now the largest step (about half the time at 100,000 items). Faster versions of it change the picture slightly (fewer passes, or a different order of pushes), so they need a look first.

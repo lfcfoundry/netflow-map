@@ -8,10 +8,25 @@ typedef int i32; typedef unsigned int u32; typedef unsigned short u16;
 #define EXP(n) __attribute__((export_name(n)))
 static i32 *off_, *nbr_, *dist_, *queue_;
 static i32 K;
+/* Hop counts from src, one level at a time. While the level being walked is small, each of its items looks at its links (top-down); once it
+ * holds more than a twentieth of the items, each item not yet reached looks for one link into that level instead and stops at the first
+ * (bottom-up, Beamer, Asanovic and Patterson 2012). Both give the same hop counts, so the pairs and the picture are the same; on the dense
+ * small copies the multilevel start makes (2,000 items, about 190 links each) this does far fewer link checks. */
 static void bfs(i32 src) {
   for (i32 i = 0; i < K; i++) dist_[i] = -1;
-  dist_[src] = 0; queue_[0] = src; i32 head = 0, tail = 1;
-  while (head < tail) { i32 u = queue_[head++], du = dist_[u] + 1; for (i32 e = off_[u], e1 = off_[u + 1]; e < e1; e++) { i32 w = nbr_[e]; if (dist_[w] < 0) { dist_[w] = du; queue_[tail++] = w; } } }
+  dist_[src] = 0; queue_[0] = src; i32 head = 0, tail = 1, d = 0, left = K - 1;
+  while (head < tail && left > 0) {
+    i32 end = tail;
+    if ((end - head) * 20 > K) {
+      for (i32 v = 0; v < K; v++) {
+        if (dist_[v] >= 0) continue;
+        for (i32 e = off_[v], e1 = off_[v + 1]; e < e1; e++) if (dist_[nbr_[e]] == d) { dist_[v] = d + 1; queue_[tail++] = v; break; }
+      }
+    } else {
+      for (i32 q = head; q < end; q++) { i32 u = queue_[q]; for (i32 e = off_[u], e1 = off_[u + 1]; e < e1; e++) { i32 w = nbr_[e]; if (dist_[w] < 0) { dist_[w] = d + 1; queue_[tail++] = w; } } }
+    }
+    left -= tail - end; head = end; d++;
+  }
 }
 typedef struct { i32 *pa, *pb; u16 *pc; i32 cnt, cap, maxD; } Pairs;
 /* 0 = fine, 1 = pair list full, 2 = hop count too big for the code (the page then uses its Float32 version) */
@@ -181,8 +196,9 @@ EXP("separate") i32 separate(double *X, i32 k, const double *rads, double rmax, 
         i32 from = start[ci + row * GW - 1], to = start[ci + row * GW + 2];
         for (i32 q = from; q < to; q++) {
           i32 o = sorted[q]; if (o <= i) continue;
-          double dx = X[2 * o] - X[2 * i], dy = X[2 * o + 1] - X[2 * i + 1], dd = __builtin_sqrt(dx * dx + dy * dy); if (dd == 0 || dd != dd) dd = 0.01;
-          double need = ra + rads[o];
+          double dx = X[2 * o] - X[2 * i], dy = X[2 * o + 1] - X[2 * i + 1], d2 = dx * dx + dy * dy, need = ra + rads[o];
+          if (d2 > need * need * 1.000001) continue;   /* clearly apart: skip the square root (the exact test below decides every close call, so the picture is the same) */
+          double dd = __builtin_sqrt(d2); if (dd == 0 || dd != dd) dd = 0.01;
           if (dd < need) {
             double push = (need - dd) / 2, ux = dx / dd; if (ux == 0 || ux != ux) ux = 1; double uy = dy / dd;
             X[2 * i] -= ux * push; X[2 * i + 1] -= uy * push; X[2 * o] += ux * push; X[2 * o + 1] += uy * push; moved = 1;
