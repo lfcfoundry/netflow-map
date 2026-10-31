@@ -329,8 +329,14 @@ var NFMEngineClient = (function () {
        a port and comes back as bytes, so the restart needs no copy of the whole graph on the page's thread. */
     if (this.keeper && this.sent && typeof MessageChannel === 'function') {
       var from = this.sent, fromVer = this.sentVer, ch = new MessageChannel(), end = function () { try { w.terminate(); } catch (e) { /* gone */ } };
-      this.keepP = Promise.resolve().then(function () { var k = self.keeper.keep(ch.port2); w.postMessage({ type: 'handOver' }, [ch.port1]); return k; })
-        .then(function (bytes) { end(); if (self.parked && !self.w) self.kept = { bytes: bytes, from: from, ver: fromVer }; }, function () { end(); })
+      /* The worker is asked for its graph only once the keeper's thread has its end of the channel: in Firefox, messages that reach a port
+         still on the page are lost when that port then moves to another thread (a small graph arrived that fast, and the keep never ended).
+         A keep that has not ended in 20 s is given up (the restart then sends the whole graph, as without a keeper). */
+      var keep = new Promise(function (ok, bad) {
+        Promise.resolve(self.keeper.keep(ch.port2, function () { w.postMessage({ type: 'handOver' }, [ch.port1]); })).then(ok, bad);
+        setTimeout(function () { bad(new Error('keep timed out')); }, 20000);
+      });
+      this.keepP = keep.then(function (bytes) { end(); if (self.parked && !self.w) self.kept = { bytes: bytes, from: from, ver: fromVer }; }, function () { end(); })
         .then(function () { self.keepP = null; });
     } else { try { w.terminate(); } catch (e) { /* gone already */ } }
     this.sent = null;

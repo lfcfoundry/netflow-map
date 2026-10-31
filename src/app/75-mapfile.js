@@ -32,7 +32,11 @@ function lfcSource() {
    (LFC-pack, about 5 MB) on a thread of its own, made when needed and ended 30 s after its last job, so the page never waits for it.
    Undo reads the bytes back (about half a second for 100,000 items). All of Undo is held to UNDO_CAP: past it the oldest steps go. */
 var UNDO_CAP = 16 * 1048576, UNDOPACK = { w: null, idle: null, seq: 0, wait: new Map() };
-var UNDOPACK_MAIN = '\nself.onmessage=function(e){var d=e.data;LfcPack.init().then(function(){return LfcPack.packTables(d.doc);}).then(function(u){self.postMessage({id:d.id,u8:u},[u.buffer]);},function(err){self.postMessage({id:d.id,error:String(err&&err.message||err)});});};';
+var UNDOPACK_MAIN = '\nself.onmessage=function(e){var d=e.data,fail=function(err){self.postMessage({id:d.id,error:String(err&&err.message||err)});};' +
+  /* keep: the layout worker's graph arrives on a port and goes back to the page as map-file bytes; give: bytes in, the graph out on a port to a fresh layout worker */
+  'if(d.kind==="keep"){var kp=e.ports[0];kp.onmessage=function(m){kp.close();var g=m.data.graph,meta={},k;for(k in g)if(k!=="nodes"&&k!=="edges"&&g[k]!==undefined)meta[k]=g[k];LfcPack.init().then(function(){return LfcPack.packTables({meta:meta,nodes:g.nodes,links:g.edges});}).then(function(u){self.postMessage({id:d.id,u8:u},[u.buffer]);},fail);};return;}' +
+  'if(d.kind==="give"){var gp=e.ports[0];LfcPack.init().then(function(){return LfcPack.unpackTables(d.u8);}).then(function(x){var g={},m=x.meta||{},k;for(k in m)g[k]=m[k];g.nodes=x.nodes;g.edges=x.links;gp.postMessage({graph:g});gp.close();self.postMessage({id:d.id,u8:null});},fail);return;}' +
+  'LfcPack.init().then(function(){return LfcPack.packTables(d.doc);}).then(function(u){self.postMessage({id:d.id,u8:u},[u.buffer]);},function(err){self.postMessage({id:d.id,error:String(err&&err.message||err)});});};';
 function undoMeta(g) { var m = {}; Object.keys(g).forEach(function (k) { if (k !== 'nodes' && k !== 'edges' && g[k] !== undefined) m[k] = g[k]; }); return m; }   /* every other field of the map, as an undo step keeps them (src/undo.js) */
 function undoPacker() {
   if (UNDOPACK.w) return Promise.resolve(UNDOPACK.w);
@@ -69,6 +73,18 @@ function undoPackSoon(st) {
     st.bytes = u8; st.graph = null; undoCap();
   }, function () { st.packing = false; undoCap(); });
 }
+/** The layout worker's keeper (src/engine-client.js park and unpark): while it is parked, its graph is kept here as map-file bytes, packed and unpacked off the page. */
+function keeperCall(kind, port, u8, posted) {
+  return undoPacker().then(function (w) {
+    var id = ++UNDOPACK.seq; clearTimeout(UNDOPACK.idle);
+    return new Promise(function (ok, bad) { UNDOPACK.wait.set(id, { ok: ok, bad: bad }); w.postMessage({ id: id, kind: kind, u8: u8 }, u8 ? [port, u8.buffer] : [port]); if (posted) posted(); });
+  });
+}
+var LAYOUT_KEEPER = {
+  /* posted(): called once the port has gone to the keeper's thread; the layout worker is asked for its graph only then (see park) */
+  keep: function (port, posted) { return keeperCall('keep', port, null, posted).then(function (u8) { if (!u8 || !u8.length) throw new Error('nothing kept'); return u8; }); },
+  give: function (u8, port) { return keeperCall('give', port, u8); }
+};
 function undoUnpack(st) {
   return lfcReady().then(function () { return LfcPack.unpackTables(st.bytes); }).then(function (d) { var g = {}, m = d.meta || {}; Object.keys(m).forEach(function (k) { g[k] = m[k]; }); g.nodes = d.nodes; g.edges = d.links; return g; });
 }
