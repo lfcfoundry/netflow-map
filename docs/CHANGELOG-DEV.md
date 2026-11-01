@@ -4,7 +4,7 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
-## 2026.11.01.0224 · 2026-11-01
+## 2026.11.01.0239 · 2026-11-01
 
 ### Quick
 New src/charts.js (NFMCharts): layouts for treemap (squarified), icicle and sunburst (partition), circle packing (front-chain packSiblings plus Welzl enclose), tidy tree (Buchheim, non-recursive), bundled links (Holten, beta 0.85, B-spline to Bezier) and chord (sparse flows, arc order by circular barycenter with weighted crossings up to 3,000 bands). src/engine.js adds them to VIEWS and builds them through `NFMCharts.layout`; src/scene-alias.js sends a layout with `L.chart` to `NFMCharts.scene`. New src/plot.js (NFMPlot, 23 chart types) and src/app/38-charts.js (the Charts tab, spec saved in `S.V.chart`). New view settings `chordBy`, `nest`, `treeShape` (defaults auto, auto, tidy; fixLook checks them). Saved files and layouts load as before; old saves get the defaults.
@@ -14,6 +14,16 @@ Hierarchy source: links when they form a forest (BFS from the start item), else 
 
 ### Deep
 test/charts.test.js (805 checks): treemap leaves never overlap, pack circles never overlap and sit inside their parent, partition children fit their parent, tidy-tree rows at least 26 px apart with parents centered, chord totals match, three equal circles enclose at 1 + 2/sqrt(3). test/plot.test.js (328 checks): every type at 0, 1, 7 and 2,000 rows and with missing columns draws only finite shapes and labels, the pointer finds bars and wedges, ticks, density and normal quantiles are right. It found that the big-scatter pointer lookup used `S.grid`, which the scene module uses for its pick grid; renamed `S.plotGrid`. A style rule `.charts canvas` from the Check tab hid the chart canvas behind an opaque one; the tab's grid class is `.cht`. Browser suites: Chromium 232 ok, WebKitGTK 220 ok, Firefox 209 ok, 0 FAIL (new: every view including the seven new ones draws, and six Charts tab types draw shapes in each renderer). The Charts tab picks link rows until Rows is set by hand when only the links have number columns (a flat table comes in as links). A renderer that cannot start falls back to Canvas2D.
+## 2026.11.01.0219 · 2026-11-01
+
+### Quick
+Vendored netflow-layers 1.9.0 (JS-modules PR 423, 1fc6cad; file from 67147f4, byte-identical to JS-modules main). Same-picture speedups (no third layout for both row choices, stop-number link lists, single-key row sort without lanes, the wasm order search skips unchanged rows) and better: true deepens from both starts and keeps the fewer crossings. No saved file, layout or setting changes.
+
+### Details
+Picture check: Flow, top-down, spine and lanes on 48 story and DAG maps (20 to 1,200 items): node positions identical on all 192. Early-stop A/B, one page with both engines, Flow plus top-down builds of a 400 and a 1,200-item story: Chromium 155 0.961 (0.862-1.007) at 400, 0.853 and 0.810 at 1,200; Firefox 158 0.953 at 400, 0.861 at 1,200; WebKitGTK 2.52.6 1.000 (0.905-1.044) at 400, 0.923 and 0.947 at 1,200.
+
+### Deep
+First runs flagged WebKitGTK 1,200 as 1.26 slower and Chromium 1,200 as inconclusive (1.027); each was rerun with both load orders and came out level or faster, so the first runs read as noise. Node tests pass; browser suites Chromium 219 ok, WebKitGTK 207 ok, Firefox 196 ok, 0 FAIL.
 
 ## 2026.11.01.0154 · 2026-11-01
 
