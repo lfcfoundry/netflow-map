@@ -4,7 +4,7 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
-## 2026.10.31.2206 · 2026-10-31
+## 2026.10.31.2214 · 2026-10-31
 
 ### Quick
 Vendored netflow-sankey 2.4.0 (JS-modules PR 374, commit 6ed23fd, byte-identical to JS-modules main; stand-in stops and per-bar numbers in typed arrays, same picture on 669 maps; new option `stopCap`/`stopCapFrom`, off in the module). src/engine.js passes `stopCap: 500` (or `o.skStopCap`) to the Sankey layout; the module applies it only to maps of 1,000+ items (`stopCapFrom`). Jawad's card 2026.10.31 9:08 PM ET: "Cap at 500 stops". Pictures change for Sankeys of 1,000+ items only; nothing saved is affected.
@@ -14,6 +14,17 @@ Whole build at 1,500 items, cloud, median of 3 (no cap / cap 2,000 / cap 500 / d
 
 ### Deep
 At 1,500 items the layout made about 9,000 stand-in stops and 10,600 bands; the order search (about 4 ms) and scale + relax (about 4 ms) are now its largest parts. New bench metric `overBars` (bench/vs-libs.js) and plan `cap` (bench/vs-libs-run.js; CAPN=n runs one size). Comparison pictures: /mnt/project-files/netflow-map/vs-libs-2026.10.31/sankey-long-links-2026.10.31.html. New test: the cap leaves maps under 1,000 items byte-identical.
+
+## 2026.10.31.2205 · 2026-10-31
+
+### Quick
+src/columns.js: `profileUpdate` keeps a column's samples exact for a changed value anywhere (`sampIn`/`sampOut`: first three different values in item order, with where each first came), so a column with under three different values, or a change at or before its third sample, is no longer read again whole; only a value taken out where it first came still is. New `isStoryOf(g, prof)` reads the outcome-mark column's counts (unless it has 400+ different values). src/app/00-core.js: `indexGraph` keeps `IDX.ghosts` (placeholder count) for changed items; `renderReport` reads it. `profileUpdate.redone` counts columns read again (for tests). Nothing saved is affected.
+
+### Details
+Page held after one rename, 16 MB table (188,000 items), Data tab, early-stop A/B: Chromium 29 to 11 ms (faster 0.42, noisy), Firefox 29 to 5 ms (faster 0.22), WebKitGTK 27 to 14 ms (faster 0.51, noisy). 3,000 rows: Chromium faster 0.78, Firefox ok 0.87 (a parallel run said slower 1.87 at 3 vs 7 ms, noisy; the solo rerun is ok), WebKitGTK faster 0.54. Chromium profile of two renames: indexGraph 51 ms to under 2 (the generated table's labels all equal the ids, so the label column had no samples and was read again on every change, about 17 ms; isStory 8 ms); renderReport 23 to 10 ms (the placeholder filter was about 8 ms).
+
+### Deep
+test/profile-update.test.js: 600 edits among the first eight items (values moving into, within and out of the samples) all equal the full profile; renames in a map whose labels are all unused plus a two-value flag column read no column again; the story check from the profile agrees with a pass over the items through every random edit. Browser index block: placeholder and outcome-mark steps take the quick path, and `indexMatches()` also checks the placeholder count and the story flag. Still per change on that table: one list compare (about 5 ms, src/undo.js scan) and the save's size sampling (about 4 ms, debounced).
 
 ## 2026.10.31.2045 · 2026-10-31
 
