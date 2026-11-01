@@ -121,12 +121,23 @@
     var out = { n: a.n, links: g.edges.length }, idx = new Map(); g.nodes.forEach(function (nd, q) { idx.set(nd.id, q); });
     var sopt = Object.assign({ view: 'sankey', colorBy: 'group', sk: {} }, a.opt || {}), dg = C.derive(clone(g)), r = repT(a.reps, function () { return E.build(dg, sopt); });
     if (a.oursOnly) return { ms: r.ms };
+    if (a.over === false) {   /* geometry for pictures (bench only): ours and d3-sankey's, rounded */
+      var R1 = function (v) { return Math.round(v * 10) / 10; };
+      var d3o = LIBS.d3sankey.sankey().nodeWidth(15).nodePadding(8).extent([[0, 0], [1000, Math.max(500, a.n * 4)]])({ nodes: g.nodes.map(function (nd) { return { name: nd.id }; }), links: g.edges.map(function (e) { return { source: idx.get(e.from), target: idx.get(e.to), value: e.weight }; }) });
+      window.__lastSk = { W: r.value.width, H: r.value.height, bars: r.value.nodes.map(function (n) { return [R1(n.x), R1(n.y), R1(n.w), R1(n.h)]; }), bands: r.value.sk.bands.map(function (b) { return [R1(b.x0), R1(b.y0a), R1(b.y0b), R1(b.x1), R1(b.y1a), R1(b.y1b)]; }),
+        d3: { W: 1000, H: Math.max(500, a.n * 4), bars: d3o.nodes.map(function (n) { return [R1(n.x0), R1(n.y0), R1(n.x1 - n.x0), R1(n.y1 - n.y0)]; }), links: d3o.links.map(function (k) { return [R1(k.source.x1), R1(k.y0 - k.width / 2), R1(k.y0 + k.width / 2), R1(k.target.x0), R1(k.y1 - k.width / 2), R1(k.y1 + k.width / 2)]; }) } };
+      return { ms: r.ms };
+    }
     var cp = centers(r.value), bad = 0; Object.keys(cp).forEach(function (k) { if (!isFinite(cp[k][0]) || !isFinite(cp[k][1])) bad++; });
-    out.ours = { ms: r.ms, cross: crossings(cp, g.edges), placed: Object.keys(cp).length, notFinite: bad, columns: new Set(Object.keys(cp).map(function (k) { return Math.round(cp[k][0]); })).size, netflowSankey: !!window.NetflowSankey, hash: picHash(r.value) };
+    /* links drawn over bars: a band whose straight path passes a bar it does not belong to (its middle line at the bar's x is inside the bar) */
+    var overBars = function (bars, links) { var hit = 0; bars.sort(function (p, q) { return p.x0 - q.x0; }); links.forEach(function (k) { if (k.x1 - k.x0 < 1) return; bars.forEach(function (b) { if (b.x0 <= k.x0 + 1 || b.x1 >= k.x1 - 1 || b.id === k.s || b.id === k.t) return; var xm = (b.x0 + b.x1) / 2, f = (xm - k.x0) / (k.x1 - k.x0), y = k.y0 + f * (k.y1 - k.y0); if (y > b.y0 && y < b.y1) hit++; }); }); return hit; };
+    var obOurs = r.value.sk ? overBars(r.value.nodes.map(function (n) { return { id: n.id, x0: n.x, x1: n.x + n.w, y0: n.y, y1: n.y + n.h }; }), r.value.sk.bands.map(function (b) { return { s: b.from, t: b.to, x0: b.x0, y0: (b.y0a + b.y0b) / 2, x1: b.x1, y1: (b.y1a + b.y1b) / 2 }; })) : null;   /* each band piece as drawn: a piece between two neighboring columns cannot pass another bar; a long link drawn straight can */
+    out.ours = { ms: r.ms, cross: crossings(cp, g.edges), placed: Object.keys(cp).length, notFinite: bad, columns: new Set(Object.keys(cp).map(function (k) { return Math.round(cp[k][0]); })).size, netflowSankey: !!window.NetflowSankey, hash: picHash(r.value), overBars: obOurs, straightBands: r.value.sk ? r.value.sk.bands.filter(function (b) { return b.x1 - b.x0 > 300; }).length : null };
     try {
       var r2 = T(function () { var nodes = g.nodes.map(function (nd) { return { name: nd.id }; }), links = g.edges.map(function (e) { return { source: idx.get(e.from), target: idx.get(e.to), value: e.weight }; });
-        var o = LIBS.d3sankey.sankey().nodeWidth(15).nodePadding(8).extent([[0, 0], [1000, Math.max(500, a.n * 4)]])({ nodes: nodes, links: links }); var p = {}; o.nodes.forEach(function (nd) { p[nd.name] = [(nd.x0 + nd.x1) / 2, (nd.y0 + nd.y1) / 2]; }); return p; });
-      out.d3sankey = { ms: r2.ms, cross: crossings(r2.value, g.edges) };
+        var o = LIBS.d3sankey.sankey().nodeWidth(15).nodePadding(8).extent([[0, 0], [1000, Math.max(500, a.n * 4)]])({ nodes: nodes, links: links }); var p = {}; o.nodes.forEach(function (nd) { p[nd.name] = [(nd.x0 + nd.x1) / 2, (nd.y0 + nd.y1) / 2]; }); window.__d3sk = o; return p; });
+      var o3 = window.__d3sk; window.__d3sk = null;
+      out.d3sankey = { ms: r2.ms, cross: crossings(r2.value, g.edges), overBars: a.over === false ? null : overBars(o3.nodes.map(function (nd) { return { id: nd.name, x0: nd.x0, x1: nd.x1, y0: nd.y0, y1: nd.y1 }; }), o3.links.map(function (k) { return { s: k.source.name, t: k.target.name, x0: k.source.x1, y0: k.y0, x1: k.target.x0, y1: k.y1 }; })) };
     } catch (e) { out.d3sankey = { error: String(e && e.message || e).slice(0, 80) }; }
     return out;
   };

@@ -58,6 +58,15 @@ t('Sankey without the layered drawing first: the same bars, bands and loops as w
   });
   return out.join(', ');
 });
+t('Sankey stop cap: maps under 1,000 items draw exactly as with no cap', () => {
+  const out = [];
+  [['story 400', story(400, 4)], ['dag 60/120', dag(60, 120, 3)]].forEach(([nm, s]) => {
+    const A = E.build(copy(graph(s)), { view: 'sankey', sk: {}, skStopCap: 1e9 }), B = E.build(copy(graph(s)), { view: 'sankey', sk: {} });
+    const pl = (L) => JSON.stringify([L.width, L.height, L.nodes.map((n) => [n.id, n.x, n.y, n.w, n.h]), L.sk.bands, L.sk.loops]);
+    ok(pl(A) === pl(B), nm + ': the cap changed a small map'); out.push(nm + ' same');
+  });
+  return out.join(', ');
+});
 const info = (g, o) => E.build(copy(g), Object.assign({ view: 'down' }, o));
 t('story order: a map with no loops has no gold (back or sideways) links, and real loops are still gold', () => {
   const d = graph(dag(300, 600, 5)), a = info(d, {}), b = info(d, { rows: 'story' });
