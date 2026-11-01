@@ -20,7 +20,7 @@ def main(argv):
     src, dst = argv[1], argv[2]
     title = argv[3] if len(argv) > 3 else 'Loading'
     here = os.path.dirname(os.path.abspath(__file__))
-    cands = [argv[4] if len(argv) > 4 else None, os.environ.get('NFM_SFT_PACK'), os.path.join(here, '..', '..', 'js-modules', 'tools', 'single-file-tools', 'pack.py'), '/home/claude/js-modules/tools/single-file-tools/pack.py']
+    cands = [argv[4] if len(argv) > 4 else None, os.environ.get('NFM_SFT_PACK'), os.path.join(here, '..', '..', 'js-modules', 'tools', 'single-file-tools', 'pack.py')]
     path = next((c for c in cands if c and os.path.exists(c)), None)
     if not path:
         raise SystemExit('fast-pack: tools/single-file-tools/pack.py from JS-modules not found; clone lfcfoundry/JS-modules next to this folder or set NFM_SFT_PACK')

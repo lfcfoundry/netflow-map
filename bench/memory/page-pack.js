@@ -1,6 +1,6 @@
 // Copyright (c) 2026 LFC Foundry. MIT License.
 // Stage A prototype (measurement only, nothing in the app changes): with a big network shown, pack every scene link into typed arrays, let the link objects go, and read the real heap, the packing time, the time to make link objects again (all of them, and a screenful) and how far the packed values drift from the originals.
-// Run:  HOME=/home/claude NFM_PLAYWRIGHT=/tmp/pw/node_modules/playwright-core node bench/memory/page-pack.js 100000
+// Run:  NFM_PLAYWRIGHT=<path to playwright-core> node bench/memory/page-pack.js 100000
 // Line 1 prints the browser version. Chromium gives exact heap and a forced collection; for the other browsers use NFM_TIMEONLY=1 (times and drift only).
 const path = require('path'), pw = require(process.env.NFM_PLAYWRIGHT || 'playwright-core');
 const N = Number(process.argv[2]) || 30000, URL = 'file://' + path.resolve(process.env.NFM_PAGE || path.resolve(__dirname, '..', '..', 'index.html')) + '?tunesizes=1500';

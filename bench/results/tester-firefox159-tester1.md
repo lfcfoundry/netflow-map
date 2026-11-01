@@ -8,7 +8,7 @@ Version 2026.10.15.1541 · run 2026-10-15T19:44:09.113Z · took 36.2 s
 
 | Item | Value |
 |---|---:|
-| Browser | Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:159.0) Gecko/20100101 Firefox/159.0 |
+| Browser | Firefox 159 |
 | Processor threads | 16 |
 | Memory hint (GB) | not shared by this browser |
 | Screen | 1536 x 960 at 1.25x |
@@ -85,7 +85,7 @@ _Graphics-card time covers everything: the 60-point sketch, the upload, the hop 
  "version": "2026.10.15.1541",
  "quick": false,
  "info": {
-  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:159.0) Gecko/20100101 Firefox/159.0",
+  "ua": "Firefox 159",
   "threads": 16,
   "mem": null,
   "gpu": "unnamed adapter",

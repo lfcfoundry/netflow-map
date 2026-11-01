@@ -1,6 +1,6 @@
 // Copyright (c) 2026 LFC Foundry. MIT License.
 // Netflow Map in ungoogled-chromium: which parts of the page state hold the JavaScript heap with a big network shown. Each object is counted once, under the first state field that reaches it; sizes are estimates (8 bytes a slot, 24 bytes an object, typed arrays exact) and are compared with the exact heap.
-// Run:  HOME=/home/claude NFM_PLAYWRIGHT=/tmp/pw/node_modules/playwright-core node bench/memory/page-who.js 100000
+// Run:  NFM_PLAYWRIGHT=<path to playwright-core> node bench/memory/page-who.js 100000
 const path = require('path'), pw = require(process.env.NFM_PLAYWRIGHT || 'playwright-core');
 const N = Number(process.argv[2]) || 30000, URL = 'file://' + path.resolve(process.env.NFM_PAGE || path.resolve(__dirname, '..', '..', 'index.html')) + '?tunesizes=1500';
 const CH = process.env.NFM_CHROME || (process.env.HOME || '/root') + '/browsers/ungoogled-chromium-155.0.8059.39-1-x86_64_linux/chrome';

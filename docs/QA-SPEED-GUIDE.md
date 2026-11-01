@@ -141,7 +141,7 @@ Different checks need different amounts of data.
 - **Time budget on random tests.** The fuzz test gets 4 s (and smaller sizes) in the normal run (`node test/all.js`) and 90 s in the full run (`--full`).
 - **Exit code** is non-zero if anything failed so scripts and hooks can rely on it.
 
-**Estimate:** on a 16-thread laptop, 4 lanes would be the cap here, and a 2-core cloud container was already saturated at 2.
+**Estimate:** on a 16-thread computer, 4 lanes would be the cap here, and a 2-core cloud container was already saturated at 2.
 
 **Do not parallelize** tests that share a port, a file, a database, or a single browser window.
 
@@ -157,7 +157,7 @@ Matches your stated preference: hold off on checks and benchmarks while the desi
 | **1 Quick** | While working | The Node tests for the area you touched. `fuzz.test.js 20` is a 20-second spot check | under 30 s |
 | **2 Standard** | When a change is "done" | `node test/all.js`, then the browser test in one browser | about 1.5 min |
 | **3 Release** | Design settled, before sending to the owner | `node test/all.js --full`, browser test in every supported browser, one at a time, the long fuzz run | several minutes |
-| **4 Real hardware** | After release | The tester page on the owner's laptop (his own run) | his time |
+| **4 Real hardware** | After release | The tester page on a real computer (run by hand) | the owner's time |
 
 **Rules:**
 - Never run Tier 3 on a design that may be thrown away.
@@ -187,7 +187,7 @@ A shortcut is only safe if it cannot hide a real bug.
 
 **Run one browser at a time on a small machine.** Two browsers running together compete for cores and memory. Timings and frame rates become meaningless. The Node tests are the exception because they do not measure frame rates.
 
-**Software vs real graphics:** the cloud container has no graphics card, so it validates *correctness* (same pictures, no crashes) but not *smoothness*. Smoothness comes from the tester page running on the owner's own laptop. (Do not keep telling the owner about the missing graphics card; just route smoothness questions to the tester.)
+**Cloud vs real computers:** cloud runs check *correctness* (same pictures, no crashes), not *smoothness*. Smoothness comes from the tester page run on a real computer.
 
 **Make pictures comparable across browsers:**
 - Compare drawing backends against each other (WebGL 2, Canvas 2D, WebGPU) with an agreed tolerance, not exact pixels. Our parity check lives in `test/browser.test.js`.

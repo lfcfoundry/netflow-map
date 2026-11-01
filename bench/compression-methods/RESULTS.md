@@ -45,7 +45,7 @@ Number picker 36.7 KB, column writer 37.1 KB, FSST 31.7 KB, reader 33.0 KB, WebA
 
 ## Follow-up: the recommended changes, measured (2026-10-18)
 
-- **Start the LZ4 wasm on first use:** pages that never pack save 5.8 MB on load (14.96 to 9.12 MB in Chromium 155, lower is better, medians of 5 fresh browsers); pages that pack end the same (22.63 against 22.98 MB after 250,000 links); the first pack of 25,000 links takes about 3 ms longer (24 to 28 ms Chromium, 18 to 21 ms Firefox 158.0); output unchanged. Written up as memory-compression 2.0.3 for JS-modules: /mnt/project-files/js-modules-research/memory-compression/2.0.3/BRIEF-apply.md.
+- **Start the LZ4 wasm on first use:** pages that never pack save 5.8 MB on load (14.96 to 9.12 MB in Chromium 155, lower is better, medians of 5 fresh browsers); pages that pack end the same (22.63 against 22.98 MB after 250,000 links); the first pack of 25,000 links takes about 3 ms longer (24 to 28 ms Chromium, 18 to 21 ms Firefox 158.0); output unchanged. Written up as memory-compression 2.0.3 for JS-modules: project files: js-modules-research/memory-compression/2.0.3/BRIEF-apply.md.
 - **Smaller starting wasm memory (4 MB to 1 MB):** built (the rebuild is byte-identical to the published file with the original flag) and measured: no change in resident memory (22.63 MB both), so it is not recommended after all. The 4.00 MB figure above is reserved size, not resident size.
 
 ## Limits

@@ -1,6 +1,6 @@
 # Netflow Map against D3: results
 
-Version 2026.10.17.1507. Run 2026-10-17T19:16:41.854Z in Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:159.0) Gecko/20100101 Firefox/159.0. Took 1:24. A bold cell is the best in its row.
+Version 2026.10.17.1507. Run 2026-10-17T19:16:41.854Z in Firefox 159. Took 1:24. A bold cell is the best in its row.
 
 ## Network layout: who draws a truer map, and how fast?
 

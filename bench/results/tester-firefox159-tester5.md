@@ -8,11 +8,11 @@ Version 2026.10.15.1608 · run 2026-10-15T20:12:31.405Z · took 50.7 s
 
 | Item | Value |
 |---|---:|
-| Browser | Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:159.0) Gecko/20100101 Firefox/159.0 |
+| Browser | Firefox 159 |
 | Processor threads | 16 |
 | Memory hint (GB) | not shared by this browser |
 | Screen | 1536 x 960 at 1.25x |
-| Graphics (as the page sees it) | ANGLE (AMD, Radeon R9 200 Series Direct3D11 vs_5_0 ps_5_0), or similar |
+| Graphics (as the page sees it) | (graphics name removed)|
 | Graphics-card computing (WebGPU) | available |
 | Graphics adapter | unnamed adapter |
 | Largest buffer it allows | 2048 MB |
@@ -118,11 +118,11 @@ _Graphics-card time covers everything: the 60-pivot sketch (made while the card 
  "version": "2026.10.15.1608",
  "quick": false,
  "info": {
-  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:159.0) Gecko/20100101 Firefox/159.0",
+  "ua": "Firefox 159",
   "threads": 16,
   "mem": null,
   "gpu": "unnamed adapter",
-  "gl": "ANGLE (AMD, Radeon R9 200 Series Direct3D11 vs_5_0 ps_5_0), or similar",
+  "gl": "(graphics name removed)",
   "soft": false,
   "bufMB": 2048
  },

@@ -1,6 +1,6 @@
 // Copyright (c) 2026 LFC Foundry. MIT License.
 // Idle memory with and without the idle layout park, in ungoogled-chromium (exact page heap after a forced collection), two builds taking turns.
-// Run:  HOME=/home/claude NFM_PLAYWRIGHT=/tmp/pw/node_modules/playwright-core NFM_BEFORE=/tmp/index-before-park.html node bench/memory/page-park.js 30000 [turns]
+// Run:  NFM_PLAYWRIGHT=<path to playwright-core> NFM_BEFORE=<older index.html> node bench/memory/page-park.js 30000 [turns]
 const path = require('path'), pw = require(process.env.NFM_PLAYWRIGHT || 'playwright-core');
 const N = Number(process.argv[2]) || 30000, TURNS = Number(process.argv[3]) || 1, HOME = process.env.HOME || '/root';
 const BEFORE = path.resolve(process.env.NFM_BEFORE), AFTER = path.resolve(process.env.NFM_AFTER || path.resolve(__dirname, '..', '..', 'index.html'));
