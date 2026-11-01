@@ -171,7 +171,7 @@ async function open() {
   await ev(() => NFM.ingest([{ name: 'shop.csv', text: 'id,region,sales,cost,note\n' + Array.from({ length: 60 }, (_, i) => 'r' + i + ',' + ['North', 'South', 'East'][i % 3] + ',' + (100 + (i * 37) % 900) + ',' + (50 + (i * 53) % 400) + ',' + ['fast ship', 'slow order', 'great value'][i % 3]).join('\n') }]));
   await ev(() => NFM.showTab('charts'));
   await D.wait(() => { NFM.drawChart(false); return NFM.charts().r; }, null, 20000);
-  for (const t of ['bar', 'scatter', 'pie', 'hist', 'box', 'words']) {
+  for (const t of ['bar', 'scatter', 'donut', 'hist', 'box', 'words']) {
     const r = await ev((tt) => { NFM.state.V.chart = Object.assign({}, NFM.state.V.chart, { type: tt, x: '', y: '', color: '', cols: [] }); NFM.drawChart(true); const C = NFM.charts(), m = C.r, s = m.snapshot(), d = s.data;
       let diff = 0; for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 30) diff++; return { backend: m.name, share: diff / (d.length / 4), marks: C.scene.marks.length, shapes: C.scene.rects.length + C.scene.dots.length + C.scene.polys.length, words: C.scene.labels.length }; }, t);
     say(t === 'words' ? r.words > 3 : r.share > 0.01 && r.shapes > 0, `Charts tab, ${t}: drew ${r.shapes} shapes and ${r.words} words (${(r.share * 100).toFixed(1)}% of pixels) with ${r.backend}`);
