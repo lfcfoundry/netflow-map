@@ -282,8 +282,10 @@ function themeName() { return S.theme === 'auto' ? (window.matchMedia && matchMe
 function applyTheme() {
   var r = document.documentElement;
   if (S.theme === 'auto') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', S.theme);
-  if (S.scene && S.L && typeof makeScene === 'function') makeScene(false);
+  if (S.scene && S.L && typeof makeScene === 'function') { if (S.tab === 'map') makeScene(false); else S.themeStale = true; }   /* the picture is only rebuilt when it can be seen; freshTheme() does it when something needs it */
 }
+/** Builds the picture again in the new light/dark colors if the theme was switched while the Map was hidden. */
+function freshTheme() { if (S.themeStale && S.scene && S.L && typeof makeScene === 'function') { S.themeStale = false; makeScene(false); return true; } S.themeStale = false; return false; }
 var TABS = ['data', 'nodes', 'map', 'check', 'adv', 'export'], TAB_HOOKS = {};
 function showTab(name) {
   S.tab = name;
