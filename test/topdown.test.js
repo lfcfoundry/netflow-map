@@ -36,8 +36,16 @@ const MAPS = [['story 30', story(30, 1)], ['story 120', story(120, 2)], ['dag 60
 const VIEWS = ['flow', 'down', 'spine', 'lanes', 'sankey', 'arc', 'matrix'];
 t('every new choice off: all views draw exactly as before (' + MAPS.length * VIEWS.length + ' fingerprints)', () => {
   let n = 0;
-  MAPS.forEach(([nm, s]) => VIEWS.forEach((v) => { const got = fp(E.build(copy(graph(s)), { view: v })); n++; ok(GOLD[nm + '|' + v] === got, nm + ' ' + v + ' changed (' + got + ' vs ' + GOLD[nm + '|' + v] + ')'); }));
+  MAPS.forEach(([nm, s]) => VIEWS.forEach((v) => { const got = fp(E.build(copy(graph(s)), { view: v, deep: false })); n++; ok(GOLD[nm + '|' + v] === got, nm + ' ' + v + ' changed (' + got + ' vs ' + GOLD[nm + '|' + v] + ')'); }));
   return n + ' pictures identical';
+});
+t('deeper crossing search: never more crossings than without it, small maps included', () => {
+  const out = [];
+  MAPS.concat([['dag 12/18', dag(12, 18, 7)], ['dag 200/360', dag(200, 360, 8)]]).forEach(([nm, s]) => ['flow', 'down', 'spine'].forEach((v) => {
+    const off = E.build(copy(graph(s)), { view: v, deep: false }).crossings, on = E.build(copy(graph(s)), { view: v }).crossings;
+    ok(on <= off, nm + ' ' + v + ': ' + on + ' crossings with the deeper search vs ' + off + ' without'); if (v === 'flow') out.push(nm + ' ' + off + '->' + on);
+  }));
+  return out.join(', ');
 });
 const info = (g, o) => E.build(copy(g), Object.assign({ view: 'down' }, o));
 t('story order: a map with no loops has no gold (back or sideways) links, and real loops are still gold', () => {

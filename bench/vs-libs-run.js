@@ -10,6 +10,9 @@ const plans = {
   quick: () => [J('vsNet', { n: 300 }), J('vsFlow', { n: 100, m: 180 }), J('vsSankey', { n: 100, m: 150 }), J('vsCsv', { n: 5000 }), J('vsMem', { n: 2000, what: 'ours' }), J('vsMem', { n: 2000, what: 'graphology' })],
   sankey: () => [[100, 150], [400, 616], [1500, 2283]].map(([n, m]) => J('vsSankey', { n, m })),
   csv: () => [J('vsCsv', { n: 188000 })],
+  deep: () => [].concat(
+    [[200, 360], [400, 760], [1000, 1900], [1500, 2850]].flatMap(([n, m]) => [{}, { deep: true }, { rows: 'best' }, { deep: true, rows: 'best' }].map((opt) => J('vsFlowX', { n, m, opt, reps: 3 }))),
+    [[100, 150], [400, 616], [1500, 2283]].flatMap(([n, m]) => [{}, { skOrder0: true }].map((opt) => J('vsSankey', { n, m, opt, reps: 3 })))),
   landing: () => [].concat(
     [1000, 5000, 10000].map((n) => J('vsNet', { n, libs: n > 1000 ? ['d3', 'd3c', 'fa2'] : ['d3', 'd3c', 'fa2', 'cose'] })),
     [[200, 360], [400, 760], [1000, 1900]].map(([n, m]) => J('vsFlow', { n, m })),

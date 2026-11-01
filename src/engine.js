@@ -2268,8 +2268,8 @@ var NFMEngine = (function () {
     keys.forEach(function (k, i) { laneNames.push(k); laneIdx.set(k, i); });
     G.nodes.forEach(function (n) { laneOfBox[n.id] = laneIdx.get(cls[n.id]); });
     var root = P.start >= 0 ? G.groupOf[P.start] : undefined, prev = o.prev || undefined, Lr;
-    /* optional layered-drawing choices (all off by default, so the picture is the old one): see layered() */
-    var LO = { rows: o.rows === 'story' ? 'story' : undefined, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
+    /* layered-drawing choices: see layered(). deep (the deeper crossing search) is on unless o.deep === false; rows 'best' tries both row rules and keeps the one with fewer crossings */
+    var LO = { rows: o.rows === 'story' || o.rows === 'best' ? o.rows : undefined, deep: o.deep !== false, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
     var withLO = function (x) { return Object.assign(x, LO); };
     /* top to bottom (and the Flow view turned that way): a map more than about twice as tall as wide can be cut into columns (o.wrap) */
     var downLanes = view === 'down' && o.downLanes && laneNames.length > 1;
@@ -2286,7 +2286,7 @@ var NFMEngine = (function () {
     if (view === 'down') Lr = topDown('TB');
     else if (view === 'spine') Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, spine: true }));
     else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } }));
-    else if (view === 'sankey') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
+    else if (view === 'sankey') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14, orderRounds: o.skOrder0 !== false && SK && o.sk ? 0 : undefined }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
     else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow })); }
     else if (view === 'matrix') {
       Lr = matrixLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow }));
