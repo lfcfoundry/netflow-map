@@ -15,8 +15,11 @@ if (!args.has('--dev')) {
   for (const where of [root, process.env.NFM_ESBUILD_FROM, '/opt/npm-tools'].filter(Boolean)) { try { esb = createRequire(join(where, 'x.js'))('esbuild'); break; } catch (e) { /* try the next place */ } }
   if (!esb) console.warn('esbuild not found: building the readable (larger) file. Set NFM_ESBUILD_FROM to a folder that has node_modules/esbuild.');
 }
-const jsMin = (code, name) => esb ? esb.transformSync(code, { minify: true, target: 'es2020', legalComments: 'inline', sourcefile: name }).code : code;
-const cssMin = (code) => esb ? esb.transformSync(code, { loader: 'css', minify: true, legalComments: 'inline' }).code : code;
+/* charset 'ascii' escapes strings, templates and names; esbuild leaves regular expressions as written, so what is left above U+00FF (only in
+   regular expressions and comments then) is written as \uXXXX, one per UTF-16 unit, which means the same in a regular expression with or without the u flag. */
+const hiEsc = (s) => s.replace(/[^\x00-\xff]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+const jsMin = (code, name) => esb ? hiEsc(esb.transformSync(code, { minify: true, target: 'es2020', legalComments: 'inline', sourcefile: name, charset: 'ascii' }).code) : code;
+const cssMin = (code) => esb ? esb.transformSync(code, { loader: 'css', minify: true, legalComments: 'inline', charset: 'ascii' }).code : code;
 const rd = (p) => readFileSync(join(root, p), 'utf8');
 const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
 const g = (t) => parts.find((p) => p.type === t).value;
@@ -42,6 +45,13 @@ const fill = (k, v) => { html = html.split(k).join(v); };
 // order matters: the big pieces go in last so their text is never searched for placeholders
 html = html.replace('@@CSS@@', () => css).replace('@@GIFSRC@@', () => gifSrc).replace('@@DRAWSRC@@', () => drawSrc).replace('@@LFCSRC@@', () => lfcSrc).replace('@@ENGINE@@', () => engine).replace('@@SCRIPTS@@', () => scripts);
 fill('@@VERSION@@', version);
+/* Latin-1 only: one character above U+00FF anywhere in the page (an arrow, a dash, an emoji) makes browsers keep the whole page's text, and
+   every script in it, at 2 bytes a character. esbuild writes such characters as escapes (charset: 'ascii'), which mean exactly the same
+   character, so the program and the look are the same. Chromium, round 33 (2026.10.31): renderer memory 34.4 to 31.3 MB, load 160 to 133 ms.
+   The readable build (no esbuild) keeps them and only warns; markup outside scripts and styles must use &#x...; references. */
+{ const hi = html.match(/[^\x00-\xff]/g);
+  if (hi) { const msg = hi.length + ' characters above U+00FF in index.html (' + Array.from(new Set(hi)).slice(0, 12).map((c) => 'U+' + c.codePointAt(0).toString(16).toUpperCase()).join(' ') + '): the page text would be kept at 2 bytes a character';
+    if (esb) throw new Error(msg); console.warn('readable build: ' + msg); } }
 writeFileSync(join(root, 'index.html'), html);
 if (args.has('--pack')) {
   /* Local (non-git) downloads: our own lzma-pack makes a self-unpacking page (LZMA, hash-checked). It lives in the JS-modules repo. */
