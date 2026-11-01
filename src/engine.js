@@ -687,6 +687,7 @@ var NFMEngine = (function () {
 
   /* ---------------------------------------------------------------- 5. the layered engine (Sugiyama-style): the shared module netflow-layers (vendor/netflow-layers.js) */
   var NL = typeof NetflowLayers !== 'undefined' ? NetflowLayers : require('../vendor/netflow-layers.js');
+  var SEARCH_AUTO_LITE = 800;
   var mapPlaceLine = NL.mapPlaceLine, mapCrossPairs = NL.mapCrossPairs, layered = NL.layered;
 
   /* ---------------------------------------------------------------- 6. the other views */
@@ -2318,8 +2319,13 @@ var NFMEngine = (function () {
     keys.forEach(function (k, i) { laneNames.push(k); laneIdx.set(k, i); });
     if (view === 'lanes' || view === 'down') G.nodes.forEach(function (n, i) { laneOfBox[n.id] = laneIdx.get(kOf[i]); });   /* only the lane views place boxes by lane */
     var root = P.start >= 0 ? G.groupOf[P.start] : undefined, prev = o.prev || undefined, Lr;
-    /* layered-drawing choices: see layered(). deep (the deeper crossing search) is on unless o.deep === false; rows 'best' tries both row rules and keeps the one with fewer crossings */
-    var LO = { rows: o.rows === 'story' || o.rows === 'best' ? o.rows : undefined, deep: o.deep !== false, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
+    /* layered-drawing choices: see layered(). deep: the crossing search above; rows 'best' tries both row rules and keeps the one with fewer crossings */
+    /* the crossing search (o.search, the app's Crossing search setting): 'deep' (netflow-layers deep: true), 'lite' (deep left out: the
+       module's lighter search, at most 12 rounds), or 'auto' (the default): deep under SEARCH_AUTO_LITE boxes, lite from there. On 47 test
+       maps the lighter search drew more crossings on 8 (0.1 to 7%), all at 700 boxes or fewer but one (0.1%); on the 1,000- and 1,500-item
+       comparison data it drew the same picture in about 0.55 to 0.6 of the time (Chromium 132 to 73 ms, 298 to 182 ms). deep: false still means none. */
+    var deepOpt = o.deep === false ? false : o.search === 'lite' ? undefined : o.search === 'deep' || o.deep === true || G.nodes.length < SEARCH_AUTO_LITE ? true : undefined;
+    var LO = { rows: o.rows === 'story' || o.rows === 'best' ? o.rows : deepOpt === undefined ? 'route' : undefined, deep: deepOpt, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
     var withLO = function (x) { return Object.assign(x, LO); };
     /* top to bottom (and the Flow view turned that way): a map more than about twice as tall as wide can be cut into columns (o.wrap) */
     var downLanes = view === 'down' && o.downLanes && laneNames.length > 1;
@@ -2336,10 +2342,10 @@ var NFMEngine = (function () {
     if (view === 'down') Lr = topDown('TB');
     else if (view === 'spine') Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, spine: true }));
     else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } }));
-    else if (view === 'sankey') { Lr = SK && o.sk && o.skLite !== false ? sankeyLite(G, o) : layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14, orderRounds: o.skOrder0 !== false && SK && o.sk ? 0 : undefined }); if (SK && o.sk) { var skOpts = SK.options(o.sk); skOpts.stopCap = typeof o.skStopCap === 'number' ? o.skStopCap : 500;   /* maps of 1,000+ items (netflow-sankey stopCapFrom): at most 500 stand-ins, the lightest long links drawn straight */ SK.apply(Lr, SK.layout(Lr, skOpts)); if (Lr.skLite) sankeyLiteKinds(Lr); } }
-    else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow })); }
+    else if (view === 'sankey') { Lr = SK && o.sk && o.skLite !== false ? sankeyLite(G, o) : layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14, deep: false, rows: 'route', orderRounds: o.skOrder0 !== false && SK && o.sk ? 0 : undefined }); if (SK && o.sk) { var skOpts = SK.options(o.sk); skOpts.stopCap = typeof o.skStopCap === 'number' ? o.skStopCap : 500;   /* maps of 1,000+ items (netflow-sankey stopCapFrom): at most 500 stand-ins, the lightest long links drawn straight */ SK.apply(Lr, SK.layout(Lr, skOpts)); if (Lr.skLite) sankeyLiteKinds(Lr); } }
+    else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow, deep: false, rows: 'route' }))   /* netflow-layers 1.7.0 searches lightly when deep is left out: these views keep the plain order they had */; }
     else if (view === 'matrix') {
-      Lr = matrixLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow }));
+      Lr = matrixLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow, deep: false, rows: 'route' }));
       Lr.nodes.forEach(function (n) { n.cx = n.cy = Lr.head + n.mi * Lr.cell + Lr.cell / 2; n.w = n.h = Lr.cell; });
     } else if (view === 'shape') Lr = shapeLayout(P, G);
     else if (view === 'network') { STRESS.previewStop = !!o.previewOnly; try { Lr = networkLayout(P, G, o); } finally { STRESS.previewStop = false; } }

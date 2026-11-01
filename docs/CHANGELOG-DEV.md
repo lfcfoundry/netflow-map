@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.2339 · 2026-10-31
+
+### Quick
+Vendored netflow-layers 1.7.2 (the 1.7.0 search from JS-modules PR 375, plus Uint8Array.fromBase64 at start and Latin-1 escapes; byte-identical to JS-modules main ae1b730). New view setting `search` ('auto' default, 'deep', 'lite'; src/app/00-core.js, 30-map.js, 35-rail.js "Crossing search", Jawad 2026.10.31 11:17 PM ET: "the two types of searches should be options but default should be auto selected by the app"). src/engine.js: `deepOpt` is deep: true for 'deep' or under `SEARCH_AUTO_LITE` (800) boxes, left out (the module's lighter search) for 'lite' or from 800 boxes; `o.deep === false` still turns it off; with the lighter search `rows` is passed as 'route' when the user picked Shortest route (1.7.0 reads a left-out rows as 'best'). Arc, matrix and the plain Sankey layout pass `deep: false, rows: 'route'` to keep their pictures. Saved views without `search` use Auto. No saved file is affected.
+
+### Details
+Flow, comparison data, early-stop A/B (main vs this): 1,000 items Chromium faster 0.63 (114.8 to 73.5 ms), Firefox 0.72 (121.7 to 85.3), WebKitGTK 0.70 (123 to 86.3), same 21,812 crossings; 400 items Chromium ok 0.94, Firefox ok 1.01, WebKitGTK 35.3 vs 35.7 ms (inconclusive after 12 rounds), same picture. Deep vs lighter on 47 maps (40 imported tables, 60-600 rows, and 7 generated): lighter drew more crossings on 8 (0.1 to 7.1%), all at 700 boxes or fewer but one (dag 1,500, 0.1%); comparison data 1,500 items 298 to 182 ms, same crossings. Laptop round 3 item 6 compared the module's new default with its old one without any deep search (400 items 7.4 to 36.9 ms in Chromium); Netflow Map already ran the deep search, so it is not slowed.
+
+### Deep
+Test tables and script for the JS-modules thread: /mnt/project-files/netflow-map/lighter-search-tables/. test/topdown.test.js: Auto draws exactly the Deeper picture under 800 boxes and the Lighter one from 800 (2,408-box map), and Lighter keeps rows 'route'. All fingerprint tests unchanged.
+
 ## 2026.10.31.2310 · 2026-10-31
 
 ### Quick
