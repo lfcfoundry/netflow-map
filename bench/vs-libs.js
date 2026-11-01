@@ -104,10 +104,14 @@
       out.elk = { ms: r3.ms, cross: crossings(r3.value, g.edges), drawn: polyCross(epol) }; }
     return out;
   };
+  /* repT: a.reps > 1 runs it once to warm up, then a.reps times, and keeps the median time (the value is the last run's) */
+  function repT(reps, fn) { if (!(reps > 1)) return T(fn); fn(); var ms = [], v; for (var q = 0; q < reps; q++) { var x = T(fn); ms.push(x.ms); v = x.value; } return { ms: med(ms), value: v }; }
+  /* picHash: positions of every item and every link point, rounded to 0.01, so "same picture" can be checked */
+  function picHash(L) { var h = 2166136261, add = function (v) { v = Math.round(v * 100); h = Math.imul(h ^ (v | 0), 16777619) >>> 0; }; L.nodes.forEach(function (n) { add(n.x); add(n.y); add(n.w); add(n.h); }); L.edges.forEach(function (e) { (e.pts || []).forEach(function (p) { add(p[0] !== undefined ? p[0] : p.x); add(p[1] !== undefined ? p[1] : p.y); }); add(e.width || 0); }); return h.toString(16); }
   SUITES.vsFlowX = function (a) {   // experiments: a.opt goes to the engine build; inner = the module's own count (with stand-in stops)
     var g = dag(a.n, a.m, a.n), out = { n: a.n };
-    var r = T(function () { return E.build(C.derive(clone(g)), Object.assign({ view: 'flow', colorBy: 'group' }, a.opt || {})); });
-    out.ours = { ms: r.ms, cross: crossings(centers(r.value), g.edges), inner: r.value.crossings, drawn: polyCross(oursPolys(r.value)) };
+    var r = repT(a.reps, function () { return E.build(C.derive(clone(g)), Object.assign({ view: 'flow', colorBy: 'group' }, a.opt || {})); });
+    out.ours = { ms: r.ms, cross: crossings(centers(r.value), g.edges), inner: r.value.crossings, drawn: polyCross(oursPolys(r.value)), hash: picHash(r.value) };
     return out;
   };
   SUITES.vsSankey = function (a) {   // a: { n, m }
@@ -115,9 +119,10 @@
     /* a Sankey draws what flows from the start item: every item of the first column gets a link from it, so everything can be reached (the same data goes to d3-sankey) */
     var per0 = Math.ceil(a.n / Math.max(4, Math.round(Math.sqrt(a.n) * 0.8))); for (idx0 = 1; idx0 < per0; idx0++) g.edges.push({ from: 'n0', to: 'n' + idx0, weight: 3, attrs: {} });
     var out = { n: a.n, links: g.edges.length }, idx = new Map(); g.nodes.forEach(function (nd, q) { idx.set(nd.id, q); });
-    var r = T(function () { return E.build(C.derive(clone(g)), { view: 'sankey', colorBy: 'group', sk: {} }); });
+    var sopt = Object.assign({ view: 'sankey', colorBy: 'group', sk: {} }, a.opt || {}), r = repT(a.reps, function () { return E.build(C.derive(clone(g)), sopt); });
+    if (a.oursOnly) return { ms: r.ms };
     var cp = centers(r.value), bad = 0; Object.keys(cp).forEach(function (k) { if (!isFinite(cp[k][0]) || !isFinite(cp[k][1])) bad++; });
-    out.ours = { ms: r.ms, cross: crossings(cp, g.edges), placed: Object.keys(cp).length, notFinite: bad, columns: new Set(Object.keys(cp).map(function (k) { return Math.round(cp[k][0]); })).size, netflowSankey: !!window.NetflowSankey };
+    out.ours = { ms: r.ms, cross: crossings(cp, g.edges), placed: Object.keys(cp).length, notFinite: bad, columns: new Set(Object.keys(cp).map(function (k) { return Math.round(cp[k][0]); })).size, netflowSankey: !!window.NetflowSankey, hash: picHash(r.value) };
     try {
       var r2 = T(function () { var nodes = g.nodes.map(function (nd) { return { name: nd.id }; }), links = g.edges.map(function (e) { return { source: idx.get(e.from), target: idx.get(e.to), value: e.weight }; });
         var o = LIBS.d3sankey.sankey().nodeWidth(15).nodePadding(8).extent([[0, 0], [1000, Math.max(500, a.n * 4)]])({ nodes: nodes, links: links }); var p = {}; o.nodes.forEach(function (nd) { p[nd.name] = [(nd.x0 + nd.x1) / 2, (nd.y0 + nd.y1) / 2]; }); return p; });
