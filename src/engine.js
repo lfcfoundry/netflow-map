@@ -623,11 +623,12 @@ var NFMEngine = (function () {
   /* ---------------------------------------------------------------- 4. what to draw: runs folded, arrows merged */
   /* One box with every field the build and the Network layout fill in, made up front in one order: each box keeps one shape instead of
    * growing its store of fields one field at a time, which left about 130 MB of copies for the collector at 100,000 items (BENCHMARKS section 54). */
+  /* w and h start as -0, a fraction-kind zero: starting them as 0 and then writing sizes like 12.5 made the browser re-shape every item record of every later build (the nested views ran 2.5 times slower after a tree view in the lab). -0 is 0 in every sum and comparison. */
   function gnode(id, pages, run, chapter, chKey, part) {
     return { id: id, pages: pages, run: run, chapter: chapter, chKey: chKey, part: part,
       traffic: 0, choke: false, visits: 0, pGood: 0, pBad: 0, pNeutral: 0, pi: 0, dom: -1, domP: 0, label: '', sub: '', nodeId: '', group: '',
       sizeV: NaN, colorV: NaN, start: false, end: false, valence: '', unreached: false, deg: 0, inN: 0, outN: 0, inW: 0, outW: 0, ghost: false,
-      sizeK: undefined, k: 1, w: 0, h: 0, x: undefined, y: undefined, shape: undefined, layer: undefined, cx: undefined, cy: undefined };
+      sizeK: undefined, k: 1, w: -0, h: -0, x: undefined, y: undefined, shape: undefined, layer: undefined, cx: undefined, cy: undefined };
   }
   function mapGraph(P, imp, opts) {
     opts = opts || {};
@@ -673,6 +674,7 @@ var NFMEngine = (function () {
       nodes.push(node);
     }
     var edges = [], seen = new Map(), mergeOn = !!(opts.merge || (opts.mergeIfFolded && chapters.length)), nG = nodes.length;
+    var eA = opts.ix ? new Int32Array(P.m) : null, eB = opts.ix ? new Int32Array(P.m) : null;   /* each link's item numbers, for the nested views (they then need no lookup by name) */
     for (e = 0; e < P.m; e++) {
       var fe = P.from[e], te = P.to[e], ga = groupIx[fe], gb = groupIx[te];
       if (ga === gb && fe !== te) continue;
@@ -680,9 +682,10 @@ var NFMEngine = (function () {
       if (mergeOn) { var had = seen.get(key); if (had) { had.srcs.push(e); continue; } }
       var ed = { from: groupOf[fe], to: groupOf[te], srcs: [e], label: '', count: 0, flow: 0, weight: 0, orig: null, absent: undefined, widthV: NaN, colorV: NaN, colorC: '', kind: undefined, pts: undefined };   /* the fields the build fills in later, made up front in the same order, so every link keeps one shape */
       if (mergeOn) seen.set(key, ed);
+      if (eA) { eA[edges.length] = ga; eB[edges.length] = gb; }
       edges.push(ed);
     }
-    return { nodes: nodes, edges: edges, groupOf: groupOf, runs: runs, imp: imp, chapters: chapters, chapterInfo: found };
+    return { nodes: nodes, edges: edges, groupOf: groupOf, runs: runs, imp: imp, chapters: chapters, chapterInfo: found, eA: eA ? eA.subarray(0, edges.length) : null, eB: eB ? eB.subarray(0, edges.length) : null };
   }
 
   /* ---------------------------------------------------------------- 5. the layered engine (Sugiyama-style): the shared module netflow-layers (vendor/netflow-layers.js) */
@@ -2110,7 +2113,8 @@ var NFMEngine = (function () {
     ['arc', 'Arc', 'Everything on one line; arcs show the links, long arcs are long jumps.'],
     ['matrix', 'Matrix', 'A grid of who links to whom; patterns show clusters and loops.'],
     ['network', 'Network', 'Closeness on the page follows closeness in the data; for data that is not a story.']
-  ];
+  ].concat(typeof NFMCharts !== 'undefined' ? NFMCharts.VIEWS : []);
+  var CHART = typeof NFMCharts !== 'undefined' ? NFMCharts.IS : {};
   /* ---------------------------------------------------------------- channels: numbers and categories from the data */
   function aggOf(vals, how) {
     var s = 0, c = 0, mx = -Infinity;
@@ -2219,9 +2223,9 @@ var NFMEngine = (function () {
         flow = { exact: ab.converged, converged: ab.converged, residual: ab.residual, note: ab.converged ? '' : NOT_SETTLED, runs: 1, visits: ab.visits, moves: ab.moves, pGood: zg, pBad: zb, pNeutral: zn, outcome: oc0, mode: 'random', c: ab.c, K: ab.K, story: classes.story, start: ab.start, classes: classes.list.map(function (cl, k) { return { id: cl.id, label: cl.label, kind: cl.kind, p: ab.start[k] }; }) };
       }
     }
-    var foldOn = o.fold !== false && !flowing && view !== 'matrix' && view !== 'network' && view !== 'shape';
+    var foldOn = o.fold !== false && !flowing && view !== 'matrix' && view !== 'network' && view !== 'shape' && !CHART[view];
     var chOn = foldOn && o.chapters > 0 && P.n > o.chapters && (view === 'flow' || view === 'down' || view === 'spine' || view === 'lanes');
-    var G = mapGraph(P, imp, { fold: foldOn, open: o.open, mergeIfFolded: chOn, chapters: chOn ? { min: o.chapterMin, cap: o.chapterCap, open: o.openCh, partsAbove: o.partsAbove === undefined ? 600 : o.partsAbove, part: o.partPages } : null, merge: !!o.merge || flowing || view === 'matrix' || view === 'arc' || view === 'network' });
+    var G = mapGraph(P, imp, { ix: !!CHART[view], fold: foldOn, open: o.open, mergeIfFolded: chOn, chapters: chOn ? { min: o.chapterMin, cap: o.chapterCap, open: o.openCh, partsAbove: o.partsAbove === undefined ? 600 : o.partsAbove, part: o.partPages } : null, merge: !!o.merge || flowing || view === 'matrix' || view === 'arc' || view === 'network' || !!CHART[view] });
     var found = o.colorBy === 'found' || o.laneBy === 'found' ? communities(P) : null;
     var how = o.agg || 'sum', colCh = o.colorBy === 'sim' ? 'sys:sim' : o.colorBy, cmode = colCh && /^sys:/.test(colCh) ? { t: 'num' } : colorMode(P, colCh);
     var sizeV = o.sizeBy ? nodeChan(P, G, o.sizeBy, how, imp, flow, o) : null, sizeR = sizeV ? rangeOf(sizeV) : null;
@@ -2363,6 +2367,7 @@ var NFMEngine = (function () {
       Lr = matrixLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow, deep: false, rows: 'route' }));
       Lr.nodes.forEach(function (n) { n.cx = n.cy = Lr.head + n.mi * Lr.cell + Lr.cell / 2; n.w = n.h = Lr.cell; });
     } else if (view === 'shape') Lr = shapeLayout(P, G);
+    else if (CHART[view]) Lr = NFMCharts.layout(view, G, { chordBy: o.chordBy, chordOrder: o.chordOrder, nest: o.nest, treeShape: o.treeShape, sized: !!o.sizeBy });
     else if (view === 'network') { STRESS.previewStop = !!o.previewOnly; try { Lr = networkLayout(P, G, o); } finally { STRESS.previewStop = false; } }
     else Lr = topDown(o.dir === 'TB' ? 'TB' : 'LR');
     if ((view === 'lanes' || downLanes) && laneNames.length > 1) Lr.laneNames = laneNames;
