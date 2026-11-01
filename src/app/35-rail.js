@@ -198,6 +198,7 @@ function panelAsk() {
   if (V.around) hid.push('Showing only the area around ' + labelOf(V.around.id) + '.');
   if (L && L.view === 'network' && L.n > 400 && V.strongest === 100) hid.push('With this many items, try the strongest-links slider on the Filter tab.');
   if (hid.length) why.push(h('p', { class: 'small', style: { margin: 0, color: 'var(--gold)' } }, hid.join(' ')));
+  if (L && L.weightsFallback) why.push(h('p', { class: 'small', style: { margin: 0, color: 'var(--gold)' } }, 'Nothing flows from the start item: it has no links out. The bands show the link weights instead; pick another start to see how things flow from it.'));
   kids.push(section('Why this view', why));
   if (L) {
     var rows = [[cap(word('items')), nfmt(L.n)], [cap(word('links')), nfmt(L.m)]];
