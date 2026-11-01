@@ -687,7 +687,7 @@ var NFMEngine = (function () {
 
   /* ---------------------------------------------------------------- 5. the layered engine (Sugiyama-style): the shared module netflow-layers (vendor/netflow-layers.js) */
   var NL = typeof NetflowLayers !== 'undefined' ? NetflowLayers : require('../vendor/netflow-layers.js');
-  var SEARCH_AUTO_LITE = 800;
+  var SEARCH_AUTO_LITE = 800, BOTH_UNTANGLE = 500;
   var mapPlaceLine = NL.mapPlaceLine, mapCrossPairs = NL.mapCrossPairs, layered = NL.layered;
 
   /* ---------------------------------------------------------------- 6. the other views */
@@ -2327,21 +2327,36 @@ var NFMEngine = (function () {
     var deepOpt = o.deep === false ? false : o.search === 'lite' ? undefined : o.search === 'deep' || o.deep === true || G.nodes.length < SEARCH_AUTO_LITE ? true : undefined;
     var LO = { rows: o.rows === 'story' || o.rows === 'best' ? o.rows : deepOpt === undefined ? 'route' : undefined, deep: deepOpt, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
     var withLO = function (x) { return Object.assign(x, LO); };
+    /* Auto on small maps (under BOTH_UNTANGLE boxes, 'Untangle harder' off, Crossing search Auto): the layout runs with and without the harder
+       untangling and keeps the one with fewer crossings. Neither wins every time (40 imported tables under 500 boxes: harder fewer on about
+       half, more on the rest); together 3.7% fewer crossings there, and on the 400-item comparison data 5,351 to 4,663 (ELK 5,313). The
+       harder run works on copies of the boxes and links; when it wins the map takes those copies. */
+    var both = !o.better && o.untangleBoth !== false && (o.search === undefined || o.search === 'auto') && o.deep !== false && G.nodes.length < BOTH_UNTANGLE;
+    var copyG = function () { var c = {}, k; for (k in G) c[k] = G[k]; c.nodes = G.nodes.map(function (n) { return Object.assign({}, n); }); c.edges = G.edges.map(function (e) { return Object.assign({}, e); }); return c; };
+    var lay = function (x) {
+      var A = layered(G, withLO(Object.assign({}, x)));
+      if (!both) return A;
+      var hard = function () { var y = withLO(Object.assign({}, x)); y.better = true; return y; };   /* LO carries better: false, so it is set after */
+      var c = copyG(), B = layered(c, hard());
+      if (!(B.crossings < A.crossings)) return A;
+      G.nodes = c.nodes; G.edges = c.edges;   /* the copies hold the winning layout (boxes and links copied after every value on them was set) */
+      return B;
+    };
     /* top to bottom (and the Flow view turned that way): a map more than about twice as tall as wide can be cut into columns (o.wrap) */
     var downLanes = view === 'down' && o.downLanes && laneNames.length > 1;
     var topDown = function (dir) {
       var base = { dir: dir, root: root, prev: prev, spine: !!o.spineCol }, L1;
       if (downLanes) base.lane = function (n) { return Math.max(0, laneOfBox[n.id]); };
-      L1 = layered(G, withLO(Object.assign({}, base)));
+      L1 = lay(base);
       if (o.wrap && dir === 'TB' && L1.height > 2.2 * L1.width) {
         var K = Math.round(Math.sqrt(1.6 * L1.height / L1.width)), R = Math.ceil(L1.info.rows / Math.max(1, K));
-        if (K >= 2 && R >= 2 && R < L1.info.rows) L1 = layered(G, withLO(Object.assign({ wrapRows: R }, base)));
+        if (K >= 2 && R >= 2 && R < L1.info.rows) L1 = lay(Object.assign({ wrapRows: R }, base));
       }
       return L1;
     };
     if (view === 'down') Lr = topDown('TB');
-    else if (view === 'spine') Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, spine: true }));
-    else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } }));
+    else if (view === 'spine') Lr = lay({ dir: 'LR', root: root, prev: prev, spine: true });
+    else if (view === 'lanes' && laneNames.length > 1) Lr = lay({ dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } });
     else if (view === 'sankey') { Lr = SK && o.sk && o.skLite !== false ? sankeyLite(G, o) : layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14, deep: false, rows: 'route', orderRounds: o.skOrder0 !== false && SK && o.sk ? 0 : undefined }); if (SK && o.sk) { var skOpts = SK.options(o.sk); skOpts.stopCap = typeof o.skStopCap === 'number' ? o.skStopCap : 500;   /* maps of 1,000+ items (netflow-sankey stopCapFrom): at most 500 stand-ins, the lightest long links drawn straight */ SK.apply(Lr, SK.layout(Lr, skOpts)); if (Lr.skLite) sankeyLiteKinds(Lr); } }
     else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow, deep: false, rows: 'route' }))   /* netflow-layers 1.7.0 searches lightly when deep is left out: these views keep the plain order they had */; }
     else if (view === 'matrix') {
