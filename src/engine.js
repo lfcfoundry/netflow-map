@@ -2333,7 +2333,7 @@ var NFMEngine = (function () {
     if (view === 'down') Lr = topDown('TB');
     else if (view === 'spine') Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, spine: true }));
     else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } }));
-    else if (view === 'sankey') { Lr = SK && o.sk && o.skLite !== false ? sankeyLite(G, o) : layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14, orderRounds: o.skOrder0 !== false && SK && o.sk ? 0 : undefined }); if (SK && o.sk) { var skOpts = SK.options(o.sk); if (typeof o.skStopCap === 'number') skOpts.stopCap = o.skStopCap; SK.apply(Lr, SK.layout(Lr, skOpts)); if (Lr.skLite) sankeyLiteKinds(Lr); } }
+    else if (view === 'sankey') { Lr = SK && o.sk && o.skLite !== false ? sankeyLite(G, o) : layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14, orderRounds: o.skOrder0 !== false && SK && o.sk ? 0 : undefined }); if (SK && o.sk) { var skOpts = SK.options(o.sk); skOpts.stopCap = typeof o.skStopCap === 'number' ? o.skStopCap : 500;   /* maps of 1,000+ items (netflow-sankey stopCapFrom): at most 500 stand-ins, the lightest long links drawn straight */ SK.apply(Lr, SK.layout(Lr, skOpts)); if (Lr.skLite) sankeyLiteKinds(Lr); } }
     else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow })); }
     else if (view === 'matrix') {
       Lr = matrixLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow }));
