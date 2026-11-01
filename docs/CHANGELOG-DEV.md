@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.11.01.0011 · 2026-11-01
+
+### Quick
+Vendored netflow-layers 1.8.0 (JS-modules PR 411, ee09017, byte-identical to JS-modules main): the lighter search (deep left out) stops after 4 rounds with no gain instead of 2. the owner picked the tidier option on the JS-modules card. Auto keeps its 800-box switch. No saved file is affected. tools/build.mjs: the build stamp now writes month and day with two digits (2026.11.01.0011, not 2026.11.1.0011), as CHANGELOG.md and the commit hook (tools/hooks/commit-msg) already expect.
+
+### Details
+JS-modules: the lighter search now matches deep: true on all 55 layered() inputs captured from this engine (7 used to trail by 2-7%) and on the vs-libs 400 and 1,000 maps. Flow, comparison data, early-stop A/B (2026.10.31.2339 vs this): 400 items Chromium ok 0.96, Firefox ok 0.96, WebKitGTK 33.0 vs 33.7 ms (inconclusive); 1,000 items slower, Chromium 1.52 (74.7 to 116.8 ms), Firefox 1.52 (83.3 to 126), WebKitGTK 1.51 (83.3 to 125), the trade-off chosen on the card; that is level with the deep search before build 2026.10.31.2339 (115 / 122 / 123 ms). Same 21,812 crossings at 1,000 items.
+
+### Deep
+Auto could leave deep out at every size now (the lighter search gives the deep pictures and is quicker at 400 items in the JS-modules cloud runs, 34 vs 44 ms), but in these runs 400 items was level, so the switch stays at 800. Node tests and three-browser suites pass.
+
 ## 2026.10.31.2339 · 2026-10-31
 
 ### Quick
