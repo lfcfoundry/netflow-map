@@ -2,7 +2,6 @@
  * They live in two vendored JS-modules copies: vendor/netflow-hierarchy.js (treemap, icicle, sunburst, pack, tree) and vendor/netflow-circular.js (chord, bundles; it needs the first). */
 var NFMCharts = (function () {
   var H = typeof NetflowHierarchy !== 'undefined' ? NetflowHierarchy : require('../vendor/netflow-hierarchy.js');
-  if (typeof NetflowHierarchy === 'undefined' && typeof globalThis !== 'undefined') globalThis.NetflowHierarchy = H;   /* in Node: the circular copy finds the hierarchy one by its page name */
   var C = typeof NetflowCircular !== 'undefined' ? NetflowCircular : require('../vendor/netflow-circular.js');
   return {
     VIEWS: C.VIEWS.concat(H.VIEWS), IS: Object.assign({}, C.IS, H.IS), NESTED: Object.assign({}, C.NESTED, H.NESTED),
