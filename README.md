@@ -77,7 +77,7 @@ At 10,000 items Netflow Map was 42 times faster than the fastest library in Chro
 
 ## Flow view against dagre and ELK
 
-1,000 items and 1,900 links with no loops, Chromium 155, links crossing as drawn: Netflow Map 21,812 in 129 ms, dagre 23,965 in 8.4 s, ELK 22,602 in 2.1 s. At 400 items the three are level (5,351 against 5,374 and 5,313). The same counts come out in Firefox and WebKitGTK, and small maps get tidier too (200 items: 1,919 to 1,303 crossings). Build 2026.10.31.2021 added the deeper crossing search and the Fewest crossings row choice that do this.
+1,000 items and 1,900 links with no loops, Chromium 155, links crossing as drawn: Netflow Map 21,812 in 129 ms, dagre 23,965 in 8.4 s, ELK 22,602 in 2.1 s. At 400 items the three are level (5,351 against 5,374 and 5,313). The same counts come out in Firefox and WebKitGTK, and small maps get tidier too (200 items: 1,919 to 1,303 crossings). Build 2026.10.31.2021 added the deeper crossing search and the Fewest crossings row choice that do this. Since build 2026.10.31.2332 the Crossing search setting (Auto, Deeper, Lighter) picks how hard to look: Auto uses the deeper search below 800 boxes and the lighter one from there, which draws this 1,000-item map with the same 21,812 crossings in 74 ms (Chromium), 85 ms (Firefox) and 86 ms (WebKitGTK).
 
 ## Sankey view against d3-sankey
 

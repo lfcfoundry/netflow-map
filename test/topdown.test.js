@@ -159,4 +159,15 @@ t('tapered links: thick at the start, thin at the end, no arrowhead; the SVG exp
   const e0 = tc[0].edge; const pick = SC.hit(tap, tc[0].P[0], tc[0].P[1] + 6, 1, { slop: 5, edgeTol: 7 }); ok(pick, 'picking returned nothing');
   return tc.length + ' tapered links';
 });
+t('crossing search: Auto draws exactly the Deeper picture under 800 boxes and the Lighter one from 800; Lighter keeps the chosen row rule', () => {
+  const pic = (L) => JSON.stringify(L.nodes.map((n) => [n.id, Math.round(n.x), Math.round(n.y)]));
+  const small = graph(story(300, 5));
+  ok(pic(info(small, {})) === pic(info(small, { search: 'deep' })), 'auto differs from deeper on a small map');
+  ok(pic(info(small, { search: 'auto' })) === pic(info(small, { search: 'deep' })), 'search auto differs from deeper on a small map');
+  const Lr = info(small, { search: 'lite', rows: 'route' }); ok(Lr.info.rowMode === 'route', 'lighter search changed the row rule to ' + Lr.info.rowMode);
+  const big = graph(story(2400, 3)), La = info(big, { fold: false }), Ll = info(big, { fold: false, search: 'lite' });
+  ok(La.nodes.length >= 800, 'big map has ' + La.nodes.length + ' boxes');
+  ok(pic(La) === pic(Ll), 'auto differs from lighter on a big map');
+  return La.nodes.length + ' boxes';
+});
 console.log(bad ? bad + ' FAILED' : 'all top-down checks passed'); process.exit(bad ? 1 : 0);
