@@ -172,9 +172,22 @@ var NFMColumns = (function () {
    */
   /* One changed value out of (bumpOut) or into (bumpIn) a column's record. False when the record cannot be kept exact this way: the
      column is then read again whole (redo in update()). */
+  /* The samples are the first three different values in item order, with where each first came (si). A value taken out where it first
+     came would need the column read again to find its next copy; anything else keeps the samples exact: a value put in earlier than
+     where it (or the third sample) first came moves up into place, and the fourth drops off. */
+  function sampOut(r, v, k) { var j = r.sample.indexOf(v); return !(j >= 0 && r.si[j] === k); }
+  function sampIn(r, v, k) {
+    var s = r.sample, si = r.si, j = s.indexOf(v), i;
+    if (j >= 0) { if (si[j] <= k) return; s.splice(j, 1); si.splice(j, 1); }
+    else if (s.length >= 3 && k >= si[2]) return;
+    for (i = 0; i < si.length && si[i] < k; i++);
+    s.splice(i, 0, v); si.splice(i, 0, k);
+    if (s.length > 3) { s.length = 3; si.length = 3; }
+    r.sa = s.length === 3 ? si[2] : -1;
+  }
   function bumpOut(r, v, k) {
     if (isEmpty(v)) return true;
-    if (r.sa < 0 || k <= r.sa || (r.ca >= 0 && k <= r.ca)) return false;
+    if ((r.ca >= 0 && k <= r.ca) || !sampOut(r, v, k)) return false;
     r.n--;
     var x = num(v);
     if (x === x) { if (r.ni || x <= r.min || x >= r.max) return false; r.numN--; r.sum -= x; }
@@ -186,7 +199,8 @@ var NFMColumns = (function () {
   }
   function bumpIn(r, v, k) {
     if (isEmpty(v)) return true;
-    if (r.sa < 0 || k <= r.sa || (r.ca >= 0 && k <= r.ca)) return false;
+    if (r.ca >= 0 && k <= r.ca) return false;
+    sampIn(r, v, k);
     r.n++;
     var x = num(v);
     if (x === x) { if (r.ni || x % 1 || Math.abs(r.sum + x) > 9e15) return false; r.numN++; r.sum += x; if (x < r.min) r.min = x; if (x > r.max) r.max = x; }
@@ -202,7 +216,7 @@ var NFMColumns = (function () {
     function side(list, olds, news, slots, builtin) {
       var map = new Map(), own2 = new Map(), redo = new Set(), i, j, k, o, nw, key, r, isN = builtin === NODE_KEYS;
       list.forEach(function (x) { map.set(x.key, x); });
-      function mine(x) { var y = own2.get(x.key); if (!y) { y = Object.assign({}, x); y.d = new Map(x.d); own2.set(x.key, y); } return y; }
+      function mine(x) { var y = own2.get(x.key); if (!y) { y = Object.assign({}, x); y.d = new Map(x.d); y.sample = x.sample.slice(); y.si = x.si.slice(); own2.set(x.key, y); } return y; }
       function bump(key, vo, vn, k, out, inn) { if (redo.has(key)) return; var y = mine(map.get(key)); if (!((!out || bumpOut(y, vo, k)) && (!inn || bumpIn(y, vn, k)))) redo.add(key); }
       for (i = 0; i < slots.length; i++) {
         k = slots[i]; o = olds[k]; nw = news[k];
@@ -235,8 +249,10 @@ var NFMColumns = (function () {
         }
         curI = -1; c._f = x.f; own2.set(key, record(c));
       });
+      update.redone += redo.size;
       return list.map(function (x) { return own2.get(x.key) || x; });
     }
+    update.redone = 0;
     var nr = side(rec.nc, a.nodes, b.nodes, dn, NODE_KEYS); if (!nr) return null;
     var er = side(rec.ec, a.edges, b.edges, de, EDGE_KEYS); if (!er) return null;
     function col(r) {
@@ -250,6 +266,7 @@ var NFMColumns = (function () {
     KEPT.set(out, { nc: nr, ec: er, nN: rec.nN, nE: rec.nE });
     return out;
   }
+  update.redone = 0;   /* columns read again whole by the last update (tests check ordinary edits need none) */
   function findCol(list, key) { for (var i = 0; i < list.length; i++) if (list[i].key === key) return list[i]; return null; }
 
   /* ---------------------------------------------------------------- reading a channel from an item or link */
@@ -307,6 +324,14 @@ var NFMColumns = (function () {
     if (g.flavor === 'data') return false;
     for (var i = 0; i < g.nodes.length; i++) if (g.nodes[i].valence === 'good' || g.nodes[i].valence === 'bad') return true;
     return false;
+  }
+  /** isStory(g) read from prof = profile(g) when it can be: the outcome-mark column's counts hold every value unless it has 400 or more
+      different values, so no pass over the items is needed on each change (about 4 ms a change on a 16 MB table). */
+  function isStoryOf(g, prof) {
+    if (!g || g.flavor === 'story' || g.flavor === 'data') return isStory(g);
+    var rec = KEPT && prof && KEPT.get(prof), i, r;
+    if (rec) for (i = 0; i < rec.nc.length; i++) { r = rec.nc[i]; if (r.key === 'valence' && r.builtin) { if (r.ca < 0) return r.d.has('good') || r.d.has('bad'); break; } }
+    return isStory(g);
   }
 
   /* ---------------------------------------------------------------- formulas for calculated columns */
@@ -571,6 +596,6 @@ var NFMColumns = (function () {
     return out;
   }
 
-  return { buildStates: buildStates, clearStates: clearStates, num: num, dateMs: dateMs, fmt: fmt, fmtFull: fmtFull, nf: function (n) { return NF_INT ? NF_INT.format(Number(n)) : Number(n).toLocaleString('en-US'); }, profile: profile, profileUpdate: update, findCol: findCol, numOf: numOf, catOf: catOf, split: split, guessRoles: guessRoles, isStory: isStory, compile: compile, derive: derive, suggestStates: suggestStates, pairsRepeat: pairsRepeat, nodeSys: nodeSys, FUNCS: Object.keys(FUNCS).concat(['if']) };
+  return { buildStates: buildStates, clearStates: clearStates, num: num, dateMs: dateMs, fmt: fmt, fmtFull: fmtFull, nf: function (n) { return NF_INT ? NF_INT.format(Number(n)) : Number(n).toLocaleString('en-US'); }, profile: profile, profileUpdate: update, findCol: findCol, numOf: numOf, catOf: catOf, split: split, guessRoles: guessRoles, isStory: isStory, isStoryOf: isStoryOf, compile: compile, derive: derive, suggestStates: suggestStates, pairsRepeat: pairsRepeat, nodeSys: nodeSys, FUNCS: Object.keys(FUNCS).concat(['if']) };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMColumns;

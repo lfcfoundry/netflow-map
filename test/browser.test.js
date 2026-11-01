@@ -1219,6 +1219,10 @@ async function open() {
       NFM.setGraph(base); out.start = NFM.indexMatches();
       out[named('rename')] = step((g) => { g.nodes[7] = Object.assign({}, g.nodes[7], { label: 'renamed' }); });
       out[named('group')] = step((g) => { g.nodes = g.nodes.map((n, i) => i % 9 ? n : Object.assign({}, n, { group: 'G9' })); });
+      out[named('placeholder')] = step((g) => { g.nodes[9] = Object.assign({}, g.nodes[9], { ghost: true }); g.nodes[12] = Object.assign({}, g.nodes[12], { ghost: true }); });
+      out[named('unplaceholder')] = step((g) => { g.nodes[9] = Object.assign({}, g.nodes[9], { ghost: false }); });
+      out[named('ending')] = step((g) => { g.nodes[14] = Object.assign({}, g.nodes[14], { valence: 'good' }); });
+      out[named('noEnding')] = step((g) => { g.nodes[14] = Object.assign({}, g.nodes[14], { valence: '' }); });
       out[named('linkLabel')] = step((g) => { g.edges[3] = Object.assign({}, g.edges[3], { label: 'l3' }); });
       out[named('linkKind')] = step((g) => { g.edges[5] = Object.assign({}, g.edges[5], { kind: 'newkind' }); });
       out[named('linkMoved')] = step((g) => { g.edges[6] = Object.assign({}, g.edges[6], { to: g.nodes[100].id }); });
@@ -1241,7 +1245,7 @@ async function open() {
       out.home = S.graph === g0 && NFM.indexMatches() === true;
       return { out, paths };
     });
-    const quick = r.paths.rename === 'quick+links' && r.paths.group === 'quick+links' && r.paths.linkLabel === 'quick+links' && r.paths.linkKind === 'quick+links' && r.paths.linkMoved === 'quick' && r.paths.idChange === 'full' && r.paths.add === 'full';
+    const quick = r.paths.rename === 'quick+links' && r.paths.group === 'quick+links' && r.paths.linkLabel === 'quick+links' && r.paths.linkKind === 'quick+links' && r.paths.linkMoved === 'quick' && r.paths.idChange === 'full' && r.paths.add === 'full' && r.paths.placeholder === 'quick+links' && r.paths.ending === 'quick+links';
     say(Object.values(r.out).every((v) => v === true) && quick, 'the item index, updated only for changed items when it can be, matches one built from nothing after every kind of change and undo: ' + JSON.stringify(r));
   } catch (e) { say(false, 'the item-index check stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
   }
