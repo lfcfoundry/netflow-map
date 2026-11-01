@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.11.01.0219 · 2026-11-01
+
+### Quick
+Vendored netflow-layers 1.9.0 (JS-modules PR 423, 1fc6cad; file from 67147f4, byte-identical to JS-modules main). Same-picture speedups (no third layout for both row choices, stop-number link lists, single-key row sort without lanes, the wasm order search skips unchanged rows) and better: true deepens from both starts and keeps the fewer crossings. No saved file, layout or setting changes.
+
+### Details
+Picture check: Flow, top-down, spine and lanes on 48 story and DAG maps (20 to 1,200 items): node positions identical on all 192. Early-stop A/B, one page with both engines, Flow plus top-down builds of a 400 and a 1,200-item story: Chromium 155 0.961 (0.862-1.007) at 400, 0.853 and 0.810 at 1,200; Firefox 158 0.953 at 400, 0.861 at 1,200; WebKitGTK 2.52.6 1.000 (0.905-1.044) at 400, 0.923 and 0.947 at 1,200.
+
+### Deep
+First runs flagged WebKitGTK 1,200 as 1.26 slower and Chromium 1,200 as inconclusive (1.027); each was rerun with both load orders and came out level or faster, so the first runs read as noise. Node tests pass; browser suites Chromium 219 ok, WebKitGTK 207 ok, Firefox 196 ok, 0 FAIL.
+
 ## 2026.11.01.0154 · 2026-11-01
 
 ### Quick
