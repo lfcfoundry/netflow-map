@@ -4,6 +4,28 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.2021 · 2026-10-31
+
+### Quick
+Vendored netflow-layers 1.6.0 and netflow-sankey 2.3.3 (JS-modules PR 367, byte-identical to JS-modules main). src/engine.js: layered views pass `deep: true` unless `o.deep === false`, and `rows: 'best'` is accepted; the app's Rows setting gains Fewest crossings (`rows: 'best'`, new default in src/app/00-core.js; saved views keep their choice). The Sankey view with netflow-sankey (`o.sk`) no longer runs `layered()` first: `sankeyLite(G)` hands the graph straight over and `sankeyLiteKinds` sets link kinds and info counts from the Sankey's own columns (`o.skLite === false` brings back the old path, which now uses `orderRounds: 0`). Pictures change in Flow, top-down, spine and lanes (fewer crossings); the Sankey picture (bars, bands, loops, size) is the same. No saved file is affected. Also in this build (PR 123, Jawad's card 'Link weights plus a note'): a Sankey whose start has no links out (no non-self flow over 1e-12, no amounts) uses edge weight / max weight as flow and max(in, out) / max as visits, sets `Lr.weightsFallback`, and src/app/35-rail.js shows a note in Why this view; test 'Sankey with a dead-end start draws the link weights instead of one empty column'.
+
+### Details
+vs-libs dag data, links crossing as drawn, same in all three browsers: 200 items 1,919 to 1,303; 400 items 7,956 to 5,351 (dagre 5,374, ELK 5,313); 1,000 items 31,870 to 21,812 (dagre 23,965, ELK 22,602); 1,500 items 67,493 to 45,648. Time with deep + best, Chromium / Firefox / WebKitGTK: 1,000 items 129 / 135 / 131 ms (was 22 / 23 / 21), 1,500 items 336 / 359 / 341 ms. Sankey 1,500 items, median of 5 (old path / orderRounds 0 / no layered): Chromium 33.9 / 36.5 / 31.6 ms, Firefox 36 / 34 / 29, WebKitGTK 39 / 40 / 28; d3-sankey 24-27 ms. Info counts in the Sankey now describe its drawn columns (1,500 items: 54 columns, 152 back links; the layered rows said 1 column, 645).
+
+### Deep
+Each tried alone and stacked (bench plans `deep` and `sk`, results in bench/results/vs-libs-*-deep.jsonl and -sk.jsonl). `rows: 'best'` alone changes nothing below about 1,000 items on this data; deep alone gets level with dagre and ELK; stacked beats both at 1,000 items. `rows: 'best'` runs layered() up to 3 times (route, story on copies, the winner again), which is most of its cost; reported to JS-modules. netflow-sankey reads only nodes, edges (from, to, flow, kind 'self') and pos, and does its own layering and order (found by the JS-modules thread). New tests in test/topdown.test.js: the deeper search never adds crossings (6 maps, 3 views), and the Sankey without layered() keeps the same bars, bands, loops and columns (4 maps). The fingerprint test now pins `deep: false`.
+
+## 2026.10.31.1948 · 2026-10-31
+
+### Quick
+`parseDelimited` (src/importers.js) cuts a line with no quote by reading its characters (`charCodeAt` against the delimiter, `slice` per field) instead of `text.slice(line).split(d)`. Same rows, cell for cell; a delimiter longer than one character still uses `split`. No saved file, layout or setting is affected. New benchmark-only harness bench/vs-libs.js + bench/vs-libs-run.js (Netflow Map against d3-force, ForceAtlas2, Cytoscape.js, dagre, ELK, d3-sankey, Papa Parse, d3-dsv, graphology); bench/page.html loads pack, graph-walk, netflow-sankey and netflow-layers before the engine again.
+
+### Details
+16 MB table (`NFMGen.csv('moderate', 188000, 3)`), early-stop A/B rule, fresh page per sample: WebKitGTK 2.52.6 390 to 119 ms (faster 0.29), Chromium 155 229 to 167 ms (faster 0.73; first run 0.80 flagged noisy, rerun clean), Firefox 158 230 to 242 ms (ok 0.985, 0.956 to 1.03). Row hash identical. Variants tried in all three browsers (one page, 4 rotated turns): whole-text split, line slice + split, indexOf per field on the text, indexOf per field on the line slice, character scan; WebKitGTK's `String.prototype.split` was the cost (372 ms against 86 for the character scan).
+
+### Deep
+Found by the new library comparison (landing page): Netflow Map was 575 ms against Papa Parse 211 and d3-dsv 326 in WebKitGTK while fastest in Chromium and Firefox. Papa Parse also scans with indexOf/charCodeAt. The quoted-line path was already a character scan and is unchanged. Memory in the comparison is read over the DevTools protocol (`Runtime.getHeapUsage` after two `HeapProfiler.collectGarbage`): `performance.memory` gave negative or zero differences even with --enable-precise-memory-info.
+
 ## 2026.10.31.1830 · 2026-10-31
 
 ### Quick

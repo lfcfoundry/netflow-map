@@ -198,6 +198,7 @@ function panelAsk() {
   if (V.around) hid.push('Showing only the area around ' + labelOf(V.around.id) + '.');
   if (L && L.view === 'network' && L.n > 400 && V.strongest === 100) hid.push('With this many items, try the strongest-links slider on the Filter tab.');
   if (hid.length) why.push(h('p', { class: 'small', style: { margin: 0, color: 'var(--gold)' } }, hid.join(' ')));
+  if (L && L.weightsFallback) why.push(h('p', { class: 'small', style: { margin: 0, color: 'var(--gold)' } }, 'Nothing flows from the start item: it has no links out. The bands show the link weights instead; pick another start to see how things flow from it.'));
   kids.push(section('Why this view', why));
   if (L) {
     var rows = [[cap(word('items')), nfmt(L.n)], [cap(word('links')), nfmt(L.m)]];
@@ -274,7 +275,7 @@ function panelLook() {
   if (['flow', 'down', 'spine', 'lanes'].indexOf(V.view) >= 0) k1.push(field('Spacing', seg([['tight', 'Tight'], ['wide', 'Wide']], V.spread, function (v) { setV({ spread: v }); }), 'Tight packs the boxes close together. Wide gives a looser, more tree-like drawing with more room between boxes and rows, easier to read on a wide screen.'));
   if (['flow', 'down', 'spine', 'lanes', 'sankey'].indexOf(V.view) >= 0) { k1.push(check('Fold straight runs into one box', V.fold, function (on) { setV({ fold: on }); })); k1.push(check('Merge parallel arrows', V.merge, function (on) { setV({ merge: on }); })); }
   if (V.view === 'flow' || V.view === 'down') {
-    k1.push(field('Rows', seg([['route', 'Shortest route'], ['story', 'Story order']], V.rows, function (v) { setV({ rows: v }); }), 'Story order puts every page below all the pages that lead to it, so gold links are real loops only.'));
+    k1.push(field('Rows', seg([['best', 'Fewest crossings'], ['route', 'Shortest route'], ['story', 'Story order']], V.rows, function (v) { setV({ rows: v }); }), 'Fewest crossings tries both rules below and keeps the one whose links cross least. Story order puts every page below all the pages that lead to it, so gold links are real loops only.'));
     k1.push(field('Chapters', seg([['auto', 'Auto'], ['on', 'Always'], ['off', 'Off']], V.chapters, function (v) { setV({ chapters: v }); }), 'Folds the pages between must-pass pages into one box each, and runs of those into parts, so a big story fits on a screen. Auto starts above 1,500 pages. Click a box to open it; right-click a page inside to fold it back.'));
     if (S.L && S.L.chapters) k1.push(h('div', { class: 'row tight' }, [h('span', { class: 'muted small' }, plural(S.L.chapters.parts, 'part') + ' and ' + plural(S.L.chapters.chapters, 'chapter') + ' folded, hiding ' + nfmt(S.L.chapters.hidden) + ' pages. '), Object.keys(V.openCh).length ? h('button', { class: 'sm', onclick: function () { S.V.openCh = {}; setV({}); } }, 'Fold all back') : null]));
     k1.push(check('Draw very long links as tags', V.tagLen > 0, function (on) { setV({ tagLen: on ? 8 : 0 }); }));
