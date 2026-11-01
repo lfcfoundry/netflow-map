@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.11.01.1126 · 2026-11-01
+
+### Quick
+Vendored netflow-scene 1.3.4, netflow-hierarchy 1.0.1 and netflow-circular 1.0.1 (JS-modules main a5bd71b). src/charts.js drops its globalThis shim, since circular 1.0.1 finds hierarchy without it. Same pixels; nothing saved changes.
+
+### Details
+In-app scene build at 100,000 items after a palette change: Firefox 158 and WebKitGTK 2.52.6 about 0.4 to 0.5 of the old time; Chromium 155 treemap 782-842 to 698-734 ms, pack 942-1038 to 803-881, chord 633-695 to 624-678, tree 1274-1351 to 751-772. Suites: Chromium 232, WebKitGTK 220, Firefox 209, 0 fail.
+
+### Deep
+The scene module no longer builds full records for the hidden dots of the nested views. The remaining Chromium time is being traced in the JS-modules thread (records and timing scripts in the project files).
+
 ## 2026.11.01.1059 · 2026-11-01
 
 ### Quick
