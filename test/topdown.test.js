@@ -47,6 +47,17 @@ t('deeper crossing search: never more crossings than without it, small maps incl
   }));
   return out.join(', ');
 });
+t('Sankey without the layered drawing first: the same bars, bands and loops as with it', () => {
+  const out = [];
+  [['story 30', story(30, 1)], ['dag 60/120', dag(60, 120, 3)], ['story 400', story(400, 4)], ['dag 12/18', dag(12, 18, 7)]].forEach(([nm, s]) => {
+    const A = E.build(copy(graph(s)), { view: 'sankey', sk: {}, skLite: false }), B = E.build(copy(graph(s)), { view: 'sankey', sk: {} });
+    const pl = (L) => JSON.stringify([L.width, L.height, L.nodes.map((n) => [n.id, n.x, n.y, n.w, n.h, n.layer]), L.sk && [L.sk.bands, L.sk.loops, L.sk.order, L.sk.cols]]);
+    ok(!!A.sk && pl(A) === pl(B), nm + ': the Sankey picture changed without the layered drawing');
+    ok(B.info.columns === new Set(B.nodes.map((n) => n.layer)).size, nm + ': columns ' + B.info.columns);
+    out.push(nm + ' same');
+  });
+  return out.join(', ');
+});
 const info = (g, o) => E.build(copy(g), Object.assign({ view: 'down' }, o));
 t('story order: a map with no loops has no gold (back or sideways) links, and real loops are still gold', () => {
   const d = graph(dag(300, 600, 5)), a = info(d, {}), b = info(d, { rows: 'story' });
