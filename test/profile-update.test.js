@@ -30,7 +30,7 @@ const LEDITS = {
   attr: (e) => Object.assign({}, e, { attrs: Object.assign({}, e.attrs, { [pick(['cost', 'kind2'])]: pick(VALS) }) })
 };
 for (const size of [600, 3000]) {
-  let g = base(size), p = C.profile(g), same = 0, quick = 0, rounds = size === 600 ? 500 : 120, firstBad = null;
+  let g = base(size), p = C.profile(g), storyBad = 0, same = 0, quick = 0, rounds = size === 600 ? 500 : 120, firstBad = null;
   for (let t = 0; t < rounds; t++) {
     const h = Object.assign({}, g, { nodes: g.nodes.slice(), edges: g.edges.slice() }), dn = [], de = [];
     const many = rnd() < 0.1 ? 1 + ((rnd() * 40) | 0) : 1 + ((rnd() * 3) | 0);
@@ -40,10 +40,12 @@ for (const size of [600, 3000]) {
     }
     dn.sort((x, y) => x - y); de.sort((x, y) => x - y);
     const u = C.profileUpdate(p, g, h, dn, de), full = C.profile(h);
+    if (C.isStoryOf(h, u || full) !== C.isStory(h)) storyBad++;
     if (u) { quick++; if (J(u) === J(full)) same++; else if (!firstBad) firstBad = { t, a: J(u).slice(0, 300), b: J(full).slice(0, 300) }; }
     p = u && t % 2 ? u : full; g = h;   /* chain both ways: updates of updates, and updates of full profiles */
   }
   ok(same === quick, size + ' items, ' + rounds + ' random edits: every quick profile equals the full one (' + same + ' of ' + quick + ')' + (firstBad ? ' ' + JSON.stringify(firstBad) : ''));
+  ok(storyBad === 0, size + ' items: the story check read from the profile agrees with a pass over the items every time (' + storyBad + ' differ)');
   ok(quick > rounds * 0.3, size + ' items: the quick way is taken for many of these mixed edits (' + quick + ' of ' + rounds + ')');
 }
 { const g = base(500), p = C.profile(g); ok(C.profileUpdate(p, g, Object.assign({}, g, { nodes: g.nodes.slice(1) }), [], []) === null, 'a changed item count takes the full way'); ok(C.profileUpdate({ nodes: [], edges: [] }, g, g, [], []) === null, 'a profile without its record takes the full way'); }
@@ -57,6 +59,35 @@ for (const size of [600, 3000]) {
     p = u || C.profile(h); g = h;
   }
   ok(quick === 100, 'renames, groups, outcome marks and link kinds: quick and identical every time (' + quick + ' of 100)');
+}
+{ /* edits among the first few items, where the column samples come from: values moving up into, within and out of the samples */
+  let g = base(600), p = C.profile(g), same = 0, quick = 0, firstBad = null;
+  const SV = ['', 'a', 'b', 'c', 'd', 'T1', 'T2', 'n0', 'n1', 'x', null];
+  for (let t = 0; t < 600; t++) {
+    const h = Object.assign({}, g, { nodes: g.nodes.slice(), edges: g.edges.slice() }), dn = [];
+    for (let q = 0, m = 1 + ((rnd() * 3) | 0); q < m; q++) {
+      const k = (rnd() * 8) | 0, key = pick(['label', 'group', 'team', 'note']), v = pick(SV);
+      h.nodes[k] = key === 'label' || key === 'group' ? Object.assign({}, h.nodes[k], { [key]: v }) : Object.assign({}, h.nodes[k], { attrs: Object.assign({}, h.nodes[k].attrs, { [key]: v }) });
+      if (dn.indexOf(k) < 0) dn.push(k);
+    }
+    dn.sort((x, y) => x - y);
+    const u = C.profileUpdate(p, g, h, dn, []), full = C.profile(h);
+    if (u) { quick++; if (J(u) === J(full)) same++; else if (!firstBad) firstBad = { t, a: J(u).slice(0, 400), b: J(full).slice(0, 400) }; }
+    p = u && t % 2 ? u : full; g = h;
+  }
+  ok(same === quick && quick > 300, 'edits among the first items: every quick profile equals the full one (' + same + ' of ' + quick + ')' + (firstBad ? ' ' + JSON.stringify(firstBad) : ''));
+}
+{ /* a column with fewer than three different values (an unused label column, a two-value flag) is kept exact without reading it again */
+  const g = base(3000); g.nodes = g.nodes.map((n, i) => Object.assign({}, n, { label: n.id, attrs: Object.assign({}, n.attrs, { flag: i % 2 ? 'y' : 'n' }) }));
+  let p = C.profile(g), cur = g, okAll = 0;
+  for (let t = 0; t < 50; t++) {
+    const h = Object.assign({}, cur, { nodes: cur.nodes.slice() }), k = 100 + t * 37;
+    h.nodes[k] = Object.assign({}, h.nodes[k], { label: 'renamed ' + t, attrs: Object.assign({}, h.nodes[k].attrs, { flag: t % 3 ? 'y' : 'maybe' }) });
+    const u = C.profileUpdate(p, cur, h, [k], []);
+    if (u && C.profileUpdate.redone === 0 && J(u) === J(C.profile(h))) okAll++;
+    p = u || C.profile(h); cur = h;
+  }
+  ok(okAll === 50, 'renames in a map whose labels were all unused, and a nearly empty flag column: identical, with no column read again (' + okAll + ' of 50)');
 }
 if (fails) { console.log(fails + ' FAILED'); process.exit(1); }
 console.log('all profile update checks passed');
