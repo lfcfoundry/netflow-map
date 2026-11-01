@@ -1,9 +1,9 @@
 /*!
- * Netflow Map app, part 5b: the Charts tab (bars, lines, pie and more from the table's columns, drawn by vendor/netflow-plot.js, a copy of JS-modules netflow-plot). Copyright (c) 2026 LFC Foundry. MIT License.
+ * Netflow Map app, part 5b: the Charts tab (bars, lines, donuts and more from the table's columns, drawn by vendor/netflow-plot.js, a copy of JS-modules netflow-plot). Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var CHT = { r: null, rP: null, scene: null, view: null, key: '' };
 var CHART_DEFAULT = { rows: 'nodes', rowsPicked: false, type: 'bar', x: '', y: '', color: '', size: '', agg: 'sum', stack: 'stack', horizontal: false, sort: 'value', smooth: 0, index: false, bins: 0, cols: [] };
-function chartSpec() { var c = S.V.chart; if (!c || typeof c !== 'object') c = S.V.chart = Object.assign({}, CHART_DEFAULT); Object.keys(CHART_DEFAULT).forEach(function (k) { if (c[k] === undefined) c[k] = Array.isArray(CHART_DEFAULT[k]) ? [] : CHART_DEFAULT[k]; }); return c; }
+function chartSpec() { var c = S.V.chart; if (!c || typeof c !== 'object') c = S.V.chart = Object.assign({}, CHART_DEFAULT); if (c.type === 'pie') c.type = 'donut';   /* pie is no longer offered: older saves open as a donut */ Object.keys(CHART_DEFAULT).forEach(function (k) { if (c[k] === undefined) c[k] = Array.isArray(CHART_DEFAULT[k]) ? [] : CHART_DEFAULT[k]; }); return c; }
 /** The columns of items or links with what kind each is (built-in ones first). */
 function chartCols(rows) {
   var list = (rows === 'edges' ? S.prof.edges : S.prof.nodes) || [], out = [];
