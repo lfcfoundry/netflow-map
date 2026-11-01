@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.2257 · 2026-10-31
+
+### Quick
+tools/build.mjs: esbuild runs with `charset: 'ascii'` (JS and CSS), and `hiEsc` writes what esbuild leaves above U+00FF (it keeps regular expressions as written) as `\uXXXX`, one per UTF-16 unit. The build fails when the finished index.html still holds any character above U+00FF (the readable build without esbuild only warns). Same program and look; nothing saved is affected.
+
+### Details
+From research round 33 (js-modules-research/breakthroughs-2026.10.31/round33-two-byte-source/ROUND33-2026.10.31.md): one character above U+00FF makes Chromium keep the whole page text, and each script in it, at 2 bytes a character. Netflow Map had 30, all in scripts (regular expressions in src/importers.js and the app: U+0300-036F, U+0400-04FF, U+4E00-9FFF, U+200B-200D, U+2060, U+FEFF, U+FFFD, U+202F, U+20AC, arrows and bullets; plus 6 in app.css). Chromium renderer memory 4 s after load 34.4 to 31.3 MB, load 160 to 133 ms, ready A/B 0.923; Firefox 0.97 and WebKitGTK 1.00 (research A/B). Escaping only the main script saved 0.86 MB and only the worker sources 0.56 MB; the whole file at once 3.32 MB.
+
+### Deep
+Built page: 0 characters above U+00FF (was 30). Escapes in regular expressions keep their meaning with or without the u flag (a surrogate pair as two escapes is one code point under u). The deflated LFC-pack source block is base64 and was already Latin-1.
+
 ## 2026.10.31.2253 · 2026-10-31
 
 ### Quick
