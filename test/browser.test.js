@@ -1227,6 +1227,16 @@ async function open() {
       out[named('remove')] = step((g) => { const id = g.nodes[20].id; g.nodes.splice(20, 1); g.edges = g.edges.filter((e) => e.from !== id && e.to !== id); });
       document.getElementById('b-undo').click(); out.undo = NFM.indexMatches();
       document.getElementById('b-undo').click(); document.getElementById('b-undo').click(); out.undo3 = NFM.indexMatches();
+      /* edit() copies a list only when the change touches it: an item-only change keeps the very same link list (and the reverse), the index still matches, and undo brings back the exact graph */
+      { const before = S.graph, snap = JSON.stringify(before), undo = () => document.getElementById('b-undo').click();
+        NFM.edit((g) => { g.nodes[3] = Object.assign({}, g.nodes[3], { label: 'lazy' }); }, true);
+        out.lazyItemsOnly = S.graph.edges === before.edges && S.graph.nodes !== before.nodes && before.nodes[3].label !== 'lazy' && S.graph.nodes[3].label === 'lazy' && NFM.indexMatches();
+        const mid = S.graph;
+        NFM.edit((g) => { g.edges[2] = Object.assign({}, g.edges[2], { label: 'lazyE' }); }, true);
+        out.lazyLinksOnly = S.graph.nodes === mid.nodes && S.graph.edges !== mid.edges && mid.edges[2].label !== 'lazyE' && S.graph.edges[2].label === 'lazyE' && NFM.indexMatches();
+        NFM.edit((g) => { g.nodes = g.nodes.concat([{ id: 'lazy-new', label: 'n', group: '', valence: '', ghost: false, attrs: {} }]); }, true);
+        out.lazySet = S.graph.nodes.length === mid.nodes.length + 1 && Object.getOwnPropertyDescriptor(S.graph, 'nodes').value === S.graph.nodes && NFM.indexMatches();
+        undo(); undo(); undo(); out.lazyUndo = JSON.stringify(S.graph) === snap && NFM.indexMatches(); }
       while (S.graph !== g0 && S.hist.length) { document.getElementById('b-undo').click(); await new Promise((q) => setTimeout(q, 0)); }
       out.home = S.graph === g0 && NFM.indexMatches() === true;
       return { out, paths };
