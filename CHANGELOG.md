@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39,
 
 ## November 1
 
+- **2026.11.01.0017** Flow, top-down, spine and lanes views draw small maps with fewer crossing links. On maps under 500 boxes, Auto now also tries the harder untangling and keeps whichever picture crosses less, so it is never messier than before. On a 400-item test map links cross 4,663 times instead of 5,351, fewer than dagre (5,374) and ELK (5,313), two popular layout tools; on 40 imported tables under 500 boxes, 3.7% fewer crossings. These maps take about 2 to 2.7 times as long to lay out (400 items: 31-37 to 82-91 ms, lab), still about 9 times quicker than those tools. Turn it off by picking Deeper in Crossing search.
 - **2026.11.01.0011** The Lighter crossing search (used by Auto on maps of 800 boxes or more) now looks a little longer before it stops, so it draws the same tidy pictures as Deeper: on 55 test maps it never leaves extra crossings any more (before, 7 of them had 2 to 7% more). Big maps take a bit longer again: a 1,000-item map draws in about 117 ms in Chromium, 126 in Firefox and 125 in WebKitGTK, against 74, 85 and 86 ms in the last build (lab). Smaller maps are the same.
 
 ## October 31

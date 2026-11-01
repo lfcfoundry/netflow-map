@@ -162,12 +162,31 @@ t('tapered links: thick at the start, thin at the end, no arrowhead; the SVG exp
 t('crossing search: Auto draws exactly the Deeper picture under 800 boxes and the Lighter one from 800; Lighter keeps the chosen row rule', () => {
   const pic = (L) => JSON.stringify(L.nodes.map((n) => [n.id, Math.round(n.x), Math.round(n.y)]));
   const small = graph(story(300, 5));
-  ok(pic(info(small, {})) === pic(info(small, { search: 'deep' })), 'auto differs from deeper on a small map');
-  ok(pic(info(small, { search: 'auto' })) === pic(info(small, { search: 'deep' })), 'search auto differs from deeper on a small map');
+  ok(pic(info(small, { untangleBoth: false })) === pic(info(small, { search: 'deep' })), 'auto differs from deeper on a small map');
+  ok(pic(info(small, { search: 'auto', untangleBoth: false })) === pic(info(small, { search: 'deep' })), 'search auto differs from deeper on a small map');
   const Lr = info(small, { search: 'lite', rows: 'route' }); ok(Lr.info.rowMode === 'route', 'lighter search changed the row rule to ' + Lr.info.rowMode);
   const big = graph(story(2400, 3)), La = info(big, { fold: false }), Ll = info(big, { fold: false, search: 'lite' });
   ok(La.nodes.length >= 800, 'big map has ' + La.nodes.length + ' boxes');
   ok(pic(La) === pic(Ll), 'auto differs from lighter on a big map');
   return La.nodes.length + ' boxes';
+});
+t('small maps under Auto: the layout keeps whichever untangling crosses less, so it is never messier than either alone', () => {
+  let n = 0;
+  for (const [size, seed] of [[60, 1], [120, 2], [200, 3], [300, 4], [420, 5]]) for (const view of ['flow', 'down', 'spine']) {
+    const g = graph(story(size, seed)), auto = info(g, { view }), plain = info(g, { view, untangleBoth: false }), hard = info(g, { view, better: true });
+    ok(auto.crossings <= plain.crossings && auto.crossings <= hard.crossings, view + ' ' + size + ': ' + auto.crossings + ' vs ' + plain.crossings + ' / ' + hard.crossings);
+    ok(auto.crossings === Math.min(plain.crossings, hard.crossings), view + ' ' + size + ' not the smaller one');
+    n++;
+  }
+  let won = 0;
+  const IMP = require('../src/importers.js'), GEN = require('../bench/gen.js');
+  for (const [size, seed] of [[150, 1], [150, 2], [250, 3], [250, 5], [400, 5], [400, 6]]) {
+    const g = IMP.importAny([{ name: 'a.csv', text: GEN.csv('moderate', size, seed).text }], {}).graph, auto = info(g, {}), hard = info(g, { better: true }), plain = info(g, { untangleBoth: false });
+    const fp2 = (L) => JSON.stringify([L.nodes.map((q) => [q.id, q.x, q.y, q.w, q.h, q.label, q.sizeV, q.colorV]), L.edges.map((e) => [e.from, e.to, e.pts, e.flow, e.widthV]), L.width, L.height, L.crossings]);
+    if (hard.crossings < plain.crossings) { won++; ok(fp2(auto) === fp2(hard), 'harder won at ' + size + ' but the drawing is not the harder one'); } else ok(fp2(auto) === fp2(plain), 'plain won at ' + size + ' but the drawing differs');
+  }
+  ok(won > 0, 'the harder untangling never won on these maps');
+  const g = graph(story(300, 9)); ok(JSON.stringify(info(g, { search: 'deep' }).nodes.map((q) => [q.x, q.y])) === JSON.stringify(info(g, { search: 'deep', untangleBoth: false }).nodes.map((q) => [q.x, q.y])), 'Deeper chosen by hand changed');
+  return n + ' drawings';
 });
 console.log(bad ? bad + ' FAILED' : 'all top-down checks passed'); process.exit(bad ? 1 : 0);
