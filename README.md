@@ -77,11 +77,11 @@ At 10,000 items Netflow Map was 42 times faster than the fastest library in Chro
 
 ## Flow view against dagre and ELK
 
-1,000 items and 1,900 links with no loops, Chromium 155: Netflow Map 30 ms, dagre 8.4 s, ELK 2.1 s. dagre and ELK cross about half as many links today (47,009 against 25,448 and 24,920); a deeper crossing search that beats both is being built.
+1,000 items and 1,900 links with no loops, Chromium 155, links crossing as drawn: Netflow Map 21,812 in 129 ms, dagre 23,965 in 8.4 s, ELK 22,602 in 2.1 s. At 400 items the three are level (5,351 against 5,374 and 5,313). The same counts come out in Firefox and WebKitGTK, and small maps get tidier too (200 items: 1,919 to 1,303 crossings). Build 2026.10.31.2013 added the deeper crossing search and the Fewest crossings row choice that do this.
 
 ## Sankey view against d3-sankey
 
-1,500 items, Chromium 155: d3-sankey 43 ms, Netflow Map 91 ms (the whole build), with fewer crossings (91,896 against 95,509; 5,574 against 7,223 at 400 items). Netflow Map also handles loops, which d3-sankey refuses.
+1,500 items, median of 5 runs (Netflow Map / d3-sankey): Chromium 32 / 27 ms, Firefox 29 / 24 ms, WebKitGTK 28 / 24 ms. At 400 items Netflow Map is as fast or faster (7 / 7, 5 / 6, 6 / 6 ms). Netflow Map's time is the whole build: it also works out what flows from the start item, which d3-sankey is given. Its order crosses fewer links (5,574 against 7,223 at 400 items; 91,896 against 95,509 at 1,500), and it handles loops, which d3-sankey refuses.
 
 ## Reading a 16 MB table against Papa Parse and d3-dsv
 
