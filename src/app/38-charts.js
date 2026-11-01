@@ -39,8 +39,9 @@ function chartFill(c) {
   return c;
 }
 function chartGet(r, k) {
+  var a = r.attrs; if (a && Object.prototype.hasOwnProperty.call(a, k)) return a[k];   /* the table's own column first: one called kind or weight must not read the app's field of that name */
   if (k === 'id' || k === 'label' || k === 'group' || k === 'from' || k === 'to' || k === 'weight' || k === 'kind' || k === 'valence') { var v = r[k]; return k === 'label' && v === undefined ? r.id : v; }
-  var a = r.attrs; return a && Object.prototype.hasOwnProperty.call(a, k) ? a[k] : undefined;
+  return undefined;
 }
 function renderChartSide() {
   var side = $('charts-side'); if (!side) return; clear(side);
