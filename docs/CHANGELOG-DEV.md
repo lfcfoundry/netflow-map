@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.11.01.0017 · 2026-11-01
+
+### Quick
+src/engine.js `build()`: with Crossing search Auto, 'Untangle harder' off and fewer than `BOTH_UNTANGLE` (500) boxes, the layered views (Flow, top-down, spine, lanes, also each wrapped run) lay out twice through `lay()`: as set, and with `better: true` on shallow copies of the boxes and links; the fewer crossings wins, and when the harder run wins the map takes the copies (`G.nodes`/`G.edges`). `o.untangleBoth === false` turns it off (tests), as do Deeper or Lighter chosen by hand and `deep: false`. Jawad's card 2026.11.01 12:08 AM ET, "Try both under 500 boxes". Pictures change on small maps (only ever fewer crossings). No saved file is affected.
+
+### Details
+Comparison data, Chromium, crossings as drawn: 400 items 5,351 to 4,663 (dagre 5,374, ELK 5,313), 200 items 1,303 to 969 (1,746, 1,338). 40 imported tables under 500 boxes: harder untangling alone drew fewer crossings on 19 and more on 15 (it is not never-worse together with the deep search; reported to the JS-modules thread); keeping the better of the two, 3.7% fewer crossings overall. Early-stop A/B, Flow (main vs this): 200 items Chromium 2.00 (20.5 to 39.2 ms), Firefox 1.84 (20.3 to 38.3), WebKitGTK 2.00 (22 to 43.3); 400 items Chromium 2.71 (31.1 to 82.5), Firefox 2.53 (37 to 91), WebKitGTK 2.35 (36.7 to 85.7). An earlier version ran the winning harder layout again on the map itself (up to 4 times as long); taking the copies avoids that.
+
+### Deep
+test/topdown.test.js: on 15 story drawings Auto's crossings equal the smaller of plain and harder; on 6 imported tables the drawing is exactly the winner's (boxes, labels, values, link points, size, crossings), with the harder run winning at least once; Deeper chosen by hand is unchanged.
+
 ## 2026.11.01.0011 · 2026-11-01
 
 ### Quick
