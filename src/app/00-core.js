@@ -327,7 +327,7 @@ function makeLinkLists(edges, pos, field, nNodes) {
  * places and names (a rename, a group, an outcome mark) the index is updated for the changed items only, and the link lists are kept when
  * every link keeps its two ends. Anything else (items added, removed or renamed by id, links moved) builds it whole, as before.
  */
-var IDX = { g: null, pos: null };
+var IDX = { g: null, pos: null, ghosts: -1 };   /* ghosts: how many placeholder items the indexed graph has (the Data tab's count) */
 /** The slots of list a (now) that differ from list b (before), when both have the same length and few differ; else null. */
 function changedSlots(a, b) {
   if (a.length !== b.length) return null;
@@ -346,13 +346,14 @@ function indexGraph() {
     if (ok) {
       by = S.byId; pos = IDX.pos;
       for (i = 0; i < dn.length; i++) by.set(g.nodes[dn[i]].id, g.nodes[dn[i]]);
+      if (IDX.ghosts >= 0) for (i = 0; i < dn.length; i++) IDX.ghosts += (g.nodes[dn[i]].ghost ? 1 : 0) - (old.nodes[dn[i]].ghost ? 1 : 0);
       de = changedSlots(g.edges, old.edges);
       kindsSame = !!de && de.length === 0;
       links = !S.outAdj.loose && !S.inAdj.loose && !!de;
       for (i = 0; links && i < de.length; i++) { k = de[i]; links = g.edges[k].from === old.edges[k].from && g.edges[k].to === old.edges[k].to; }
     }
   }
-  if (!by) { by = new Map(); pos = new Map(); g.nodes.forEach(function (n, j) { by.set(n.id, n); pos.set(n.id, j); }); }
+  if (!by) { var gh = 0; by = new Map(); pos = new Map(); g.nodes.forEach(function (n, j) { by.set(n.id, n); pos.set(n.id, j); if (n.ghost) gh++; }); IDX.ghosts = gh; }
   if (!kindsSame) { var kinds = new Set(); g.edges.forEach(function (e) { if (e.kind) kinds.add(e.kind); }); S.kinds = Array.from(kinds).sort(); }
   var wasBy = S.byId; S.byId = by;
   if (!links) { S.outAdj = makeLinkLists(g.edges, pos, 'from', g.nodes.length); S.inAdj = makeLinkLists(g.edges, pos, 'to', g.nodes.length); }
@@ -361,7 +362,7 @@ function indexGraph() {
   var dg = NFMColumns.derive(g), prof = null;
   if (by === wasBy && dn && de && dg === g && IDX.dg === old && S.prof) prof = NFMColumns.profileUpdate(S.prof, old, g, dn, de);
   IDX.prof = prof ? 'quick' : 'full';
-  S.dg = dg; IDX.dg = dg; S.prof = prof || NFMColumns.profile(dg); S.story = NFMColumns.isStory(g);
+  S.dg = dg; IDX.dg = dg; S.prof = prof || NFMColumns.profile(dg); S.story = dg === g ? NFMColumns.isStoryOf(g, S.prof) : NFMColumns.isStory(g);
 }
 /** For the checks: true when the index matches one built from nothing, else what differs. */
 function indexMatches() {
@@ -376,6 +377,8 @@ function indexMatches() {
   if (!bad && Array.from(kinds).sort().join('|') !== S.kinds.join('|')) bad = 'kinds';
   var none = S.outAdj.none ? S.outAdj.none() : -1;
   if (!bad && none >= 0 && none !== g.nodes.filter(function (x) { return !S.outAdj.has(x.id); }).length) bad = 'count of items with no way on';
+  if (!bad && IDX.g === g && IDX.ghosts >= 0 && IDX.ghosts !== g.nodes.filter(function (x) { return x.ghost; }).length) bad = 'count of placeholders';
+  if (!bad && S.story !== NFMColumns.isStory(g)) bad = 'story check';
   var rep = REP.get(S.outAdj);
   if (!bad && rep !== undefined && rep !== NFMColumns.pairsRepeat(g)) bad = 'repeated pairs';
   return bad || true;

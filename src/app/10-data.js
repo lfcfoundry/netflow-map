@@ -152,8 +152,9 @@ function renderReport() {
   var g = S.graph, card = $('report');
   if (!g.nodes.length && !S.imp) { card.hidden = true; return; }
   card.hidden = false;
-  /* items with no way on: counted from the link list's own numbers (on a 16 MB table a name lookup per item took about 27 ms of every change) */
-  var ghosts = g.nodes.filter(function (n) { return n.ghost; }).length, ends = S.outAdj.none ? S.outAdj.none() : -1;
+  /* placeholders: counted by the item index, kept up for changed items (a pass over every item was about 8 ms of each change on a 16 MB
+     table, Chromium); items with no way on: counted from the link list's own numbers (on a 16 MB table a name lookup per item took about 27 ms of every change) */
+  var ghosts = IDX.g === g && IDX.ghosts >= 0 ? IDX.ghosts : g.nodes.filter(function (n) { return n.ghost; }).length, ends = S.outAdj.none ? S.outAdj.none() : -1;
   if (ends < 0) ends = g.nodes.filter(function (n) { return !S.outAdj.has(n.id); }).length;
   var stat = function (b, s, small) { return h('div', { class: 'stat' }, [h('b', small ? { style: { fontSize: '15px' } } : null, b), h('span', null, s)]); };
   mount($('stats'), [stat(nfmt(g.nodes.length), word('items')), stat(nfmt(g.edges.length), word('links')), stat(nfmt(ends), 'with no way on'), ghosts ? stat(nfmt(ghosts), 'placeholders') : null,
