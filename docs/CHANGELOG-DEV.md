@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.11.01.1045 · 2026-11-01
+
+### Quick
+Pie removed from the Charts tab (owner's ask): vendor/netflow-plot.js is now JS-modules netflow-plot 2.0.0 (no pie; a pie request falls back to bars), and chartSpec turns a saved `type: 'pie'` into 'donut'. src/charts.js is now a small adapter over two vendored JS-modules copies, vendor/netflow-hierarchy.js (NetflowHierarchy: treemap, icicle, sunburst, pack, tree) and vendor/netflow-circular.js (NetflowCircular: chord, bundles), JS-modules PR 428. Same pictures; saved files load as before.
+
+### Details
+The adapter keeps the name NFMCharts and its API (VIEWS = circular then hierarchy, as before; layout and scene route by type). In Node it sets globalThis.NetflowHierarchy before loading the circular copy, so the vendored files stay byte-identical. Build lists (main page, draw worker) load both vendor files before src/charts.js. Same layouts and scenes as main 35db3f4 on 140 cases (7 views, nest auto and groups, 1 to 3,000 items, trees and graphs with loops).
+
+### Deep
+Node: charts 925, plot 314 (the pie case moved to donut), all others pass. Suites Chromium 232, WebKitGTK 220, Firefox 209, 0 FAIL (the browser chart check now draws a donut instead of a pie).
+
 ## 2026.11.01.1003 · 2026-11-01
 
 ### Quick
