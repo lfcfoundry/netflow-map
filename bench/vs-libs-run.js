@@ -10,6 +10,7 @@ const plans = {
   quick: () => [J('vsNet', { n: 300 }), J('vsFlow', { n: 100, m: 180 }), J('vsSankey', { n: 100, m: 150 }), J('vsCsv', { n: 5000 }), J('vsMem', { n: 2000, what: 'ours' }), J('vsMem', { n: 2000, what: 'graphology' })],
   sankey: () => [[100, 150], [400, 616], [1500, 2283]].map(([n, m]) => J('vsSankey', { n, m })),
   csv: () => [J('vsCsv', { n: 188000 })],
+  cap: () => [[400, 616], [1500, 2283], [5000, 7750]].filter(([n]) => !process.env.CAPN || String(n) === process.env.CAPN).flatMap(([n, m]) => [{}, { skStopCap: 2000 }, { skStopCap: 500 }].map((opt) => J('vsSankey', { n, m, opt, reps: 3 }))),
   sk: () => [[100, 150], [400, 616], [1500, 2283]].flatMap(([n, m]) => [{ skLite: false, skOrder0: false }, { skLite: false }, {}].map((opt) => J('vsSankey', { n, m, opt, reps: 5 }))),
   deep: () => [].concat(
     [[200, 360], [400, 760], [1000, 1900], [1500, 2850]].flatMap(([n, m]) => [{}, { deep: true }, { rows: 'best' }, { deep: true, rows: 'best' }].map((opt) => J('vsFlowX', { n, m, opt, reps: 3 }))),
