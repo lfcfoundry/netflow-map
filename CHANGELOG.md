@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 1
 
+- **Landing page** Netflow Map now has a public page at lfcfoundry.github.io/netflow-map, and the latest app opens at lfcfoundry.github.io/netflow-map/play/.
 - **2026.11.01.1126** Changing colors or labels on the nested and round views is quicker on big maps. At 100,000 boxes, building the new picture takes about half the time it did in Firefox and WebKitGTK, and 5 to 40 percent less in Chromium (tidy tree 1.3 seconds to 0.76). The pictures are exactly the same.
 - **2026.11.01.1059** Changing colors, labels or label text on a big map is quicker when the browser draws with the graphics card: the app no longer prepares the old picture for the card a second time before the new one. On a 100,000-box treemap a color change went from about 4 seconds to 1.2 to 1.4 seconds of page time in Chromium, and the tidy tree from 4.2 to 3.3 seconds. The picture is exactly the same.
 - **2026.11.01.1045** The Charts tab no longer offers a pie chart; it has 22 types now. A saved pie chart opens as a donut, which shows the same shares with the total in the middle. Map views are unchanged: the nested and round views now come from two shared modules (netflow-hierarchy and netflow-circular) and draw exactly the same pictures.
