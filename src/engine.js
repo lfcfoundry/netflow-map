@@ -297,6 +297,17 @@ var NFMEngine = (function () {
     L.info.columns = Object.keys(cols).length; L.info.rows = Object.keys(per).reduce(function (m, k) { return Math.max(m, per[k]); }, 0); L.info.back = back; L.info.flat = flat;
     if (L.sk && L.sk.crossingWeight !== undefined) L.crossings = L.sk.crossingWeight;
   }
+  /** Items with a way on, each after every item it leads to; null when the links hold any loop (a self-link counts). */
+  function topoBack(P) {
+    var n = P.n, m = P.m, indeg = new Int32Array(n), q = new Int32Array(n), qh = 0, qt = 0, e, k, v;
+    for (e = 0; e < m; e++) { if (P.from[e] === P.to[e]) return null; indeg[P.to[e]]++; }
+    for (v = 0; v < n; v++) if (!indeg[v]) q[qt++] = v;
+    while (qh < qt) { v = q[qh++]; for (k = P.outStart[v]; k < P.outStart[v + 1]; k++) { var w = P.to[P.outEdge[k]]; if (--indeg[w] === 0) q[qt++] = w; } }
+    if (qt < n) return null;
+    var ord = [];
+    for (k = n - 1; k >= 0; k--) if (outdeg(P, q[k])) ord.push(q[k]);
+    return ord;
+  }
   function absorb(P, imp, o, classOf, K) {
     o = o || {};
     var n = P.n, m = P.m, cap = o.cap || 400;
@@ -305,9 +316,14 @@ var NFMEngine = (function () {
     for (e = 0; e < m; e++) p[e] = sumw[P.from[e]] > 0 ? P.w[e] / sumw[P.from[e]] : 0;
     var c = new Float64Array(n * K);
     for (i = 0; i < n; i++) if (!outdeg(P, i)) { var ci = classOf(i); if (ci >= 0 && ci < K) c[i * K + ci] = 1; }
-    var ord = [];
-    for (i = 0; i < n; i++) if (outdeg(P, i)) ord.push(i);
-    ord.sort(function (a, b) { return imp.depth[b] - imp.depth[a] || a - b; });
+    /* sweep order: with no loop at all, every item after all the items it leads to (one sweep is then exact: each item reads finished
+       answers); otherwise deepest first, as before, swept until it settles */
+    var ord = topoBack(P), oneSweep = !!ord;
+    if (!ord) {
+      ord = [];
+      for (i = 0; i < n; i++) if (outdeg(P, i)) ord.push(i);
+      ord.sort(function (a, b) { return imp.depth[b] - imp.depth[a] || a - b; });
+    }
     var acc = new Float64Array(K), converged = false;
     for (var sweep = 0; sweep < 500; sweep++) {
       var delta = 0;
@@ -323,14 +339,14 @@ var NFMEngine = (function () {
         for (q = 0; q < K; q++) { d += Math.abs(acc[q] - c[v * K + q]); c[v * K + q] = acc[q]; }
         if (d > delta) delta = d;
       }
-      if (delta < 1e-12) { converged = true; break; }
+      if (delta < 1e-12 || oneSweep) { converged = true; break; }
     }
     var residual = 0;
     if (!converged) {   /* the sweeps ran out (heavy self-links, long back-and-forth paths): solve each loop of items as a block instead */
       var sv = solveLoops(P, p, c, K, ord);
       converged = sv.converged; residual = sv.residual;
     }
-    var seeds = seedsOf(P, o), sp = spread(P, p, seeds, cap), start = new Float64Array(K);
+    var seeds = seedsOf(P, o), sp = o.spreadDone && o.spreadDone.cap === cap ? o.spreadDone.sp : spread(P, p, seeds, cap), start = new Float64Array(K);
     seeds.forEach(function (s) { for (var q = 0; q < K; q++) start[q] += s.mass * c[s.v * K + q]; });
     return { c: c, K: K, start: start, visits: sp.visits, moves: sp.moves, p: p, converged: converged, residual: residual };
   }
@@ -460,19 +476,19 @@ var NFMEngine = (function () {
     var ends = [];
     for (i = 0; i < P.n; i++) if (!outdeg(P, i) && imp.depth[i] >= 0) ends.push(i);
     if (!ends.length) return { story: false, K: 1, classOf: function () { return 0; }, list: [{ id: null, label: 'no end', kind: 'neutral' }] };
-    var mass = null;
+    var mass = null, sp0 = null;
     if (ends.length > 8) {
       var sw = new Float64Array(P.n), pp = new Float64Array(P.m), e;
       for (e = 0; e < P.m; e++) sw[P.from[e]] += P.w[e];
-      for (e = 0; e < P.m; e++) pp[e] = P.w[e] / sw[P.from[e]];
-      mass = spread(P, pp, seedsOf(P, o), o.cap || 400).visits;
+      for (e = 0; e < P.m; e++) pp[e] = sw[P.from[e]] > 0 ? P.w[e] / sw[P.from[e]] : 0;   /* the same chances absorb() uses, so its spread is reused */
+      var sp0 = spread(P, pp, seedsOf(P, o), o.cap || 400); mass = sp0.visits;
       ends.sort(function (a, b) { return mass[b] - mass[a] || a - b; });
     } else ends.sort(function (a, b) { return a - b; });
     var top = ends.slice(0, 8), cls = new Map(), list = [];
     top.forEach(function (v, k) { cls.set(v, k); list.push({ id: P.nodes[v].id, label: P.nodes[v].label || P.nodes[v].id, kind: 'end' }); });
     var other = ends.length > 8;
     if (other) list.push({ id: null, label: ends.length - 8 + ' other ends', kind: 'other' });
-    return { story: false, K: list.length, classOf: function (v) { return cls.has(v) ? cls.get(v) : other ? 8 : 0; }, list: list };
+    return { story: false, K: list.length, classOf: function (v) { return cls.has(v) ? cls.get(v) : other ? 8 : 0; }, list: list, spread: sp0 ? { cap: o.cap || 400, sp: sp0 } : null };
   }
   /** Seeded simulated players for the "first" (always the first arrow) and "curious" (prefers somewhere new) styles. */
   function flowSim(P, imp, o) {
@@ -2191,7 +2207,7 @@ var NFMEngine = (function () {
       if (o.mode && o.mode !== 'random') flow = flowSim(P, imp, o);
       else {
         classes = endClasses(P, imp, o);
-        var ab = absorb(P, imp, o, classes.classOf, classes.K), nn0 = P.n, zg = new Float64Array(nn0), zb = new Float64Array(nn0), zn = new Float64Array(nn0), q0;
+        var ab = absorb(P, imp, classes.spread ? Object.assign({}, o, { spreadDone: classes.spread }) : o, classes.classOf, classes.K), nn0 = P.n, zg = new Float64Array(nn0), zb = new Float64Array(nn0), zn = new Float64Array(nn0), q0;
         if (classes.story) for (q0 = 0; q0 < nn0; q0++) { zg[q0] = ab.c[q0 * 3]; zb[q0] = ab.c[q0 * 3 + 1]; zn[q0] = ab.c[q0 * 3 + 2]; }
         var oc0 = classes.story ? { good: ab.start[0], bad: ab.start[1], neutral: ab.start[2], stuck: 0 } : { good: 0, bad: 0, neutral: 0, stuck: 0 };
         var got = 0; for (q0 = 0; q0 < ab.K; q0++) got += ab.start[q0];

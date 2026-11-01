@@ -1367,7 +1367,9 @@ async function open() {
       const opts = { view: 'flow', colorBy: 'group' }, p = c.build(opts).then(() => 'resolved', (e) => 'rejected: ' + e.message);
       const busyBefore = !!c.busy; c.w.dispatchEvent(new ErrorEvent('error', { message: 'test crash' }));
       const first = await Promise.race([p, new Promise((q) => setTimeout(() => q('hang'), 1500))]);
-      await new Promise((q) => setTimeout(q, 30));
+      /* "free again" = not left busy: under load (three browsers at once) a job the app queued meanwhile can still be running on the page 30 ms
+         later, so wait up to 2 s for it to finish (seen twice in Firefox in parallel runs; never alone) */
+      for (let i = 0; i < 40 && c.busy; i++) await new Promise((q) => setTimeout(q, 50));
       const out = { busyBefore, first, busyAfter: !!c.busy, mode: c.mode };
       if (first === 'hang') { c.w.postMessage = realPost; return out; }
       const second = await Promise.race([c.build(opts).then((x) => x && x.L && x.L.nodes ? 'built' : 'empty', (e) => 'rejected: ' + e.message), new Promise((q) => setTimeout(() => q('hang'), 8000))]);
