@@ -4,10 +4,10 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
-## 2026.10.31.2105 · 2026-10-31
+## 2026.10.31.2206 · 2026-10-31
 
 ### Quick
-Vendored netflow-sankey from JS-modules (stand-in stops and per-bar numbers in typed arrays, same picture on 669 maps; new option `stopCap`/`stopCapFrom`, off in the module). src/engine.js passes `stopCap: 500` (or `o.skStopCap`) to the Sankey layout; the module applies it only to maps of 1,000+ items (`stopCapFrom`). Jawad's card 2026.10.31 9:08 PM ET: "Cap at 500 stops". Pictures change for Sankeys of 1,000+ items only; nothing saved is affected.
+Vendored netflow-sankey 2.4.0 (JS-modules PR 374, commit 6ed23fd, byte-identical to JS-modules main; stand-in stops and per-bar numbers in typed arrays, same picture on 669 maps; new option `stopCap`/`stopCapFrom`, off in the module). src/engine.js passes `stopCap: 500` (or `o.skStopCap`) to the Sankey layout; the module applies it only to maps of 1,000+ items (`stopCapFrom`). Jawad's card 2026.10.31 9:08 PM ET: "Cap at 500 stops". Pictures change for Sankeys of 1,000+ items only; nothing saved is affected.
 
 ### Details
 Whole build at 1,500 items, cloud, median of 3 (no cap / cap 2,000 / cap 500 / d3-sankey): Chromium 26.6 / 14.5 / 11.8 / 27-43 ms, Firefox 23 / 15 / 12 / 23-27 ms, WebKitGTK 35 / 20 / 13 / 25-30 ms. 5,000 items: Chromium 81 / 54 / 53 / 102-114, Firefox 79 / 51 / 44 / 107-109, WebKitGTK 90 / 67 / 53 / 106-121. Band pieces passing over a bar they do not belong to, 1,500 items: 0 / 276 / 256 / 1,916; 5,000 items: 537 / 761 / 798 / 8,410.
