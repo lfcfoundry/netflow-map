@@ -101,7 +101,7 @@ var S = {
 
 function defaultView() {
   return {
-    view: 'flow', arrange: 'stress', colorBy: 'group', sizeBy: '', widthBy: '', edgeColorBy: '', linkLabels: '', labelCol: '', dir: 'LR', spread: 'tight', fold: true, merge: false, rows: 'best', search: 'auto', chapters: 'auto', openCh: {}, minimap: 'auto', bundle: false, taper: false, tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false, laneBy: 'group', agg: 'sum',
+    view: 'flow', arrange: 'stress', colorBy: 'group', sizeBy: '', widthBy: '', edgeColorBy: '', linkLabels: '', labelCol: '', dir: 'LR', spread: 'tight', fold: true, merge: false, rows: 'best', search: 'auto', chordBy: 'auto', chordOrder: 'fast', nest: 'auto', treeShape: 'tidy', chapters: 'auto', openCh: {}, minimap: 'auto', bundle: false, taper: false, tagLen: 0, spineCol: false, better: false, wrap: false, ruler: false, downLanes: false, laneBy: 'group', agg: 'sum',
     state: 0, anim: { sec: 2.4, loop: true, ghost: 'faint' }, strongest: 100, facets: {}, around: null, block: [], hideKinds: [], only: null, sets: {}, marks: {},
     rules: [], fmt: NFMLook.defaults(), palette: 'standard', ramp: 'warm', groupColors: {}, widthScale: 'sqrt', widthMul: 1, hulls: false, curve: 0, valueLabels: false,
     lab: { items: { show: true, scale: 1, color: 'auto', fixed: '#222222', topN: 0 }, links: { show: true, scale: 1 }, groups: { show: false, scale: 1 } },
@@ -136,6 +136,10 @@ function fixLook(v) {
   if (!own(ARR, v.arrange)) v.arrange = D.arrange;
   if (v.spread !== 'tight' && v.spread !== 'wide') v.spread = D.spread;
   if (!VIEWS.some(function (x) { return x[0] === v.view; })) v.view = D.view;
+  if (['auto', 'items', 'groups'].indexOf(v.chordBy) < 0) v.chordBy = D.chordBy;
+  if (['fewest', 'fast'].indexOf(v.chordOrder) < 0) v.chordOrder = D.chordOrder;
+  if (['auto', 'links', 'groups'].indexOf(v.nest) < 0) v.nest = D.nest;
+  if (['tidy', 'cluster', 'radial', 'radialCluster', 'indented'].indexOf(v.treeShape) < 0) v.treeShape = D.treeShape;
   return v;
 }
 function loadView() {
@@ -286,7 +290,7 @@ function applyTheme() {
 }
 /** Builds the picture again in the new light/dark colors if the theme was switched while the Map was hidden. */
 function freshTheme() { if (S.themeStale && S.scene && S.L && typeof makeScene === 'function') { S.themeStale = false; makeScene(false); return true; } S.themeStale = false; return false; }
-var TABS = ['data', 'nodes', 'map', 'check', 'adv', 'export'], TAB_HOOKS = {};
+var TABS = ['data', 'nodes', 'map', 'charts', 'check', 'adv', 'export'], TAB_HOOKS = {};
 function showTab(name) {
   S.tab = name;
   TABS.forEach(function (t) { $('tab-' + t).hidden = t !== name; $('tabbtn-' + t).setAttribute('aria-selected', t === name ? 'true' : 'false'); });

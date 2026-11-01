@@ -3,7 +3,7 @@
  * Big flat maps keep their links in typed lists and reuse each link's look between pictures, so rebuilding after a move is faster with the same pixels.
  * Part of JS-modules, https://github.com/lfcfoundry/JS-modules
  * Copyright (c) 2026 LFC Foundry. MIT License (see LICENSE at the repository root).
- * Version 1.3.1 (API 1)
+ * Version 1.3.3 (API 1)
  *
  *   var L = NetflowEngine.build(graph, { view: 'network' });          // netflow-engine 2.2.2 or newer
  *   var S = NetflowScene.make(L, { theme: 'light', colorBy: 'group' }); // S.dots, S.curves, S.labels ...
@@ -129,7 +129,7 @@ var NFMScene = (function () {
     var words = text.split(/\s+/), lines = [], cur = '';
     for (var i = 0; i < words.length; i++) {
       var w = words[i];
-      while (w.length > maxChars) { if (cur) { lines.push(cur); cur = ''; } lines.push(w.slice(0, maxChars - 1) + '…'); w = ''; if (lines.length >= maxLines) break; }
+      while (w.length > maxChars) { if (cur) { lines.push(cur); cur = ''; } lines.push(w.slice(0, maxChars - 1) + '\u2026'); w = ''; if (lines.length >= maxLines) break; }
       if (!w) continue;
       if ((cur + ' ' + w).trim().length <= maxChars) cur = (cur + ' ' + w).trim();
       else { lines.push(cur); cur = w; }
@@ -138,7 +138,7 @@ var NFMScene = (function () {
     if (cur && lines.length < maxLines) lines.push(cur);
     if (lines.length > maxLines) lines.length = maxLines;
     var joined = lines.join(' ');
-    if (joined.length < text.length - 1 && lines.length) { var l = lines[lines.length - 1]; if (l.slice(-1) !== '…') lines[lines.length - 1] = (l.length >= maxChars ? l.slice(0, maxChars - 1) : l) + '…'; }
+    if (joined.length < text.length - 1 && lines.length) { var l = lines[lines.length - 1]; if (l.slice(-1) !== '\u2026') lines[lines.length - 1] = (l.length >= maxChars ? l.slice(0, maxChars - 1) : l) + '\u2026'; }
     return lines;
   }
   function bez(P, t) { /* point on a flat control list at t in 0..1 (start, then c1 c2 p per segment) */
@@ -152,7 +152,7 @@ var NFMScene = (function () {
     if (NE && NE.columns && NE.columns.fmt) return NE.columns.fmt(v);
     return String(Math.round(v * 100) / 100);
   }
-  function clip(s, n) { s = String(s === undefined || s === null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  function clip(s, n) { s = String(s === undefined || s === null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '\u2026' : s; }
   function hull(pts) { /* convex hull of flat [x, y, ...] (monotone chain) */
     var p = []; for (var i = 0; i < pts.length; i += 2) p.push([pts[i], pts[i + 1]]);
     if (p.length < 3) return pts.slice();
@@ -721,7 +721,7 @@ var NFMScene = (function () {
             var tx0 = side === 'R' ? pt[0] + 6 : side === 'L' ? pt[0] - 6 : pt[0], ty0 = side === 'B' ? pt[1] + 13 : side === 'T' ? pt[1] - 6 : pt[1] + 4;
             lab(tx0, ty0, text, 10.5, back0 ? T.gold : T.muted, { minK: 0.45, edge: ei, from: e.from, to: e.to, bg: true, boundXY: true, align: side === 'R' ? 'l' : side === 'L' ? 'r' : 'c' });
           };
-          var arrowGlyph = LR ? (e.tagFwd ? '→ ' : '← ') : (e.tagFwd ? '↓ ' : '↑ ');
+          var arrowGlyph = LR ? (e.tagFwd ? '\u2192 ' : '\u2190 ') : (e.tagFwd ? '\u2193 ' : '\u2191 ');
           chip(s0, e.so, arrowGlyph + clip(X.tx(L.pos[e.to]), 20));
           chip(s1, e.si, 'from ' + clip(X.tx(L.pos[e.from]), 18));
           return;
@@ -1349,12 +1349,21 @@ var NFMScene = (function () {
       if (c.arrow) { var tri = arrowTri(c); out.push('<path d="M' + tri.map(f).join(' ').replace(/(\S+ \S+) /g, '$1L') + 'Z" fill="' + css(c.color) + '"' + op(c) + '/>'); }
     });
     S.rects.filter(function (r) { return r.layer === 1; }).forEach(function (r) { out.push(rectSvg(r, css, f, op)); });
+    /* dots in a row that share fill, stroke and width go in one <g> that carries the look (the same picture, much shorter text on big
+       scatters); dimming stays on each dot, since opacity on a group would blend overlapping dots differently */
+    var lf = null, ls = null, lw, open = false;
     S.dots.forEach(function (d) {
-      var k = d.kind === undefined ? 1 : d.kind, attrs = 'fill="' + css(d.fill) + '" stroke="' + css(d.stroke) + '" stroke-width="' + f(d.sw) + '"' + op(d);
-      if (k === 1) out.push('<circle cx="' + f(d.cx) + '" cy="' + f(d.cy) + '" r="' + f(d.r) + '" ' + attrs + '/>');
-      else if (k === 0) out.push('<rect x="' + f(d.cx - d.r) + '" y="' + f(d.cy - d.r) + '" width="' + f(2 * d.r) + '" height="' + f(2 * d.r) + '" rx="3" ' + attrs + '/>');
-      else { var p = shapePts(k, d.cx, d.cy, d.r), dd = 'M'; for (var i = 0; i < p.length; i += 2) dd += (i ? 'L' : '') + f(p[i]) + ' ' + f(p[i + 1]); out.push('<path d="' + dd + 'Z" ' + attrs + ' stroke-linejoin="round"/>'); }
+      var k = d.kind === undefined ? 1 : d.kind, F0 = d.fill, S0 = d.stroke, attrs = op(d);
+      if (!(lf && F0[0] === lf[0] && F0[1] === lf[1] && F0[2] === lf[2] && F0[3] === lf[3] && S0[0] === ls[0] && S0[1] === ls[1] && S0[2] === ls[2] && S0[3] === ls[3] && d.sw === lw)) {
+        if (open) out.push('</g>');
+        out.push('<g fill="' + css(F0) + '"' + (d.sw > 0 && S0[3] > 0 ? ' stroke="' + css(S0) + '" stroke-width="' + f(d.sw) + '"' : '') + '>'); open = true;
+        lf = F0.slice(); ls = S0.slice(); lw = d.sw;
+      }
+      if (k === 1) out.push('<circle cx="' + f(d.cx) + '" cy="' + f(d.cy) + '" r="' + f(d.r) + '"' + attrs + '/>');
+      else if (k === 0) out.push('<rect x="' + f(d.cx - d.r) + '" y="' + f(d.cy - d.r) + '" width="' + f(2 * d.r) + '" height="' + f(2 * d.r) + '" rx="3"' + attrs + '/>');
+      else { var p = shapePts(k, d.cx, d.cy, d.r), dd = 'M'; for (var i = 0; i < p.length; i += 2) dd += (i ? 'L' : '') + f(p[i]) + ' ' + f(p[i + 1]); out.push('<path d="' + dd + 'Z"' + attrs + ' stroke-linejoin="round"/>'); }
     });
+    if (open) out.push('</g>');
     S.icons.forEach(function (ic) {
       if (ic.img) out.push('<image x="' + f(ic.cx - ic.r) + '" y="' + f(ic.cy - ic.r) + '" width="' + f(2 * ic.r) + '" height="' + f(2 * ic.r) + '" xlink:href="' + esc(ic.img) + '" preserveAspectRatio="xMidYMid meet"' + op(ic) + '/>');
       else if (ICONS[ic.icon]) { var sc = ic.r * 2 / 24; out.push('<path transform="translate(' + f(ic.cx - ic.r) + ' ' + f(ic.cy - ic.r) + ') scale(' + f(sc) + ')" d="' + ICONS[ic.icon] + '" fill="none" stroke="' + css(ic.color) + '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"' + op(ic) + '/>'); }

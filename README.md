@@ -17,7 +17,7 @@ Netflow Map is a free tool for seeing and analyzing how things connect and flow.
 How it works:
 
 1. **Read:** tables, Excel, JSON, outlines, Markdown notes, graph files, or a zip of them.
-2. **Lay out:** nine views, each answering a different question, with no two items touching.
+2. **Lay out:** sixteen views, each answering a different question, with no two items touching, plus a Charts tab with 23 plain chart types drawn from your columns.
 3. **Analyze:** find choke points, check the data, and simulate how flows spread.
 4. **Share:** export pictures, data, an animated GIF or a one-page report.
 
@@ -58,9 +58,9 @@ Where it helps:
 
 ## Highlights
 
-| Nine views | No two items touch | Reads almost anything | Simulation |
+| Sixteen views and 23 charts | No two items touch | Reads almost anything | Simulation |
 |---|---|---|---|
-| Flow, top-down, choke points, lanes, shape, Sankey, arc, matrix and network. | Every network arrangement ends with a step that guarantees it, and a test checks it. | CSV, JSON, outlines, Excel, GraphML, GEXF, DOT, zips and Markdown notes. All 23 file kinds are opened in every browser test. | Up to 100,000 walkers with exact odds, error bars and what-if ranking. |
+| Flow, top-down, choke points, lanes, shape, Sankey, arc, matrix, network, treemap, icicle, sunburst, circle packing, tidy tree, bundled links and chord, plus bars, lines, box plots, hexbins, word clouds and more. | Every network arrangement ends with a step that guarantees it, and a test checks it. | CSV, JSON, outlines, Excel, GraphML, GEXF, DOT, zips and Markdown notes. All 23 file kinds are opened in every browser test. | Up to 100,000 walkers with exact odds, error bars and what-if ranking. |
 
 ## Against d3-force, ForceAtlas2 and Cytoscape.js
 
@@ -97,11 +97,12 @@ On a map of 188,000 items and 563,000 links in an 800 by 600 window: a rename ho
 
 ## What it does
 
-It has six tabs (the Map's left panel adds a Colors tab):
+It has seven tabs (the Map's left panel adds a Colors tab):
 
 - **Data**: drop in files or a folder (or paste text), see in plain words what was found, and use the columns workbench: every column with its type and what it does on the map (color, size, line width, labels, filters), plus calculated columns. If the data holds the same network at several times, a States card turns one column per state (or a column naming the state on repeated links) into baseline / year 1 / year 2 / end state.
 - **Nodes**: the items and links as tables you can sort, filter, edit, add to, and delete from.
-- **Map**: (the **Colors** tab in its left panel changes the color of every part of the map, the type family and the sizes, with 12 ready-made looks and your own saved looks that can be shared as a file; with states: a timeline under the picture to play, pause or drag through them) nine views, a network view with several arrangements (including three 3D ones you can turn: 3D force, Distances 3D and Sphere), a floating key you can drag and edit, search, strongest-links slider, facets, route lighting, box and lasso selection, hand-moved items, right-click menus, formatting rules for items and links, saved views, and a poster print.
+- **Map**: (the **Colors** tab in its left panel changes the color of every part of the map, the type family and the sizes, with 12 ready-made looks and your own saved looks that can be shared as a file; with states: a timeline under the picture to play, pause or drag through them) sixteen views, a network view with several arrangements (including three 3D ones you can turn: 3D force, Distances 3D and Sphere), a floating key you can drag and edit, search, strongest-links slider, facets, route lighting, box and lasso selection, hand-moved items, right-click menus, formatting rules for items and links, saved views, and a poster print.
+- **Charts**: plain charts from the item or link columns: bars (stacked, side by side or as shares), lines (with smoothing and growth from 100), areas (stacked, shares or stream), scatter, connected scatter, beeswarm, dot plot, histogram, box plot, density, ridgeline, hexbin, heat map (a calendar for dates), pie, donut, radial bars, parallel lines, a scatter grid, Q-Q, slope, Marimekko, Voronoi and a word cloud. Each picks sensible columns on its own, names its colors in a key row, shows the row under the pointer, and saves as SVG.
 - **Check**: findings about the data, each with a plain-words reason, a way to see it on the map or in the table, and a fix where one is safe.
 - **Advanced**: the Monte Carlo simulation (up to 100,000 walkers; start items, walker types, 16 distributions for arrivals, uncertain link weights, link costs and dwell times; exact odds with error bars beside the dice; step, cost and settling charts; what-if ranking of items or links; results as map color and link width, with optional flow dots), layout settings, and the one-button device check.
 - **Export**: JSON, CSV, SVG, PNG, poster, the check report, saved views, an animated GIF for slides (plays through the states with a smooth change between them, or turns a 3D view around, with up to 25 FPS, pauses and reversals, easing, name timing and picture looks), and a one-page HTML report with the animation inside.
@@ -121,9 +122,9 @@ It has six tabs (the Map's left panel adds a Colors tab):
 
 Every import ends with a short report of what was kept, merged, skipped or shortened.
 
-## The nine views
+## The sixteen views
 
-Flow, Top-down (with optional story order, tags for long links, a must-pass column, step numbers, bundled and tapered links, chapters that fold big maps, and columns for tall maps), Choke-point spine, Lanes (one band per group), Shape (the stretches between choke points), Sankey (bands as wide as the number of players who take them), Arc, Matrix, and Network (for data that is not a story).
+Flow, Top-down (with optional story order, tags for long links, a must-pass column, step numbers, bundled and tapered links, chapters that fold big maps, and columns for tall maps), Choke-point spine, Lanes (one band per group), Shape (the stretches between choke points), Sankey (bands as wide as the number of players who take them), Arc, Matrix, Network (for data that is not a story), and seven views for nested or round data: Treemap, Icicle, Sunburst and Circle packing (boxes inside boxes, sized by the size column), Tidy tree (the classic tree drawing: parents centered over their children, rows never touching), Bundled links (items on a circle, links bent along the tree so busy routes read as bundles) and Chord (flows between items or groups as ribbons on a ring; its Order setting picks Fastest, the default, or Fewest crossings). The nesting comes from the links when they form a tree, from groups otherwise, or from a parent column; Nest by picks which.
 
 ## How it draws
 
