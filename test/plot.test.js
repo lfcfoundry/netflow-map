@@ -48,6 +48,32 @@ ok(P.markAt(sp, w[0] + Math.cos(am) * rm, w[1] + Math.sin(am) * rm) === sp.marks
 /* bar totals add up */
 const tot = rows.reduce((s, r) => s + r.attrs.sales, 0), sum = sb.marks.reduce((s, m) => s + (m.v || 0), 0);
 ok(Math.abs(sum - tot) < 1e-6 * tot || !sb.marks.some((m) => m.v !== undefined), 'bar totals ' + sum + ' vs ' + tot);
+/* a literal Other stays separate from the synthetic category-cap bucket */
+{
+  const rows = [{ attrs: { cat: 'Other', v: 100 } }];
+  for (let i = 0; i < 12; i++) rows.push({ attrs: { cat: 'c' + i, v: 1 } });
+  const s = P.make(rows, { type: 'donut', x: 'cat', y: 'v' }, { width: 600, height: 600 }, global.NetflowScene);
+  const values = s.marks.map((m) => Number((/:\s*(-?\d+(?:\.\d+)?)/.exec(m.t) || [])[1]));
+  const other = s.marks.filter((m) => m.t.indexOf('Other:') === 0).map((m) => values[s.marks.indexOf(m)]).sort((a, b) => a - b);
+  const covered = s.marks.flatMap((m) => m.rows || []);
+  ok(values.reduce((a, b) => a + b, 0) === 112, 'donut cap preserves all 112 category values');
+  ok(other.join(',') === '2,100', 'real Other and overflow Other have separate totals');
+  const otherKeys = s.legend.filter((l) => l.t === 'Other').map((l) => l.key);
+  ok(otherKeys.length === 2 && new Set(otherKeys).size === 2, 'visible Other categories retain distinct identities');
+  ok(covered.length === 13 && new Set(covered).size === 13, 'each donut row belongs to exactly one wedge');
+}
+/* NUL-containing category pairs remain separate grouped-bar cells */
+{
+  const z = '\0', pairRows = [
+    { attrs: { x: 'a' + z + 'b', color: 'c', v: 1 } },
+    { attrs: { x: 'a', color: 'b' + z + 'c', v: 10 } }
+  ];
+  const s = P.make(pairRows, { type: 'bar', x: 'x', color: 'color', y: 'v', stack: 'group' }, { width: 600, height: 400 }, global.NetflowScene);
+  const values = s.marks.map((m) => Number((/: (-?\d+(?:\.\d+)?)$/.exec(m.t) || [])[1])).sort((a, b) => a - b);
+  const covered = s.marks.flatMap((m) => m.rows || []);
+  ok(s.marks.length === 2 && values.join(',') === '1,10', 'NUL-delimited tuples retain values 1 and 10 separately');
+  ok(covered.length === 2 && new Set(covered).size === 2, 'each grouped bar keeps only its own source row');
+}
 /* ticks and kde */
 const tk = P.ticks(0, 97, 6); ok(tk.lo <= 0 && tk.hi >= 97 && tk.list.length >= 3, 'ticks cover the range');
 const d = P.kde([1, 2, 3, 4, 5], 0, 6, 61, 0.8); let area = 0; for (let i = 0; i < 61; i++) area += d[i] * 0.1; ok(Math.abs(area - 1) < 0.05, 'density sums to one: ' + area.toFixed(3));
