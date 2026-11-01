@@ -4,6 +4,11 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## Pages site (docs only) · 2026-11-01
+
+### Quick
+GitHub Pages from main /docs: docs/index.html is the landing page (no longer a claude.ai artifact), docs/play/index.html is the app. tools/build.mjs writes docs/play/index.html with every build, and test/play-page.test.js fails when it differs from index.html. docs/.nojekyll serves files as they are.
+
 ## 2026.11.01.1126 · 2026-11-01
 
 ### Quick

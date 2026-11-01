@@ -53,6 +53,7 @@ fill('@@VERSION@@', version);
   if (hi) { const msg = hi.length + ' characters above U+00FF in index.html (' + Array.from(new Set(hi)).slice(0, 12).map((c) => 'U+' + c.codePointAt(0).toString(16).toUpperCase()).join(' ') + '): the page text would be kept at 2 bytes a character';
     if (esb) throw new Error(msg); console.warn('readable build: ' + msg); } }
 writeFileSync(join(root, 'index.html'), html);
+writeFileSync(join(root, 'docs', 'play', 'index.html'), html);   /* the GitHub Pages play page always serves the latest build (test/play-page.test.js) */
 if (args.has('--pack')) {
   /* Local (non-git) downloads: our own lzma-pack makes a self-unpacking page (LZMA, hash-checked). It lives in the JS-modules repo. */
   const packers = [process.env.NFM_LZMA_PACK, join(root, '..', 'js-modules/tools/lzma-pack/pack.py')].filter(Boolean);

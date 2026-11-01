@@ -8,6 +8,8 @@
 
 </div>
 
+**[Open Netflow Map](https://lfcfoundry.github.io/netflow-map/play/)** · [Landing page](https://lfcfoundry.github.io/netflow-map/)
+
 Copyright (c) 2026 LFC Foundry. MIT License. Forged by LFC Foundry.
 
 ## What it is and how it works
