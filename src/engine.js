@@ -631,7 +631,9 @@ var NFMEngine = (function () {
   }
   function mapGraph(P, imp, opts) {
     opts = opts || {};
-    var n = P.n, i, k, e;
+    var n = P.n, i, k, e, runs = [];
+    /* runs (items in a single line) are only looked for when they fold: unfolded (the Sankey, matrix, network and shape views, or folding off) nothing reads them */
+    if (opts.fold) {
     var onlyNext = new Int32Array(n).fill(-1), onlyPrev = new Int32Array(n).fill(-1);
     for (i = 0; i < n; i++) {
       var first = -1, one = true;
@@ -648,12 +650,13 @@ var NFMEngine = (function () {
     };
     var hasPrev = new Uint8Array(n);
     for (i = 0; i < n; i++) { var cn = chainNext(i); if (cn >= 0) hasPrev[cn] = 1; }
-    var runs = [], inRun = new Int32Array(n).fill(-1);   /* inRun[v] = the run (by start item) that already took v, so a long run is never searched item by item */
+    var inRun = new Int32Array(n).fill(-1);   /* inRun[v] = the run (by start item) that already took v, so a long run is never searched item by item */
     for (i = 0; i < n; i++) {
       if (hasPrev[i] || i === P.start || imp.depth[i] < 0) continue;
       var run = [i], v2 = chainNext(i); inRun[i] = i;
       while (v2 >= 0 && inRun[v2] !== i && run.length < 100000) { inRun[v2] = i; run.push(v2); v2 = chainNext(v2); }
       if (run.length >= 2) runs.push(run);
+    }
     }
     var runOf = new Int32Array(n).fill(-1);
     var chOf = new Int32Array(n).fill(-1), found = opts.chapters ? findChapters(P, imp, opts.chapters) : null;
@@ -2306,14 +2309,14 @@ var NFMEngine = (function () {
     var cls = {}, laneNames = [], laneOfBox = {};
     var useLanes = view === 'lanes' || true;
     var keyOf = function (n) { return o.laneBy === 'found' && found ? 'group ' + (found[n.pages[0]] + 1) : groupKey(P.nodes[n.pages[0]], o.laneBy || 'group'); };
-    G.nodes.forEach(function (n) { cls[n.id] = keyOf(n); });
-    var keys = Array.from(new Set(Object.keys(cls).map(function (id) { return cls[id]; })));
-    var meanDepth = new Map();   /* a Map, not {}: a group called __proto__ or constructor must not hit Object.prototype */
-    G.nodes.forEach(function (n) { var k = cls[n.id], md = meanDepth.get(k); if (!md) meanDepth.set(k, md = [0, 0]); md[0] += Math.max(0, imp.depth[n.pages[0]]); md[1]++; });
+    var meanDepth = new Map(), kOf = new Array(G.nodes.length);   /* a Map, not {}: a group called __proto__ or constructor must not hit Object.prototype */
+    /* one pass: each box's group and its group's depth total (the group order below is a full sort, so the order the groups are met in does not matter) */
+    G.nodes.forEach(function (n, i) { var k = keyOf(n), md = meanDepth.get(k); cls[n.id] = k; kOf[i] = k; if (!md) meanDepth.set(k, md = [0, 0]); md[0] += Math.max(0, imp.depth[n.pages[0]]); md[1]++; });
+    var keys = Array.from(meanDepth.keys());
     keys.sort(function (a, b) { var ma = meanDepth.get(a), mb = meanDepth.get(b); return ma[0] / ma[1] - mb[0] / mb[1] || (a < b ? -1 : 1); });
     var laneIdx = new Map();
     keys.forEach(function (k, i) { laneNames.push(k); laneIdx.set(k, i); });
-    G.nodes.forEach(function (n) { laneOfBox[n.id] = laneIdx.get(cls[n.id]); });
+    if (view === 'lanes' || view === 'down') G.nodes.forEach(function (n, i) { laneOfBox[n.id] = laneIdx.get(kOf[i]); });   /* only the lane views place boxes by lane */
     var root = P.start >= 0 ? G.groupOf[P.start] : undefined, prev = o.prev || undefined, Lr;
     /* layered-drawing choices: see layered(). deep (the deeper crossing search) is on unless o.deep === false; rows 'best' tries both row rules and keeps the one with fewer crossings */
     var LO = { rows: o.rows === 'story' || o.rows === 'best' ? o.rows : undefined, deep: o.deep !== false, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
