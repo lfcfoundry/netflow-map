@@ -64,7 +64,7 @@ for (const [n, extra, groups] of cases) {
     }
   }
   /* chord: arcs cover what flows; the order search never makes crossings worse than the group order */
-  const Lc = C.layout('chord', copy(G), {}), cc = Lc.chart;
+  const Lc = C.layout('chord', copy(G), { chordOrder: 'fewest' }), cc = Lc.chart;
   let flowSum = 0; cc.flows.forEach((f) => { flowSum += f.v; });
   ok(Math.abs(flowSum - cc.total) < 1e-6 * Math.max(1, flowSum), 'chord total is the sum of its bands, ' + tag);
   ok(cc.flows.every((f) => f.sa1 >= f.sa0 && f.ta1 >= f.ta0), 'chord bands have a width at both ends, ' + tag);

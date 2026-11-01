@@ -153,8 +153,25 @@ var NFMCharts = (function () {
     var mC = 0; fl.forEach(function (f) { if (f.s !== f.t) mC++; });
     var cS = new Int32Array(mC), cT = new Int32Array(mC), cV = new Float64Array(mC), cA = new Int32Array(mC), cB = new Int32Array(mC), cW = new Float64Array(mC), cHo = new Int32Array(mC), cStart = new Int32Array(K + 1), cFill = new Int32Array(K);
     mC = 0; fl.forEach(function (f) { if (f.s !== f.t) { cS[mC] = f.s; cT[mC] = f.t; cV[mC++] = f.v; } });
+    /* the same sum, counted by weight: going from the heaviest band down, a band adds its own weight once for each heavier band it crosses
+       (the lighter of two crossing bands sets their cost), and the heavier bands are counted in a 2D Fenwick table of (near end, far end) */
+    var byW = null, bit = null;
+    var crossingsW = function (pos, stop) {
+      var K1 = K + 1, x, i2, j2, c = 0;
+      if (!byW) { byW = new Int32Array(mC); for (x = 0; x < mC; x++) byW[x] = x; byW.sort(function (p, q) { return cV[q] - cV[p] || p - q; }); bit = new Int32Array(K1 * K1); } else bit.fill(0);
+      var sum = function (a, b) { var t = 0; for (var i = a + 1; i > 0; i -= i & -i) for (var j = b + 1; j > 0; j -= j & -j) t += bit[i * K1 + j]; return t; };   /* heavier bands with near end <= a and far end <= b */
+      var rect = function (a0, a1, b0, b1) { if (a0 > a1 || b0 > b1) return 0; return sum(a1, b1) - sum(a0 - 1, b1) - sum(a1, b0 - 1) + sum(a0 - 1, b0 - 1); };
+      for (var h = 0; h < mC; h++) {
+        x = byW[h]; var p = pos[cS[x]], q = pos[cT[x]], lo = p < q ? p : q, hi = p < q ? q : p;
+        var n2 = rect(lo + 1, hi - 1, hi + 1, K - 1) + rect(0, lo - 1, lo + 1, hi - 1);
+        if (n2) { c += cV[x] * n2; if (c >= stop) return c; }   /* the sum only grows: past the best so far is enough to know */
+        for (i2 = lo + 1; i2 <= K; i2 += i2 & -i2) for (j2 = hi + 1; j2 <= K; j2 += j2 & -j2) bit[i2 * K1 + j2]++;
+      }
+      return c;
+    };
     var crossings = function (pos, stop) {
       if (mC > 3000) return -1;
+      if (K <= 1024 && mC > 120) return crossingsW(pos, stop);   /* small charts: the bucket walk below is quicker (fewer pairs than Fenwick steps) */
       var x, k, y;
       /* two counting sorts: by far end (far first), then stably by near end, so each near-end bucket lists its bands far end first */
       cStart.fill(0);
@@ -177,7 +194,7 @@ var NFMCharts = (function () {
     };
     var pos = new Int32Array(K), posOf = function (ordr) { for (var k = 0; k < K; k++) pos[ordr[k]] = k; return pos; };
     var bestOrd = ord.slice(), bestC = crossings(posOf(ord), Infinity);
-    if (bestC > 0 && K > 3 && o.chordOrder !== 'fast') {   /* chordOrder 'fast' keeps the group order: no search, about d3-chord's work */
+    if (bestC > 0 && K > 3 && o.chordOrder === 'fewest') {   /* chordOrder 'fewest' searches the order; 'fast' (the default) keeps the group order, about d3-chord's work */
       /* places are whole steps round the circle, so their cosines and sines are read from a table made once */
       var cosT = new Float64Array(K), sinT = new Float64Array(K), key2 = new Float64Array(K), prev = new Int32Array(K), cur = ord.slice();
       for (i = 0; i < K; i++) { cosT[i] = Math.cos(i / K * TAU); sinT[i] = Math.sin(i / K * TAU); }
