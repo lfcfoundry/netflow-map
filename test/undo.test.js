@@ -19,6 +19,8 @@ const EDITS = {
   start: (g) => { g.start = g.nodes[(rnd() * g.nodes.length) | 0].id; },
   calc: (g) => { g.calc = (g.calc || []).concat([{ scope: 'links', name: 'c' + g.calc.length }]); },
   states: (g) => { g.states = { names: ['a', 'b'] }; },
+  allItems: (g) => { g.nodes = g.nodes.map((n) => Object.assign({}, n, { group: 'every' })); },
+  allLinks: (g) => { g.edges = g.edges.map((e) => Object.assign({}, e, { kind: 'every' })); },
   everything: (g) => { g.nodes = g.nodes.map((n) => Object.assign({}, n, { group: 'all' })); g.edges = g.edges.map((e) => Object.assign({}, e, { kind: 'k' })); },
 };
 // each kind of change alone
@@ -29,6 +31,7 @@ for (const [name, fn] of Object.entries(EDITS)) {
   ok(same(back.nodes, a.nodes) && same(back.edges, a.edges) && keys.every((k) => back[k] === a[k]), name + ': going back gives the same item and link objects and the same settings' + (st.diff ? ' (kept as a difference)' : ' (kept whole)'));
   if (name === 'everything') ok(!st.diff, 'a change to every item and link keeps the old graph whole');
   else if (name !== 'states') ok(st.diff, name + ' is kept as a difference');
+  if (name === 'allItems' || name === 'allLinks') ok(st.diff && (name === 'allItems' ? !(st.edges.at || st.edges.mid || []).length : !(st.nodes.at || st.nodes.mid || []).length), name + ': the untouched list is not kept again (the step holds only the changed list)');
 }
 // a chain of 40 changes, then undo them all, as the app does (newest step first, from the current graph)
 {
