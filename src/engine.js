@@ -279,6 +279,24 @@ var NFMEngine = (function () {
    * Absorbing chain with K end classes: classOf(item with no way on) gives its class 0..K-1. Returns c (n * K: the chance of
    * finishing in each class from each item), start (the mix over the seeds), visits and moves.
    */
+  /**
+   * The Sankey places its own columns, order and bars (netflow-sankey reads only nodes, edges with from/to/flow/kind 'self', and pos),
+   * so it gets the graph as it is, without the layered drawing first (21-36 ms at 1,500 items, same picture). Link kinds and the
+   * counts in info come from the Sankey's own columns afterwards (sankeyLiteKinds), so the rest of the app sees what it saw before.
+   */
+  function sankeyLite(G) {
+    var pos = {};
+    G.nodes.forEach(function (n) { pos[n.id] = n; });
+    G.edges.forEach(function (e) { e.kind = e.from === e.to ? 'self' : 'fwd'; e.pts = []; });
+    return { kind: 'nodes', dir: 'LR', nodes: G.nodes, edges: G.edges, pos: pos, order: [], lanes: null, width: 0, height: 0, crossings: 0, rows: {}, ruler: null, info: { columns: 0, rows: 0, stops: 0, back: 0, flat: 0, tags: 0, goldTags: 0, rowMode: 'route' }, skLite: true };
+  }
+  function sankeyLiteKinds(L) {
+    var back = 0, flat = 0, cols = {}, per = {};
+    L.nodes.forEach(function (n) { L.rows[n.id] = n.layer; cols[n.layer] = 1; per[n.layer] = (per[n.layer] || 0) + 1; });
+    L.edges.forEach(function (e) { if (e.kind === 'self') return; var a = L.pos[e.from], b = L.pos[e.to]; if (!a || !b) return; if (a.layer === b.layer) { e.kind = 'flat'; flat++; } else if (b.layer < a.layer) { e.kind = 'back'; back++; } });
+    L.info.columns = Object.keys(cols).length; L.info.rows = Object.keys(per).reduce(function (m, k) { return Math.max(m, per[k]); }, 0); L.info.back = back; L.info.flat = flat;
+    if (L.sk && L.sk.crossingWeight !== undefined) L.crossings = L.sk.crossingWeight;
+  }
   function absorb(P, imp, o, classOf, K) {
     o = o || {};
     var n = P.n, m = P.m, cap = o.cap || 400;
@@ -2281,8 +2299,8 @@ var NFMEngine = (function () {
     keys.forEach(function (k, i) { laneNames.push(k); laneIdx.set(k, i); });
     G.nodes.forEach(function (n) { laneOfBox[n.id] = laneIdx.get(cls[n.id]); });
     var root = P.start >= 0 ? G.groupOf[P.start] : undefined, prev = o.prev || undefined, Lr;
-    /* optional layered-drawing choices (all off by default, so the picture is the old one): see layered() */
-    var LO = { rows: o.rows === 'story' ? 'story' : undefined, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
+    /* layered-drawing choices: see layered(). deep (the deeper crossing search) is on unless o.deep === false; rows 'best' tries both row rules and keeps the one with fewer crossings */
+    var LO = { rows: o.rows === 'story' || o.rows === 'best' ? o.rows : undefined, deep: o.deep !== false, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
     var withLO = function (x) { return Object.assign(x, LO); };
     /* top to bottom (and the Flow view turned that way): a map more than about twice as tall as wide can be cut into columns (o.wrap) */
     var downLanes = view === 'down' && o.downLanes && laneNames.length > 1;
@@ -2299,7 +2317,7 @@ var NFMEngine = (function () {
     if (view === 'down') Lr = topDown('TB');
     else if (view === 'spine') Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, spine: true }));
     else if (view === 'lanes' && laneNames.length > 1) Lr = layered(G, withLO({ dir: 'LR', root: root, prev: prev, lane: function (n) { return Math.max(0, laneOfBox[n.id]); } }));
-    else if (view === 'sankey') { Lr = layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14 }); if (SK && o.sk) SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); }
+    else if (view === 'sankey') { Lr = SK && o.sk && o.skLite !== false ? sankeyLite(G, o) : layered(G, { dir: 'LR', root: root, prev: prev, gapLayer: 190, gapNode: 14, orderRounds: o.skOrder0 !== false && SK && o.sk ? 0 : undefined }); if (SK && o.sk) { SK.apply(Lr, SK.layout(Lr, SK.options(o.sk))); if (Lr.skLite) sankeyLiteKinds(Lr); } }
     else if (view === 'arc') { Lr = arcLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow })); }
     else if (view === 'matrix') {
       Lr = matrixLayout(G, layered(G, { dir: 'LR', root: root, prev: o.prevFlow }));
