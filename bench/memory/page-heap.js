@@ -1,6 +1,6 @@
 // Copyright (c) 2026 LFC Foundry. MIT License.
 // Netflow Map in ungoogled-chromium: the page's real JavaScript heap (after a forced collection) at each step, with the card (WebGL 2) on.
-// Run:  HOME=/home/claude NFM_PLAYWRIGHT=/tmp/pw/node_modules/playwright-core node bench/memory/page-heap.js 100000
+// Run:  NFM_PLAYWRIGHT=<path to playwright-core> node bench/memory/page-heap.js 100000
 // Line 1 prints the browser version. Chromium gives exact heap numbers and a forced collection; Firefox gives neither, so Firefox is measured by bench/memory/page-rss.js.
 const path = require('path'), pw = require(process.env.NFM_PLAYWRIGHT || 'playwright-core');
 const N = Number(process.argv[2]) || 30000, URL = 'file://' + path.resolve(process.env.NFM_PAGE || path.resolve(__dirname, '..', '..', 'index.html')) + '?tunesizes=1500';

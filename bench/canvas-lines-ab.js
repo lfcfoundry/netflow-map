@@ -3,7 +3,7 @@
 'use strict';
 (async () => {
   const which = process.argv[2] || 'chromium', rounds = +(process.argv[3] || 3), OLD = require('path').resolve(process.argv[4] || 'old.html'), NEW = require('path').resolve(process.argv[5] || require('path').join(__dirname, '..', 'index.html')), items = +(process.argv[6] || 30000);
-  const D = await require('/home/claude/netflow-map/bench/driver.js').open(which, { timeout: 3600000 });
+  const D = await require('./driver.js').open(which, { timeout: 3600000 });
   const wait = async (fn, ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await D.page.evaluate(fn)) return; await new Promise((r) => setTimeout(r, 200)); } throw new Error('timeout'); };
   const once = async (f) => {
     await D.goto('about:blank'); await D.goto('file://' + f); await wait(() => typeof NFM !== 'undefined', 60000);

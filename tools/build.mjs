@@ -55,7 +55,7 @@ fill('@@VERSION@@', version);
 writeFileSync(join(root, 'index.html'), html);
 if (args.has('--pack')) {
   /* Local (non-git) downloads: our own lzma-pack makes a self-unpacking page (LZMA, hash-checked). It lives in the JS-modules repo. */
-  const packers = [process.env.NFM_LZMA_PACK, join(root, '..', 'js-modules/tools/lzma-pack/pack.py'), '/home/claude/js-modules/tools/lzma-pack/pack.py'].filter(Boolean);
+  const packers = [process.env.NFM_LZMA_PACK, join(root, '..', 'js-modules/tools/lzma-pack/pack.py')].filter(Boolean);
   const pack = packers.find((p) => { try { readFileSync(p); return true; } catch (e) { return false; } });
   if (!pack) console.warn('lzma-pack not found: clone lfcfoundry/JS-modules next to this folder or set NFM_LZMA_PACK to its tools/lzma-pack/pack.py');
   else {

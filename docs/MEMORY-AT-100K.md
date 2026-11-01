@@ -21,7 +21,7 @@ Plain reading: the numbers are small, the OBJECTS are big. Each object costs a h
 - **Squeezing the numbers (for example 16-bit positions) or reusing buffers:** gains almost nothing, because typed arrays are already only a few MB.
 - **"Free the old picture first" (`releaseOldScene`):** built, then REVERTED after a review. It freed nothing and could leave the map dead. The renderers keep references to the old scene (`rigState.sid`, `sid2`, `sidT`, the WebGPU `rs.sid` and a stale `T`), and `S.keyMap.sc` holds it too. A throw while making the new one left `S.scene` null.
 - **Lazy link objects (make `S.curves` on demand):** abandoned. The renderers tessellate `S.curves` in `setScene`; `style()`, `rigStyle`, picking (`edgeIndex`), SVG export and the Canvas 2D fallback all read the link list, so the first hover would rebuild all 300,000 objects. It would also change how the first picture is drawn.
-- **Already in place:** a big plain 3D network turns on the graphics card (`makeRig`, `attachTurn`, `S.turnTo`, `drawRig`): the picture is uploaded once and each frame only sends camera numbers. On the owner's laptop (Firefox 159, integrated graphics) that holds 60 FPS at 100,000 items while dragging, zooming and turning, and the upload takes about 60 ms.
+- **Already in place:** a big plain 3D network turns on the graphics card (`makeRig`, `attachTurn`, `S.turnTo`, `drawRig`): the picture is uploaded once and each frame only sends camera numbers. On a real computer (Firefox 159, integrated graphics) that holds 60 FPS at 100,000 items while dragging, zooming and turning, and the upload takes about 60 ms.
 
 ## What would actually help (my reading, not yet tried)
 

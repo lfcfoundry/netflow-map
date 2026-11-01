@@ -1,6 +1,6 @@
 // Copyright (c) 2026 LFC Foundry. MIT License.
 // Netflow Map in ungoogled-chromium, the real app: page heap with a big network shown, with the idle link packing on (default) and off (NFM_NOPACK=1), and what the packing costs when something reads every link again.
-// Run:  HOME=/home/claude NFM_PLAYWRIGHT=/tmp/pw/node_modules/playwright-core [NFM_NOPACK=1] node bench/memory/page-links.js 100000
+// Run:  NFM_PLAYWRIGHT=<path to playwright-core> [NFM_NOPACK=1] node bench/memory/page-links.js 100000
 // Line 1 prints the browser version. Exact heap is read after a forced collection (Chromium only; Firefox is measured by page-rss.js).
 const path = require('path'), pw = require(process.env.NFM_PLAYWRIGHT || 'playwright-core');
 const N = Number(process.argv[2]) || 30000, URL = 'file://' + path.resolve(process.env.NFM_PAGE || path.resolve(__dirname, '..', '..', 'index.html')) + '?tunesizes=1500';

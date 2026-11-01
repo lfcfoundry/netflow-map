@@ -1,9 +1,9 @@
 // Copyright (c) 2026 LFC Foundry. MIT License.
 // Netflow Map in Firefox: memory of the whole browser (all its processes) while a 3D network of N items is made and shown.
-// Run:  NFM_PUPPETEER=/tmp/pptr/node_modules/puppeteer-core NFM_FIREFOX=/home/claude/browsers/firefox/firefox HOME=/root node bench/memory/page-rss.js 30000
+// Run:  NFM_PUPPETEER=<path to puppeteer-core> NFM_FIREFOX=<path to firefox> node bench/memory/page-rss.js 30000
 // Line 1 prints the real browser version. One size per run, a fresh browser each time. Numbers: each process's share of memory in MB (proportional set size, so shared libraries are not counted twice) summed over every firefox process (/proc), and the content process alone.
 const fs = require('fs'), path = require('path'), pp = require(process.env.NFM_PUPPETEER || 'puppeteer-core');
-const N = Number(process.argv[2]) || 30000, FF = process.env.NFM_FIREFOX || '/home/claude/browsers/firefox/firefox', URL = 'file://' + path.resolve(process.env.NFM_PAGE || path.resolve(__dirname, '..', '..', 'index.html')) + '?tunesizes=1500';   /* NFM_PAGE = another copy of the page, to compare two builds */
+const N = Number(process.argv[2]) || 30000, FF = process.env.NFM_FIREFOX || 'firefox', URL = 'file://' + path.resolve(process.env.NFM_PAGE || path.resolve(__dirname, '..', '..', 'index.html')) + '?tunesizes=1500';   /* NFM_PAGE = another copy of the page, to compare two builds */
 const rss = (pid0) => { const all = {}; for (const d of fs.readdirSync('/proc')) { if (!/^\d+$/.test(d)) continue; try { const st = fs.readFileSync('/proc/' + d + '/status', 'utf8'), name = /Name:\s*(\S+)/.exec(st)[1], ppid = +/PPid:\s*(\d+)/.exec(st)[1], kb = +(/Pss:\s*(\d+)/.exec(fs.readFileSync('/proc/' + d + '/smaps_rollup', 'utf8')) || [0, 0])[1]; all[d] = { name, ppid, kb, cmd: fs.readFileSync('/proc/' + d + '/cmdline', 'utf8') }; } catch (e) { /* gone */ } }
   const mine = (p) => { let x = all[p], n = 0; while (x && n++ < 8) { if (+p === pid0 || x.ppid === pid0) return true; p = x.ppid; x = all[p]; } return false; };
   let tot = 0, content = 0; for (const p in all) if (mine(p) && /firefox|Web Content|Isolated|forkserver/i.test(all[p].name + all[p].cmd)) { tot += all[p].kb; if (/tab/.test(all[p].cmd) && all[p].kb > content) content = all[p].kb; }
