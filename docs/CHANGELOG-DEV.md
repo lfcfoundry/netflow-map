@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.2045 · 2026-10-31
+
+### Quick
+src/engine.js: `absorb()` sweeps in reverse topological order (`topoBack(P)`, Kahn) when the links hold no loop (no self-link either) and stops after that one exact sweep; with a loop it keeps the deepest-first order and sweeps until it settles. `endClasses()` hands its flow spread to `absorb()` (`o.spreadDone`, same cap) instead of `absorb()` running it again, and uses the same zero-weight guard as `absorb()`. Builds are byte-identical (JSON) on 10 test builds (loop-free and with loops, Sankey and odds coloring). bench/vs-libs.js times only `E.build` (the derived map is made once outside the timer; build does not change its input). test/browser.test.js: the dying-worker check waits up to 2 s for the engine to be free (failed twice in Firefox in parallel runs, never alone).
+
+### Details
+Sankey build at 1,500 items, warm, the flow step (endClasses + absorb): Chromium 2.65 to 0.89 ms, Firefox 2.43 to 0.82 ms, WebKitGTK 2.05 to 0.83 ms. The Sankey layout module (netflow-sankey) is about 75% of the build: 21-24 ms; its stand-in stops (about 9,000) and bands (10,600) set the floor (JS-modules is working on it).
+
+### Deep
+With 9 end classes (maps that are not stories, more than 8 ends) each sweep costs 9 multiply-adds per link; the deepest-first order is BFS depth, not a topological order, so it needed several sweeps plus a check sweep.
+
 ## 2026.10.31.2031 · 2026-10-31
 
 ### Quick
