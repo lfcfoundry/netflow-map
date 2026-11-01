@@ -4,7 +4,7 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
-## 2026.10.31.2249 · 2026-10-31
+## 2026.10.31.2253 · 2026-10-31
 
 ### Quick
 src/undo.js `step()`: a change that leaves one list untouched (`held() === 0`) keeps a difference whatever its size, so the step holds only the changed list and Undo's 16 MB budget (`undoCap`, which counts a whole map at 150 bytes an item) is not spent on the untouched one. Nothing saved is affected. From the memory-compression brief (BRIEF-netflow-undo.md, Jawad's card "Both: Netflow + Story"); the brief's packing part is on a card (trade-off below).
@@ -14,6 +14,17 @@ src/undo.js `step()`: a change that leaves one list untouched (`held() === 0`) k
 
 ### Deep
 Tried alone and stacked with packing whole-map steps from 2,000 items and links (was 20,000). Packing alone on item-only changes: Chromium and WebKitGTK the same, Firefox 18 vs 22 ms (maybe slower). Stacked, changes to every item and link: 9 steps in 8.8 MB to 25 steps in 3.6 MB, page held the same (Chromium 20 vs 20, Firefox 21 vs 21, WebKitGTK 35 vs 32 ms), but undoing such a change takes longer: Chromium 17/25/13 to 38/35/28 ms, Firefox 18/21/17 to 33/29/41, WebKitGTK 33/28/25 to 48/47/44 (with the reader warmed while idle; 61-85 ms for the first undo without that). The brief's shared pack for the save was measured and not used: JSON.stringify of a 3,000-row map is 3.2 / 3 / 2 ms (Chromium / Firefox / WebKitGTK), while handing it to a thread costs 4.1 / 5 / 16 ms (postMessage) and structuredClone 12 / 8 / 16 ms. The brief's baseline (a structuredClone per edit) is not what Netflow does: undo keeps only changed objects (src/undo.js step). test/undo.test.js: every-item and every-link changes keep only the changed list.
+
+## 2026.10.31.2214 · 2026-10-31
+
+### Quick
+Vendored netflow-sankey 2.4.0 (JS-modules PR 374, commit 6ed23fd, byte-identical to JS-modules main; stand-in stops and per-bar numbers in typed arrays, same picture on 669 maps; new option `stopCap`/`stopCapFrom`, off in the module). src/engine.js passes `stopCap: 500` (or `o.skStopCap`) to the Sankey layout; the module applies it only to maps of 1,000+ items (`stopCapFrom`). Jawad's card 2026.10.31 9:08 PM ET: "Cap at 500 stops". Pictures change for Sankeys of 1,000+ items only; nothing saved is affected.
+
+### Details
+Whole build at 1,500 items, cloud, median of 3 (no cap / cap 2,000 / cap 500 / d3-sankey): Chromium 26.6 / 14.5 / 11.8 / 27-43 ms, Firefox 23 / 15 / 12 / 23-27 ms, WebKitGTK 35 / 20 / 13 / 25-30 ms. 5,000 items: Chromium 81 / 54 / 53 / 102-114, Firefox 79 / 51 / 44 / 107-109, WebKitGTK 90 / 67 / 53 / 106-121. Band pieces passing over a bar they do not belong to, 1,500 items: 0 / 276 / 256 / 1,916; 5,000 items: 537 / 761 / 798 / 8,410.
+
+### Deep
+At 1,500 items the layout made about 9,000 stand-in stops and 10,600 bands; the order search (about 4 ms) and scale + relax (about 4 ms) are now its largest parts. New bench metric `overBars` (bench/vs-libs.js) and plan `cap` (bench/vs-libs-run.js; CAPN=n runs one size). Comparison pictures: /mnt/project-files/netflow-map/vs-libs-2026.10.31/sankey-long-links-2026.10.31.html. New test: the cap leaves maps under 1,000 items byte-identical.
 
 ## 2026.10.31.2205 · 2026-10-31
 

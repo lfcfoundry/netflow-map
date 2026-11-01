@@ -81,7 +81,7 @@ At 10,000 items Netflow Map was 42 times faster than the fastest library in Chro
 
 ## Sankey view against d3-sankey
 
-1,500 items, median of 5 runs (Netflow Map / d3-sankey): Chromium 32 / 27 ms, Firefox 29 / 24 ms, WebKitGTK 28 / 24 ms. At 400 items Netflow Map is as fast or faster (7 / 7, 5 / 6, 6 / 6 ms). Netflow Map's time is the whole build: it also works out what flows from the start item, which d3-sankey is given. Its order crosses fewer links (5,574 against 7,223 at 400 items; 91,896 against 95,509 at 1,500), and it handles loops, which d3-sankey refuses.
+1,500 items, whole build (Netflow Map / d3-sankey): Chromium 12 / 27 ms, Firefox 12 / 23 ms, WebKitGTK 13 / 25 ms. Long links are routed around other bars: 256 band pieces pass over a bar they do not belong to, against d3-sankey's 1,916. On maps of 1,000 items or more Netflow Map keeps at most 500 hidden stops and draws the lightest long links straight; smaller maps route every link (400 items: 5-9 ms against 8-12, with no band over another bar and 23% fewer crossings). Netflow Map also works out what flows from the start item and handles loops, which d3-sankey refuses.
 
 ## Reading a 16 MB table against Papa Parse and d3-dsv
 

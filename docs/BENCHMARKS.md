@@ -2150,3 +2150,16 @@ Time, deep + best (Chromium / Firefox / WebKitGTK, median of 3): 200 items 22 / 
 | WebKitGTK | 39 ms | 40 ms | 28 ms | 24 ms |
 
 At 400 items: Chromium 8.0 / 7.5 / 7.2 ms against 7.3, Firefox 7 / 6 / 5 against 6, WebKitGTK 7 / 8 / 6 against 6. Crossings are the same on every path (5,574 at 400, 91,896 at 1,500; d3-sankey 7,223 and 95,509). Netflow Map's time is the whole build (prepare, importance, what flows from the start), d3-sankey's is its layout of given values. Raw: bench/results/vs-libs-*-deep.jsonl and vs-libs-*-sk.jsonl.
+
+## 69. Sankey against d3-sankey: compact stand-ins and the 500-stop cap (2026.10.31)
+
+Whole build, cloud, median of 3 (bench plan `cap`, raw in bench/results/vs-libs-*-cap.jsonl). Netflow Map's time is E.build on the map as the app holds it; d3-sankey's is its layout of the same links with their weights.
+
+| 1,500 items | no cap | cap 2,000 | cap 500 (shipped) | d3-sankey |
+|---|---:|---:|---:|---:|
+| Chromium 155 | 26.6 ms | 14.5 ms | 11.8 ms | 27-43 ms |
+| Firefox 158 | 23 ms | 15 ms | 12 ms | 23-27 ms |
+| WebKitGTK 2.52.6 | 35 ms | 20 ms | 13 ms | 25-30 ms |
+| band pieces over other bars | 0 | 276 | 256 | 1,916 |
+
+At 5,000 items: no cap 79-90 ms, cap 500 44-53 ms, d3-sankey 102-121 ms; band pieces over other bars 537 / 798 / 8,410. At 400 items the cap does not apply (4.6-9 ms against d3-sankey's 7.8-12 ms). Cloud noise is large here (d3-sankey alone ranged 27-43 ms in Chromium at 1,500 items).
