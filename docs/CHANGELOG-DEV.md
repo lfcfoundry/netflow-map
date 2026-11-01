@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.2031 · 2026-10-31
+
+### Quick
+`edit(fn)` (src/app/00-core.js) copies `nodes` and `edges` only when fn first reads or sets them (getter/setter on the working object, then a plain object again before `setGraph`). An item-only change keeps the very same link list, so the per-change list compare skips it. `NFM.edit` is exposed for tests. Nothing saved is affected.
+
+### Details
+Page held after one rename, 16 MB table, Data tab, early-stop A/B: Chromium 36 to 28 ms, Firefox 35 to 23 ms (faster 0.66, noisy), WebKitGTK 27 to 14 ms (faster 0.50). 3,000-row map: Chromium faster 0.79, Firefox ok 0.77, WebKitGTK ok 0.83. Copying 563,000 links cost 1 ms in Chromium and 11 ms in WebKitGTK; comparing them 7 and 15 ms.
+
+### Deep
+Browser test (index block) checks items-only, links-only, set and undo through `NFM.edit`. Started by the previous Netflow owner thread (WIP 461e943), finished here.
+
 ## 2026.10.31.2021 · 2026-10-31
 
 ### Quick
