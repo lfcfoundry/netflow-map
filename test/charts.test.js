@@ -68,10 +68,36 @@ for (const [n, extra, groups] of cases) {
   let flowSum = 0; cc.flows.forEach((f) => { flowSum += f.v; });
   ok(Math.abs(flowSum - cc.total) < 1e-6 * Math.max(1, flowSum), 'chord total is the sum of its bands, ' + tag);
   ok(cc.flows.every((f) => f.sa1 >= f.sa0 && f.ta1 >= f.ta0), 'chord bands have a width at both ends, ' + tag);
+  const Lf = C.layout('chord', copy(G), { chordOrder: 'fast' }).chart;
+  ok(Lf.crossings < 0 || cc.crossings <= Lf.crossings, 'chord: Fewest crossings never crosses more than Fastest, ' + tag);
+  ok(Math.abs(Lf.total - cc.total) < 1e-6 * Math.max(1, cc.total), 'chord: Fastest carries the same total, ' + tag);
+}
+/* chord crossing count: the bucketed count matches a plain count of every pair */
+for (let s = 1; s <= 40; s++) {
+  let x = s; const r = () => ((x = (x * 1664525 + 1013904223) >>> 0) / 4294967296), K = 4 + Math.floor(r() * 50), nodes = [], edges = [];
+  for (let i = 0; i < K; i++) nodes.push({ id: 'n' + i, label: 'n' + i, group: 'g' + (i % 4), sizeV: 1 });
+  for (let e = 0; e < K * 3; e++) { const a = Math.floor(r() * K), b = Math.floor(r() * K); edges.push({ from: 'n' + a, to: 'n' + b, count: 1, weight: 1 + Math.floor(r() * 9), widthV: NaN, flow: 0 }); }
+  for (const order of ['fast', 'fewest']) {
+    const ch = C.layout('chord', { nodes: nodes.map((q) => Object.assign({}, q)), edges, name: 't' }, { chordBy: 'items', chordOrder: order }).chart, at = new Map();
+    ch.arcs.slice().sort((p, q) => p.a0 - q.a0).forEach((A, i) => at.set(A.k, i));
+    const bands = ch.flows.filter((f) => f.s !== f.t).map((f) => { const a = at.get(f.s), b = at.get(f.t); return [Math.min(a, b), Math.max(a, b), f.v]; });
+    let c = 0; for (let i = 0; i < bands.length; i++) for (let j = i + 1; j < bands.length; j++) { const p = bands[i], q = bands[j]; if ((p[0] < q[0] && q[0] < p[1] && p[1] < q[1]) || (q[0] < p[0] && p[0] < q[1] && q[1] < p[1])) c += Math.min(p[2], q[2]); }
+    ok(c === ch.crossings || (ch.crossings === 0 && order === 'fewest' && c === 0), 'chord crossing count matches a plain count (' + order + ', seed ' + s + '): ' + c + ' vs ' + ch.crossings);
+  }
 }
 /* packSiblings and enclose: a known case */
 const three = [{ r: 1 }, { r: 1 }, { r: 1 }].map((c) => Object.assign({ x: 0, y: 0 }, c));
 const R = C.packSiblings(three);
 ok(Math.abs(R - (1 + 2 / Math.sqrt(3))) < 1e-9, 'three equal circles: enclosing radius 1 + 2/sqrt(3) (' + R + ')');
+/* the app gives each link's item numbers (G.eA, G.eB): every nested view must come out exactly as with the lookup by name */
+for (const [n, extra, groups] of [[12, 0, 3], [12, 9, 3], [300, 0, 0], [300, 200, 6]]) {
+  const G = graph(n, extra, 11 + n, groups), at = new Map(G.nodes.map((x, i) => [x.id, i]));
+  const withIx = () => Object.assign(copy(G), { eA: Int32Array.from(G.edges, (e) => at.get(e.from)), eB: Int32Array.from(G.edges, (e) => at.get(e.to)) });
+  for (const v of ['treemap', 'icicle', 'sunburst', 'pack', 'tree', 'bundles']) {
+    const a = C.layout(v, copy(G), { sized: true }), b = C.layout(v, withIx(), { sized: true });
+    const fp = (L) => JSON.stringify(L.nodes.map((x) => [x.x, x.y, x.w, x.h])) + JSON.stringify(L.chart.paths ? L.chart.paths.map((p) => p.P) : 0);
+    ok(fp(a) === fp(b), v + ' at ' + n + ' items: same layout with item numbers');
+  }
+}
 console.log(fails ? fails + ' of ' + checks + ' checks FAILED' : checks + ' checks passed');
 process.exit(fails ? 1 : 0);

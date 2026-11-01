@@ -4,6 +4,18 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.11.01.0943 · 2026-11-01
+
+### Quick
+Same PR as 0254 (PR 137, not merged yet). New view setting `chordOrder` ('fewest' default, 'fast'; fixLook checks it, old saves get 'fewest'). src/plot.js is replaced by vendor/netflow-plot.js (JS-modules netflow-plot 1.0.0, global `NetflowPlot`); vendor/netflow-scene.js moves to 1.3.3 (SVG export groups same-look dots, same pixels). Same pictures in every view; saved files and layouts load as before.
+
+### Details
+Nested views: hierarchy() is one pass over a single Int32Array (parent, item, depth) with lazy kid lists; mapGraph hands nested views link item numbers (`eA`/`eB`, opts.ix) so no id Map is built; Buchheim keeps flat thread/ancestor/number lists and no post-order array; tree skips sums; temporaries come from grow-only scratch lists (up to 20,000 items) because a new typed array costs 3.5 to 12 us in Chromium. gnode starts `w`/`h` at -0, not 0: Smi fields later written with doubles deprecated the map and made the next view 2.5x slower. Chord: the weighted crossing count buckets bands by near end (two counting sorts) and stops once past the best so far; cos/sin come from a table of K places; a round that repeats the order ends the search. Same arcs, bands and crossings as before on 600 random maps.
+Browser race (clean page, early-stop A/B, /mnt/project-files/netflow-map/d3-gap/RACE-VS-D3-HIERARCHY-2026.11.01.md): against d3-hierarchy 3.1.2, ahead on 35 of 36 cases (0.29 to 0.98); WebKitGTK icicle at 1,000 items 1.03 (0.86 to 1.20, a tie). Against d3-chord 3.0.1 (d3 builds its matrix from the rows): Fastest 0.3 to 1.0 of d3's time, Fewest crossings 3.5 to 15x d3's time with 53%, 16% and 3% fewer crossings at 20, 60 and 200 items.
+
+### Deep
+The order search keeps 24 rounds: on 300 random maps the best order was still found in rounds 22 and 23 for 52 of them, so a shorter search would change pictures. An O(m log^2 K) count with a 2D Fenwick tree costs more than the bucketed count at the sizes chord uses (at most 3,000 bands); a branch-free inner loop gained under 5%. Node tests: charts 925 (new: Fewest never crosses more than Fastest, bucketed count equals a plain pair count on 40 maps), plot 328. Suites Chromium 232, WebKitGTK 220, Firefox 209, 0 FAIL.
+
 ## 2026.11.01.0254 · 2026-11-01
 
 ### Quick

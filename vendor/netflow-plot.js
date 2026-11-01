@@ -1,6 +1,7 @@
-/* Copyright (c) 2026 LFC Foundry. MIT License. */
+/* Copyright (c) 2026 LFC Foundry. MIT License. https://github.com/lfcfoundry/JS-modules */
 /*
- * plot.js: plain charts from a table's columns (bars, lines, areas, dots, pie, box plots, histograms, density, hexbins, heat maps,
+ * Version 1.0.0 (API 1)
+ * netflow-plot.js: plain charts from a table's columns (bars, lines, areas, dots, pie, box plots, histograms, density, hexbins, heat maps,
  * parallel lines, scatter matrix, Q-Q, Voronoi cells, word cloud). make(rows, spec, o, NS) returns drawing lists in the same shape as a map
  * picture (rects, dots, curves, polys, labels), so the same renderer, export and themes draw them. No page, no DOM, no dependencies.
  *
@@ -9,7 +10,7 @@
  *         horizontal, bins, smooth (moving average window), index (lines from 100), cols (parallel / matrix), sort ('value' | 'name' | 'none') }.
  * Marks: S.marks = [{ x0, y0, x1, y1, row (index) or rows, t (tooltip text) }] for pointing at things.
  */
-var NFMPlot = (function () {
+var NetflowPlot = (function () {
   'use strict';
   var TAU = Math.PI * 2;
   var TYPES = [
@@ -43,7 +44,8 @@ var NFMPlot = (function () {
   function num(v) {
     if (typeof v === 'number') return v;
     if (v === undefined || v === null || v === '') return NaN;
-    var s = String(v).trim().replace(/[,$£¥%\s]/g, '');
+    if (typeof v === 'string') { var q = Number(v); if (q === q && (q !== 0 || v.trim() !== '')) return q; }   /* a plain number needs no cleaning: the characters taken out below cannot be in one */
+    var s = String(v).trim().replace(/[,$\u00a3\u00a5%\s]/g, '');
     var x = s === '' ? NaN : Number(s); return x;
   }
   function dateMs(v) { if (v instanceof Date) return v.getTime(); if (typeof v !== 'string' || !/\d{4}|\d\/\d/.test(v)) return NaN; var t = Date.parse(v); return isNaN(t) ? NaN : t; }
@@ -77,7 +79,7 @@ var NFMPlot = (function () {
     if (a >= 1e9) return (v / 1e9).toFixed(a >= 1e10 ? 0 : 1).replace(/\.0$/, '') + 'B';
     if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M';
     if (a >= 1e4) return (v / 1e3).toFixed(a >= 1e5 ? 0 : 1).replace(/\.0$/, '') + 'k';
-    if (a >= 100 || v === Math.round(v)) return Math.round(v).toLocaleString('en-US');
+    if (a >= 100 || v === Math.round(v)) { var r = Math.round(v); return r === 0 && 1 / r < 0 ? '-0' : (r < 0 ? '-' : '') + String(Math.abs(r)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }   /* the same text as toLocaleString('en-US'), which costs about 25 microseconds a call in Chromium */
     return Number(v.toPrecision(3)).toString();
   }
   function quant(sorted, p) { var n = sorted.length; if (!n) return NaN; var h = (n - 1) * p, i = Math.floor(h); return i + 1 < n ? sorted[i] + (sorted[i + 1] - sorted[i]) * (h - i) : sorted[i]; }
@@ -171,7 +173,7 @@ var NFMPlot = (function () {
     };
     return F;
   }
-  function clip(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  function clip(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + '\u2026' : s; }
   function linear(lo, hi, a, b) { var k = hi > lo ? (b - a) / (hi - lo) : 0; return function (v) { return a + (v - lo) * k; }; }
   /** A number or date axis from the values (with room at the ends when zero is not wanted). */
   function axisFor(vals, isTime, a, b, zero, n) {
@@ -195,11 +197,11 @@ var NFMPlot = (function () {
         var key = 'n' + k; if (cache.has(key)) return cache.get(key);
         var raw = R.raw(k), out = new Float64Array(rows.length), good = 0, dates = 0, i;
         for (i = 0; i < raw.length; i++) { var v = num(raw[i]); out[i] = v; if (v === v) good++; }
-        if (good < 0.8 * countFilled(raw)) { var dt = new Float64Array(rows.length); for (i = 0; i < raw.length; i++) { var d = dateMs(raw[i]); dt[i] = d; if (d === d) dates++; } if (dates > good) { dt.time = true; out = dt; } }
+        if (good < 0.8 * countFilled(raw)) { var dt = new Float64Array(rows.length), seen = new Map(); for (i = 0; i < raw.length; i++) { var rv = raw[i], d = typeof rv === 'string' ? seen.get(rv) : undefined; if (d === undefined) { d = dateMs(rv); if (typeof rv === 'string') seen.set(rv, d); } dt[i] = d; if (d === d) dates++; }   /* each date text is read once */ if (dates > good) { dt.time = true; out = dt; } }
         cache.set(key, out); return out;
       },
       cat: function (k) { var key = 'c' + k; if (cache.has(key)) return cache.get(key); var raw = R.raw(k), out = new Array(raw.length); for (var i = 0; i < raw.length; i++) out[i] = raw[i] === undefined || raw[i] === null ? '' : String(raw[i]); cache.set(key, out); return out; },
-      label: function (i) { var r = rows[i]; return r.label !== undefined ? r.label : r.id !== undefined ? r.id : r.from !== undefined ? r.from + ' → ' + r.to : 'row ' + (i + 1); }
+      label: function (i) { var r = rows[i]; return r.label !== undefined ? r.label : r.id !== undefined ? r.id : r.from !== undefined ? r.from + ' \u2192 ' + r.to : 'row ' + (i + 1); }
     };
     return R;
   }
@@ -249,7 +251,7 @@ var NFMPlot = (function () {
         else if (mode === 'stack') { if (e.v >= 0) { v0 = up; up += e.v; v1 = up; } else { v0 = dn; dn += e.v; v1 = dn; } }
         else { v0 = 0; v1 = e.v; }
         var a = val.map(v0), b = val.map(v1), col = mode === 'none' && !ck && e.v < 0 ? F.T.bad : colOf(ci);
-        var mark = { rows: e.rows, t: (x === '' ? '(blank)' : x) + (ck ? ' · ' + (c || '(blank)') : '') + ': ' + fmtNum(e.v) };
+        var mark = { rows: e.rows, t: (x === '' ? '(blank)' : x) + (ck ? ' \u00b7 ' + (c || '(blank)') : '') + ': ' + fmtNum(e.v) };
         if (horiz) F.rect(a, s0, b - a, sw, col, mark); else F.rect(s0, b, sw, a - b, col, mark);
       });
     });
@@ -269,7 +271,7 @@ var NFMPlot = (function () {
       F.line([F.L, y, F.R, y], 1, F.alpha(F.T.boxLine, 0.25));
       cc.list.forEach(function (c, ci) { var e = cell.get(x + '\u0000' + c); if (e && e.v === e.v) xs.push(val.map(e.v)); });
       if (xs.length > 1) F.line([Math.min.apply(null, xs), y, Math.max.apply(null, xs), y], 2, F.alpha(F.T.muted, 0.8));
-      cc.list.forEach(function (c, ci) { var e = cell.get(x + '\u0000' + c); if (e && e.v === e.v) F.dot(val.map(e.v), y, 5, F.color(ci), { rows: e.rows, t: x + (ck ? ' · ' + c : '') + ': ' + fmtNum(e.v) }); });
+      cc.list.forEach(function (c, ci) { var e = cell.get(x + '\u0000' + c); if (e && e.v === e.v) F.dot(val.map(e.v), y, 5, F.color(ci), { rows: e.rows, t: x + (ck ? ' \u00b7 ' + c : '') + ': ' + fmtNum(e.v) }); });
       F.text(F.L - 8, y + 4, clip(x === '' ? '(blank)' : x, 28), 11, F.T.fg, { align: 'r' });
     });
     if (ck) F.legend(sp.color, cc.list);
@@ -303,7 +305,7 @@ var NFMPlot = (function () {
       var pts = [], col = F.color(l.ci);
       for (var j = 0; j < l.xs.length; j++) { if (l.ys[j] !== l.ys[j]) continue; pts.push(ax.map(l.xs[j]), ay.map(l.ys[j])); }
       F.line(pts, 2, col);
-      if (many <= 400) for (var k = 0; k < l.xs.length; k++) if (l.ys[k] === l.ys[k]) F.dot(ax.map(l.xs[k]), ay.map(l.ys[k]), 2.5, col, { rows: l.rows[k], t: (l.name ? l.name + ' · ' : '') + (s.time ? dayText(l.xs[k]) : fmtNum(l.xs[k])) + ': ' + fmtNum(l.ys[k]) });
+      if (many <= 400) for (var k = 0; k < l.xs.length; k++) if (l.ys[k] === l.ys[k]) F.dot(ax.map(l.xs[k]), ay.map(l.ys[k]), 2.5, col, { rows: l.rows[k], t: (l.name ? l.name + ' \u00b7 ' : '') + (s.time ? dayText(l.xs[k]) : fmtNum(l.xs[k])) + ': ' + fmtNum(l.ys[k]) });
       if (s.list.length > 1 && pts.length && !F.keyRow) F.text(pts[pts.length - 2] + 6, pts[pts.length - 1] + 4, clip(l.name || '(blank)', 16), 11, col, { align: 'l' });
     });
     if (s.list.length > 1) { F.R -= 0; F.legend(sp.color, s.cats); }
@@ -444,7 +446,7 @@ var NFMPlot = (function () {
         if (px1 * px1 + py1 * py1 > px2 * px2 + py2 * py2) { pi = pi2 + ((pj & 1) ? 1 : -1) / 2; pj = pj2; }
       }
       pi = Math.round(pi);
-      var key = pi + ',' + pj, b = bins.get(key); if (!b) { b = { i: pi, j: pj, n: 0 }; bins.set(key, b); } b.n++; if (b.n > mx) mx = b.n;
+      var key = pi * 4194304 + pj, b = bins.get(key);   /* one number per cell (pj stays far inside +-2^21) */ if (!b) { b = { i: pi, j: pj, n: 0 }; bins.set(key, b); } b.n++; if (b.n > mx) mx = b.n;
     }
     var ramp = function (t) { return F.NS.rampAt ? F.NS.rampAt('warm', t) : F.color(0); };
     bins.forEach(function (b) {
@@ -476,7 +478,7 @@ var NFMPlot = (function () {
     cell.forEach(function (e) { if (e.v === e.v) { mn2 = Math.min(mn2, e.v); mx2 = Math.max(mx2, e.v); } });
     F.L = Math.min(200, 20 + 7 * Math.min(24, Math.max.apply(null, yc.list.map(function (s) { return String(s).length; }).concat([4]))));
     var bx = bandAxis(xc.list, F.L, F.R, 0.06), by = bandAxis(yc.list, F.Tp, F.B, 0.06); F.axes(bx, null, sp.x, '', false);
-    yc.list.forEach(function (yv) { F.text(F.L - 8, by.map(yv) + by.bw / 2 + 4, clip(yv || '(blank)', 24), 11, F.T.fg, { align: 'r' }); xc.list.forEach(function (xv) { var e = cell.get(xv + '\u0000' + yv); if (!e || e.v !== e.v) return; F.rect(bx.map(xv), by.map(yv), bx.bw, by.bw, ramp(mx2 > mn2 ? (e.v - mn2) / (mx2 - mn2) : 1), { rows: e.rows, t: xv + ' · ' + yv + ': ' + fmtNum(e.v) }); }); });
+    yc.list.forEach(function (yv) { F.text(F.L - 8, by.map(yv) + by.bw / 2 + 4, clip(yv || '(blank)', 24), 11, F.T.fg, { align: 'r' }); xc.list.forEach(function (xv) { var e = cell.get(xv + '\u0000' + yv); if (!e || e.v !== e.v) return; F.rect(bx.map(xv), by.map(yv), bx.bw, by.bw, ramp(mx2 > mn2 ? (e.v - mn2) / (mx2 - mn2) : 1), { rows: e.rows, t: xv + ' \u00b7 ' + yv + ': ' + fmtNum(e.v) }); }); });
     F.S.legend.push({ k: 'ramp', ramp: 'warm', a: ramp(0), b: ramp(1), lo: fmtNum(mn2), hi: fmtNum(mx2), t: sp.y || 'Rows' });
   };
   function pieCore(F, R, sp, hole) {
@@ -501,7 +503,7 @@ var NFMPlot = (function () {
     var cx = F.W / 2, cy = (F.Tp + F.B) / 2 + 8, R1 = Math.min(F.W, F.B - F.Tp) / 2 - 40, R0 = R1 * 0.3, n = xc.list.length, step = TAU / Math.max(1, n), rs = function (t) { return Math.sqrt(R0 * R0 + (R1 * R1 - R0 * R0) * t / (top || 1)); };
     xc.list.forEach(function (x, i) {
       var a0 = -Math.PI / 2 + i * step + step * 0.08, a1 = a0 + step * 0.84, acc = 0;
-      cc.list.forEach(function (c, ci) { var e = cell.get(x + '\u0000' + c); if (!e || !(e.v > 0)) return; F.wedge(cx, cy, rs(acc), rs(acc + e.v), a0, a1, F.color(ci), { rows: e.rows, t: x + (ck ? ' · ' + c : '') + ': ' + fmtNum(e.v) }); acc += e.v; });
+      cc.list.forEach(function (c, ci) { var e = cell.get(x + '\u0000' + c); if (!e || !(e.v > 0)) return; F.wedge(cx, cy, rs(acc), rs(acc + e.v), a0, a1, F.color(ci), { rows: e.rows, t: x + (ck ? ' \u00b7 ' + c : '') + ': ' + fmtNum(e.v) }); acc += e.v; });
       var m = (a0 + a1) / 2, right = Math.cos(m) >= 0; F.text(cx + Math.cos(m) * (R1 + 8), cy + Math.sin(m) * (R1 + 8), clip(x || '(blank)', 14), 10, F.T.muted, { align: right ? 'l' : 'r', rot: right ? m : m + Math.PI });
     });
     if (ck) F.legend(sp.color, cc.list);
@@ -560,7 +562,7 @@ var NFMPlot = (function () {
     var at = F.L, W = F.R - F.L, Hh = F.B - F.Tp;
     xc.list.forEach(function (x) {
       var w = colT.get(x) / (tot || 1) * W, y = F.B;
-      cc.list.forEach(function (c, ci) { var e = cell.get(x + '\u0000' + c); if (!e || !(e.v > 0)) return; var h = e.v / colT.get(x) * Hh; F.rect(at + 0.5, y - h + 0.5, w - 1, h - 1, F.color(ci), { rows: e.rows, t: x + ' · ' + c + ': ' + fmtNum(e.v) + ' (' + Math.round(e.v / colT.get(x) * 100) + '% of ' + x + ')' }); y -= h; });
+      cc.list.forEach(function (c, ci) { var e = cell.get(x + '\u0000' + c); if (!e || !(e.v > 0)) return; var h = e.v / colT.get(x) * Hh; F.rect(at + 0.5, y - h + 0.5, w - 1, h - 1, F.color(ci), { rows: e.rows, t: x + ' \u00b7 ' + c + ': ' + fmtNum(e.v) + ' (' + Math.round(e.v / colT.get(x) * 100) + '% of ' + x + ')' }); y -= h; });
       if (w > 30) F.text(at + w / 2, F.B + 16, clip(x || '(blank)', Math.floor(w / 7)), 11, F.T.fg);
       at += w;
     });
@@ -569,7 +571,7 @@ var NFMPlot = (function () {
   CH.words = function (F, R, sp) {
     var raw = R.raw(sp.x), counts = new Map();
     var STOP = { the: 1, and: 1, of: 1, to: 1, a: 1, in: 1, is: 1, it: 1, for: 1, on: 1, that: 1, with: 1, as: 1, was: 1, at: 1, by: 1, an: 1, be: 1, this: 1, are: 1, or: 1, from: 1, but: 1, not: 1, you: 1, your: 1, i: 1 };
-    for (var i = 0; i < raw.length; i++) { var s = raw[i]; if (s === undefined || s === null) continue; String(s).toLowerCase().split(/[^a-z0-9À-ÿ']+/).forEach(function (w) { if (w.length < 2 || STOP[w]) return; counts.set(w, (counts.get(w) || 0) + 1); }); }
+    for (var i = 0; i < raw.length; i++) { var s = raw[i]; if (s === undefined || s === null) continue; String(s).toLowerCase().split(/[^a-z0-9\u00c0-\u00ff']+/).forEach(function (w) { if (w.length < 2 || STOP[w]) return; counts.set(w, (counts.get(w) || 0) + 1); }); }
     var list = Array.from(counts.entries()).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 180); if (!list.length) return;
     var top = list[0][1], cx = F.W / 2, cy = (F.Tp + F.B) / 2, placed = [];
     /* each word on an outward spiral until its box touches no word placed before (a grid of boxes keeps the test short) */
@@ -652,4 +654,4 @@ var NFMPlot = (function () {
 
   return { TYPES: TYPES, NEEDS: NEEDS, AGG: AGG, make: make, markAt: markAt, ticks: ticks, timeTicks: timeTicks, kde: kde, normInv: normInv, voronoiCells: voronoiCells, quant: quant, fmtNum: fmtNum };
 })();
-if (typeof module !== 'undefined' && module.exports) module.exports = NFMPlot;
+if (typeof module !== 'undefined' && module.exports) module.exports = NetflowPlot;

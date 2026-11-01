@@ -1,7 +1,7 @@
-/* Copyright (c) 2026 LFC Foundry. MIT License. The plain charts (src/plot.js): every type draws finite shapes from a table, with empty, one-row and odd columns, and the pointer finds its marks. */
+/* Copyright (c) 2026 LFC Foundry. MIT License. The plain charts (vendor/netflow-plot.js, a copy of JS-modules netflow-plot): every type draws finite shapes from a table, with empty, one-row and odd columns, and the pointer finds its marks. */
 'use strict';
 global.NetflowScene = require('../vendor/netflow-scene.js');
-const P = require('../src/plot.js');
+const P = require('../vendor/netflow-plot.js');
 let fails = 0, checks = 0;
 const ok = (cond, msg) => { checks++; if (!cond) { fails++; console.log('FAIL', msg); } };
 function rnd(seed) { return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296); }

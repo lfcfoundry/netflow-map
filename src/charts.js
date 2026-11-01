@@ -36,6 +36,7 @@ var NFMCharts = (function () {
    * Returns { N (items + made-up boxes), par Int32Array, kids [[...]], label [], item [] (index in G.nodes or -1), group [], root, depth Int32Array, mode, extra (links not in the tree) }.
    */
   var EMPTY = Object.freeze([]);   /* the child list of every leaf */
+  var NOVAL = new Float64Array(0);   /* the tree drawing needs no totals; an empty list rather than null keeps one kind of value in the result */
   /* Scratch lists reused from one layout to the next. A new typed list costs 3 to 12 microseconds in Chromium even when small, and one layout used
      about 30 of them, which was a third of the time at 1,000 items. Only lists that do not leave the layout are reused, and only up to 20,000 items,
      so at most about 2 MB stays held. Each caller has its own slot (layouts never run inside each other). */
@@ -53,10 +54,14 @@ var NFMCharts = (function () {
   function hierarchy(G, o) {
     /* One pass into typed arrays: boxes are numbered in the order they are reached, so a parent always comes before its children and the
        drawing order is simply 0..N-1; a box with no children shares one empty list (most boxes are leaves, and a list each was a third of the garbage). */
-    var n = G.nodes.length, idx = new Map(), i, e, nodes = G.nodes;
-    for (i = 0; i < n; i++) idx.set(nodes[i].id, i);
-    var E = G.edges, indeg = tmpI(0, n), from = new Int32Array(E.length), to = new Int32Array(E.length), m = 0;
-    for (i = 0; i < E.length; i++) { e = E[i]; var a = idx.get(e.from), b = idx.get(e.to); if (a === undefined || b === undefined || a === b) continue; from[m] = a; to[m++] = b; indeg[b]++; }
+    var n = G.nodes.length, idx = null, i, e, nodes = G.nodes;
+    var E = G.edges, indeg = tmpI(0, n), from = new Int32Array(E.length), to = new Int32Array(E.length), m = 0, eA = G.eA, eB = G.eB;
+    if (eA && eA.length === E.length) {   /* the app gives each link's item numbers: no lookup by name (that lookup was a third of the setup) */
+      for (i = 0; i < E.length; i++) { var a0 = eA[i], b0 = eB[i]; if (a0 === b0) continue; from[m] = a0; to[m++] = b0; indeg[b0]++; }
+    } else {
+      idx = new Map(); for (i = 0; i < n; i++) idx.set(nodes[i].id, i);
+      for (i = 0; i < E.length; i++) { e = E[i]; var a = idx.get(e.from), b = idx.get(e.to); if (a === undefined || b === undefined || a === b) continue; from[m] = a; to[m++] = b; indeg[b]++; }
+    }
     from = from.subarray(0, m); to = to.subarray(0, m);
     var isForest = true;
     for (i = 0; i < n; i++) if (indeg[i] > 1) { isForest = false; break; }
@@ -98,7 +103,7 @@ var NFMCharts = (function () {
     }
     var order = IA.subarray(cap * 3, cap * 3 + N); for (i = 0; i < N; i++) order[i] = i;
     if (N < cap) { par = par.subarray(0, N); item = item.subarray(0, N); depth = depth.subarray(0, N); label.length = N; group.length = N; kids.length = N; }
-    return { N: N, par: par, kids: kids, label: label, item: item, group: group, root: root, depth: depth, order: order, mode: mode, extra: extra, from: from, to: to, idx: idx };
+    return { N: N, par: par, kids: kids, label: label, item: item, group: group, root: root, depth: depth, order: order, mode: mode, extra: extra, from: from, to: to, idx: idx };   /* idx: null when the app gave item numbers */
   }
   /** Sums: value[i] = own value (leaves, or every item when sized) + what its children hold. Children are sorted biggest first (o.sort !== false). */
   function sums(G, H, o) {
@@ -144,25 +149,50 @@ var NFMCharts = (function () {
     ord.sort(function (a, b) { return ent[a].group < ent[b].group ? -1 : ent[a].group > ent[b].group ? 1 : a - b; });
     var adj = new Array(K); for (i = 0; i < K; i++) adj[i] = [];
     fl.forEach(function (f) { if (f.s !== f.t) { adj[f.s].push(f.t, f.v); adj[f.t].push(f.s, f.v); } });
-    var crossings = function (pos) {   /* chords cross when their ends interleave around the circle; counted for up to 3,000 bands */
-      var ch = []; fl.forEach(function (f) { if (f.s !== f.t) { var a = pos[f.s], b = pos[f.t]; ch.push(a < b ? [a, b, f.v] : [b, a, f.v]); } });
-      if (ch.length > 3000) return -1;
-      var c = 0; for (var x = 0; x < ch.length; x++) for (var y = x + 1; y < ch.length; y++) { var p = ch[x], q = ch[y]; if ((p[0] < q[0] && q[0] < p[1] && p[1] < q[1]) || (q[0] < p[0] && p[0] < q[1] && q[1] < p[1])) c += Math.min(p[2], q[2]); }
+    /* chords cross when their ends interleave around the circle; counted for up to 3,000 bands. Bands are bucketed by their first end, so each band only meets the bands that start inside it; stop counting once past the best so far */
+    var mC = 0; fl.forEach(function (f) { if (f.s !== f.t) mC++; });
+    var cS = new Int32Array(mC), cT = new Int32Array(mC), cV = new Float64Array(mC), cA = new Int32Array(mC), cB = new Int32Array(mC), cW = new Float64Array(mC), cHo = new Int32Array(mC), cStart = new Int32Array(K + 1), cFill = new Int32Array(K);
+    mC = 0; fl.forEach(function (f) { if (f.s !== f.t) { cS[mC] = f.s; cT[mC] = f.t; cV[mC++] = f.v; } });
+    var crossings = function (pos, stop) {
+      if (mC > 3000) return -1;
+      var x, k, y;
+      /* two counting sorts: by far end (far first), then stably by near end, so each near-end bucket lists its bands far end first */
+      cStart.fill(0);
+      for (x = 0; x < mC; x++) { var a = pos[cS[x]], b = pos[cT[x]]; cStart[K - 1 - (a < b ? b : a) + 1]++; }
+      for (k = 0; k < K; k++) cStart[k + 1] += cStart[k];
+      for (x = 0; x < mC; x++) { var a1 = pos[cS[x]], b1 = pos[cT[x]], hi = a1 < b1 ? b1 : a1, at = cStart[K - 1 - hi]++; cHo[at] = x; }
+      cStart.fill(0);
+      for (x = 0; x < mC; x++) { var a2 = pos[cS[x]], b2 = pos[cT[x]]; cStart[(a2 < b2 ? a2 : b2) + 1]++; }
+      for (k = 0; k < K; k++) cStart[k + 1] += cStart[k];
+      for (k = 0; k < K; k++) cFill[k] = cStart[k];
+      for (var h = 0; h < mC; h++) { x = cHo[h]; var a3 = pos[cS[x]], b3 = pos[cT[x]], lo = a3 < b3 ? a3 : b3, at2 = cFill[lo]++; cA[at2] = lo; cB[at2] = a3 < b3 ? b3 : a3; cW[at2] = cV[x]; }
+      /* a band crosses the bands that start strictly inside it and end past it: in each bucket those come first */
+      var c = 0;
+      for (x = 0; x < mC; x++) {
+        var p0 = cA[x], p1 = cB[x], pw = cW[x];
+        for (k = p0 + 1; k < p1; k++) for (y = cStart[k]; y < cStart[k + 1] && cB[y] > p1; y++) { var qw = cW[y]; c += pw < qw ? pw : qw; }
+        if (c >= stop) return c;
+      }
       return c;
     };
-    var posOf = function (ordr) { var p = new Float64Array(K); for (var k = 0; k < K; k++) p[ordr[k]] = k; return p; };
-    var bestOrd = ord.slice(), bestC = crossings(posOf(ord));
-    if (bestC > 0 && K > 3) {
-      var cur = ord.slice();
-      for (var round = 0; round < 24; round++) {
-        var pos = posOf(cur), key2 = new Float64Array(K);
+    var pos = new Int32Array(K), posOf = function (ordr) { for (var k = 0; k < K; k++) pos[ordr[k]] = k; return pos; };
+    var bestOrd = ord.slice(), bestC = crossings(posOf(ord), Infinity);
+    if (bestC > 0 && K > 3 && o.chordOrder !== 'fast') {   /* chordOrder 'fast' keeps the group order: no search, about d3-chord's work */
+      /* places are whole steps round the circle, so their cosines and sines are read from a table made once */
+      var cosT = new Float64Array(K), sinT = new Float64Array(K), key2 = new Float64Array(K), prev = new Int32Array(K), cur = ord.slice();
+      for (i = 0; i < K; i++) { cosT[i] = Math.cos(i / K * TAU); sinT[i] = Math.sin(i / K * TAU); }
+      var byKey = function (a, b) { return key2[a] - key2[b] || a - b; };
+      for (var round = 0; round < 24; round++) {   /* pos holds the places of cur here */
         for (i = 0; i < K; i++) {
-          var sx = Math.cos(pos[i] / K * TAU) * 0.5, sy = Math.sin(pos[i] / K * TAU) * 0.5, w = 0.5, a2 = adj[i];
-          for (var j = 0; j < a2.length; j += 2) { var an = pos[a2[j]] / K * TAU; sx += Math.cos(an) * a2[j + 1]; sy += Math.sin(an) * a2[j + 1]; w += a2[j + 1]; }
+          var pi0 = pos[i], sx = cosT[pi0] * 0.5, sy = sinT[pi0] * 0.5, w = 0.5, a2 = adj[i];
+          for (var j = 0; j < a2.length; j += 2) { var pj = pos[a2[j]], wj = a2[j + 1]; sx += cosT[pj] * wj; sy += sinT[pj] * wj; w += wj; }
           key2[i] = Math.atan2(sy / w, sx / w);
         }
-        cur.sort(function (a, b) { return key2[a] - key2[b] || a - b; });
-        var c2 = crossings(posOf(cur));
+        for (i = 0; i < K; i++) prev[i] = cur[i];
+        cur.sort(byKey);
+        var same = true; for (i = 0; i < K && same; i++) same = prev[i] === cur[i];
+        if (same) break;   /* the same order again: every later round would repeat it */
+        var c2 = crossings(posOf(cur), bestC);
         if (c2 < 0) { bestOrd = cur.slice(); break; }
         if (c2 < bestC) { bestC = c2; bestOrd = cur.slice(); }
       }
@@ -344,7 +374,7 @@ var NFMCharts = (function () {
    * shape: 'tidy' (left to right), 'cluster' (every leaf in the last column, a dendrogram), 'radial', 'radialCluster', 'indented'.
    */
   function tree(G, o) {
-    var H = hierarchy(G, o), val = null, N = H.N, shape = o.treeShape || 'tidy', i;
+    var H = hierarchy(G, o), val = NOVAL, N = H.N, shape = o.treeShape || 'tidy', i;
     var X = new Float64Array(N), Y = new Float64Array(N), maxD = 0;
     for (i = 0; i < N; i++) if (H.depth[i] > maxD) maxD = H.depth[i];
     var skipRoot = H.item[H.root] < 0 ? 1 : 0;
@@ -388,11 +418,13 @@ var NFMCharts = (function () {
     var N = H.N, kids = H.kids, par = H.par;
     var prelim = tmpF(0, N), mod = tmpF(1, N), shift = tmpF(2, N), change = tmpF(3, N);
     var thread = tmpI(10, N, -1), ancestor = tmpI(11, N), number = tmpI(12, N), i;
-    for (i = 0; i < N; i++) { ancestor[i] = i; var k = kids[i]; for (var j = 0; j < k.length; j++) number[k[j]] = j; }
-    var leftSib = function (v) { var p = par[v]; return p >= 0 && number[v] > 0 ? kids[p][number[v] - 1] : -1; };
-    var leftMost = function (v) { var p = par[v]; return p >= 0 ? kids[p][0] : -1; };
-    var nextLeft = function (v) { return kids[v].length ? kids[v][0] : thread[v]; };
-    var nextRight = function (v) { return kids[v].length ? kids[v][kids[v].length - 1] : thread[v]; };
+    /* first and last child, left sibling and leftmost sibling as flat lists: the walk below reads them over and over */
+    var fk = tmpI(14, N, -1), lk = tmpI(15, N, -1), ls = tmpI(16, N, -1), lm = tmpI(17, N, -1);
+    for (i = 0; i < N; i++) { ancestor[i] = i; var k = kids[i], L = k.length; if (!L) continue; fk[i] = k[0]; lk[i] = k[L - 1]; for (var j = 0; j < L; j++) { var c0 = k[j]; number[c0] = j; lm[c0] = k[0]; if (j) ls[c0] = k[j - 1]; } }
+    var leftSib = function (v) { return ls[v]; };
+    var leftMost = function (v) { return lm[v]; };
+    var nextLeft = function (v) { var c = fk[v]; return c >= 0 ? c : thread[v]; };
+    var nextRight = function (v) { var c = lk[v]; return c >= 0 ? c : thread[v]; };
     var moveSubtree = function (wm, wp, s) { var sub = number[wp] - number[wm]; if (sub <= 0) sub = 1; change[wp] -= s / sub; shift[wp] += s; change[wm] += s / sub; prelim[wp] += s; mod[wp] += s; };
     var ancestorOf = function (vim, v, def) { return par[ancestor[vim]] === par[v] && par[v] >= 0 ? ancestor[vim] : def; };
     var apportion = function (v, def) {
@@ -491,8 +523,9 @@ var NFMCharts = (function () {
       while (A.length > 1 && Bv.length > 1 && A[A.length - 2] === Bv[Bv.length - 2]) { A.pop(); Bv.pop(); }
       return A.concat(Bv.slice(0, -1).reverse());
     };
+    var IX = H.idx;
     G.edges.forEach(function (e, ei) {
-      var fa = H.idx.get(e.from), fb = H.idx.get(e.to); if (fa === undefined || fb === undefined || fa === fb) return;
+      var fa = IX ? IX.get(e.from) : G.eA[ei], fb = IX ? IX.get(e.to) : G.eB[ei]; if (fa === undefined || fb === undefined || fa === fb) return;
       var a0 = atItem[fa], b0 = atItem[fb], path = lca(a0, b0);
       /* the bend points: the parts each end sits in, up to where the two meet (an end that holds the other bends at its own point) */
       var mid = path.slice(1, -1), pl = path.length; if (pl > 1 && H.par[path[1]] === path[0]) mid.unshift(path[0]); if (pl > 1 && H.par[path[pl - 2]] === path[pl - 1]) mid.push(path[pl - 1]);

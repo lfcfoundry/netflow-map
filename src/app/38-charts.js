@@ -1,5 +1,5 @@
 /*!
- * Netflow Map app, part 5b: the Charts tab (bars, lines, pie and more from the table's columns, drawn by src/plot.js). Copyright (c) 2026 LFC Foundry. MIT License.
+ * Netflow Map app, part 5b: the Charts tab (bars, lines, pie and more from the table's columns, drawn by vendor/netflow-plot.js, a copy of JS-modules netflow-plot). Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var CHT = { r: null, rP: null, scene: null, view: null, key: '' };
 var CHART_DEFAULT = { rows: 'nodes', rowsPicked: false, type: 'bar', x: '', y: '', color: '', size: '', agg: 'sum', stack: 'stack', horizontal: false, sort: 'value', smooth: 0, index: false, bins: 0, cols: [] };
@@ -23,7 +23,7 @@ function chartFill(c) {
     var numsIn = function (l) { return (l || []).some(function (x) { return x.kind === 'number' || x.kind === 'date'; }); };
     var want = numsIn(S.prof.nodes) || !numsIn(S.prof.edges) ? 'nodes' : 'edges'; if (want !== c.rows) { c.rows = want; c.x = c.y = c.color = c.size = ''; c.cols = []; }
   }
-  var cols = chartCols(c.rows), need = NFMPlot.NEEDS[c.type] || {}, nums = cols.filter(function (x) { return x.kind === 'num'; }), cats = cols.filter(function (x) { return x.kind === 'cat'; }), dates = cols.filter(function (x) { return x.kind === 'date'; }), texts = cols.filter(function (x) { return x.kind === 'text' && x.key !== 'id'; });
+  var cols = chartCols(c.rows), need = NetflowPlot.NEEDS[c.type] || {}, nums = cols.filter(function (x) { return x.kind === 'num'; }), cats = cols.filter(function (x) { return x.kind === 'cat'; }), dates = cols.filter(function (x) { return x.kind === 'date'; }), texts = cols.filter(function (x) { return x.kind === 'text' && x.key !== 'id'; });
   var has = function (k) { return cols.some(function (x) { return x.key === k; }); };
   var pick = function (want, avoid) { var l = want === 'num' ? dates.concat(nums) : want === 'cat' ? cats.concat(texts) : want === 'text' ? texts.concat(cats) : cols; l = l.filter(function (x) { return x.key !== avoid; }); return l.length ? l[0].key : ''; };
   var xAuto = !has(c.x); if (xAuto && need.x) c.x = need.x === 'num' ? (dates[0] || nums[0] || {}).key || '' : pick(need.x.replace('?', ''));
@@ -45,15 +45,15 @@ function chartGet(r, k) {
 }
 function renderChartSide() {
   var side = $('charts-side'); if (!side) return; clear(side);
-  var c = chartFill(chartSpec()), need = NFMPlot.NEEDS[c.type] || {}, cols = chartCols(c.rows);
+  var c = chartFill(chartSpec()), need = NetflowPlot.NEEDS[c.type] || {}, cols = chartCols(c.rows);
   var colSel = function (label, key, kind, optional) {
     var opts = (optional ? [['', '(none)']] : []).concat(cols.filter(function (x) { return !kind || kind === 'any' || (kind === 'num' ? x.kind === 'num' || x.kind === 'date' : kind === 'cat' ? x.kind === 'cat' || x.kind === 'text' : kind === 'text' ? x.kind === 'text' || x.kind === 'cat' : true); }).map(function (x) { return [x.key, x.name + (x.kind === 'date' ? ' (date)' : '')]; }));
     return field(label, select(opts, c[key] || '', function (v) { c[key] = v; saveView(); drawChart(true); renderChartSide(); }));
   };
   var kids = [];
   kids.push(field('Rows', seg([['nodes', word('Items')], ['edges', 'Links']], c.rows, function (v) { c.rows = v; c.rowsPicked = true; c.x = c.y = c.color = c.size = ''; c.cols = []; chartFill(c); saveView(); renderChartSide(); drawChart(true); })));
-  kids.push(field('Chart', select(NFMPlot.TYPES.map(function (t) { return [t[0], t[1]]; }), c.type, function (v) { c.type = v; chartFill(c); saveView(); renderChartSide(); drawChart(true); })));
-  kids.push(h('p', { class: 'muted small', style: { margin: 0 } }, (NFMPlot.TYPES.filter(function (t) { return t[0] === c.type; })[0] || [])[2] || ''));
+  kids.push(field('Chart', select(NetflowPlot.TYPES.map(function (t) { return [t[0], t[1]]; }), c.type, function (v) { c.type = v; chartFill(c); saveView(); renderChartSide(); drawChart(true); })));
+  kids.push(h('p', { class: 'muted small', style: { margin: 0 } }, (NetflowPlot.TYPES.filter(function (t) { return t[0] === c.type; })[0] || [])[2] || ''));
   var kindOf = function (s) { return s ? s.replace('?', '').replace('+', '') : ''; };
   if (need.x) kids.push(colSel(c.type === 'box' ? 'Split by' : c.type === 'words' ? 'Text column' : need.x === 'num' ? 'Along (x)' : 'Categories', 'x', kindOf(need.x), /\?/.test(need.x)));
   if (need.y) kids.push(colSel(c.type === 'box' || c.type === 'scatter' || c.type === 'hexbin' || c.type === 'connected' || c.type === 'voronoi' ? 'Up (y)' : 'Value', 'y', 'num', /\?/.test(need.y)));
@@ -83,7 +83,7 @@ function drawChart(rebuild) {
   var c = chartFill(chartSpec()), wh = chartSize(), key = [S.gver, themeName(), S.V.palette, JSON.stringify(c), wh[0], wh[1]].join('|');
   if (rebuild || key !== CHT.key || !CHT.scene) {
     CHT.key = key;
-    CHT.scene = NFMPlot.make(chartRows(c.rows), c, { width: wh[0], height: wh[1], theme: themeName(), palette: S.V.palette, get: chartGet }, NFMScene);
+    CHT.scene = NetflowPlot.make(chartRows(c.rows), c, { width: wh[0], height: wh[1], theme: themeName(), palette: S.V.palette, get: chartGet }, NFMScene);
     var note = $('charts-note'); if (note) note.textContent = nfmt(chartRows(c.rows).length) + ' rows, drawn in ' + Math.round(CHT.scene.ms) + ' ms.';
   }
   var go = function (r) { r.setScene(CHT.scene); r.resize(wh[0], wh[1], window.devicePixelRatio || 1); r.draw({ k: 1, tx: -CHT.scene.x0 - 10, ty: -CHT.scene.y0 - 10 }); };
@@ -99,7 +99,7 @@ HOOKS.graph.push(function () { if (S.tab === 'charts') { renderChartSide(); draw
 (function () {
   var st = $('charts-stage'), tip = $('charts-tip'); if (!st) return;
   st.addEventListener('pointermove', function (e) {
-    if (!CHT.scene) return; var b = st.getBoundingClientRect(), x = e.clientX - b.left + CHT.scene.x0 + 10, y = e.clientY - b.top + CHT.scene.y0 + 10, m = NFMPlot.markAt(CHT.scene, x, y);
+    if (!CHT.scene) return; var b = st.getBoundingClientRect(), x = e.clientX - b.left + CHT.scene.x0 + 10, y = e.clientY - b.top + CHT.scene.y0 + 10, m = NetflowPlot.markAt(CHT.scene, x, y);
     if (!m) { tip.hidden = true; return; }
     tip.hidden = false; tip.textContent = m.t || ''; tip.style.left = Math.min(b.width - 200, e.clientX - b.left + 14) + 'px'; tip.style.top = (e.clientY - b.top + 14) + 'px';
   });
