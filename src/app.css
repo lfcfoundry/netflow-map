@@ -206,3 +206,10 @@ body.touch .chip button.x{min-height:28px;min-width:28px}body.touch #key button{
 .lkmine{display:flex;gap:2px;align-items:center}.lkmine .lkcard{flex:1;min-width:0}
 .lkrow{display:grid;grid-template-columns:34px 1fr auto;gap:8px;align-items:center}.lkrow input[type=color]{width:34px;height:30px;padding:0;border:1px solid var(--line);border-radius:6px;background:transparent}
 .lkname{display:grid;line-height:1.25}.lkgroups{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}.lkgroups input[type=color]{width:100%;height:30px;padding:0;border:1px solid var(--line);border-radius:6px;background:transparent}
+#tab-charts{padding:0;overflow:hidden}
+.cht{position:absolute;inset:0;display:grid;grid-template-columns:300px 1fr}
+.charts-side{overflow:auto;padding:14px;border-right:1px solid var(--line, rgba(0,0,0,.12));display:grid;gap:10px;align-content:start}
+.charts-stage{position:relative;overflow:hidden;background:var(--bg)}
+.charts-stage .host{position:absolute;inset:0}
+.charts-tip{position:absolute;pointer-events:none;background:var(--panel);color:var(--fg);border:1px solid var(--line, rgba(0,0,0,.15));border-radius:6px;padding:4px 8px;font-size:12px;max-width:320px;box-shadow:0 2px 8px rgba(0,0,0,.15);z-index:3}
+@media (max-width:760px){.cht{grid-template-columns:1fr;grid-template-rows:auto 1fr}.charts-side{max-height:42vh;border-right:0;border-bottom:1px solid var(--line, rgba(0,0,0,.12))}}

@@ -1,0 +1,716 @@
+/* Copyright (c) 2026 LFC Foundry. MIT License. */
+/*
+ * charts.js: the round and nested views (Chord, Bundles, Treemap, Sunburst, Icicle, Circle pack, Tree).
+ * layout(view, G, o) runs in the engine helper and returns a plain layout; scene(L, o, NS) turns it into drawing lists
+ * on top of the scene module's own (items, names, colors and key come from it, so every look setting still applies).
+ * No page, no DOM, no dependencies.
+ */
+var NFMCharts = (function () {
+  'use strict';
+  var TAU = Math.PI * 2;
+  var VIEWS = [
+    ['chord', 'Chord', 'Who sends how much to whom, around a circle; each band is as wide as the amount it carries.'],
+    ['bundles', 'Bundles', 'Items around a circle, links bent along the tree so links that go the same way run together.'],
+    ['treemap', 'Treemap', 'Nested boxes: each box is as big as what it holds.'],
+    ['sunburst', 'Sunburst', 'Rings out from the middle: each ring is one step down, each slice as wide as what it holds.'],
+    ['icicle', 'Icicle', 'Steps down from left to right; each bar as tall as what it holds.'],
+    ['pack', 'Circle pack', 'Circles inside circles: each circle is as big as what it holds.'],
+    ['tree', 'Tree', 'One parent for each item, drawn as a tidy tree.']
+  ];
+  var IS = {}; VIEWS.forEach(function (v) { IS[v[0]] = true; });
+  var NESTED = { bundles: 1, treemap: 1, sunburst: 1, icicle: 1, pack: 1, tree: 1 };
+
+  /* ---------------------------------------------------------------- values and the tree */
+  /** How much a link carries: the chosen width value, else simulated traffic, else its weight, else how many links it stands for. */
+  function linkValue(e) {
+    var v = e.widthV; if (v === v && v > 0) return v;
+    if (e.flow > 1e-12) return e.flow;
+    if (e.weight > 0) return e.weight;
+    return e.count || 1;
+  }
+  function itemValue(n) { var v = n.sizeV; return v === v && v > 0 ? v : 1; }
+
+  /**
+   * One parent for each item. nest 'links': a walk out from the start (then from items nothing leads to, then from the best-linked item left);
+   * 'groups': a box for each group; 'auto': links when the links already form a tree (or a forest), groups when there are 2 or more groups, else links.
+   * Returns { N (items + made-up boxes), par Int32Array, kids [[...]], label [], item [] (index in G.nodes or -1), group [], root, depth Int32Array, mode, extra (links not in the tree) }.
+   */
+  function hierarchy(G, o) {
+    var n = G.nodes.length, idx = new Map(), i, e;
+    for (i = 0; i < n; i++) idx.set(G.nodes[i].id, i);
+    var indeg = new Int32Array(n), from = [], to = [];
+    for (i = 0; i < G.edges.length; i++) { e = G.edges[i]; var a = idx.get(e.from), b = idx.get(e.to); if (a === undefined || b === undefined || a === b) continue; from.push(a); to.push(b); indeg[b]++; }
+    var m = from.length, isForest = true;
+    for (i = 0; i < n; i++) if (indeg[i] > 1) { isForest = false; break; }
+    var groups = new Map(); G.nodes.forEach(function (nd) { var g = nd.group || ''; if (!groups.has(g)) groups.set(g, groups.size); });
+    var mode = o.nest === 'groups' || o.nest === 'links' ? o.nest : (isForest && m > 0 ? 'links' : groups.size >= 2 && groups.size <= Math.max(2, n / 2) ? 'groups' : 'links');
+    var par = [], label = [], item = [], group = [];
+    var add = function (p, lab, it, g) { par.push(p); label.push(lab); item.push(it); group.push(g); return par.length - 1; };
+    var root = add(-1, G.name || 'All', -1, '');
+    var extra = [];
+    if (mode === 'groups') {
+      var gbox = []; groups.forEach(function (k, g) { gbox[k] = add(root, g || '(no group)', -1, g); });
+      for (i = 0; i < n; i++) add(gbox[groups.get(G.nodes[i].group || '')], G.nodes[i].label, i, G.nodes[i].group || '');
+      for (i = 0; i < m; i++) extra.push(i);
+    } else {
+      var off = new Int32Array(n + 1); for (i = 0; i < m; i++) off[from[i] + 1]++; for (i = 0; i < n; i++) off[i + 1] += off[i];
+      var nb = new Int32Array(m), en = new Int32Array(m), fill = off.slice(0, n);
+      for (i = 0; i < m; i++) { var q = fill[from[i]]++; nb[q] = to[i]; en[q] = i; }
+      var pOf = new Int32Array(n).fill(-2), viaEdge = new Int32Array(n).fill(-1), queue = new Int32Array(n), qh = 0, qt = 0;
+      var walk = function (s) {
+        pOf[s] = -1; queue[qt++] = s;
+        while (qh < qt) { var u = queue[qh++]; for (var j = off[u]; j < off[u + 1]; j++) { var v = nb[j]; if (pOf[v] !== -2) continue; pOf[v] = u; viaEdge[v] = en[j]; queue[qt++] = v; } }
+      };
+      var st = -1; for (i = 0; i < n; i++) if (G.nodes[i].start) { st = i; break; }
+      if (st >= 0) walk(st);
+      for (i = 0; i < n; i++) if (pOf[i] === -2 && indeg[i] === 0) walk(i);
+      while (qt < n) {   /* loops nothing leads into: start from the best-linked item left */
+        var best = -1, bd = -1; for (i = 0; i < n; i++) if (pOf[i] === -2) { var d = off[i + 1] - off[i]; if (d > bd) { bd = d; best = i; } }
+        walk(best);
+      }
+      var at = new Int32Array(n), tops = 0;
+      for (i = 0; i < n; i++) if (pOf[i] === -1) tops++;
+      /* one real top item is the root itself; several hang under a made-up root */
+      var useRealRoot = tops === 1;
+      if (useRealRoot) { par.length = 0; label.length = 0; item.length = 0; group.length = 0; }
+      for (var k = 0; k < qt; k++) { var u2 = queue[k]; at[u2] = add(pOf[u2] < 0 ? (useRealRoot ? -1 : root) : at[pOf[u2]], G.nodes[u2].label, u2, G.nodes[u2].group || ''); }
+      if (useRealRoot) root = at[queue[0]];
+      var inTree = new Uint8Array(m); for (i = 0; i < n; i++) if (viaEdge[i] >= 0) inTree[viaEdge[i]] = 1;
+      for (i = 0; i < m; i++) if (!inTree[i]) extra.push(i);
+    }
+    var N = par.length, kids = new Array(N), depth = new Int32Array(N);
+    for (i = 0; i < N; i++) kids[i] = [];
+    for (i = 0; i < N; i++) if (par[i] >= 0) kids[par[i]].push(i);
+    var order = [root]; for (i = 0; i < order.length; i++) { var c = kids[order[i]]; for (var j2 = 0; j2 < c.length; j2++) { depth[c[j2]] = depth[order[i]] + 1; order.push(c[j2]); } }
+    return { N: N, par: Int32Array.from(par), kids: kids, label: label, item: item, group: group, root: root, depth: depth, order: order, mode: mode, extra: extra, from: from, to: to, idx: idx };
+  }
+  /** Sums: value[i] = own value (leaves, or every item when sized) + what its children hold. Children are sorted biggest first (o.sort !== false). */
+  function sums(G, H, o) {
+    var N = H.N, val = new Float64Array(N), sized = !!o.sized, i;
+    for (i = H.order.length - 1; i >= 0; i--) {
+      var v = H.order[i], k = H.kids[v], s = 0;
+      for (var j = 0; j < k.length; j++) s += val[k[j]];
+      var own = H.item[v] >= 0 && (sized || !k.length) ? itemValue(G.nodes[H.item[v]]) : 0;
+      val[v] = s + own;
+    }
+    if (o.sort !== false) for (i = 0; i < N; i++) if (H.kids[i].length > 1) H.kids[i].sort(function (a, b) { return val[b] - val[a] || a - b; });
+    H.own = function (v) { return H.item[v] >= 0 && (sized || !H.kids[v].length) ? itemValue(G.nodes[H.item[v]]) : 0; };
+    return val;
+  }
+
+  /* ---------------------------------------------------------------- chord */
+  /**
+   * Items (or groups, when there are many items) around a circle; each arc is as long as what it sends plus what it gets, the sending part first.
+   * The order around the circle is searched for few crossing bands (d3-chord keeps the order it is given), and the bands leaving an arc are sorted by where they land so they do not cross each other at the arc.
+   */
+  function chord(G, o) {
+    var n = G.nodes.length, idx = new Map(), i;
+    for (i = 0; i < n; i++) idx.set(G.nodes[i].id, i);
+    var byGroup = o.chordBy === 'groups' || (o.chordBy !== 'items' && n > 60);
+    var ent = [], entOf = new Int32Array(n), gk = new Map();
+    if (byGroup) { for (i = 0; i < n; i++) { var g = G.nodes[i].group || ''; if (!gk.has(g)) { gk.set(g, ent.length); ent.push({ label: g || '(no group)', group: g, items: [] }); } entOf[i] = gk.get(g); ent[entOf[i]].items.push(i); } }
+    else for (i = 0; i < n; i++) { entOf[i] = i; ent.push({ label: G.nodes[i].label, group: G.nodes[i].group || '', items: [i], item: i }); }
+    var K = ent.length, flows = new Map(), fl = [];
+    G.edges.forEach(function (e, ei) {
+      var a = idx.get(e.from), b = idx.get(e.to); if (a === undefined || b === undefined) return;
+      var s = entOf[a], t = entOf[b], v = linkValue(e); if (!(v > 0)) return;
+      var key = s * K + t, f = flows.get(key);
+      if (!f) { f = { s: s, t: t, v: 0, edges: [] }; flows.set(key, f); fl.push(f); }
+      f.v += v; f.edges.push(ei);
+    });
+    var out = new Float64Array(K), inn = new Float64Array(K), tot = 0;
+    fl.forEach(function (f) { out[f.s] += f.v; inn[f.t] += f.v; tot += f.v * 2; });
+    /* order around the circle: start by group, then move each one toward the middle of what it is joined to; keep the order with the fewest crossings */
+    var ord = []; for (i = 0; i < K; i++) ord.push(i);
+    ord.sort(function (a, b) { return ent[a].group < ent[b].group ? -1 : ent[a].group > ent[b].group ? 1 : a - b; });
+    var adj = new Array(K); for (i = 0; i < K; i++) adj[i] = [];
+    fl.forEach(function (f) { if (f.s !== f.t) { adj[f.s].push(f.t, f.v); adj[f.t].push(f.s, f.v); } });
+    var crossings = function (pos) {   /* chords cross when their ends interleave around the circle; counted for up to 3,000 bands */
+      var ch = []; fl.forEach(function (f) { if (f.s !== f.t) { var a = pos[f.s], b = pos[f.t]; ch.push(a < b ? [a, b, f.v] : [b, a, f.v]); } });
+      if (ch.length > 3000) return -1;
+      var c = 0; for (var x = 0; x < ch.length; x++) for (var y = x + 1; y < ch.length; y++) { var p = ch[x], q = ch[y]; if ((p[0] < q[0] && q[0] < p[1] && p[1] < q[1]) || (q[0] < p[0] && p[0] < q[1] && q[1] < p[1])) c += Math.min(p[2], q[2]); }
+      return c;
+    };
+    var posOf = function (ordr) { var p = new Float64Array(K); for (var k = 0; k < K; k++) p[ordr[k]] = k; return p; };
+    var bestOrd = ord.slice(), bestC = crossings(posOf(ord));
+    if (bestC > 0 && K > 3) {
+      var cur = ord.slice();
+      for (var round = 0; round < 24; round++) {
+        var pos = posOf(cur), key2 = new Float64Array(K);
+        for (i = 0; i < K; i++) {
+          var sx = Math.cos(pos[i] / K * TAU) * 0.5, sy = Math.sin(pos[i] / K * TAU) * 0.5, w = 0.5, a2 = adj[i];
+          for (var j = 0; j < a2.length; j += 2) { var an = pos[a2[j]] / K * TAU; sx += Math.cos(an) * a2[j + 1]; sy += Math.sin(an) * a2[j + 1]; w += a2[j + 1]; }
+          key2[i] = Math.atan2(sy / w, sx / w);
+        }
+        cur.sort(function (a, b) { return key2[a] - key2[b] || a - b; });
+        var c2 = crossings(posOf(cur));
+        if (c2 < 0) { bestOrd = cur.slice(); break; }
+        if (c2 < bestC) { bestC = c2; bestOrd = cur.slice(); }
+      }
+    }
+    ord = bestOrd;
+    var R = Math.max(220, Math.min(1400, 60 + K * 9)), th = Math.max(10, Math.min(26, R * 0.05)), pad = K > 1 ? Math.min(0.04, TAU * 0.25 / K) : 0;
+    var span = TAU - pad * K, cx = R + 170, cy = R + 170;
+    var arcs = new Array(K), a0 = -Math.PI / 2;
+    ord.forEach(function (k) {
+      var len = tot > 0 ? (out[k] + inn[k]) / tot * span : span / K;
+      if (!(len > 0)) len = 0;
+      arcs[k] = { k: k, a0: a0, a1: a0 + len, mid: a0 + len / 2, label: ent[k].label, group: ent[k].group, item: ent[k].item, out: out[k], inn: inn[k] };
+      a0 += len + pad;
+    });
+    /* slots: what an arc sends, sorted by where it lands (going round from this arc), then what it gets, sorted by where it comes from */
+    var rel = function (k, t) { var d = arcs[t].mid - arcs[k].mid; while (d <= 0) d += TAU; return d; };
+    var sendList = new Array(K), getList = new Array(K);
+    for (i = 0; i < K; i++) { sendList[i] = []; getList[i] = []; }
+    fl.forEach(function (f) { sendList[f.s].push(f); getList[f.t].push(f); });
+    var scale = tot > 0 ? span / tot : 0;
+    for (i = 0; i < K; i++) {
+      var A = arcs[i], at = A.a0;
+      sendList[i].sort(function (p, q) { return rel(i, q.t) - rel(i, p.t); });
+      sendList[i].forEach(function (f) { f.sa0 = at; at += f.v * scale; f.sa1 = at; });
+      getList[i].sort(function (p, q) { return rel(i, q.s) - rel(i, p.s); });
+      getList[i].forEach(function (f) { f.ta0 = at; at += f.v * scale; f.ta1 = at; });
+    }
+    var nodes = G.nodes.slice();
+    nodes.forEach(function (nd, q) {
+      var A = arcs[entOf[q]], r = R + th / 2, w = byGroup ? 6 : Math.max(8, th);
+      nd.cx = cx + Math.cos(A.mid) * r; nd.cy = cy + Math.sin(A.mid) * r; nd.w = nd.h = w; nd.x = nd.cx - w / 2; nd.y = nd.cy - w / 2;
+    });
+    return { kind: 'chord', dir: 'none', nodes: nodes, edges: G.edges, chart: { type: 'chord', cx: cx, cy: cy, R: R, th: th, arcs: arcs, flows: fl, byGroup: byGroup, crossings: bestC, total: tot / 2 }, width: cx * 2, height: cy * 2 };
+  }
+
+  /* ---------------------------------------------------------------- nested shapes */
+  /** Squarified treemap (Bruls, Huizing and van Wijk): rows whose worst aspect ratio stops improving are closed. Writes x0,y0,x1,y1 for the children of v. */
+  function squarify(H, val, v, x0, y0, x1, y1, R) {
+    var k = H.kids[v], total = 0, i; if (!k.length) return;
+    var own = H.own(v); for (i = 0; i < k.length; i++) total += val[k[i]];
+    total += own; if (!(total > 0)) return;
+    var W = x1 - x0, Ht = y1 - y0, area = W * Ht / total, at = 0;
+    while (at < k.length) {
+      var side = Math.min(x1 - x0, y1 - y0); if (side <= 0) side = 1e-9;
+      var rowSum = 0, minV = Infinity, maxV = 0, worst = Infinity, end = at;
+      for (; end < k.length; end++) {
+        var vv = val[k[end]] * area, s2 = rowSum + vv, mn = Math.min(minV, vv), mx = Math.max(maxV, vv);
+        var wr = Math.max(side * side * mx / (s2 * s2), s2 * s2 / (side * side * mn));
+        if (end > at && wr > worst) break;
+        rowSum = s2; minV = mn; maxV = mx; worst = wr;
+      }
+      var horiz = (x1 - x0) >= (y1 - y0), thick = rowSum / side, p = horiz ? y0 : x0;
+      for (i = at; i < end; i++) {
+        var c = k[i], len = val[c] * area / (thick || 1);
+        if (horiz) { R[c * 4] = x0; R[c * 4 + 1] = p; R[c * 4 + 2] = x0 + thick; R[c * 4 + 3] = p + len; }
+        else { R[c * 4] = p; R[c * 4 + 1] = y0; R[c * 4 + 2] = p + len; R[c * 4 + 3] = y0 + thick; }
+        p += len;
+      }
+      if (horiz) x0 += thick; else y0 += thick;
+      at = end;
+    }
+  }
+  function treemap(G, o) {
+    var H = hierarchy(G, o), val = sums(G, H, o), N = H.N, R = new Float64Array(N * 4);
+    var total = val[H.root] || 1, side = Math.max(600, Math.min(4000, Math.sqrt(H.N) * 70)), W = side * 1.5, Ht = side;
+    R[H.root * 4] = 0; R[H.root * 4 + 1] = 0; R[H.root * 4 + 2] = W; R[H.root * 4 + 3] = Ht;
+    var head = function (v) { return H.kids[v].length && H.item[v] >= 0 && R[v * 4 + 3] - R[v * 4 + 1] > 60 && R[v * 4 + 2] - R[v * 4] > 40 ? 18 : 0; };   /* a real item that holds others keeps a strip for its name */
+    for (var i = 0; i < H.order.length; i++) {
+      var v = H.order[i]; if (!H.kids[v].length) continue;
+      var p = H.depth[v] ? 3 : 0, x0 = R[v * 4] + p, y0 = R[v * 4 + 1] + p + head(v), x1 = R[v * 4 + 2] - p, y1 = R[v * 4 + 3] - p;
+      if (x1 < x0) x1 = x0; if (y1 < y0) y1 = y0;
+      squarify(H, val, v, x0, y0, x1, y1, R);
+    }
+    return nestedOut('treemap', G, H, val, { R: R, W: W, H: Ht, total: total });
+  }
+  /** Partition: depth across, value along (icicle), or the same in rings (sunburst). */
+  function partition(G, o, radial) {
+    var H = hierarchy(G, o), val = sums(G, H, o), N = H.N, R = new Float64Array(N * 4), maxD = 0, i;
+    for (i = 0; i < N; i++) if (H.depth[i] > maxD) maxD = H.depth[i];
+    var skipRoot = H.item[H.root] < 0 ? 1 : 0, levels = maxD + 1 - skipRoot;
+    R[H.root * 4 + 1] = 0; R[H.root * 4 + 3] = 1;
+    for (i = 0; i < H.order.length; i++) {
+      var v = H.order[i], k = H.kids[v], a = R[v * 4 + 1], span = R[v * 4 + 3] - a, t = val[v] || 1;
+      var at = a + span * H.own(v) / t;   /* an item that holds something itself keeps that much of its own slice, first */
+      for (var j = 0; j < k.length; j++) { var c = k[j], w = span * val[c] / t; R[c * 4 + 1] = at; R[c * 4 + 3] = at + w; at += w; }
+    }
+    for (i = 0; i < N; i++) { var d = H.depth[i] - skipRoot; R[i * 4] = d; R[i * 4 + 2] = d + 1; }
+    if (radial) {
+      var Rad = Math.max(260, Math.min(2200, 120 + Math.sqrt(N) * 26)), ring = Rad / Math.max(1, levels + 0.4);
+      return nestedOut('sunburst', G, H, val, { R: R, W: Rad * 2 + 340, H: Rad * 2 + 340, cx: Rad + 170, cy: Rad + 170, ring: ring, hole: ring * 0.4, skipRoot: skipRoot, levels: levels });
+    }
+    var colW = 200, Hh = Math.max(500, Math.min(30000, N * 22));
+    return nestedOut('icicle', G, H, val, { R: R, W: Math.max(1, levels) * colW, H: Hh, colW: colW, skipRoot: skipRoot, levels: levels });
+  }
+  /* circle packing: the front-chain method (Wang, Wang, Dai and Wang, "Visualization of large hierarchical data by circle packing", 2006) with the smallest enclosing circle by Welzl's move-to-front */
+  function place(b, a, c) {
+    var dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy;
+    if (d2) {
+      var a2 = (a.r + c.r) * (a.r + c.r), b2 = (b.r + c.r) * (b.r + c.r);
+      if (a2 > b2) { var x = (d2 + b2 - a2) / (2 * d2), y = Math.sqrt(Math.max(0, b2 / d2 - x * x)); c.x = b.x - x * dx - y * dy; c.y = b.y - x * dy + y * dx; }
+      else { var x2 = (d2 + a2 - b2) / (2 * d2), y2 = Math.sqrt(Math.max(0, a2 / d2 - x2 * x2)); c.x = a.x + x2 * dx - y2 * dy; c.y = a.y + x2 * dy + y2 * dx; }
+    } else { c.x = a.x + c.r; c.y = a.y; }
+  }
+  function overlaps(a, b) { var dr = a.r + b.r - 1e-6, dx = b.x - a.x, dy = b.y - a.y; return dr > 0 && dr * dr > dx * dx + dy * dy; }
+  function packSiblings(cs) {
+    var n = cs.length; if (!n) return 0;
+    var a = cs[0]; a.x = 0; a.y = 0; if (n === 1) return a.r;
+    var b = cs[1]; a.x = -b.r; b.x = a.r; b.y = 0; if (n === 2) return a.r + b.r;
+    var c = cs[2]; place(b, a, c);
+    /* the front chain as a ring of links */
+    var A = { c: a }, B = { c: b }, C = { c: c }; A.next = C.prev = B; B.next = A.prev = C; C.next = B.prev = A;
+    var score = function (nd) { var p = nd.c, q = nd.next.c, ab = p.r + q.r, dx = (p.x * q.r + q.x * p.r) / ab, dy = (p.y * q.r + q.y * p.r) / ab; return dx * dx + dy * dy; };
+    pack: for (var i = 3; i < n; i++) {
+      c = cs[i]; place(A.c, B.c, c); C = { c: c };
+      var j = B.next, k = A.prev, sj = B.c.r, sk = A.c.r;
+      do {
+        if (sj <= sk) { if (overlaps(j.c, C.c)) { B = j; A.next = B; B.prev = A; --i; continue pack; } sj += j.c.r; j = j.next; }
+        else { if (overlaps(k.c, C.c)) { A = k; A.next = B; B.prev = A; --i; continue pack; } sk += k.c.r; k = k.prev; }
+      } while (j !== k.next);
+      C.prev = A; C.next = B; A.next = B.prev = B = C;
+      var aa = score(A), bb; while ((C = C.next) !== B) { if ((bb = score(C)) < aa) { A = C; aa = bb; } } B = A.next;
+    }
+    var e = enclose(cs);
+    for (i = 0; i < n; i++) { cs[i].x -= e.x; cs[i].y -= e.y; }
+    return e.r;
+  }
+  function enclose(cs) {
+    var L = cs.slice(), i, n = L.length, B = [], e = null, seed = 1;
+    for (i = n - 1; i > 0; i--) { seed = (seed * 1664525 + 1013904223) >>> 0; var j = seed % (i + 1), t = L[i]; L[i] = L[j]; L[j] = t; }   /* shuffled with a fixed seed: the same picture every time */
+    var inside = function (a, b) { var dr = a.r - b.r + Math.max(a.r, b.r, 1) * 1e-9, dx = b.x - a.x, dy = b.y - a.y; return dr >= 0 && dr * dr >= dx * dx + dy * dy; };
+    var c1 = function (a) { return { x: a.x, y: a.y, r: a.r }; };
+    var c2 = function (a, b) { var x1 = a.x, y1 = a.y, r1 = a.r, x21 = b.x - x1, y21 = b.y - y1, r21 = b.r - r1, l = Math.sqrt(x21 * x21 + y21 * y21) || 1e-12; return { x: (x1 + b.x + x21 / l * r21) / 2, y: (y1 + b.y + y21 / l * r21) / 2, r: (l + r1 + b.r) / 2 }; };
+    var c3 = function (a, b, c) {
+      var x1 = a.x, y1 = a.y, r1 = a.r, x2 = b.x, y2 = b.y, r2 = b.r, x3 = c.x, y3 = c.y, r3 = c.r;
+      var a2 = x1 - x2, a3 = x1 - x3, b2 = y1 - y2, b3 = y1 - y3, c2_ = r2 - r1, c3_ = r3 - r1, d1 = x1 * x1 + y1 * y1 - r1 * r1, d2 = d1 - x2 * x2 - y2 * y2 + r2 * r2, d3 = d1 - x3 * x3 - y3 * y3 + r3 * r3;
+      var ab = a3 * b2 - a2 * b3; if (!ab) return c2(a, c);
+      var xa = (b2 * d3 - b3 * d2) / (ab * 2) - x1, xb = (b3 * c2_ - b2 * c3_) / ab, ya = (a3 * d2 - a2 * d3) / (ab * 2) - y1, yb = (a2 * c3_ - a3 * c2_) / ab;
+      var A = xb * xb + yb * yb - 1, Bq = 2 * (r1 + xa * xb + ya * yb), Cq = xa * xa + ya * ya - r1 * r1, r = -(Math.abs(A) > 1e-6 ? (Bq + Math.sqrt(Math.max(0, Bq * Bq - 4 * A * Cq))) / (2 * A) : Cq / Bq);
+      return { x: x1 + xa + xb * r, y: y1 + ya + yb * r, r: r };
+    };
+    var all = function (c, list) { for (var q = 0; q < list.length; q++) if (!inside(c, list[q])) return false; return true; };
+    var basis = function (Bs) { return Bs.length === 1 ? c1(Bs[0]) : Bs.length === 2 ? c2(Bs[0], Bs[1]) : c3(Bs[0], Bs[1], Bs[2]); };
+    var not = function (a, b) { var dr = a.r - b.r, dx = b.x - a.x, dy = b.y - a.y; return dr < 0 || dr * dr < dx * dx + dy * dy; };
+    var extend = function (Bs, p) {
+      var q, r;
+      if (all(p, Bs)) return [p];
+      for (q = 0; q < Bs.length; q++) if (not(p, Bs[q]) && all(c2(Bs[q], p), Bs)) return [Bs[q], p];
+      for (q = 0; q < Bs.length - 1; q++) for (r = q + 1; r < Bs.length; r++) {
+        if (not(c2(Bs[q], Bs[r]), p) && not(c2(Bs[q], p), Bs[r]) && not(c2(Bs[r], p), Bs[q]) && all(c3(Bs[q], Bs[r], p), Bs)) return [Bs[q], Bs[r], p];
+      }
+      return [p];
+    };
+    i = 0;
+    while (i < n) { var p = L[i]; if (e && inside(e, p)) ++i; else { B = extend(B, p); e = basis(B); i = 0; } }
+    return e || { x: 0, y: 0, r: 0 };
+  }
+  function pack(G, o) {
+    var H = hierarchy(G, o), val = sums(G, H, o), N = H.N, C = new Array(N), i, padR = 3;
+    for (i = H.order.length - 1; i >= 0; i--) {
+      var v = H.order[i], k = H.kids[v];
+      if (!k.length) { C[v] = { x: 0, y: 0, r: Math.sqrt(val[v] || 1) * 10 }; continue; }
+      var cs = k.map(function (c) { return { x: 0, y: 0, r: C[c].r + padR, id: c }; });
+      if (H.own(v) > 0) cs.push({ x: 0, y: 0, r: Math.sqrt(H.own(v)) * 10 + padR, id: -1 });   /* what the item holds itself: a circle of its own inside */
+      var r = packSiblings(cs);
+      C[v] = { x: 0, y: 0, r: r + padR, kids: cs };
+    }
+    var scale = 0, root = C[H.root];
+    var want = Math.max(300, Math.min(3000, Math.sqrt(N) * 40)); scale = root.r > 0 ? want / root.r : 1;
+    var X = new Float64Array(N), Y = new Float64Array(N), Rr = new Float64Array(N);
+    X[H.root] = want + 40; Y[H.root] = want + 40; Rr[H.root] = want;
+    for (i = 0; i < H.order.length; i++) {
+      var u = H.order[i], cu = C[u]; if (!cu.kids) continue;
+      cu.kids.forEach(function (s) { if (s.id < 0) return; X[s.id] = X[u] + s.x * scale; Y[s.id] = Y[u] + s.y * scale; Rr[s.id] = (s.r - padR) * scale; });
+    }
+    return nestedOut('pack', G, H, val, { X: X, Y: Y, Rr: Rr, W: want * 2 + 80, H: want * 2 + 80 });
+  }
+  /**
+   * Tidy tree in linear time (Buchheim, Junger and Leipert's version of Reingold-Tilford): no two items of a row touch and a parent sits over its children.
+   * shape: 'tidy' (left to right), 'cluster' (every leaf in the last column, a dendrogram), 'radial', 'radialCluster', 'indented'.
+   */
+  function tree(G, o) {
+    var H = hierarchy(G, o), val = sums(G, H, Object.assign({}, o, { sort: false })), N = H.N, shape = o.treeShape || 'tidy', i;
+    var X = new Float64Array(N), Y = new Float64Array(N), maxD = 0;
+    for (i = 0; i < N; i++) if (H.depth[i] > maxD) maxD = H.depth[i];
+    var skipRoot = H.item[H.root] < 0 ? 1 : 0;
+    if (shape === 'indented') {
+      var row = 0, stack = [H.root];
+      while (stack.length) { var v = stack.pop(); if (!(skipRoot && v === H.root)) { X[v] = (H.depth[v] - skipRoot) * 26; Y[v] = row++ * 26; } var k = H.kids[v]; for (var j = k.length - 1; j >= 0; j--) stack.push(k[j]); }
+      return nestedOut('tree', G, H, val, { X: X, Y: Y, shape: shape, W: (maxD + 1) * 26 + 360, H: row * 26 + 40, skipRoot: skipRoot });
+    }
+    var cluster = shape === 'cluster' || shape === 'radialCluster';
+    var B = new Float64Array(N);   /* breadth position: rows of 1 */
+    if (cluster) {
+      var leaf = 0;
+      var dfs = [H.root], post = [];
+      while (dfs.length) { var w2 = dfs.pop(); post.push(w2); var kk = H.kids[w2]; for (var q = 0; q < kk.length; q++) dfs.push(kk[q]); }
+      var seen = [H.root], vis = [];   /* leaves in tree order */
+      while (seen.length) { var s = seen.pop(); vis.push(s); var ks = H.kids[s]; for (var q2 = ks.length - 1; q2 >= 0; q2--) seen.push(ks[q2]); }
+      vis.forEach(function (v2) { if (!H.kids[v2].length) B[v2] = leaf++; });
+      for (i = post.length - 1; i >= 0; i--) { var p2 = post[i], kp = H.kids[p2]; if (kp.length) B[p2] = (B[kp[0]] + B[kp[kp.length - 1]]) / 2; }
+    } else buchheim(H, B);
+    var minB = Infinity, maxB = -Infinity;
+    for (i = 0; i < N; i++) { if (skipRoot && i === H.root) continue; if (B[i] < minB) minB = B[i]; if (B[i] > maxB) maxB = B[i]; }
+    if (!isFinite(minB)) { minB = 0; maxB = 0; }
+    var levels = maxD + 1 - skipRoot;
+    if (shape === 'radial' || shape === 'radialCluster') {
+      var count = maxB - minB + 1, Rad = Math.max(220, Math.min(3000, count * 16 / TAU, levels * 120 + 60)), cx = Rad + 200;
+      if (count * 16 / TAU > Rad) Rad = Math.min(4000, count * 16 / TAU);
+      cx = Rad + 200;
+      for (i = 0; i < N; i++) {
+        var an = (B[i] - minB) / Math.max(1, count) * TAU - Math.PI / 2, rr = cluster && !H.kids[i].length ? Rad : (H.depth[i] - skipRoot) / Math.max(1, levels - 1) * Rad;
+        if (skipRoot && i === H.root) rr = 0;
+        X[i] = cx + Math.cos(an) * rr; Y[i] = cx + Math.sin(an) * rr;
+      }
+      return nestedOut('tree', G, H, val, { X: X, Y: Y, shape: shape, cx: cx, cy: cx, W: cx * 2, H: cx * 2, skipRoot: skipRoot, minB: minB, count: count });
+    }
+    var dx = 180, dy = 26;
+    for (i = 0; i < N; i++) { X[i] = (cluster && !H.kids[i].length ? levels - 1 : H.depth[i] - skipRoot) * dx + 20; Y[i] = (B[i] - minB) * dy + 20; }
+    return nestedOut('tree', G, H, val, { X: X, Y: Y, shape: shape, W: levels * dx + 300, H: (maxB - minB + 1) * dy + 40, skipRoot: skipRoot });
+  }
+  /** Buchheim et al. 2002, written over the hierarchy's lists: B[v] = breadth position, rows 1 apart. */
+  function buchheim(H, B) {
+    var N = H.N, kids = H.kids, par = H.par;
+    var prelim = new Float64Array(N), mod = new Float64Array(N), shift = new Float64Array(N), change = new Float64Array(N);
+    var thread = new Int32Array(N).fill(-1), ancestor = new Int32Array(N), number = new Int32Array(N), i;
+    for (i = 0; i < N; i++) { ancestor[i] = i; var k = kids[i]; for (var j = 0; j < k.length; j++) number[k[j]] = j; }
+    var leftSib = function (v) { var p = par[v]; return p >= 0 && number[v] > 0 ? kids[p][number[v] - 1] : -1; };
+    var leftMost = function (v) { var p = par[v]; return p >= 0 ? kids[p][0] : -1; };
+    var nextLeft = function (v) { return kids[v].length ? kids[v][0] : thread[v]; };
+    var nextRight = function (v) { return kids[v].length ? kids[v][kids[v].length - 1] : thread[v]; };
+    var moveSubtree = function (wm, wp, s) { var sub = number[wp] - number[wm]; if (sub <= 0) sub = 1; change[wp] -= s / sub; shift[wp] += s; change[wm] += s / sub; prelim[wp] += s; mod[wp] += s; };
+    var ancestorOf = function (vim, v, def) { return par[ancestor[vim]] === par[v] && par[v] >= 0 ? ancestor[vim] : def; };
+    var apportion = function (v, def) {
+      var w = leftSib(v); if (w < 0) return def;
+      var vip = v, vop = v, vim = w, vom = leftMost(v), sip = mod[vip], sop = mod[vop], sim = mod[vim], som = mod[vom];
+      while (nextRight(vim) >= 0 && nextLeft(vip) >= 0) {
+        vim = nextRight(vim); vip = nextLeft(vip); vom = nextLeft(vom); vop = nextRight(vop);
+        ancestor[vop] = v;
+        var s = (prelim[vim] + sim) - (prelim[vip] + sip) + 1;
+        if (s > 0) { moveSubtree(ancestorOf(vim, v, def), v, s); sip += s; sop += s; }
+        sim += mod[vim]; sip += mod[vip]; som += mod[vom]; sop += mod[vop];
+      }
+      if (nextRight(vim) >= 0 && nextRight(vop) < 0) { thread[vop] = nextRight(vim); mod[vop] += sim - sop; }
+      if (nextLeft(vip) >= 0 && nextLeft(vom) < 0) { thread[vom] = nextLeft(vip); mod[vom] += sip - som; def = v; }
+      return def;
+    };
+    var executeShifts = function (v) { var sh = 0, ch = 0, k = kids[v]; for (var q = k.length - 1; q >= 0; q--) { var w = k[q]; prelim[w] += sh; mod[w] += sh; ch += change[w]; sh += shift[w] + ch; } };
+    /* first walk, children before parents (reverse breadth order is fine: every child is handled before its parent) */
+    var post = [], st = [H.root]; while (st.length) { var v = st.pop(); post.push(v); var kk = kids[v]; for (var q = 0; q < kk.length; q++) st.push(kk[q]); }
+    var mid = new Float64Array(N);
+    /* Buchheim's first walk without recursion: a child's own place is set (from its left sibling, now final) just before it is fitted against the subtrees to its left */
+    for (i = post.length - 1; i >= 0; i--) {
+      var v2 = post[i], k2 = kids[v2]; if (!k2.length) continue;
+      var def = k2[0];
+      for (var q2 = 0; q2 < k2.length; q2++) {
+        var c = k2[q2], w2 = q2 ? k2[q2 - 1] : -1;
+        if (w2 >= 0) { prelim[c] = prelim[w2] + 1; if (kids[c].length) mod[c] = prelim[c] - mid[c]; }
+        else prelim[c] = kids[c].length ? mid[c] : 0;
+        def = apportion(c, def);
+      }
+      executeShifts(v2);
+      mid[v2] = (prelim[k2[0]] + prelim[k2[k2.length - 1]]) / 2;
+    }
+    prelim[H.root] = kids[H.root].length ? mid[H.root] : 0;
+    B[H.root] = prelim[H.root];
+    var order = H.order, acc = new Float64Array(N);
+    for (i = 0; i < order.length; i++) { var u = order[i]; if (par[u] >= 0) { acc[u] = acc[par[u]] + mod[par[u]]; B[u] = prelim[u] + acc[u]; } else { acc[u] = 0; B[u] = prelim[u]; } }
+  }
+
+  /** The common result of the nested views: G's items placed where the shape put them (for picking and names), plus the shape itself. */
+  function nestedOut(type, G, H, val, geo) {
+    var nodes = G.nodes.slice(), at = new Int32Array(G.nodes.length).fill(-1), i;
+    for (i = 0; i < H.N; i++) if (H.item[i] >= 0) at[H.item[i]] = i;
+    var R = geo.R, ch = geo;
+    nodes.forEach(function (nd, q) {
+      var v = at[q], x0, y0, x1, y1;
+      if (type === 'treemap') { x0 = R[v * 4]; y0 = R[v * 4 + 1]; x1 = R[v * 4 + 2]; y1 = R[v * 4 + 3]; }
+      else if (type === 'icicle') { x0 = R[v * 4] * ch.colW; x1 = R[v * 4 + 2] * ch.colW; y0 = R[v * 4 + 1] * ch.H; y1 = R[v * 4 + 3] * ch.H; }
+      else if (type === 'sunburst') { var an = (R[v * 4 + 1] + R[v * 4 + 3]) / 2 * TAU - Math.PI / 2, rr = ch.hole + (R[v * 4] + 0.5) * ch.ring; nd.cx = ch.cx + Math.cos(an) * rr; nd.cy = ch.cy + Math.sin(an) * rr; x0 = nd.cx - 5; x1 = nd.cx + 5; y0 = nd.cy - 5; y1 = nd.cy + 5; }
+      else if (type === 'pack') { var r = ch.Rr[v]; x0 = ch.X[v] - r; x1 = ch.X[v] + r; y0 = ch.Y[v] - r; y1 = ch.Y[v] + r; }
+      else { x0 = ch.X[v] - 5; x1 = ch.X[v] + 5; y0 = ch.Y[v] - 5; y1 = ch.Y[v] + 5; }
+      nd.x = x0; nd.y = y0; nd.w = Math.max(0, x1 - x0); nd.h = Math.max(0, y1 - y0); nd.cx = (x0 + x1) / 2; nd.cy = (y0 + y1) / 2; nd.hv = v;
+    });
+    geo.type = type; geo.val = val; geo.N = H.N; geo.par = H.par; geo.kids = H.kids; geo.depth = H.depth; geo.item = H.item; geo.label = H.label; geo.group = H.group; geo.root = H.root; geo.order = H.order; geo.mode = H.mode;
+    geo.extra = H.extra.length; geo.tree = { from: H.from, to: H.to, extraList: H.extra };
+    return { kind: type, dir: 'none', nodes: nodes, edges: G.edges, chart: geo, width: geo.W, height: geo.H };
+  }
+
+  /* ---------------------------------------------------------------- bundles */
+  /**
+   * Hierarchical edge bundling (Holten 2006): items on a circle in tree order, each link a smooth curve through the tree path between its ends,
+   * pulled toward the straight line by 1 - beta. Leaves under one parent are put in the order of where their links go, which untangles the bundles.
+   */
+  function bundles(G, o) {
+    var H = hierarchy(G, o), N = H.N, i;
+    /* leaves (items) in tree order, siblings sorted by the mean place of what they link to (two passes) */
+    var leafPos = new Float64Array(N), items = [];
+    var walkOrder = function () {
+      items = []; var st = [H.root];
+      while (st.length) { var v = st.pop(); if (H.item[v] >= 0) items.push(v); var k = H.kids[v]; for (var j = k.length - 1; j >= 0; j--) st.push(k[j]); }
+      items.forEach(function (v, q) { leafPos[v] = q; });
+    };
+    walkOrder();
+    var nb = new Array(N); for (i = 0; i < N; i++) nb[i] = [];
+    var atItem = new Int32Array(G.nodes.length).fill(-1); for (i = 0; i < N; i++) if (H.item[i] >= 0) atItem[H.item[i]] = i;
+    for (i = 0; i < H.from.length; i++) { var a = atItem[H.from[i]], b = atItem[H.to[i]]; nb[a].push(b); nb[b].push(a); }
+    for (var pass = 0; pass < 2; pass++) {
+      var key = new Float64Array(N); for (i = 0; i < N; i++) { var s = 0, l = nb[i]; for (var j2 = 0; j2 < l.length; j2++) s += leafPos[l[j2]]; key[i] = l.length ? s / l.length : leafPos[i]; }
+      for (i = 0; i < N; i++) if (H.kids[i].length > 1) H.kids[i].sort(function (p, q) { return key[p] - key[q] || p - q; });
+      walkOrder();
+    }
+    var K = items.length, Rad = Math.max(220, Math.min(3000, K * 14 / TAU)), cx = Rad + 220;
+    var X = new Float64Array(N), Y = new Float64Array(N), ang = new Float64Array(N), RX = new Float64Array(N), RY = new Float64Array(N), maxD = 0;
+    for (i = 0; i < N; i++) if (H.depth[i] > maxD) maxD = H.depth[i];
+    /* every item sits on the circle; each part of the tree also has a bend point inside, at the middle angle of what it holds, nearer the middle the higher up it is */
+    var lo = new Float64Array(N).fill(Infinity), hi = new Float64Array(N).fill(-Infinity);
+    items.forEach(function (v, q) { var an = q / Math.max(1, K) * TAU - Math.PI / 2; ang[v] = an; X[v] = cx + Math.cos(an) * Rad; Y[v] = cx + Math.sin(an) * Rad; for (var u = v; u >= 0; u = H.par[u]) { if (an < lo[u]) lo[u] = an; if (an > hi[u]) hi[u] = an; } });
+    for (i = 0; i < N; i++) {
+      var an2 = (lo[i] + hi[i]) / 2, r = (H.depth[i] + 1) / (maxD + 2) * Rad * 0.9;
+      if (i === H.root || !isFinite(an2)) { an2 = 0; r = 0; }
+      RX[i] = cx + Math.cos(an2) * r; RY[i] = cx + Math.sin(an2) * r;
+    }
+    var beta = typeof o.beta === 'number' ? o.beta : 0.85, paths = [];
+    var lca = function (a, b) {
+      var A = [], Bv = [], u;
+      for (u = a; u >= 0; u = H.par[u]) A.push(u);
+      for (u = b; u >= 0; u = H.par[u]) Bv.push(u);
+      while (A.length > 1 && Bv.length > 1 && A[A.length - 2] === Bv[Bv.length - 2]) { A.pop(); Bv.pop(); }
+      return A.concat(Bv.slice(0, -1).reverse());
+    };
+    G.edges.forEach(function (e, ei) {
+      var fa = H.idx.get(e.from), fb = H.idx.get(e.to); if (fa === undefined || fb === undefined || fa === fb) return;
+      var a0 = atItem[fa], b0 = atItem[fb], path = lca(a0, b0);
+      /* the bend points: the parts each end sits in, up to where the two meet (an end that holds the other bends at its own point) */
+      var mid = path.slice(1, -1), pl = path.length; if (pl > 1 && H.par[path[1]] === path[0]) mid.unshift(path[0]); if (pl > 1 && H.par[path[pl - 2]] === path[pl - 1]) mid.push(path[pl - 1]);
+      var x0 = X[a0], y0 = Y[a0], xn = X[b0], yn = Y[b0], pts = [], seq = [-1].concat(mid, [-2]), n2 = seq.length;
+      for (var q = 0; q < n2; q++) { var t = q / (n2 - 1), u2 = seq[q], px = u2 === -1 ? x0 : u2 === -2 ? xn : RX[u2], py = u2 === -1 ? y0 : u2 === -2 ? yn : RY[u2]; pts.push(beta * px + (1 - beta) * (x0 + t * (xn - x0)), beta * py + (1 - beta) * (y0 + t * (yn - y0))); }
+      paths.push({ edge: ei, P: bsplineToBezier(pts), from: e.from, to: e.to });
+    });
+    var nodes = G.nodes.slice();
+    nodes.forEach(function (nd, q) { var v = atItem[q]; nd.cx = X[v]; nd.cy = Y[v]; nd.w = nd.h = 7; nd.x = nd.cx - 3.5; nd.y = nd.cy - 3.5; nd.ang = ang[v]; });
+    return { kind: 'bundles', dir: 'none', nodes: nodes, edges: G.edges, chart: { type: 'bundles', cx: cx, cy: cx, R: Rad, paths: paths, mode: H.mode, beta: beta }, width: cx * 2, height: cx * 2 };
+  }
+  /** A uniform cubic B-spline through control points (ends clamped by tripling them) as a chain of Bezier pieces: [x0,y0, c1x,c1y, c2x,c2y, x1,y1, ...]. */
+  function bsplineToBezier(p) {
+    var n = p.length / 2;
+    if (n === 2) return [p[0], p[1], p[0] + (p[2] - p[0]) / 3, p[1] + (p[3] - p[1]) / 3, p[0] + 2 * (p[2] - p[0]) / 3, p[1] + 2 * (p[3] - p[1]) / 3, p[2], p[3]];
+    var c = [p[0], p[1], p[0], p[1]].concat(p, [p[p.length - 2], p[p.length - 1], p[p.length - 2], p[p.length - 1]]), m = c.length / 2, out = [];
+    for (var i = 0; i + 3 < m; i++) {
+      var x0 = c[i * 2], y0 = c[i * 2 + 1], x1 = c[i * 2 + 2], y1 = c[i * 2 + 3], x2 = c[i * 2 + 4], y2 = c[i * 2 + 5], x3 = c[i * 2 + 6], y3 = c[i * 2 + 7];
+      var sx = (x0 + 4 * x1 + x2) / 6, sy = (y0 + 4 * y1 + y2) / 6, ex = (x1 + 4 * x2 + x3) / 6, ey = (y1 + 4 * y2 + y3) / 6;
+      if (!out.length) out.push(sx, sy);
+      out.push((2 * x1 + x2) / 3, (2 * y1 + y2) / 3, (x1 + 2 * x2) / 3, (y1 + 2 * y2) / 3, ex, ey);
+    }
+    return out;
+  }
+
+  function layout(view, G, o) {
+    o = o || {};
+    if (view === 'chord') return chord(G, o);
+    if (view === 'bundles') return bundles(G, o);
+    if (view === 'treemap') return treemap(G, o);
+    if (view === 'sunburst') return partition(G, o, true);
+    if (view === 'icicle') return partition(G, o, false);
+    if (view === 'pack') return pack(G, o);
+    return tree(G, o);
+  }
+
+  /* ---------------------------------------------------------------- drawing lists */
+  /** Points along an annular sector, outer arc then inner arc back. */
+  function sector(cx, cy, r0, r1, a0, a1, out) {
+    var n = Math.max(2, Math.ceil(Math.abs(a1 - a0) / 0.05)), i, a;
+    for (i = 0; i <= n; i++) { a = a0 + (a1 - a0) * i / n; out.push(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); }
+    for (i = n; i >= 0; i--) { a = a0 + (a1 - a0) * i / n; out.push(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0); }
+    return out;
+  }
+  /** A filled shape the renderer fans out from one middle point, so it is cut into pieces that each see their whole edge from their middle. */
+  function pushSector(S, cx, cy, r0, r1, a0, a1, fill, stroke, extra) {
+    var step = 0.5, a = a0;
+    while (a < a1 - 1e-9) {
+      var b = Math.min(a1, a + step), pts = sector(cx, cy, r0, r1, a, b, []), mx = 0, my = 0, q;
+      for (q = 0; q < pts.length; q += 2) { mx += pts[q]; my += pts[q + 1]; }
+      var p = { pts: pts, c: [mx / (pts.length / 2), my / (pts.length / 2)], fill: fill, stroke: stroke };
+      if (extra) for (var k in extra) p[k] = extra[k];
+      S.polys.push(p); a = b;
+    }
+  }
+  /** A chord band from one arc slice to another, through the middle; quads along its length (each one seen whole from its middle). */
+  function pushRibbon(S, cx, cy, r, sa0, sa1, ta0, ta1, fill, arrow) {
+    var pt = function (a, rr) { return [cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]; };
+    var bez = function (p0, p3, u) { var m = 1 - u; return [m * m * m * p0[0] + 3 * m * u * (m * cx + u * cx) + u * u * u * p3[0], m * m * m * p0[1] + 3 * m * u * (m * cy + u * cy) + u * u * u * p3[1]]; };
+    var tipR = arrow ? r - Math.min(14, r * 0.06) : r;
+    var A0 = pt(sa0, r), A1 = pt(sa1, r), B0 = pt(ta1, tipR), B1 = pt(ta0, tipR);   /* side one: sa0 to ta1, side two: sa1 to ta0 */
+    var n = 16, side1 = [], side2 = [], i;
+    for (i = 0; i <= n; i++) { side1.push(bez(A0, B0, i / n)); side2.push(bez(A1, B1, i / n)); }
+    for (i = 0; i < n; i++) {
+      var p = [side1[i][0], side1[i][1], side1[i + 1][0], side1[i + 1][1], side2[i + 1][0], side2[i + 1][1], side2[i][0], side2[i][1]];
+      S.polys.push({ pts: p, c: [(p[0] + p[2] + p[4] + p[6]) / 4, (p[1] + p[3] + p[5] + p[7]) / 4], fill: fill, stroke: [0, 0, 0, 0], piece: true });
+    }
+    /* the end at the target: a short arc slice, and an arrowhead into it when the band is directed */
+    var endPts = [B0[0], B0[1]], m = Math.max(2, Math.ceil(Math.abs(ta1 - ta0) / 0.05));
+    if (arrow) { var tm = pt((ta0 + ta1) / 2, r); endPts = [B0[0], B0[1], tm[0], tm[1], B1[0], B1[1]]; }
+    else { endPts = []; for (i = 0; i <= m; i++) { var q = pt(ta1 + (ta0 - ta1) * i / m, r); endPts.push(q[0], q[1]); } }
+    var ex = 0, ey = 0; for (i = 0; i < endPts.length; i += 2) { ex += endPts[i]; ey += endPts[i + 1]; }
+    S.polys.push({ pts: endPts, c: [ex / (endPts.length / 2), ey / (endPts.length / 2)], fill: fill, stroke: [0, 0, 0, 0], piece: true });
+    return { mid: bez(pt((sa0 + sa1) / 2, r), pt((ta0 + ta1) / 2, tipR), 0.5), a: pt((sa0 + sa1) / 2, r), b: pt((ta0 + ta1) / 2, tipR) };
+  }
+
+  /**
+   * The drawing for a chart layout. The scene module draws the items (dots, names, colors, key) from a plain network-style copy of the layout;
+   * this adds the shapes and replaces what does not fit (links are drawn here, names placed for the shape).
+   */
+  function scene(L, o, NS) {
+    var ch = L.chart, type = ch.type;
+    var showDots = type === 'pack' || type === 'tree' || type === 'bundles';
+    var nodes = L.nodes.map(function (nd) { var c = Object.create(nd); if (!showDots || (type === 'pack' && ch.kids[nd.hv].length)) { c.w = 0; c.h = 0; } return c; });
+    if (type === 'pack') nodes.forEach(function (nd) { if (!ch.kids[nd.hv].length) { nd.w = nd.h = 2 * ch.Rr[nd.hv]; } });
+    if (type === 'tree' || type === 'bundles') nodes.forEach(function (nd) { nd.w = nd.h = 9; });
+    var stub = { kind: 'network', view: 'network', dir: 'none', nodes: nodes, edges: [], width: L.width, height: L.height, ch: L.ch, flow: L.flow, cls: L.cls, imp: L.imp, groups: L.groups, startId: L.startId, n: L.n, m: L.m };
+    var lab0 = o.lab || {};
+    var S = NS.make(stub, Object.assign({}, o, { hulls: false, lab: { items: Object.assign({}, lab0.items || {}, { show: false }), links: lab0.links || { show: true, scale: 1 }, groups: { show: false, scale: 1 } }, lens: null, flat: false }));
+    S.view = type; S.kind = type; S.chart = true;
+    var T = S.theme, alpha = NS.alpha, mix = NS.mix;
+    var groupsHex = T.groups, gIdx = new Map(), gcol = function (g) { if (o.groupColors && o.groupColors[g]) return NS.hex(o.groupColors[g]); if (!gIdx.has(g)) gIdx.set(g, gIdx.size); return groupsHex[gIdx.get(g) % groupsHex.length]; };
+    (L.groups || []).forEach(function (g) { gcol(g); });
+    var itemShow = !(lab0.items && lab0.items.show === false), iscale = lab0.items && lab0.items.scale || 1;
+    var colOfNode = function (q) { var rec = S.nodes[q], d = rec && S.dots.filter ? null : null; return gcol(L.nodes[q].group || ''); };
+    var dotOf = new Map(); S.dots.forEach(function (d) { if (d.node >= 0) dotOf.set(d.node, d); });
+    var fillOf = function (q) { var d = dotOf.get(q); return d ? d.fill : gcol(L.nodes[q].group || ''); };
+    var lab = function (x, y, t, size, c, op) { var l = { x: x, y: y, t: t, size: size, color: c, align: 'c', bold: false, rot: 0, minK: 0, node: -1 }; if (op) for (var k in op) l[k] = op[k]; if (l.rot) l.rot *= 180 / Math.PI; S.labels.push(l); return l; };   /* angles in radians here, the renderer takes degrees */
+    var clip = function (s, n) { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+    var recOf = function (q) { return S.nodes[q]; };
+    /* one color for everything says nothing: then each top branch (or each arc) gets its own color from the color set */
+    var mono = (L.groups || []).length <= 1 && (!o.colorBy || o.colorBy === 'group' || o.colorBy === 'found');
+    var topIdx = null;
+    if (mono && ch.par) { topIdx = new Int32Array(ch.N); var kr = ch.kids[ch.root]; for (var t0 = 0; t0 < ch.order.length; t0++) { var w0 = ch.order[t0], pw = ch.par[w0]; topIdx[w0] = pw < 0 ? 0 : pw === ch.root ? kr.indexOf(w0) : topIdx[pw]; } }
+    var hcol = function (v) { if (topIdx) return groupsHex[topIdx[v] % groupsHex.length]; var it = ch.item[v]; return it >= 0 ? fillOf(it) : gcol(ch.group[v]); };
+    var idxOfId = new Map(); L.nodes.forEach(function (nd, q) { idxOfId.set(nd.id, q); });
+    var addCurve = function (P, w, color, edge, from, to, arrow) { S.curves.push({ P: P, w: w, color: color, arrow: !!arrow, line: false, edge: edge, from: from, to: to }); };
+
+    if (type === 'chord') {
+      var R = ch.R, th = ch.th, cx = ch.cx, cy = ch.cy;
+      ch.arcs.forEach(function (A) {
+        if (!(A.a1 > A.a0)) return;
+        var col = mono && !ch.byGroup ? groupsHex[A.k % groupsHex.length] : A.item !== undefined ? fillOf(A.item) : gcol(A.group);
+        pushSector(S, cx, cy, R, R + th, A.a0, A.a1, col, [0, 0, 0, 0], ch.byGroup ? { group: A.group } : null);
+        var mid = A.mid, lr = R + th + 8, right = Math.cos(mid) >= 0, rot = right ? mid : mid + Math.PI;
+        if (itemShow) lab(cx + Math.cos(mid) * lr, cy + Math.sin(mid) * lr, clip(A.label, 28), 12 * iscale, T.fg, { align: right ? 'l' : 'r', rot: rot, node: A.item !== undefined ? A.item : -1, minK: 0.15, group: ch.byGroup ? A.group : undefined });
+      });
+      var directed = ch.flows.length <= 4000;
+      ch.flows.forEach(function (f) {
+        var src = ch.arcs[f.s], c = mono && !ch.byGroup ? groupsHex[src.k % groupsHex.length] : src.item !== undefined ? fillOf(src.item) : gcol(src.group), ends = pushRibbon(S, cx, cy, R, f.sa0, f.sa1, f.ta0, f.ta1, alpha(c, 0.62), directed && f.s !== f.t);
+        /* a thin line along the band's middle, not drawn (fully clear), so the band can be pointed at like any link */
+        var e0 = L.edges[f.edges[0]], fx = ends.a, tx = ends.b, w = Math.max(2, Math.abs(f.sa1 - f.sa0) * R);
+        S.curves.push({ P: [fx[0], fx[1], (fx[0] + cx * 2) / 3, (fx[1] + cy * 2) / 3, (tx[0] + cx * 2) / 3, (tx[1] + cy * 2) / 3, tx[0], tx[1]], w: w, color: [0, 0, 0, 0], arrow: false, line: false, edge: f.edges[0], from: e0.from, to: e0.to, ghostPick: true });
+      });
+    } else if (type === 'bundles') {
+      var bc = ch.cx;
+      ch.paths.forEach(function (p) { var q = idxOfId.get(p.from); addCurve(p.P, 1.2, alpha(fillOf(q), 0.5), p.edge, p.from, p.to, false); });
+      if (itemShow) L.nodes.forEach(function (nd, q) {
+        var an = nd.ang, right = Math.cos(an) >= 0, lr = ch.R + 8;
+        lab(bc + Math.cos(an) * lr, ch.cy + Math.sin(an) * lr, clip(nd.label, 26), 11 * iscale, T.fg, { align: right ? 'l' : 'r', rot: right ? an : an + Math.PI, node: q, minK: 0.2 });
+      });
+    } else if (type === 'treemap' || type === 'icicle') {
+      var Rm = ch.R, cw = ch.colW, Hh = ch.H;
+      for (var oi = 0; oi < ch.order.length; oi++) {
+        var v = ch.order[oi]; if (type === 'icicle' && ch.depth[v] < ch.skipRoot) continue; if (type === 'treemap' && v === ch.root && ch.item[v] < 0) continue;
+        var x0, y0, x1, y1;
+        if (type === 'treemap') { x0 = Rm[v * 4]; y0 = Rm[v * 4 + 1]; x1 = Rm[v * 4 + 2]; y1 = Rm[v * 4 + 3]; }
+        else { x0 = Rm[v * 4] * cw; x1 = Rm[v * 4 + 2] * cw - 1; y0 = Rm[v * 4 + 1] * Hh; y1 = Rm[v * 4 + 3] * Hh - 1; }
+        var w2 = x1 - x0, h2 = y1 - y0; if (w2 <= 0.3 || h2 <= 0.3) continue;
+        var it = ch.item[v], base = hcol(v), box = ch.kids[v].length > 0;
+        var fill = type === 'treemap' && box ? alpha(mix(base, T.bg, 0.55), 0.9) : alpha(base, type === 'icicle' ? 0.85 : 0.92);
+        S.rects.push({ x: x0, y: y0, w: w2, h: h2, r: 0, fill: fill, stroke: alpha(T.bg, 0.9), sw: 1, layer: 1, node: it >= 0 ? recOf(it).i : -1, a: 1 });
+        var size = (type === 'treemap' && box ? 12 : 11) * iscale, txt = ch.label[v];
+        if (itemShow && w2 > size * 2.2 && h2 > size * 1.3) {
+          var maxC = Math.floor((w2 - 8) / (size * 0.58)), tcol = type === 'treemap' && box ? T.fg : (lumi(base) > 0.55 ? [0.1, 0.1, 0.12, 1] : [1, 1, 1, 1]);
+          lab(x0 + 4, y0 + size + 2, clip(txt, maxC), size, tcol, { align: 'l', node: it >= 0 ? it : -1, minK: 0, bold: box, val: ch.val[v] });
+        }
+      }
+    } else if (type === 'sunburst') {
+      var Rs = ch.R, scx = ch.cx, scy = ch.cy;
+      for (var si = 0; si < ch.order.length; si++) {
+        var u = ch.order[si], d = Rs[u * 4]; if (d < 0) continue;
+        var a0 = Rs[u * 4 + 1] * TAU - Math.PI / 2, a1 = Rs[u * 4 + 3] * TAU - Math.PI / 2; if (a1 - a0 < 0.002) continue;
+        var r0 = ch.hole + d * ch.ring, r1 = r0 + ch.ring - 1.5, it2 = ch.item[u], base2 = hcol(u);
+        var gap = Math.min(0.004, (a1 - a0) * 0.1);
+        pushSector(S, scx, scy, r0, r1, a0 + gap, a1 - gap, alpha(base2, 0.9 - Math.min(0.3, d * 0.06)), [0, 0, 0, 0], it2 < 0 ? { group: ch.group[u] } : null);
+        var midA = (a0 + a1) / 2, rr = (r0 + r1) / 2, arcLen = (a1 - a0) * rr;
+        if (itemShow && arcLen > 12 * iscale) {
+          var right2 = Math.cos(midA) >= 0, maxC2 = Math.floor((ch.ring - 8) / (6.5 * iscale));
+          lab(scx + Math.cos(midA) * rr, scy + Math.sin(midA) * rr + 4, clip(ch.label[u], maxC2), 11 * iscale, lumi(base2) > 0.55 ? [0.1, 0.1, 0.12, 1] : [1, 1, 1, 1], { rot: right2 ? midA : midA + Math.PI, node: it2 >= 0 ? it2 : -1, minK: 0.2 });
+        }
+      }
+      if (ch.skipRoot) lab(scx, scy + 5, clip(ch.label[ch.root], 18), 13, T.fg, { bold: true });
+    } else if (type === 'pack') {
+      for (var pi = 0; pi < ch.order.length; pi++) {
+        var pv = ch.order[pi]; if (!ch.kids[pv].length) continue; if (pv === ch.root && ch.item[pv] < 0 && false) continue;
+        var pr = ch.Rr[pv], px = ch.X[pv], py = ch.Y[pv], ip = ch.item[pv], pb = hcol(pv);
+        var circ = [], nseg = Math.max(24, Math.min(96, Math.round(pr / 3)));
+        for (var cq = 0; cq < nseg; cq++) { var ca = cq / nseg * TAU; circ.push(px + Math.cos(ca) * pr, py + Math.sin(ca) * pr); }
+        var dep = ch.depth[pv];
+        S.polys.push({ pts: circ, c: [px, py], fill: alpha(mix(pb, T.bg, 0.6), dep === 0 ? 0.35 : 0.5), stroke: alpha(pb, 0.6), group: ip < 0 ? ch.group[pv] : undefined, node: ip });
+        if (itemShow && pr > 30) lab(px, py - pr + 16 * iscale, clip(ch.label[pv], Math.floor(pr / 5)), 12 * iscale, T.fg, { bold: true, node: ip >= 0 ? ip : -1, minK: 0.1 });
+      }
+      if (itemShow) L.nodes.forEach(function (nd, q) { if (ch.kids[nd.hv].length) return; var r = ch.Rr[nd.hv]; if (r > 14) lab(nd.cx, nd.cy + 4, clip(nd.label, Math.floor(r / 3.6)), Math.min(13, r / 2.6) * iscale, lumi(fillOf(q)) > 0.55 ? [0.1, 0.1, 0.12, 1] : [1, 1, 1, 1], { node: q, minK: 0.3 }); });
+      /* polys are drawn under the dots: move the outer circles first */
+    } else if (type === 'tree') {
+      var radial = ch.shape === 'radial' || ch.shape === 'radialCluster', ind = ch.shape === 'indented', X = ch.X, Y = ch.Y;
+      for (var ti = 0; ti < ch.order.length; ti++) {
+        var c = ch.order[ti], p2 = ch.par[c]; if (p2 < 0 || (ch.skipRoot && p2 === ch.root)) continue;
+        var ic = ch.item[c], ipp = ch.item[p2], P;
+        if (ind) P = [X[p2] + 6, Y[p2], X[p2] + 6, Y[p2] + (Y[c] - Y[p2]) * 0.6, X[p2] + 6, Y[c], X[c], Y[c]];
+        else if (radial) {
+          var ax = X[p2] - ch.cx, ay = Y[p2] - ch.cy, bx = X[c] - ch.cx, by = Y[c] - ch.cy, ra = Math.hypot(ax, ay), rb = Math.hypot(bx, by), rm = (ra + rb) / 2;
+          var an1 = Math.atan2(ay, ax), an2 = Math.atan2(by, bx);
+          if (ra < 1e-6) an1 = an2;
+          P = [X[p2], Y[p2], ch.cx + Math.cos(an1) * rm, ch.cy + Math.sin(an1) * rm, ch.cx + Math.cos(an2) * rm, ch.cy + Math.sin(an2) * rm, X[c], Y[c]];
+        } else { var xm = (X[p2] + X[c]) / 2; P = [X[p2], Y[p2], xm, Y[p2], xm, Y[c], X[c], Y[c]]; }
+        var e = edgeBetween(L, ch, p2, c);
+        addCurve(P, 1.3, alpha(T.line, 0.75), e, ipp >= 0 ? L.nodes[ipp].id : undefined, ic >= 0 ? L.nodes[ic].id : undefined, false);
+      }
+      if (itemShow) for (var li = 0; li < ch.N; li++) {
+        var itl = ch.item[li]; if (itl < 0) continue;
+        var leafy = !ch.kids[li].length, lx = X[li], ly = Y[li];
+        if (radial) {
+          var an3 = Math.atan2(ly - ch.cy, lx - ch.cx), right3 = Math.cos(an3) >= 0, out = leafy ? 8 : -8;
+          if (Math.hypot(lx - ch.cx, ly - ch.cy) < 1) { lab(lx, ly - 10, clip(ch.label[li], 24), 11 * iscale, T.fg, { node: itl, minK: 0.2 }); continue; }
+          lab(lx + Math.cos(an3) * out, ly + Math.sin(an3) * out + 3, clip(ch.label[li], 26), 11 * iscale, T.fg, { align: (right3 === leafy) ? 'l' : 'r', rot: right3 ? an3 : an3 + Math.PI, node: itl, minK: 0.2 });
+        } else lab(lx + (leafy || ind ? 9 : -9), ly + 4, clip(ch.label[li], 30), 11 * iscale, T.fg, { align: leafy || ind ? 'l' : 'r', node: itl, minK: 0.2, bg: !leafy && !ind });
+      }
+    }
+    /* the drawing order: shapes under items; a pack's outer circles first (they are in tree order already) */
+    if (type !== 'chord' && type !== 'sunburst') S.polys.sort(function (a, b) { return (a.piece ? 1 : 0) - (b.piece ? 1 : 0); });
+    /* items the scene module named are dropped above (names off there); bounds again over everything */
+    var x0b = Infinity, y0b = Infinity, x1b = -Infinity, y1b = -Infinity;
+    var grow = function (x, y) { if (x < x0b) x0b = x; if (x > x1b) x1b = x; if (y < y0b) y0b = y; if (y > y1b) y1b = y; };
+    S.rects.forEach(function (r) { grow(r.x, r.y); grow(r.x + r.w, r.y + r.h); });
+    S.dots.forEach(function (d) { grow(d.cx - d.r, d.cy - d.r); grow(d.cx + d.r, d.cy + d.r); });
+    S.polys.forEach(function (p) { for (var i = 0; i < p.pts.length; i += 2) grow(p.pts[i], p.pts[i + 1]); });
+    S.curves.forEach(function (c) { for (var i = 0; i < c.P.length; i += 2) grow(c.P[i], c.P[i + 1]); });
+    S.labels.forEach(function (l) { if (l.rot) { var r = l.t.length * l.size * 0.6; grow(l.x + Math.cos(l.rot) * r * (l.align === 'r' ? -1 : 1), l.y + Math.sin(l.rot) * r * (l.align === 'r' ? -1 : 1)); } else { var b = NS.labelBox(l); if (b) { grow(b[0], b[1]); grow(b[2], b[3]); } } });
+    if (!isFinite(x0b)) { x0b = 0; y0b = 0; x1b = 100; y1b = 100; }
+    var pad = 30; S.x0 = x0b - pad; S.y0 = y0b - pad; S.w = x1b - x0b + 2 * pad; S.h = y1b - y0b + 2 * pad;
+    S.gridStale = true; S.eidx = null; S.spatial = null;
+    if (S.legendTitle === '' && !S.legend.length && (L.groups || []).length > 1) (L.groups || []).slice(0, 12).forEach(function (g) { S.legend.push({ k: 'group', c: gcol(g), t: g || '(no group)', key: 'g:' + g }); });
+    S.chartNote = chartNote(L);
+    return S;
+  }
+  function lumi(c) { return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+  /** The tree link from p to c as a link of the map, when it is one (made-up group boxes are not). */
+  function edgeBetween(L, ch, p, c) {
+    var ip = ch.item[p], ic = ch.item[c]; if (ip < 0 || ic < 0) return -1;
+    var a = L.nodes[ip].id, b = L.nodes[ic].id;
+    if (!ch.__ei) { ch.__ei = new Map(); L.edges.forEach(function (e, ei) { var k = e.from + '\u0000' + e.to; if (!ch.__ei.has(k)) ch.__ei.set(k, ei); }); }
+    var r = ch.__ei.get(a + '\u0000' + b); return r === undefined ? -1 : r;
+  }
+  /** One line under the picture that says what the shape is made from. */
+  function chartNote(L) {
+    var ch = L.chart; if (!ch) return '';
+    var n = function (x) { return Number(x).toLocaleString('en-US'); };
+    if (ch.type === 'chord') return (ch.byGroup ? 'One arc per group' : 'One arc per item') + '; band width is the amount each link carries' + (ch.crossings > 0 ? '. Order chosen for fewer crossing bands.' : '.');
+    if (ch.type === 'bundles') return 'Links follow the ' + (ch.mode === 'groups' ? 'groups' : 'tree of links from the start') + ', so links that go the same way run together.';
+    var src = ch.mode === 'groups' ? 'Nested by group.' : 'Nested by links: each item hangs under the first item that leads to it from the start.';
+    return src + (ch.extra ? ' ' + n(ch.extra) + ' other links are not part of the nesting.' : '');
+  }
+
+  return { VIEWS: VIEWS, IS: IS, NESTED: NESTED, layout: layout, scene: scene, hierarchy: hierarchy, packSiblings: packSiblings, enclose: enclose, bsplineToBezier: bsplineToBezier, linkValue: linkValue };
+})();
+if (typeof module !== 'undefined' && module.exports) module.exports = NFMCharts;

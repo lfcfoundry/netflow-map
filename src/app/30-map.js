@@ -53,7 +53,7 @@ function keepList() {
 }
 function engineOpts() {
   var V = S.V, o = {
-    view: V.view, arrange: V.arrange, dir: V.dir, spread: V.spread, fold: V.fold, merge: V.merge, rows: V.rows, search: V.search || 'auto', chapters: V.chapters === 'off' ? 0 : V.chapters === 'on' ? 1 : 1500, openCh: V.openCh, tagLen: V.tagLen, spineCol: V.spineCol, better: V.better, bundle: V.bundle, wrap: V.wrap, downLanes: V.downLanes, laneBy: V.laneBy, colorBy: engineColor(), sizeBy: V.sizeBy, widthBy: V.widthBy, edgeColorBy: V.edgeColorBy, agg: V.agg,
+    view: V.view, arrange: V.arrange, dir: V.dir, spread: V.spread, fold: V.fold, merge: V.merge, rows: V.rows, search: V.search || 'auto', chordBy: V.chordBy || 'auto', nest: V.nest || 'auto', treeShape: V.treeShape || 'tidy', chapters: V.chapters === 'off' ? 0 : V.chapters === 'on' ? 1 : 1500, openCh: V.openCh, tagLen: V.tagLen, spineCol: V.spineCol, better: V.better, bundle: V.bundle, wrap: V.wrap, downLanes: V.downLanes, laneBy: V.laneBy, colorBy: engineColor(), sizeBy: V.sizeBy, widthBy: V.widthBy, edgeColorBy: V.edgeColorBy, agg: V.agg,
     block: V.block.slice(), hideKinds: V.hideKinds.slice(), mode: S.A.mode, runs: S.A.runs, weights: S.A.weights, wantFlow: V.colorBy === 'odds' || V.colorBy === 'heat'
   };
   var cut = strongestCut(); if (cut.min !== null) o.minEdge = { ch: cut.ch, min: cut.min };
@@ -111,7 +111,7 @@ function refreshMap(reason, force) {
     if (S.selEdges.size) S.selEdges = origSel && origSel.size ? edgesFromOrig(origSel) : new Set();
     var hadCard = !!S.cardUsed; S.cardUsed = res.card || null; if (hadCard !== !!S.cardUsed || (client && client.cardWhy)) renderMapUI();
     if (S.L.is3d === false) S.L.is3d = false;
-    var fk = [V.view, V.arrange, S.gver, V.dir, V.laneBy, V.block.length, V.hideKinds.length, V.strongest, JSON.stringify(V.facets), JSON.stringify(V.around)].join('|');
+    var fk = [V.view, V.arrange, S.gver, V.dir, V.laneBy, V.chordBy, V.nest, V.treeShape, V.block.length, V.hideKinds.length, V.strongest, JSON.stringify(V.facets), JSON.stringify(V.around)].join('|');
     var fit = fk !== lastFitKey && reason !== 'look';
     if (S.tab !== 'map') { if (fit) S.needFit = true; fit = false; }   /* built for export while another tab is open: the stage has no size now, so it fits when the Map is shown */
     else if (S.needFit) { S.needFit = false; fit = true; }

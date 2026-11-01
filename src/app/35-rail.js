@@ -11,6 +11,13 @@ var VIEW_NOTES = {
   sankey: ['Wider bands mean more of the flow takes that link.', 'Needs a start; small flows look like hairlines.'],
   arc: ['Everything on one line, arcs show links; long arcs are long jumps.', 'Groups and direction are hard to see.'],
   matrix: ['A grid of who links to whom; patterns show clusters and loops without any crossing lines.', 'Paths are hard to follow by eye.'],
+  chord: ['Who sends how much to whom: each band is as wide as what it carries, and the arcs show the total for each.', 'Paths of more than one step are hard to follow; with many items it shows groups.'],
+  bundles: ['Links that go between the same parts of the tree run together, so the main traffic between parts stands out.', 'Single links are hard to pick out in a thick bundle.'],
+  treemap: ['Sizes at a glance: each box is as big as what it holds, nested inside its parent.', 'Links other than the nesting are not drawn.'],
+  sunburst: ['The nesting as rings out from the middle, each slice as wide as what it holds.', 'Small slices far out get thin; links other than the nesting are not drawn.'],
+  icicle: ['The nesting from left to right, each bar as tall as what it holds; easy to read names.', 'Links other than the nesting are not drawn.'],
+  pack: ['Circles inside circles: groups and their sizes at a glance.', 'Uses space less tightly than a treemap; links other than the nesting are not drawn.'],
+  tree: ['One parent per item, drawn tidily with no two items of a row touching.', 'An item reached from several places shows only under the first one.'],
   network: ['Closeness on the page follows closeness in the data, so clusters show up.', 'Exact positions mean little; only closeness does. Dense data can look like a hairball, so try the strongest-links slider.']
 };
 function askList() {
@@ -271,6 +278,9 @@ function panelLook() {
   }
   if (['flow', 'down', 'spine', 'lanes'].indexOf(V.view) >= 0) k1.push(check('Taper links (thick at the start, thin at the end)', V.taper, function (on) { setV({ taper: on }, 'look'); }));
   if (!(L && L.is3d)) k1.push(field('Mini-map', seg([['auto', 'Auto'], ['on', 'Always'], ['off', 'Off']], V.minimap, function (v) { setV({ minimap: v }, 'none'); renderMinimap(); }), 'A small picture of the whole map in the corner with a frame for what is on screen; click or drag it to move around. Auto shows it when you are zoomed in or the map is bigger than the screen.'));
+  if (V.view === 'chord') k1.push(field('Arcs for', seg([['auto', 'Auto'], ['items', 'Each item'], ['groups', 'Each group']], V.chordBy || 'auto', function (v) { setV({ chordBy: v }); }), 'Auto gives each item its own arc up to 60 items, and each group above that.'));
+  if (['bundles', 'treemap', 'sunburst', 'icicle', 'pack', 'tree'].indexOf(V.view) >= 0) k1.push(field('Nest by', seg([['auto', 'Auto'], ['links', 'Links'], ['groups', 'Groups']], V.nest || 'auto', function (v) { setV({ nest: v }); }), 'Links: each item sits under the first item that leads to it from the start (a parent column makes an exact tree). Groups: one box per group. Auto uses links when they already form a tree, else groups.'));
+  if (V.view === 'tree') k1.push(field('Tree shape', seg([['tidy', 'Tidy'], ['cluster', 'Leaves lined up'], ['radial', 'Round'], ['radialCluster', 'Round, leaves out'], ['indented', 'Outline']], V.treeShape || 'tidy', function (v) { setV({ treeShape: v }); })));
   if (V.view === 'flow') k1.push(field('Direction', seg([['LR', 'Left to right'], ['TB', 'Top to bottom']], V.dir, function (v) { setV({ dir: v }); })));
   if (['flow', 'down', 'spine', 'lanes'].indexOf(V.view) >= 0) k1.push(field('Spacing', seg([['tight', 'Tight'], ['wide', 'Wide']], V.spread, function (v) { setV({ spread: v }); }), 'Tight packs the boxes close together. Wide gives a looser, more tree-like drawing with more room between boxes and rows, easier to read on a wide screen.'));
   if (['flow', 'down', 'spine', 'lanes', 'sankey'].indexOf(V.view) >= 0) { k1.push(check('Fold straight runs into one box', V.fold, function (on) { setV({ fold: on }); })); k1.push(check('Merge parallel arrows', V.merge, function (on) { setV({ merge: on }); })); }
