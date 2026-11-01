@@ -290,4 +290,18 @@ t('13 hiding a group does not recolor the others (groupOrder keeps each group in
   const old = SC.make(E.build(g2, { view: 'network', arrange: 'force', colorBy: 'group' }), { theme: 'light' });
   ok(colorOf(old, 'beta') !== colorOf(full, 'beta'), 'control: without groupOrder the colors do move');
 });
+
+/* Sankey whose start item has no links out: nothing flows, so it used to draw every item in one column with no bands (2026.10.31); now it draws the link weights and says so */
+t('Sankey with a dead-end start draws the link weights instead of one empty column', () => {
+  const g = mkG(['s', 'a', 'b', 'c', 'd'], [['a', 'b', 2], ['a', 'c', 1], ['b', 'd', 3], ['c', 'd', 1]]);
+  g.start = 's';
+  const L = E.build(g, { view: 'sankey', colorBy: 'group', sk: {} });
+  const cols = new Set(L.nodes.filter((n) => n.id !== 's').map((n) => Math.round(n.x))).size;
+  ok(L.weightsFallback === true, 'no fallback flag');
+  ok(L.sk && L.sk.bands && L.sk.bands.length === 4, 'bands ' + (L.sk && L.sk.bands && L.sk.bands.length));
+  ok(cols >= 3, 'columns ' + cols);
+  const g2 = mkG(['a', 'b', 'c'], [['a', 'b', 1], ['b', 'c', 1]]);
+  const L2 = E.build(g2, { view: 'sankey', colorBy: 'group', sk: {} });
+  ok(!L2.weightsFallback && L2.sk.bands.length === 2, 'a start with links out keeps its flows');
+});
 if (bad) process.exit(1);
