@@ -53,7 +53,7 @@ function keepList() {
 }
 function engineOpts() {
   var V = S.V, o = {
-    view: V.view, arrange: V.arrange, dir: V.dir, spread: V.spread, fold: V.fold, merge: V.merge, rows: V.rows, chapters: V.chapters === 'off' ? 0 : V.chapters === 'on' ? 1 : 1500, openCh: V.openCh, tagLen: V.tagLen, spineCol: V.spineCol, better: V.better, bundle: V.bundle, wrap: V.wrap, downLanes: V.downLanes, laneBy: V.laneBy, colorBy: engineColor(), sizeBy: V.sizeBy, widthBy: V.widthBy, edgeColorBy: V.edgeColorBy, agg: V.agg,
+    view: V.view, arrange: V.arrange, dir: V.dir, spread: V.spread, fold: V.fold, merge: V.merge, rows: V.rows, search: V.search || 'auto', chapters: V.chapters === 'off' ? 0 : V.chapters === 'on' ? 1 : 1500, openCh: V.openCh, tagLen: V.tagLen, spineCol: V.spineCol, better: V.better, bundle: V.bundle, wrap: V.wrap, downLanes: V.downLanes, laneBy: V.laneBy, colorBy: engineColor(), sizeBy: V.sizeBy, widthBy: V.widthBy, edgeColorBy: V.edgeColorBy, agg: V.agg,
     block: V.block.slice(), hideKinds: V.hideKinds.slice(), mode: S.A.mode, runs: S.A.runs, weights: S.A.weights, wantFlow: V.colorBy === 'odds' || V.colorBy === 'heat'
   };
   var cut = strongestCut(); if (cut.min !== null) o.minEdge = { ch: cut.ch, min: cut.min };
