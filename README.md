@@ -85,7 +85,7 @@ At 10,000 items Netflow Map was 42 times faster than the fastest library in Chro
 
 ## Reading a 16 MB table against Papa Parse and d3-dsv
 
-563,563 rows, median of 4 rotated turns. Before this build: Chromium 247 / 270 / 251 ms (Netflow Map / Papa Parse / d3-dsv), Firefox 236 / 291 / 322 ms, WebKitGTK 575 / 211 / 326 ms. Build 2026.10.31.1948 reads it 3.4 times faster in WebKitGTK (390 to 119 ms in an A/B run) and 1.4 times faster in Chromium.
+563,563 rows, median of 4 rotated turns, build 2026.10.31.1948. Netflow Map is the fastest of the three in every browser: Chromium 169 / 212 / 254 ms (Netflow Map / Papa Parse / d3-dsv), Firefox 223 / 234 / 277 ms, WebKitGTK 110 / 149 / 125 ms. Before that build WebKitGTK took 575 ms, because splitting lines without quotes is slow there; they are now read character by character.
 
 ## Memory to hold 100,000 items
 

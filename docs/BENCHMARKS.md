@@ -2127,3 +2127,5 @@ Raw results: bench/results/vs-libs-*-landing.jsonl (Chromium Sankey rerun: vs-li
 Table reading after this build (early-stop A/B rule, fresh page per sample): WebKitGTK 390 to 119 ms (0.29), Chromium 229 to 167 ms (0.73), Firefox ok (0.985).
 
 Gaps handed to JS-modules (briefs in project files: js-modules-research/): Flow crossings (netflow-layers deeper search: 400 items 4,992 and 1,000 items 22,225 in a prototype, below ELK and dagre) and Sankey speed (netflow-sankey relaxation 11 of about 26 ms per layout; the netflow-layers order pass before it can be skipped with identical crossing counts).
+
+Comparison rerun after the merge (vsCsv, 188,000 items, median of 4 rotated turns): Chromium 169 / 212 / 254 ms (Netflow Map / Papa Parse / d3-dsv), Firefox 223 / 234 / 277 ms, WebKitGTK 110 / 149 / 125 ms. Netflow Map is now fastest in all three. Raw: bench/results/vs-libs-*-csv.jsonl (new `csv` plan in bench/vs-libs-run.js).
