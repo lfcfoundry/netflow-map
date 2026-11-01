@@ -34,7 +34,7 @@ function sceneToCanvas(sc, w, hh, withKey) {
 /** Runs fn(scene) with a picture that matches the data and settings now (built first if the data changed since the Map was last open), or says there is nothing to save. */
 function withMap(fn) {
   ensureMap().then(function () {
-    settleTurn();
+    settleTurn(); freshTheme();
     if (!S.scene) { toast('Nothing to save yet. Open the Map first.'); return; }
     fn(S.scene);
   });

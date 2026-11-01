@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.11.01.0154 · 2026-11-01
+
+### Quick
+src/app/00-core.js `applyTheme()` rebuilds the scene only when the Map tab shows; otherwise it sets `S.themeStale`. New `freshTheme()` rebuilds on `TAB_HOOKS.map` (30-map.js) and in `withMap()` before an export reads the scene (70-export.js). No saved files, layouts or settings change.
+
+### Details
+Round 39 (research thread, patch theme-hidden-map.patch). Time to two frames after the theme click on the Advanced tab, ratio new/old (early-stop A/B, 4 rounds): Chromium 155 0.107 at 5,000 items, 0.033 at 20,000; Firefox 158 0.031 at 5,000; WebKitGTK 2.52.6 0.684 at 5,000. Picture after Advanced > theme > Map: 99.92% of pixels equal in Chromium (the unchanged on-Map path gives 99.82% in the same test, so the gap is test noise).
+
+### Deep
+Browser suites in this build: Chromium 219 ok, WebKitGTK 207 ok, Firefox 196 ok, 0 FAIL. Not done: the theme click while the Map shows still runs a full makeScene (60-175 ms at 20,000 items); a recolor-only path is round 39 candidate 2.
+
 ## 2026.11.01.0017 · 2026-11-01
 
 ### Quick
