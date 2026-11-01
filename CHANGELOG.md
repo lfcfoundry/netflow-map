@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Developer notes, in t
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39, WebKitGTK 2.52.6 and GNOME Web 46.5. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## November 1
+
+- **2026.11.01.0011** The Lighter crossing search (used by Auto on maps of 800 boxes or more) now looks a little longer before it stops, so it draws the same tidy pictures as Deeper: on 55 test maps it never leaves extra crossings any more (before, 7 of them had 2 to 7% more). Big maps take a bit longer again: a 1,000-item map draws in about 117 ms in Chromium, 126 in Firefox and 125 in WebKitGTK, against 74, 85 and 86 ms in the last build (lab). Smaller maps are the same.
+
 ## October 31
 
 - **2026.10.31.2339** New setting: Crossing search (Auto, Deeper, Lighter) in the Flow, top-down, spine and lanes views. Deeper is the tidiest. Lighter is quicker on big maps and now and then leaves a few more crossing links. Auto, the default, uses Deeper below 800 boxes and Lighter from there. A 1,000-item map now draws in 74 instead of 115 ms in Chromium, 85 instead of 122 in Firefox and 86 instead of 123 in WebKitGTK (lab), with the same crossings. Maps under 800 boxes look exactly as before.

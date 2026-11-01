@@ -23,7 +23,7 @@ const cssMin = (code) => esb ? esb.transformSync(code, { loader: 'css', minify: 
 const rd = (p) => readFileSync(join(root, p), 'utf8');
 const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
 const g = (t) => parts.find((p) => p.type === t).value;
-const version = process.env.NFM_VERSION || `${g('year')}.${+g('month')}.${+g('day')}.${g('hour')}${g('minute')}`;
+const version = process.env.NFM_VERSION || `${g('year')}.${g('month')}.${g('day')}.${g('hour')}${g('minute')}`;
 const order = ['vendor/field-report.js', 'src/field-report-start.js', 'vendor/env-probes.js', 'vendor/back-close.js', 'vendor/tab-guard.js', 'src/importers.js', 'src/undo.js', 'src/unpack.js', 'src/pack.js', 'vendor/memory-compression.js', 'src/layout-park.js', 'vendor/netflow-scene.js', 'src/scene-alias.js', 'vendor/netflow-sankey.js', 'src/look.js', 'src/gifkey.js', 'src/gif.js', 'src/gifx.js', 'src/gif-worker.js', 'src/video.js', 'src/render.js', 'src/probe.js', 'src/layoutstore.js', 'src/engine-client.js', 'src/gpustress.js', 'src/tune.js', 'src/examples.js'];
 const clean = (s) => s.replace(/if \(typeof module !== 'undefined' && module\.exports\) module\.exports = \w+;\n?/g, '');
 const bad = (name, s) => { if (/<\/script|<!--/i.test(s)) throw new Error(name + ' contains a sequence that would break the page'); };
