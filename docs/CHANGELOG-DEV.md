@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.10.31.2310 · 2026-10-31
+
+### Quick
+src/engine.js: `mapGraph()` looks for runs (items in a single line) only when `opts.fold` is on (nothing reads `G.runs` otherwise: the Sankey, matrix, network and shape views, or folding off). `build()`: the group of each box and its depth total in one pass (no `Object.keys(cls)`, no Set), and `laneOfBox` only for the lanes and top-down views. Same output; nothing saved is affected.
+
+### Details
+Sankey build piece by piece at 1,500 items in WebKitGTK, per build (src/engine-t.js marks, not committed): SK.layout 7.4 ms, SK.apply 0.6; engine pieces prepare 0.6, importance 0.9, flow 0.95, mapGraph 1.2 to 0.7, node channels 0.7, lane groups 1.4 to 0.6, sankeyLite 0.3, kinds 0.4, rest 0.2. Early-stop A/B of the whole build (main vs this): 1,500 items, Chromium faster 0.90 (10.32 to 9.28 ms), Firefox faster 0.93 (11.0 to 10.2), WebKitGTK ok 0.99 (12.0 to 11.4); 400 items (25 builds a sample), Chromium ok 0.89, Firefox faster 0.91, WebKitGTK ok 0.87 (a 5-build run said slower 1.12 at 4.4 vs 4.8 ms, WebKitGTK's timer steps by 1 ms).
+
+### Deep
+Sent the breakdown to the JS-modules thread: about 6 of WebKitGTK's 13.7 ms Sankey build is outside netflow-sankey. Node tests (fingerprints, Sankey same bars and bands) and three-browser suites pass.
+
 ## 2026.10.31.2257 · 2026-10-31
 
 ### Quick
