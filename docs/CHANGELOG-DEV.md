@@ -4,6 +4,17 @@ Copyright (c) 2026 LFC Foundry. MIT License.
 
 What changed in each build, newest first, for developers, in three depths: Quick (what changed and whether saved files, saved layouts or settings are affected), Details (where it lives, numbers with the browser named) and Deep (design reasons, tests, what was tried). People who use the app read CHANGELOG.md. Builds are stamped `year.month.day.HHMM` (US Eastern). Builds before 2026.10.26 are backfilled from the build log; their Details give the browsers each build was tested in, and docs/BENCHMARKS.md holds the measurements.
 
+## 2026.11.01.1059 · 2026-11-01
+
+### Quick
+applyStyle(noDraw, noRestyle): the four places that build a scene and then call setScene (makeScene, scheduleScene, settleTurn, showLayout) pass noRestyle, so the renderer no longer runs restyle (a full tessellate and upload of the scene it still holds, the OLD one) right before setScene does the same for the new one. Same pixels; nothing saved changes.
+
+### Details
+Main-thread time of NFM.setV({palette}, 'look') at 100,000 items, Chromium 155, WebGL2 on SwiftShader, two runs each: treemap 4,014 / 3,887 ms to 1,202 / 1,385 ms; tree 4,152 / 4,436 to 3,277 / 3,393 ms. Canvas 2D has no restyle, so it is unchanged. Most of what remains is the scene build (netflow-scene make on 100,000 hidden dots; brief to the JS-modules thread: project files: netflow-map/d3-gap/BRIEF-instant-look-changes-2026.11.01.md) and, for tree, tessellating 100,000 curves.
+
+### Deep
+Found with a CDP profile of one palette change: bufferData was 2.7 s of 4.0 s, and the restyle and setScene timers showed two uploads per change. Node tests pass; suites Chromium 232, WebKitGTK 220, Firefox 209, 0 FAIL.
+
 ## 2026.11.01.1045 · 2026-11-01
 
 ### Quick

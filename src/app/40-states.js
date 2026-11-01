@@ -202,7 +202,7 @@ function showLayout(L) {
   var t0 = performance.now();
   S.L = L; S.buildKey = null; applyPins(L);
   S.scene = NFMScene.make(L, sceneOpts()); editKey(S.scene); keepPacked(S.scene);
-  S.keyMap = null; applyStyle(true);
+  S.keyMap = null; applyStyle(true, !!(mgr && mgr.r));
   if (mgr && mgr.r) mgr.r.setScene(S.scene);
   requestDraw();
   ST.makeMs = performance.now() - t0; ST.lastMake = performance.now();

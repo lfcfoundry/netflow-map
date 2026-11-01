@@ -259,7 +259,7 @@ function makeScene(fit) {
   editKey(S.scene); keepPacked(S.scene);
   S.sceneMs = performance.now() - t0;
   if (window.NFMReport) window.NFMReport.time('scene build', S.sceneMs);
-  applyStyle(true);
+  applyStyle(true, true);
   if (mgr && mgr.r) mgr.r.setScene(S.scene);
   if (fit) fitView(true); else requestDraw();
   renderMapUI();
@@ -280,7 +280,7 @@ function scheduleScene(camOnly, keepLook) {
     if (sceneCamOnly && S.L.is3d) { so.plan = S.camPlan || (S.camPlan = {}); if (r && r.rigPrepare) { r.rigPrepare(); so.rig = true; } } else S.camPlan = null;
     /* only item moves and label sizes keep link looks; any other change starts the looks over */
     if (sceneKeepLook && !S.L.is3d) so.lookPlan = S.lookPlan || (S.lookPlan = {}); else S.lookPlan = null;
-    sceneCamOnly = true; sceneKeepLook = true; S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (r) r.setScene(S.scene); keepPacked(S.scene); requestDraw();
+    sceneCamOnly = true; sceneKeepLook = true; S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true, !!r); if (r) r.setScene(S.scene); keepPacked(S.scene); requestDraw();
   });
 }
 /** While a big 3D map turns, the picture lives on the card and the lists in the scene are out of date. A moment after the turning stops (or when something needs them: saving, printing) they are made again. */
@@ -293,7 +293,7 @@ function settleTurn() {
   clearTimeout(settleTimer);
   var sc = S.scene; if (!S.L || !sc || !sc.turn || !sc.turn.on) return;
   applyPins(S.L); var so = sceneOpts(); so.plan = S.camPlan || (S.camPlan = {}); so.rig = true;
-  S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true); if (mgr && mgr.r) mgr.r.setScene(S.scene); keepPacked(S.scene); requestDraw();
+  S.scene = NFMScene.make(S.L, so); editKey(S.scene); applyStyle(true, !!(mgr && mgr.r)); if (mgr && mgr.r) mgr.r.setScene(S.scene); keepPacked(S.scene); requestDraw();
 }
 
 /* ---------------------------------------------------------------- selection, dimming, search, route lighting */
@@ -309,7 +309,8 @@ function edgesFromOrig(set) { /* original link numbers -> drawn arrow numbers */
   S.L.edges.forEach(function (e, i) { if (e.orig) for (var k = 0; k < e.orig.length; k++) if (set.has(e.orig[k])) { out.add(i); break; } });
   return out;
 }
-function applyStyle(noDraw) {
+/** Puts the selection, search and route looks on the scene. noRestyle: a setScene follows at once, and it builds the card's buffers from the styled scene anyway, so asking the renderer to restyle first would build them twice (for the old scene, too). */
+function applyStyle(noDraw, noRestyle) {
   var sc = S.scene; if (!sc) return;
   attachSimOverlay();
   var mk = new Map(), ids = Array.from(S.sel); Object.keys(S.V.marks || {}).forEach(function (id) { var n = sceneNodeFor(id); if (n) mk.set(n.key, S.V.marks[id]); });
@@ -320,7 +321,7 @@ function applyStyle(noDraw) {
   else if (S.selEdges.size) { st.selEdges = S.selEdges; var ep = new Set(); S.selEdges.forEach(function (i) { var e = S.L.edges[i]; if (e) { ep.add(e.from); ep.add(e.to); } }); st.focus = keysOf(ep); }
   if (S.V.hover) { /* reserved */ }
   NFMScene.style(sc, st);
-  if (mgr && mgr.r && mgr.r.restyle) mgr.r.restyle();
+  if (!noRestyle && mgr && mgr.r && mgr.r.restyle) mgr.r.restyle();
   if (!noDraw) requestDraw();
 }
 /** Opens the chapters and parts that hide any of these pages (a search hit, a selection from the details list); true when something was opened and the map is being built again. */
