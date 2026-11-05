@@ -462,6 +462,14 @@ function viewTo(v, ms) {
   CAM.wheel = CAM.fling = null; CAM.anim = { t0: performance.now(), ms: ms || 480, k0: S.view.k, k1: v.k, cx0: c0[0], cy0: c0[1], cx1: c1[0], cy1: c1[1], bx: W / 2, by: H / 2 }; kick();
 }
 /** The part of the stage not covered by the left rail and top bar (so "fit" does not hide things behind panels). */
+/* Room Fit keeps for the key while it stays where the app put it (bottom left; a key the person moved is theirs to place): the picture is fitted beside it
+   or above it, whichever leaves the picture bigger, so the key never covers it. Rows are about 20 px; the key's list stops at 46% of the height. */
+function keyRoom() {
+  var k = S.V && S.V.key, sc = S.scene;
+  if (!k || k.hide || k.x !== null || k.y !== null || !sc || !sc.legend || !sc.legend.length || S.stageW < 761) return null;
+  var rows = sc.legend.length, body = k.min ? 0 : Math.min(S.stageH * 0.46, 14 + rows * 21), h = 34 + body + 12 + (hasStates() ? 70 : 0);
+  return { w: 306, h: Math.min(h, S.stageH * 0.4) };   /* the key is at most 300 wide */
+}
 function freeBox() {
   var W = S.stageW, H = S.stageH, phone = W < 761, left = 0, top = phone ? 58 : 64, bottom = 0, right = 0, rail = $('rail');
   if (rail && !rail.classList.contains('closed')) { if (phone) bottom = H * 0.58; else left = 322; }
@@ -477,6 +485,11 @@ function fitTarget(ids) {
     ids.forEach(function (id) { var n = sceneNodeFor(id); if (n) { x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x + n.w); y1 = Math.max(y1, n.y + n.h); } });
     if (!isFinite(x0)) return null;
     var pad = Math.max(60, (x1 - x0) * 0.25, (y1 - y0) * 0.25); x0 -= pad; x1 += pad; y0 -= pad; y1 += pad;
+  }
+  var kr = ids && ids.length ? null : keyRoom(), kw = x1 - x0, kh = y1 - y0;
+  if (kr) {   /* beside the key or above it: the larger picture wins */
+    var bk = Math.min(b.w / Math.max(1, kw), (b.h - kr.h) / Math.max(1, kh)), lk = Math.min((b.w - kr.w) / Math.max(1, kw), b.h / Math.max(1, kh));
+    if (bk >= lk) b = { x: b.x, y: b.y, w: b.w, h: b.h - kr.h }; else b = { x: b.x + kr.w, y: b.y, w: b.w - kr.w, h: b.h };
   }
   var k = Math.min(b.w / Math.max(1, x1 - x0), b.h / Math.max(1, y1 - y0)) * 0.97;
   if (ids && ids.length) k = Math.min(k, Math.max(S.fitK * 6, 2));
