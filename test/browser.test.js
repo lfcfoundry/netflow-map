@@ -397,6 +397,7 @@ async function open() {
   say(k1 > k0 * 1.8 && kMid < k1 * 0.999, `zoom eases toward its target: ${k0.toFixed(2)} -> ${kMid.toFixed(2)} -> ${k1.toFixed(2)}`);
   await ev(() => NFM.fitView(true)); await settle(200);
   const kb = await ev(() => { const r = document.getElementById('key').getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; });
+  await ev(() => { const t = document.getElementById('toast'); if (t) t.style.pointerEvents = 'none'; });   /* the key starts as a small bar at the bottom, where a toast from an earlier step can sit over it */
   await D.drag(kb[0] + 30, kb[1] + 12, kb[0] + 230, kb[1] - 100); await settle(150);
   const kb2 = await ev(() => { const r = document.getElementById('key').getBoundingClientRect(); return [r.left, r.top]; });
   say(Math.abs(kb2[0] - kb[0] - 200) < 8 && kb2[1] < kb[1] - 60, `the key floats and drags (${Math.round(kb[0])},${Math.round(kb[1])} to ${Math.round(kb2[0])},${Math.round(kb2[1])})`);
