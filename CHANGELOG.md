@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 5
 
+- **2026.11.05.0900** Saving the map for undo (and for the resting layout helper) is quicker on big maps (lfc-pack 0.4.24 packs tables faster). The packed result is the same.
 - **2026.11.05.0700** Chart refinements: line charts name each line at its end instead of in a key row, crowded bar names show on two rows instead of every other name, years print as 2015 not 2,015, and a highlighted series keeps the others faint in their own colors. Sankey bands and bars use the same 12 color-blind-safe group colors as the other views.
 - **2026.11.05.0700** The Key box no longer covers the picture. It now starts as a small title bar at the bottom (one click opens it, and your choice is remembered per map), and Fit keeps the picture clear of it. A key you have moved stays where you put it.
 - **2026.11.05.0210** The first colors the app gives groups are in a new order that red-green color-blind eyes can tell apart (netflow-scene 1.5.0). Names on tilted round views (chord, bundles, tidy tree in a circle) are no longer cut off at the edge. Packing a big map for undo and for the resting helper is quicker to start and holds less memory (lfc-pack 0.4.23: the packer's working memory is sized to each job instead of a fixed 384 MB).
