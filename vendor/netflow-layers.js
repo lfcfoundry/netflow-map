@@ -2,7 +2,7 @@
  * netflow-layers.js: lay out a graph in rows (a Sugiyama-style layered drawing): top to bottom or left to right, with long links as tags, story order, a column for the pages every route passes, and tall maps cut into columns. No dependencies.
  * Part of JS-modules, https://github.com/lfcfoundry/JS-modules
  * Copyright (c) 2026 LFC Foundry. MIT License (see LICENSE at the repository root).
- * Version 1.9.0 (API 1)
+ * Version 1.11.0 (API 1)
  *
  *   var R = NetflowLayers.layout({ nodes: [{ id: "start", w: 140, h: 44 }, { id: "a", w: 140, h: 44 }], edges: [{ from: "start", to: "a" }], root: "start" }, { dir: "TB" });
  *   svgElement.innerHTML = NetflowLayers.toSvg(R);          // or draw R.nodes and R.edges yourself (see README)
@@ -597,11 +597,34 @@
   var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var f1 = function (x) { return Math.round(x * 10) / 10; };
   /** A plain SVG picture of a layout() result: boxes, curved links through the stops, tags with name chips. Options: gold, line, box, boxLine, text, muted (colors), taper (forward links as shapes that narrow from 5 to 1 px). */
+  /** The links of any plain input: a list of { from, to, value } (weight or count also name the amount; 1 when none), or { links } or { edges }. */
+  /* Table rows in your own column names work too: name them with o.from, o.to and o.value, or leave them out and the first two text columns and the first number column are used. */
+  function asLinks(d, o) {
+    o = o || {}; var l = Array.isArray(d) ? d : (d && (d.links || d.edges)) || [], r0 = l[0] || {}, F = typeof o.from === 'string' ? o.from : null, T = typeof o.to === 'string' ? o.to : null, V = typeof o.value === 'string' ? o.value : null;
+    if (!F && !T && r0.from === undefined && r0.to === undefined) { var txt = [], num = null; Object.keys(r0).forEach(function (k) { var v = r0[k]; if (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && isFinite(+v))) { if (num === null) num = k; } else if (typeof v === 'string') txt.push(k); }); F = txt[0] || null; T = txt[1] || null; if (!V) V = num; }
+    return l.map(function (e) { var v = V ? e[V] : e.value !== undefined ? e.value : e.weight !== undefined ? e.weight : e.count !== undefined ? e.count : 1; return { from: F ? e[F] : e.from, to: T ? e[T] : e.to, value: v === undefined || v === '' ? 1 : +v }; });
+  }
+  /** toSvg(data, o) in one call (links as above, or { nodes, edges } with or without sizes), or toSvg(R, o) for a layout result (its nodes have x and y). */
   function toSvg(R, o) {
     o = o || {};
+    if (!R || !R.nodes || !R.nodes.length || R.nodes[0].x === undefined || R.width === undefined) {
+      var ls = asLinks(R, o), ns = R && !Array.isArray(R) && R.nodes ? R.nodes.slice() : [], seen = {};
+      ns.forEach(function (n) { seen[n.id] = 1; }); ls.forEach(function (e) { [e.from, e.to].forEach(function (id) { if (!seen[id]) { seen[id] = 1; ns.push({ id: id }); } }); });
+      ns = ns.map(function (n) { var c = {}; for (var k in n) c[k] = n[k]; var t = String(c.label !== undefined ? c.label : c.id); if (!(c.w > 0)) c.w = Math.max(60, t.length * 7.2 + 24); if (!(c.h > 0)) c.h = 32; return c; });
+      R = layout({ root: R && R.root !== undefined ? R.root : (ns[0] && ns[0].id), nodes: ns, edges: ls.map(function (e) { return { from: e.from, to: e.to, count: e.value }; }) }, o);
+    }
     var gold = o.gold || '#c98a00', line = o.line || '#6b7a90', box = o.box || '#eaf0f8', boxLine = o.boxLine || '#44546a', ink = o.text || '#222', muted = o.muted || '#667', LR = R.dir !== 'TB', out = [];
     var name = function (n) { return esc(n.label !== undefined ? n.label : n.id); }, cx = function (n) { return n.x + n.w / 2; }, cy = function (n) { return n.y + n.h / 2; };
-    out.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + f1(R.width) + ' ' + f1(R.height) + '" width="' + Math.round(R.width) + '" height="' + Math.round(R.height) + '" font-family="system-ui,sans-serif">');
+    /* optional title block (o.title, o.subtitle, o.source), drawn like the Sankey, plot and treemap ones: bold title and lighter subtitle above, small source below; the chart itself is moved down inside a group and does not change */
+    var pad = 14, head = 0, foot = 0, blk = '', ty = pad;
+    if (o.title) { ty += 20; blk += '<text x="' + pad + '" y="' + ty + '" font-size="20" font-weight="700" fill="' + esc(ink) + '">' + esc(o.title) + '</text>'; ty += 6; }
+    if (o.subtitle) { ty += 13; blk += '<text x="' + pad + '" y="' + ty + '" font-size="13" fill="' + esc(ink) + '" fill-opacity="0.8">' + esc(o.subtitle) + '</text>'; ty += 6; }
+    if (blk) head = +(ty + pad * 0.6).toFixed(1);
+    if (o.source) { foot = 24; blk += '<text x="' + pad + '" y="' + f1(head + R.height + 15) + '" font-size="11" fill="' + esc(ink) + '" fill-opacity="0.72">' + esc(o.source) + '</text>'; }
+    out.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + f1(R.width) + ' ' + f1(R.height + head + foot) + '" width="' + Math.round(R.width) + '" height="' + Math.round(R.height + head + foot) + '" font-family="Inter, \'Segoe UI\', Roboto, system-ui, sans-serif"' + (o.title ? ' role="img" aria-label="' + esc(o.title) + '"' : '') + '>');
+    if (o.title) out.push('<title>' + esc(o.title) + '</title>');
+    if (blk) out.push(blk);
+    if (head) out.push('<g transform="translate(0 ' + head + ')">');
     var path = function (pts) { var d = 'M' + f1(pts[0][0]) + ',' + f1(pts[0][1]); for (var i = 1; i < pts.length; i++) { var a = pts[i - 1], b = pts[i]; if (LR) { var m = (b[0] - a[0]) / 2; d += ' C' + f1(a[0] + m) + ',' + f1(a[1]) + ' ' + f1(b[0] - m) + ',' + f1(b[1]) + ' ' + f1(b[0]) + ',' + f1(b[1]); } else { var q = (b[1] - a[1]) / 2; d += ' C' + f1(a[0]) + ',' + f1(a[1] + q) + ' ' + f1(b[0]) + ',' + f1(b[1] - q) + ' ' + f1(b[0]) + ',' + f1(b[1]); } } return d; };
     /* a tapered link: the same curve as path(), drawn as a filled shape that narrows from 5 to 1 px along its length */
     var taperPath = function (pts) {
@@ -641,9 +664,10 @@
       out.push('<rect x="' + f1(n.x) + '" y="' + f1(n.y) + '" width="' + f1(n.w) + '" height="' + f1(n.h) + '" rx="8" fill="' + (n.choke ? '#fde7b0' : box) + '" stroke="' + boxLine + '" stroke-width="1.5"/>');
       out.push('<text x="' + f1(cx(n)) + '" y="' + f1(cy(n) + 5) + '" font-size="14" text-anchor="middle" fill="' + ink + '">' + name(n) + '</text>');
     });
+    if (head) out.push('</g>');
     out.push('</svg>');
     return out.join('\n');
   }
 
-  return { version: '1.9.0', wasm: WASM, _deep: DEEP, layout: layout, toSvg: toSvg, layered: layered, mapPlaceLine: mapPlaceLine, mapCrossPairs: mapCrossPairs };
+  return { version: '1.11.0', wasm: WASM, _deep: DEEP, layout: layout, toSvg: toSvg, layered: layered, mapPlaceLine: mapPlaceLine, mapCrossPairs: mapCrossPairs };
 }));
