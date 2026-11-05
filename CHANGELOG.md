@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Developer notes, in t
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 and WebKitGTK 2.52.6. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## November 5
+
+- **2026.11.05.0102** Charts have a cleaner look: bar and box charts write their values on the bars (totals above stacks, medians on boxes) with no gridlines or number axis, and crowded names go on two lines before they tilt. Red, brown and purple are a shade darker so text on them is easier to read. The Sankey view can show a title, subtitle and source line. Color and label changes on big nested views (treemap, sunburst and the like) are quicker: a 60,000-box treemap took about 1.5 s in Chromium, now about 0.4 s.
+
 ## November 1
 
 - **Landing page** Netflow Map now has a public page at lfcfoundry.github.io/netflow-map, and the latest app opens at lfcfoundry.github.io/netflow-map/play/.
