@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 5
 
+- **2026.11.05.0210** The first colors the app gives groups are in a new order that red-green color-blind eyes can tell apart (netflow-scene 1.5.0). Names on tilted round views (chord, bundles, tidy tree in a circle) are no longer cut off at the edge. Packing a big map for undo and for the resting helper is quicker to start and holds less memory (lfc-pack 0.4.22: the packer's working memory is sized to each job instead of a fixed 384 MB).
 - **2026.11.05.0140** Less clicking from a file to a picture. Drop or choose a table that reads cleanly and the map opens by itself; if the table has from, to and amount columns it opens as a Sankey (other views are one choice away on the Look tab). If the read needs a look (repeated links merged, rows left out, a guessed header) you still stop on the Data tab. The map toolbar has an Export button: the first press asks for PNG or SVG and remembers it, later presses save at once. The Export tab is unchanged.
 - **2026.11.05.0102** Charts have a cleaner look: bar and box charts write their values on the bars (totals above stacks, medians on boxes) with no gridlines or number axis, and crowded names go on two lines before they tilt. Red, brown and purple are a shade darker so text on them is easier to read. The Sankey view can show a title, subtitle and source line. Color and label changes on big nested views (treemap, sunburst and the like) are quicker: a 60,000-box treemap took about 1.5 s in Chromium, now about 0.4 s.
 
