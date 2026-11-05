@@ -149,6 +149,18 @@ async function open() {
     await feed('small.csv', Buffer.from('source,target\nX,Y\n'));
     await pick('saved.json.lfc', lfc); z = await stats();
     say(z.n === 3 && z.m === 3 && Buffer.concat([lfc.slice(0, 4), lfc.slice(-4)]).toString('latin1').indexOf('LFC1') >= 0, 'a saved .json.lfc map file opens through the file picker: ' + z.n + ' items, ' + z.m + ' links (' + lfc.length + ' bytes)');
+    /* a table that reads cleanly opens by itself: a Sankey with from, to and amount, the map otherwise; an unclear read stops on the Data tab */
+    const where = () => ev(() => NFM.state.tab + '/' + NFM.state.V.view);
+    await ev(() => NFM.showTab('data')); await pick('ao1.csv', Buffer.from('source,target,amount\nSalary,Rent,900\nSalary,Savings,400\nSalary,Food,300\nSavings,Travel,100\n')); const ao1 = await where();
+    await ev(() => NFM.showTab('data')); await pick('ao2.csv', Buffer.from('source,target\nP,Q\nQ,R\n')); const ao2 = await where();
+    await ev(() => NFM.showTab('data')); await pick('ao3.csv', Buffer.from('source,target,amount\nA,B,5\nA,B,7\nB,C,2\n')); const ao3 = await where();
+    say(ao1 === 'map/sankey' && /^map\//.test(ao2) && ao2 !== 'map/sankey' && /^data\//.test(ao3), 'a clean table opens by itself (from, to, amount: Sankey; without amount: the map); a read with a note stops on the Data tab: ' + ao1 + ', ' + ao2 + ', ' + ao3);
+    /* the Export button on the map toolbar: the first press asks for a format and remembers it, later presses save at once */
+    await ev(() => { localStorage.removeItem('nfm-export-format'); NFM.showTab('map'); });
+    const ex1 = await ev(() => { document.getElementById('exportbtn').click(); return !!document.getElementById('quickexp'); });
+    await ev(() => { document.querySelectorAll('#quickexp button')[1].click(); });
+    const ex2 = await ev(() => localStorage.getItem('nfm-export-format') + '/' + !!document.getElementById('quickexp'));
+    say(ex1 === true && ex2 === 'svg/false', 'the Export button asks for a format the first time and remembers it: ' + ex1 + ', ' + ex2);
     await ev(() => NFM.showTab('data'));
   }
 

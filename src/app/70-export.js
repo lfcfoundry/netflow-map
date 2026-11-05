@@ -65,3 +65,21 @@ function renderExport() {
   ]);
 }
 var EXP = { scale: 2, key: true };
+
+/* The Export button on the map toolbar: the first press asks for a picture format, then every press saves that format at once ("Change" on the little menu picks another). */
+var QX = { choices: [['png', 'PNG picture'], ['svg', 'SVG, small (grouped)'], ['svgfull', 'SVG, every item its own element']] };
+function quickFormat() { var f = null; try { f = localStorage.getItem('nfm-export-format'); } catch (e) { } return QX.choices.some(function (c) { return c[0] === f; }) ? f : null; }
+function quickSave(f) {
+  try { localStorage.setItem('nfm-export-format', f); } catch (e) { }
+  if (f === 'png') exportPng(EXP.scale, EXP.key); else saveSvg(f === 'svg');
+}
+function exportQuick(forceAsk) {
+  var old = $('quickexp'); if (old) { old.remove(); if (!forceAsk) return; }
+  var f = forceAsk ? null : quickFormat();
+  if (f) { quickSave(f); return; }
+  var anchor = $('exportbtn'), r = anchor.getBoundingClientRect(), box = $('ui').getBoundingClientRect();
+  var m = h('div', { id: 'quickexp', class: 'glass', role: 'menu', style: { position: 'absolute', zIndex: '30', left: Math.max(8, r.left - box.left - 120) + 'px', top: (r.bottom - box.top + 6) + 'px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px' } },
+    [h('div', { class: 'muted small' }, 'Save the map as (remembered next time)')].concat(QX.choices.map(function (c) { return h('button', { role: 'menuitem', onclick: function () { m.remove(); quickSave(c[0]); } }, c[1]); })));
+  $('ui').appendChild(m);
+  var first = m.querySelector('button'); if (first) first.focus();
+}
