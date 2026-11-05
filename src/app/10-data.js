@@ -71,7 +71,7 @@ function busy(msg) { var c = $('report'); c.hidden = false; $('stats').textConte
 function renderError(msg) { var c = $('report'); c.hidden = false; $('stats').textContent = ''; $('mapping').hidden = true; mount($('notes'), h('li', null, [h('b', null, 'I could not read that. '), msg])); }
 
 /** Everything that brings data in goes through here. */
-function ingest(files, extra) {
+function ingest(files, extra, open) {
   if (MAPFILE.queue.length) { var mf = MAPFILE.queue[0]; MAPFILE.queue = []; skippedCount = 0; return openMapFile(mf); }
   if (!files.length) {
     if (archiveNotes.length) { var why = archiveNotes.join(' '); archiveNotes = []; skippedCount = 0; renderError(why); return Promise.resolve(); }
@@ -90,28 +90,44 @@ function ingest(files, extra) {
     if (archiveNotes.length) { archiveNotes.forEach(function (n) { res.report.notes.push(n); }); archiveNotes = []; }
     SAFE.del('nfm-v:' + g.name);
     setGraph(g, true, merged); shareTextSoon();
+    if (open && !merged && cleanRead(res, g)) { autoOpen(res, g); return; }   /* a table that reads cleanly goes straight to the map (a Sankey when it has from, to and a weight); anything unclear stops here on the Data tab */
     $('report').scrollIntoView({ behavior: 'auto', block: 'nearest' });
   });
+}
+/* A table read counts as clean when it is one table of links (or a parent column), the header row was found, the file said nothing but how it was read,
+   and nothing was merged, dropped, left out or shortened. Anything else stays on the Data tab so the person can check it first. */
+function cleanRead(res, g) {
+  var m = res && res.mapping, c = res && res.report && res.report.counts;
+  if (!m || res.kind !== 'table' || (m.mode !== 'edges' && m.mode !== 'tree') || m.guessedHeader) return false;
+  if (!res.report.notes || res.report.notes.length !== 1 || !g.nodes.length) return false;
+  if (c) for (var k in c) if (c[k]) return false;
+  return true;
+}
+var AUTO_SANKEY_MAX = 2000;
+function autoOpen(res, g) {
+  var m = res.mapping;
+  if (m.mode === 'edges' && m.cols.weight !== undefined && g.nodes.length >= 2 && g.nodes.length <= AUTO_SANKEY_MAX && g.edges.length) { setV({ view: 'sankey', colorBy: 'odds' }, 'none'); res.report.notes.push('Opened as a Sankey because the table has from, to and amount columns. Other views: Look tab, or Ask.'); }
+  showTab('map');
 }
 function bindIntake() {
   $('b-files').addEventListener('click', function () { $('in-files').click(); });
   $('b-folder').addEventListener('click', function () { $('in-folder').click(); });
   $('drop').addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('in-files').click(); } });
-  $('in-files').addEventListener('change', function (e) { var l = e.target.files; if (l && l.length) filesFromInput(l).then(ingest); e.target.value = ''; });
-  $('in-folder').addEventListener('change', function (e) { var l = e.target.files; if (l && l.length) filesFromInput(l).then(ingest); e.target.value = ''; });
+  $('in-files').addEventListener('change', function (e) { var l = e.target.files; if (l && l.length) filesFromInput(l).then(function (f) { return ingest(f, null, true); }); e.target.value = ''; });
+  $('in-folder').addEventListener('change', function (e) { var l = e.target.files; if (l && l.length) filesFromInput(l).then(function (f) { return ingest(f, null, true); }); e.target.value = ''; });
   $('b-paste').addEventListener('click', function () { $('pastebox').hidden = false; $('paste').focus(); });
   $('b-pastex').addEventListener('click', function () { $('pastebox').hidden = true; });
-  $('b-read').addEventListener('click', function () { var t = $('paste').value; if (!t.trim()) { toast('Paste something first.'); return; } ingest([{ name: 'Pasted data', text: t }]).then(function () { $('pastebox').hidden = true; }); });
+  $('b-read').addEventListener('click', function () { var t = $('paste').value; if (!t.trim()) { toast('Paste something first.'); return; } ingest([{ name: 'Pasted data', text: t }], null, true).then(function () { $('pastebox').hidden = true; }); });
   ['dragenter', 'dragover'].forEach(function (ev) { document.addEventListener(ev, function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0) { e.preventDefault(); if (S.tab === 'data') $('drop').classList.add('over'); } }); });
   document.addEventListener('dragleave', function (e) { if (!e.relatedTarget) $('drop').classList.remove('over'); });
   document.addEventListener('drop', function (e) {
     if (!e.dataTransfer || !e.dataTransfer.types || Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') < 0) return;
     e.preventDefault(); $('drop').classList.remove('over'); showTab('data');
-    filesFromDrop(e.dataTransfer).then(ingest);
+    filesFromDrop(e.dataTransfer).then(function (f) { return ingest(f, null, true); });
   });
   document.addEventListener('paste', function (e) {
     if (S.tab !== 'data' || /input|textarea|select/i.test(e.target.tagName || '')) return;
-    var t = e.clipboardData && e.clipboardData.getData('text'); if (t && t.trim()) { e.preventDefault(); ingest([{ name: 'Pasted data', text: t }]); }
+    var t = e.clipboardData && e.clipboardData.getData('text'); if (t && t.trim()) { e.preventDefault(); ingest([{ name: 'Pasted data', text: t }], null, true); }
   });
   var exSel = $('examples');
   NFMExamples.LIST.forEach(function (x) { exSel.appendChild(opt(x.id, x.title)); });
