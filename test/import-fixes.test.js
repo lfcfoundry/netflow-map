@@ -260,5 +260,22 @@ t('D3. links with weight 0 or less are left out with a note; if every weight is 
   var u = csv('from,to,weight\nA,B,\nB,C,3\n'); assert.strictEqual(u.graph.edges.length, 2, 'a link with no weight is not "zero"');
 });
 
+/* ---------------------------------------------------------------- slow-pattern guard: one long run must not take quadratic time */
+t('20. one long run of spaces, brackets or letters imports in well under a second', function () {
+  var N = 40000, sp = new Array(N + 1).join(' '), br = new Array(N + 1).join('['), lt = new Array(N + 1).join('<'), ab = new Array(N + 1).join('a');
+  var cases = [
+    ['x.gexf', '<?xml version="1.0"?><gexf><graph><nodes><node id="1" ' + ab + ' /></nodes></graph></gexf>'],
+    ['x.md', '# T\n' + br + '\n- a [[b]]\n'],
+    ['x.md', '---\ntags: [a' + sp + 'b]\n---\n[x](' + br + ')\n'],
+    ['x.mmd', 'a ' + sp + ' --> b\n' + br + '\n'],
+    ['x.dot', 'digraph { a -> b [' + sp + ']; ' + lt + ' }'],
+    ['x.csv', 'name,links\na,b' + sp + ',c\n']
+  ];
+  cases.forEach(function (c) {
+    var t0 = Date.now(); try { I.importAny([{ name: c[0], text: c[1] }]); } catch (e) { /* a refusal is fine, slowness is not */ }
+    assert.ok(Date.now() - t0 < 1000, c[0] + ' took ' + (Date.now() - t0) + ' ms');
+  });
+});
+
 console.log(fails ? '\nimport-fixes: ' + fails + ' FAILED, ' + passes + ' passed' : '\nimport-fixes: all ' + passes + ' checks passed');
 process.exit(fails ? 1 : 0);
