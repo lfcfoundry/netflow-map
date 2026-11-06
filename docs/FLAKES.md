@@ -10,6 +10,7 @@ A check that failed once and passed on a rerun with no code change. Rule (univer
 | 2026-10-17 | 1540 | GNOME Web 46.5 | "hiding the first group does not recolor the others" | The legend color was read before the legend existed (`null then [...]`); 2 of 3 completed runs with webkit-driver 1.2.0 | A gap in the test on a slow browser (not an app bug) | Fixed: the test waits for the legend before reading the first color |
 | 2026-10-18 | 1259 | GNOME Web 46.5 | "when the exact odds are not available, ends called constructor and toString show no exact odds" | Failed once (`[]` instead of the expected result) on the run just before a passing rerun; the change under test (Spacing switch) does not touch odds; GNOME Web also failed to start twice in a row before this run | Not yet understood; suspected read before the page settled (like the 2026-10-17 1540 row) | Open: if it repeats on an idle machine, find the cause |
 | 2026-11-05 | 2250 | Node (4 test files at a time) | `engine-fixes.test.js` | Failed once with no message in the summary; passed alone 3 times and on a full rerun. Not reproduced; watch for it. |
+| 2026-11-06 | 0901 | Node (4 test files at a time) | `engine-fixes.test.js` | Failed a second time, again on the first full run right after a build; passed alone 3 times and on 5 later full runs. Not reproduced; it has timing checks (`timed`), so load is the likely cause. |
 
 Add a row for every failure that passes on a rerun with no change. If the same check repeats on an idle machine, it is a real bug: find the cause.
 

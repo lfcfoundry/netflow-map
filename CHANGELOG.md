@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 6
 
+- **2026.11.06.0900** Flow pictures: links that go back to an earlier box use a darker amber, so their labels read on white, and a back link that spans several rows runs once instead of out and back (saved SVG pictures). Nothing else changes.
 - **2026.11.06.0200** Chart refinements from the shared modules: tiles on treemaps and circle packs always have readable names (a tile that fails the contrast test is nudged a little darker instead of using black names), group boxes show a name strip, line charts have no number axis, and axis names taken from column names read as words (sales_total shows as Sales total). The opt-in chart frame and family colors are available to the modules but off in the app.
 - **2026.11.06.0110** Opening the Key box no longer covers the picture: if the open key would sit over items or bars, the picture is fitted again beside it. A key you moved stays where you put it.
 - **2026.11.06.0100** In the Sankey view, names in the middle columns get a ring of the background color around the letters, so they read over the bands behind them. Nothing else moves. The Look tab does not change.
