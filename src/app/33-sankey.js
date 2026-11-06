@@ -138,8 +138,29 @@ function skNotesPanel(k) {
       h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: n.x, 'aria-label': 'Note ' + (i + 1) + ' across', style: { width: '70px' }, oninput: function () { n.x = +this.value; saveView(); scheduleScene(); } }),
       h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: n.y, 'aria-label': 'Note ' + (i + 1) + ' down', style: { width: '70px' }, oninput: function () { n.y = +this.value; saveView(); scheduleScene(); } }),
       h('button', { class: 'sm', 'aria-label': 'Remove note ' + (i + 1), onclick: function () { skPush(true); k.notes.splice(i, 1); skCommit(false); } }, 'Remove')]);
-  }), [h('div', { class: 'row tight' }, [h('button', { class: 'sm', onclick: skAddNote }, 'Add a note…')]), ns.length ? h('p', { class: 'muted small', style: { margin: 0 } }, SK_NOTE_HINT + '. Sliders: across, down.') : null]));
+  }), [h('div', { class: 'row tight' }, [h('button', { class: 'sm', onclick: skAddNote }, 'Add a note…')]), ns.length ? h('p', { class: 'muted small', style: { margin: 0 } }, SK_NOTE_HINT + '. Drag a note on the picture, or use its two sliders (across, down).') : null]));
 }
+/* Dragging a note: the notes drawn on the picture come in the same order as the notes that have text */
+var skNoteDrag = null;
+function skNoteAt(p) {
+  var k = skV(), ns = k.notes || [], sc = S.scene; if (!ns.length || !sc || !sc.labels) return -1;
+  var idx = []; ns.forEach(function (n, i) { if (n && n.text) idx.push(i); });
+  var drawn = sc.labels.filter(function (l) { return l.note; }); if (drawn.length !== idx.length) return -1;
+  var w = worldOf(p[0], p[1]), m = 5 / S.view.k, j;
+  for (j = drawn.length - 1; j >= 0; j--) {
+    var l = drawn[j], bw = l.t.length * l.size * 0.55, bh = l.size * 1.1, x0 = l.align === 'l' ? l.x : l.align === 'r' ? l.x - bw : l.x - bw / 2;
+    if (w[0] >= x0 - m && w[0] <= x0 + bw + m && w[1] >= l.y - bh * 0.85 - m && w[1] <= l.y + bh * 0.25 + m) return idx[j];
+  }
+  return -1;
+}
+function skNoteBegin(q) { var n = skV().notes[q.note]; if (!n) return; skPush(true); skNoteDrag = { n: n, x0: n.x, y0: n.y, w0: worldOf(q.x, q.y) }; }
+function skNoteTo(p) {
+  var d = skNoteDrag, W = S.L && S.L.width, H = S.L && S.L.height; if (!d || !W || !H) return;
+  var w = worldOf(p[0], p[1]);
+  d.n.x = Math.max(0, Math.min(1, d.x0 + (w[0] - d.w0[0]) / W)); d.n.y = Math.max(0, Math.min(1, d.y0 + (w[1] - d.w0[1]) / H));
+  scheduleScene();
+}
+function skNoteEnd() { skNoteDrag = null; saveView(); if (S.tab === 'map') renderRail(true); }
 function skEditLabel(id) {
   var g = S.byId.get(id), cur = (skV().nodes[id] || {}).labelText || (g ? g.label : id);
   askText('Label text', 'Text shown next to the bar', cur).then(function (v) { if (v !== null) skNodePatch([id], { labelText: v === (g ? g.label : id) ? '' : v }); });

@@ -45,7 +45,8 @@ stage.addEventListener('pointerdown', function (e) {
   if (S.L && S.L.is3d) mode = 'orbit';
   if (S.tool === 'box' || e.shiftKey) mode = 'box'; else if (S.tool === 'lasso' || e.altKey) mode = 'lasso';
   else if (hh.type === 'node' && (canDrag() || skOn())) mode = 'node';
-  P0 = { x: p[0], y: p[1], hit: hh, mode: mode, moved: false, shift: e.shiftKey || e.ctrlKey || e.metaKey, t: performance.now(), pid: e.pointerId, yaw: S.V.cam.yaw, pitch: S.V.cam.pitch, tx: S.view.tx, ty: S.view.ty };
+  var noteI = -1; if (mode === 'pan' && skOn()) { noteI = skNoteAt(p); if (noteI >= 0) mode = 'note'; }
+  P0 = { x: p[0], y: p[1], hit: hh, mode: mode, note: noteI, moved: false, shift: e.shiftKey || e.ctrlKey || e.metaKey, t: performance.now(), pid: e.pointerId, yaw: S.V.cam.yaw, pitch: S.V.cam.pitch, tx: S.view.tx, ty: S.view.ty };
   velo = [[p[0], p[1], P0.t]];
   if (isTouch) pressTimer = setTimeout(function () { if (P0 && !P0.moved && ptrs.size === 1) { var q = P0; P0 = null; openContext(q.x, q.y, q.hit, true); } }, 560);
 });
@@ -60,13 +61,14 @@ stage.addEventListener('pointermove', function (e) {
   }
   if (!P0 || P0.pid !== e.pointerId) return;
   var dx = p[0] - P0.x, dy = p[1] - P0.y;
-  if (!P0.moved) { if (Math.hypot(dx, dy) < (isTouch ? 8 : 4)) return; P0.moved = true; clearTimeout(pressTimer); hideTip(); if (P0.mode === 'node') beginNodeDrag(P0); stage.classList.add(P0.mode === 'pan' || P0.mode === 'orbit' ? 'drag' : P0.mode === 'node' ? 'move' : 'pick'); }
+  if (!P0.moved) { if (Math.hypot(dx, dy) < (isTouch ? 8 : 4)) return; P0.moved = true; clearTimeout(pressTimer); hideTip(); if (P0.mode === 'node') beginNodeDrag(P0); else if (P0.mode === 'note') skNoteBegin(P0); stage.classList.add(P0.mode === 'pan' || P0.mode === 'orbit' ? 'drag' : P0.mode === 'node' || P0.mode === 'note' ? 'move' : 'pick'); }
   var m = P0.mode;
   if (m === 'pan') { S.view = { k: S.view.k, tx: S.view.tx + p[0] - prev[0], ty: S.view.ty + p[1] - prev[1] }; velo.push([p[0], p[1], performance.now()]); if (velo.length > 6) velo.shift(); requestDraw(); }
   else if (m === 'orbit') { var c = S.V.cam; c.yaw = P0.yaw + dx * 0.008; c.pitch = clamp(P0.pitch + dy * 0.008, -1.45, 1.45); scheduleScene(true); }
   else if (m === 'box') setInk({ type: 'box', x0: P0.x, y0: P0.y, x1: p[0], y1: p[1] });
   else if (m === 'lasso') { var pts = (inkShape && inkShape.type === 'lasso' ? inkShape.pts : [[P0.x, P0.y]]); pts.push([p[0], p[1]]); setInk({ type: 'lasso', pts: pts }); }
   else if (m === 'node') moveNodes(p);
+  else if (m === 'note') skNoteTo(p);
 });
 function endPtr(e) {
   var had = ptrs.has(e.pointerId); ptrs.delete(e.pointerId); lastDist = 0; stage.classList.remove('drag', 'pick', 'move'); clearTimeout(pressTimer);
@@ -85,6 +87,7 @@ function endPtr(e) {
     setInk(null); setSel(items); if (items.length) toast(plural(items.length, 'item') + ' selected. ' + T('Right-click', 'Press and hold') + ' for what to do with them.');
     if (S.tool !== 'hand' && !e.shiftKey && !e.altKey) { /* keep the tool until the person changes it */ }
   } else if (q.mode === 'node') endNodeDrag();
+  else if (q.mode === 'note') skNoteEnd();
   else if (q.mode === 'pan' && !reduceMotion && velo.length > 2) {
     var a = velo[0], b = velo[velo.length - 1], dt = Math.max(1, b[2] - a[2]), vx = (b[0] - a[0]) / dt * 16, vy = (b[1] - a[1]) / dt * 16;
     if (performance.now() - b[2] < 70 && Math.hypot(vx, vy) > 3) { CAM.fling = { vx: vx, vy: vy }; kick(); }
