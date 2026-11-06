@@ -155,6 +155,13 @@ async function open() {
     await D.wait(() => NFM.state.scene && NFM.state.scene.view === 'sankey' && NFM.pending() === 0, null, 20000);
     const halo = await ev(() => NFM.state.scene.labels.filter((l) => l.halo).map((l) => l.t));
     say(halo.indexOf('Savings') >= 0, 'a Sankey name in a middle column carries a background-colored halo so it reads over the bands: ' + halo.join(', '));
+    /* amounts with the names and notes on the picture (netflow-scene 1.9.0) */
+    await ev(() => { const k = NFM.state.V.sk; NFM.setV({ sk: Object.assign({}, k, { valueLabel: 'inline', unit: '$', notes: [{ text: 'All money: {total}', x: 0.5, y: 0.05, align: 'c', size: 14 }] }) }, 'look'); });
+    await D.wait(() => NFM.state.scene && NFM.state.scene.labels.some((l) => l.note) && NFM.pending() === 0, null, 20000);
+    const vl = await ev(() => NFM.state.scene.labels.map((l) => l.t));
+    say(vl.some((t) => /Salary.*\$1,?600/.test(t)) && vl.some((t) => /All money: \$?1,?600/.test(t)), 'Sankey shows the amount after each name with a unit, and a note carries the live total: ' + vl.slice(0, 6).join(' | '));
+    await ev(() => { const k = NFM.state.V.sk; NFM.setV({ sk: Object.assign({}, k, { valueLabel: 'none', unit: '', notes: [] }) }, 'look'); });
+    await D.wait(() => NFM.state.scene && !NFM.state.scene.labels.some((l) => l.note) && NFM.pending() === 0, null, 20000);
     /* opening the key must not cover the picture: it is fitted again beside the open key */
     await ev(() => { const b = document.querySelector('#key button[aria-label="Shrink or expand the key"]'); if (b && document.getElementById('key').classList.contains('min')) b.click(); }); await sleep(900); await settle(200);
     const keyHit = await ev(() => { const S = NFM.state, st = document.getElementById('stage').getBoundingClientRect(), kr = document.getElementById('key').getBoundingClientRect(), v = S.view; return S.scene.nodes.filter((n) => { const l = st.left + n.x * v.k + v.tx, t = st.top + n.y * v.k + v.ty; return l < kr.right && l + n.w * v.k > kr.left && t < kr.bottom && t + n.h * v.k > kr.top; }).length; });
