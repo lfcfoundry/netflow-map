@@ -160,6 +160,13 @@ async function open() {
     await D.wait(() => NFM.state.scene && NFM.state.scene.labels.some((l) => l.note) && NFM.pending() === 0, null, 20000);
     const vl = await ev(() => NFM.state.scene.labels.map((l) => l.t));
     say(vl.some((t) => /Salary.*\$1,?600/.test(t)) && vl.some((t) => /All money: \$?1,?600/.test(t)), 'Sankey shows the amount after each name with a unit, and a note carries the live total: ' + vl.slice(0, 6).join(' | '));
+    /* a note is dragged by hand and keeps its new place */
+    const nx0 = await ev(() => NFM.state.V.sk.notes[0].x), ny0 = await ev(() => NFM.state.V.sk.notes[0].y);
+    const nb = await ev(() => { const l = NFM.state.scene.labels.find((q) => q.note), v = NFM.state.view; return [l.x * v.k + v.tx, (l.y - l.size * 0.3) * v.k + v.ty]; });
+    const rect = await ev(() => { const r = document.getElementById('stage') ? document.getElementById('stage').getBoundingClientRect() : { left: 0, top: 0 }; return [r.left, r.top]; });
+    await D.drag(nb[0] + rect[0], nb[1] + rect[1], nb[0] + rect[0] + 60, nb[1] + rect[1] + 80); await settle(300);
+    const nx1 = await ev(() => NFM.state.V.sk.notes[0].x), ny1 = await ev(() => NFM.state.V.sk.notes[0].y);
+    say(nx1 > nx0 + 0.01 && ny1 > ny0 + 0.01, 'dragging a Sankey note moves it and keeps the new place: ' + nx0.toFixed(2) + ',' + ny0.toFixed(2) + ' to ' + nx1.toFixed(2) + ',' + ny1.toFixed(2));
     await ev(() => { const k = NFM.state.V.sk; NFM.setV({ sk: Object.assign({}, k, { valueLabel: 'none', unit: '', notes: [] }) }, 'look'); });
     await D.wait(() => NFM.state.scene && !NFM.state.scene.labels.some((l) => l.note) && NFM.pending() === 0, null, 20000);
     /* opening the key must not cover the picture: it is fitted again beside the open key */

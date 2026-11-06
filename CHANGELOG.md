@@ -8,6 +8,8 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 6
 
+- 2026.11.06.1455: Sankey notes can be dragged straight on the picture (the two sliders in the Look tab still work).
+
 - 2026.11.06.1350: Sankey can show amounts with the names: the total under the name, the amount after the name, a percent, or both, with a unit such as $ or GWh and a choice of percent of the whole picture or of its column. You can also write notes on the picture; numbers such as {total}, {top}, {value:Name}, {share:Name} and {flow:From>To} fill in by themselves and follow your data. Notes and amounts are saved with the view and appear in exports.
 
 - 2026.11.06.1319: Importing a file with one very long run of spaces, brackets or letters (XML/GraphML/GEXF, Markdown, Obsidian, Mermaid, DOT and pasted lists) no longer slows down sharply. A 20,000-character run took up to 0.8 s before and now takes about 1 ms. Results for normal files are unchanged.
