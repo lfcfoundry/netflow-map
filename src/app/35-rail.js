@@ -105,6 +105,17 @@ function keyPos() {
   var x = k.x === null ? (RAIL.open && W > 820 ? 332 : 12) : k.x, y = k.y === null ? H - kh - 12 - (hasStates() ? 70 : 0) : k.y;
   return [clamp(x, 4, Math.max(4, W - kw - 4)), clamp(y, 4, Math.max(4, H - 40))];
 }
+/* Opening the key must not cover items: when it does (and the person has not moved it), the picture is fitted again beside or above the open key. */
+function keyClear() {
+  var sc = S.scene, k = S.V.key, el = $('key');
+  if (!sc || !sc.nodes || !sc.nodes.length || k.x !== null || k.y !== null || el.hidden) return;
+  var p = keyPos(), x0 = p[0], y0 = p[1], x1 = x0 + el.offsetWidth, y1 = y0 + el.offsetHeight, v = S.view, hit = false;
+  for (var i = 0; i < sc.nodes.length && !hit; i++) {
+    var n = sc.nodes[i], nx = n.x * v.k + v.tx, ny = n.y * v.k + v.ty;
+    if (nx < x1 && nx + n.w * v.k > x0 && ny < y1 && ny + n.h * v.k > y0) hit = true;
+  }
+  if (hit) fitView();
+}
 function renderKeyPos() { /* the key stays where it is on the screen while the map moves */ }
 function renderKey() {
   var el = $('key'); if (!el) return;
@@ -118,7 +129,7 @@ function renderKey() {
   var title = sc.legendTitle || 'Key';
   var head = h('div', { class: 'kh', 'data-drag': '1' }, [edit ? h('input', { class: 'ed', type: 'text', value: title, 'aria-label': 'Key title', onchange: function (e) { setKeyEdit('__title', { }, e.target.value); }, onpointerdown: function (e) { e.stopPropagation(); } }) : h('span', null, title),
     h('button', { title: edit ? 'Done editing the key' : 'Rename, recolor or hide entries', 'aria-label': 'Edit the key', onclick: function (e) { e.stopPropagation(); S.keyEdit = !S.keyEdit; renderKey(); }, onpointerdown: function (e) { e.stopPropagation(); } }, edit ? '✓' : '✎'),
-    h('button', { title: V.key.min ? 'Expand' : 'Shrink', 'aria-label': 'Shrink or expand the key', onclick: function (e) { e.stopPropagation(); V.key.min = !V.key.min; saveView(); renderKey(); }, onpointerdown: function (e) { e.stopPropagation(); } }, V.key.min ? '▢' : '–'),
+    h('button', { title: V.key.min ? 'Expand' : 'Shrink', 'aria-label': 'Shrink or expand the key', onclick: function (e) { e.stopPropagation(); V.key.min = !V.key.min; saveView(); renderKey(); if (!V.key.min) keyClear(); }, onpointerdown: function (e) { e.stopPropagation(); } }, V.key.min ? '▢' : '–'),
     h('button', { title: 'Hide the key', 'aria-label': 'Hide the key', onclick: function (e) { e.stopPropagation(); V.key.hide = true; saveView(); renderKey(); }, onpointerdown: function (e) { e.stopPropagation(); } }, '✕')]);
   var body = h('div', { class: 'kb' });
   sc.legend.forEach(function (l, i) {
