@@ -11,3 +11,5 @@ A check that failed once and passed on a rerun with no code change. Rule (univer
 | 2026-10-18 | 1259 | GNOME Web 46.5 | "when the exact odds are not available, ends called constructor and toString show no exact odds" | Failed once (`[]` instead of the expected result) on the run just before a passing rerun; the change under test (Spacing switch) does not touch odds; GNOME Web also failed to start twice in a row before this run | Not yet understood; suspected read before the page settled (like the 2026-10-17 1540 row) | Open: if it repeats on an idle machine, find the cause |
 
 Add a row for every failure that passes on a rerun with no change. If the same check repeats on an idle machine, it is a real bug: find the cause.
+
+- engine-fixes.test.js (Node, 4 files at a time, 2026.11.05 about 11 PM Eastern): failed once with no message in the summary while the test files ran four at a time; it passed alone three times and on a full rerun. Not reproduced; watch for it.
