@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Developer notes, in t
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 and WebKitGTK 2.52.6. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## November 6
+
+- **2026.11.06.0100** In the Sankey view, names in the middle columns get a ring of the background color around the letters, so they read over the bands behind them. Nothing else moves. The Look tab does not change.
+
 ## November 5
 
 - **2026.11.05.0900** Saving the map for undo (and for the resting layout helper) is quicker on big maps (lfc-pack 0.4.24 packs tables faster). The packed result is the same.

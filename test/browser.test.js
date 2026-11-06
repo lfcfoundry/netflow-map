@@ -152,6 +152,9 @@ async function open() {
     /* a table that reads cleanly opens by itself: a Sankey with from, to and amount, the map otherwise; an unclear read stops on the Data tab */
     const where = () => ev(() => NFM.state.tab + '/' + NFM.state.V.view);
     await ev(() => NFM.showTab('data')); await pick('ao1.csv', Buffer.from('source,target,amount\nSalary,Rent,900\nSalary,Savings,400\nSalary,Food,300\nSavings,Travel,100\n')); const ao1 = await where();
+    await D.wait(() => NFM.state.scene && NFM.state.scene.view === 'sankey' && NFM.pending() === 0, null, 20000);
+    const halo = await ev(() => NFM.state.scene.labels.filter((l) => l.halo).map((l) => l.t));
+    say(halo.indexOf('Savings') >= 0, 'a Sankey name in a middle column carries a background-colored halo so it reads over the bands: ' + halo.join(', '));
     await ev(() => NFM.showTab('data')); await pick('ao2.csv', Buffer.from('source,target\nP,Q\nQ,R\n')); const ao2 = await where();
     await ev(() => NFM.showTab('data')); await pick('ao3.csv', Buffer.from('source,target,amount\nA,B,5\nA,B,7\nB,C,2\n')); const ao3 = await where();
     say(ao1 === 'map/sankey' && /^map\//.test(ao2) && ao2 !== 'map/sankey' && /^data\//.test(ao3), 'a clean table opens by itself (from, to, amount: Sankey; without amount: the map); a read with a note stops on the Data tab: ' + ao1 + ', ' + ao2 + ', ' + ao3);
