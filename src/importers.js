@@ -389,7 +389,7 @@ var NFMImport = (function () {
         var nd = B.node(cell(row, cols.id), { label: cell(row, cols.label), group: cell(row, cols.group), valence: valenceOf(cell(row, cols.valence)), attrs: extra(row, skip3) });
         if (!nd) return;
         if (cols.start !== undefined && /^(1|true|yes|y|start)$/i.test(cell(row, cols.start))) B.g.start = nd.id;
-        cell(row, cols.links).split(/\s*[;|,\n]\s*/).forEach(function (t) { if (t) pending.push([nd, t]); });
+        splitLinks(cell(row, cols.links)).forEach(function (t) { if (t) pending.push([nd, t]); });
       });
       pending.forEach(function (p) {
         var existed = B.has(p[1]);
@@ -574,19 +574,78 @@ var NFMImport = (function () {
     return B.done('json');
   }
 
+
+  /* Hand-written scanners that replace patterns which could take quadratic time on one long run of spaces or brackets. Each gives exactly what the old pattern gave. */
+  function isWs(c) { return c === 32 || (c >= 9 && c <= 13) || c === 160 || c === 0x1680 || (c >= 0x2000 && c <= 0x200a) || c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000 || c === 0xfeff; }
+  /* Split on ; | , or a line break and trim around each separator: leading space of the first piece and trailing space of the last piece stay */
+  function splitLinks(s) {
+    var p = s.split(/[;|,\n]/), n = p.length;
+    return p.map(function (t, k) { if (k > 0) t = t.trimStart(); if (k < n - 1) t = t.trimEnd(); return t; });
+  }
+  /* Split on runs of commas and spaces that are followed by a visible character */
+  function splitList(s) {
+    var out = [], n = s.length, pos = 0, i = 0;
+    while (i < n) {
+      var c = s.charCodeAt(i);
+      if (c !== 44 && !isWs(c)) { i++; continue; }
+      var e = i; while (e < n) { c = s.charCodeAt(e); if (c === 44 || isWs(c)) e++; else break; }
+      var j = -1;
+      if (e < n) j = e;
+      else { for (var q = e - 1; q > i; q--) if (s.charCodeAt(q) === 44) { j = q; break; } }
+      if (j > i) { out.push(s.slice(pos, i)); pos = j; i = j; } else i = e;
+    }
+    out.push(s.slice(pos));
+    return out;
+  }
+  /* Finds the bracket group that ends a line (spaces and one semicolon may follow): { open, close } or null */
+  function trailBracket(s) {
+    var j = s.length;
+    while (j > 0 && isWs(s.charCodeAt(j - 1))) j--;
+    if (j > 0 && s.charCodeAt(j - 1) === 59) { j--; while (j > 0 && isWs(s.charCodeAt(j - 1))) j--; }
+    if (j < 1 || s.charCodeAt(j - 1) !== 93) return null;
+    var close = j - 1, open = s.indexOf('[', s.lastIndexOf(']', close - 1) + 1);
+    return open < 0 || open > close ? null : { open: open, close: close };
+  }
+  /* Splits a line at the first colon that has spaces on both sides */
+  function spacedColon(s) {
+    var c = s.indexOf(':');
+    while (c >= 0) {
+      if (c > 0 && c + 1 < s.length && isWs(s.charCodeAt(c - 1)) && isWs(s.charCodeAt(c + 1)) && !/[\n\r\u2028\u2029]/.test(s)) {
+        var a = c; while (a > 0 && isWs(s.charCodeAt(a - 1))) a--;
+        var b = c + 1; while (b < s.length && isWs(s.charCodeAt(b))) b++;
+        return [s, s.slice(0, a), s.slice(b)];
+      }
+      c = s.indexOf(':', c + 1);
+    }
+    return null;
+  }
+  /* Removes every piece from a less-than sign to the next greater-than sign */
+  function stripTags(s) {
+    var out = '', pos = 0, i;
+    while ((i = s.indexOf('<', pos)) >= 0) {
+      var j = s.indexOf('>', i + 1);
+      if (j < 0) break;
+      out += s.slice(pos, i); pos = j + 1;
+    }
+    return out + s.slice(pos);
+  }
+
   /* ------------------------------------------------------------ arrow lines, including simple DOT */
   function importArrows(text, name, opts) {
     var B = new Builder(name, opts), lines = stripBom(text).split(LINEBREAK), count = 0, skipped = 0;
     var unq = function (s) { s = s.trim().replace(/;$/, '').trim(); if (/^".*"$/.test(s)) s = s.slice(1, -1).replace(/\\"/g, '"'); return s; };
-    var ARROW = /\s*(<->|<-->|<=>|--+>|->|=>|→|⟶|⇒|--|—)\s*/;
+    var ARROW = /(<->|<-->|<=>|--+>|->|=>|→|⟶|⇒|--|—)/;
     lines.forEach(function (raw) {
       var line = raw.trim();
       if (!line || /^(#|\/\/|\/\*|\*|digraph|graph|strict|subgraph|node\s*\[|edge\s*\[|\}|\{)/i.test(line) || /^[a-z_]+\s*=/.test(line)) return;
       var label = '';
-      var br = line.match(/\[\s*(?:[^\]]*?)label\s*=\s*"?([^"\],]*)"?[^\]]*\]\s*;?\s*$/);
-      if (br) { label = br[1]; line = line.replace(/\[[^\]]*\]\s*;?\s*$/, ''); }
-      else line = line.replace(/\[[^\]]*\]\s*;?\s*$/, '');
-      var colon = line.match(/^(.*?)\s+:\s+(.*)$/) || line.match(/^([^:]*?->[^:]*?):\s*(.*)$/);
+      var tb = trailBracket(line);
+      if (tb) {
+        var lm = /label\s*=\s*"?([^"\],]*)/.exec(line.slice(tb.open + 1, tb.close));
+        if (lm) label = lm[1];
+        line = line.slice(0, tb.open);
+      }
+      var colon = spacedColon(line) || line.match(/^([^:]*?->[^:]*?):\s*(.*)$/);
       if (colon && !label) { line = colon[1]; label = colon[2]; }
       var parts = line.split(ARROW);
       if (parts.length < 3) { if (line.trim()) skipped++; return; }
@@ -626,8 +685,8 @@ var NFMImport = (function () {
       var level;
       if (it.kind === 'h') { level = it.level; baseLevel = level + 1; }
       else level = (headingSeen ? baseLevel : 0) + indents.indexOf(it.indent);
-      var txt = it.text.replace(/\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]/g, function (_, t) { return t; });
-      var wiki = []; it.text.replace(/\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]/g, function (_, t) { wiki.push(t.trim()); return ''; });
+      var txt = it.text.replace(/\[\[([^\]|#\[]+)(?:[#|][^\]]*)?\]\]/g, function (_, t) { return t; });
+      var wiki = []; it.text.replace(/\[\[([^\]|#\[]+)(?:[#|][^\]]*)?\]\]/g, function (_, t) { wiki.push(t.trim()); return ''; });
       txt = txt.replace(/\*\*|__|`/g, '').trim();
       var id = opts.outlineSeparate ? txt + ' #' + (++seq) : txt;
       var nd = B.node(id, { label: txt });
@@ -659,7 +718,7 @@ var NFMImport = (function () {
         var v = kv[2].trim();
         if (cur === 'tags' || cur === 'tag' || cur === 'aliases' || cur === 'alias') {
           var arr = cur.indexOf('tag') === 0 ? fm.tags : fm.aliases;
-          if (v) v.replace(/^\[|\]$/g, '').split(/[,\s]+(?=[^\s])/).forEach(function (t) { t = t.replace(/^["'#]|["']$/g, '').trim(); if (t) arr.push(t); });
+          if (v) splitList(v.replace(/^\[|\]$/g, '')).forEach(function (t) { t = t.replace(/^["'#]|["']$/g, '').trim(); if (t) arr.push(t); });
         } else if (cur === 'title' && v) fm.title = v.replace(/^["']|["']$/g, '');
       } else if (cur && /^\s*-\s+/.test(l)) {
         var item = l.replace(/^\s*-\s+/, '').replace(/^["'#]|["']$/g, '').trim();
@@ -709,8 +768,8 @@ var NFMImport = (function () {
         else { var ex = B.has(t); to = B.node(t, ex ? null : { ghost: true }); if (!ex && to) B.r.ghosts++; }
         if (to && to !== from) { B.edge(from, to, { kind: kind }); if (kind === 'embed') embeds++; else links++; }
       };
-      body.replace(/(!?)\[\[([^\]\n]+)\]\]/g, function (_, bang, t) { target(t, bang ? 'embed' : 'link'); return ''; });
-      body.replace(/(?<!!)\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, function (_, t) { if (/^[a-z][a-z0-9+.-]*:|^#|^mailto:/i.test(t)) return ''; target(t, 'link'); return ''; });
+      body.replace(/(!?)\[\[([^\]\n\[]+)\]\]/g, function (_, bang, t) { target(t, bang ? 'embed' : 'link'); return ''; });
+      body.replace(/(?<!!)\[[^\]\n\[]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, function (_, t) { if (/^[a-z][a-z0-9+.-]*:|^#|^mailto:/i.test(t)) return ''; target(t, 'link'); return ''; });
     });
     B.r.notes.unshift('Read ' + docs.length + ' note' + (docs.length === 1 ? '' : 's') + ' and found ' + links + ' link' + (links === 1 ? '' : 's') + (embeds ? ' and ' + embeds + ' embed' + (embeds === 1 ? '' : 's') : '') + '. Names are matched without regard to capital letters, paths or file endings; the first tag (or the folder) becomes the group.');
     if (ambiguous) B.r.notes.push(ambiguous + ' link' + (ambiguous === 1 ? '' : 's') + ' (for example [[' + ambiguousNames.join(']], [[') + ']]) matched more than one note with the same name; the first note found was used. Write the folder too, like [[folder/name]], to pick one.');
@@ -728,7 +787,7 @@ var NFMImport = (function () {
       return cp > 0 && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff) ? String.fromCodePoint(cp) : '\ufffd';
     });
   }
-  var ATTR = /([^\s=\/"'<>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+  var ATTR = /([^\s=\/"'<>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')|[^\s=\/"'<>]+/g;
   var TAGEND = /[^>"']*(?:(?:"[^"]*"|'[^']*')[^>"']*)*>/y;
   /** Walks XML text. h.open(name, attrs, selfClosing), h.close(name), h.text(string). Names lose their prefix (x:y -> y); attrs keep both forms. */
   function xmlScan(text, h) {
@@ -765,6 +824,7 @@ var NFMImport = (function () {
         ATTR.lastIndex = 0;
         var am;
         while ((am = ATTR.exec(body.slice(sp)))) {
+          if (am[1] === undefined) continue;
           var v = xmlDecode(am[2] !== undefined ? am[2] : am[3]), an = am[1], ac = an.indexOf(':');
           if (BAD_KEYS[an]) continue;
           attrs[an] = v;
@@ -904,7 +964,7 @@ var NFMImport = (function () {
     while (re.lastIndex < text.length && (m = re.exec(text))) {
       if (m[1] !== undefined) { /* comment */ }
       else if (m[2] !== undefined) out.push({ s: m[2].replace(/^"|"$/g, '').replace(/\\(["\\])/g, '$1').replace(/\\n/g, '\n') });
-      else if (m[3] !== undefined) out.push({ s: m[3].slice(1, -1).replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').trim() });
+      else if (m[3] !== undefined) out.push({ s: stripTags(m[3].slice(1, -1)).replace(/&amp;/g, '&').trim() });
       else if (m[4] !== undefined) out.push(m[4]);
       else if (m[5] !== undefined) out.push(m[5]);
       else if (m[6] !== undefined) out.push(m[6]);
@@ -1129,7 +1189,7 @@ var NFMImport = (function () {
     if (ext === 'md' || ext === 'markdown') return /\[\[|\]\(/.test(t) ? 'notes' : 'outline';
     var d = sniffDelimiter(t);
     if (d && lines.length >= 2) return 'table';
-    if (/\[\[[^\]]+\]\]/.test(t) && lines.length < 4) return 'notes';
+    if (/\[\[[^\]\[]+\]\]/.test(t) && lines.length < 4) return 'notes';
     return 'outline';
   }
   function xmlNotGraph(n) { throw new Error('"' + n + '" is an XML file, but not a kind of network file I know (GraphML and GEXF work).'); }
