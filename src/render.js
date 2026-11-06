@@ -183,6 +183,7 @@ var NFMRender = (function () {
       ctx.textAlign = l.align === 'l' ? 'left' : l.align === 'r' ? 'right' : 'center';
       if (l.rot) { ctx.save(); ctx.translate(x, y); ctx.rotate(l.rot * Math.PI / 180); x = 0; y = 0; }
       if (l.bg) { var tw = ctx.measureText(l.t).width; ctx.fillStyle = bg; ctx.fillRect(x - tw / 2 - 2, y - px, tw + 4, px + 3); }
+      if (l.halo) { ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2.5, 0.28 * Math.min(px, 60)); ctx.strokeStyle = css(l.halo); ctx.strokeText(l.t, x, y); }   /* a background-colored outline so the name reads over the bands behind it (Sankey middle columns) */
       ctx.fillStyle = css(l.color);
       ctx.fillText(l.t, x, y);
       if (l.rot) ctx.restore();
