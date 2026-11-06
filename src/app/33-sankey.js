@@ -55,7 +55,9 @@ function skLinkPatch(eis, patch) {
 /** Hand edits laid over what the style rules say. */
 function skStyleWrap(o) {
   var k = skV(), nodes = k.nodes, links = k.links, nn = Object.keys(nodes).length, ln = Object.keys(links).length;
-  o.sk = { color: k.color, opacity: k.opacity, labels: k.labels, nodeValues: k.nodeValues };
+  var vl = k.valueLabel && k.valueLabel !== 'none' ? k.valueLabel : (k.nodeValues ? 'under' : 'none');
+  o.sk = { color: k.color, opacity: k.opacity, labels: k.labels, nodeValues: k.nodeValues, valueLabel: vl, unit: k.unit || '', percentOf: k.percentOf || 'total' };
+  if (k.notes && k.notes.length) o.notes = k.notes;
   if (nn) { var bn = o.nodeStyle; o.nodeStyle = function (n) { var b = bn ? bn(n) : null, m = nodes[n.nodeId || n.id]; return m ? Object.assign({}, b || {}, m) : b; }; }
   if (ln) { var bl = o.linkStyle; o.linkStyle = function (e, ei) { var b = bl ? bl(e, ei) : null, key = skLinkKey(ei), m = key ? links[key] : null; return m ? Object.assign({}, b || {}, m) : b; }; }
 }
@@ -117,6 +119,27 @@ function skEndDrag() { skKeepOrder(); saveView(); renderMapUI(); }
 
 /* ---------------------------------------------------------------- menus */
 var SK_COLOR_MODES = [['target', 'Same color as where it ends'], ['source', 'Same color as where it starts'], ['gradient', 'Fade from start color to end color'], ['solid', 'One neutral color']];
+var SK_VALUE_MODES = [['none', 'No amounts'], ['under', 'Total under the name'], ['inline', 'Amount after the name'], ['percent', 'Percent under the name'], ['both', 'Amount and percent']];
+function skVL(k) { return k.valueLabel && k.valueLabel !== 'none' ? k.valueLabel : (k.nodeValues ? 'under' : 'none'); }
+function skSetVL(k, v) { k.valueLabel = v; k.nodeValues = v === 'under'; }
+/** Notes written on the picture. {total}, {top}, {value:name}, {share:name} and {flow:from>to} are filled in with live numbers. */
+var SK_NOTE_HINT = 'Numbers fill in by themselves: {total}, {top}, {value:Name}, {share:Name}, {flow:From>To}';
+function skAddNote() {
+  askText('Add a note', SK_NOTE_HINT, 'Total: {total}').then(function (v) {
+    if (v === null || !String(v).trim()) return;
+    var k = skV(); skPush(true); k.notes = (k.notes || []).slice(0, 19).concat([{ text: String(v).trim().slice(0, 300), x: 0.5, y: 0.04 + 0.08 * (k.notes || []).length % 0.9, align: 'c', size: 14 }]); skCommit(false);
+  });
+}
+function skNotesPanel(k) {
+  var ns = k.notes || [];
+  return h('div', { style: { display: 'grid', gap: '6px' } }, [h('h4', { style: { margin: '4px 0 0' } }, 'Notes on the picture')].concat(ns.map(function (n, i) {
+    return h('div', { class: 'row tight', style: { flexWrap: 'wrap' } }, [
+      h('input', { type: 'text', maxlength: 300, value: n.text, 'aria-label': 'Note ' + (i + 1), style: { flex: '1 1 160px' }, onchange: function () { skPush(true); n.text = this.value.slice(0, 300); skCommit(false); } }),
+      h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: n.x, 'aria-label': 'Note ' + (i + 1) + ' across', style: { width: '70px' }, oninput: function () { n.x = +this.value; saveView(); scheduleScene(); } }),
+      h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: n.y, 'aria-label': 'Note ' + (i + 1) + ' down', style: { width: '70px' }, oninput: function () { n.y = +this.value; saveView(); scheduleScene(); } }),
+      h('button', { class: 'sm', 'aria-label': 'Remove note ' + (i + 1), onclick: function () { skPush(true); k.notes.splice(i, 1); skCommit(false); } }, 'Remove')]);
+  }), [h('div', { class: 'row tight' }, [h('button', { class: 'sm', onclick: skAddNote }, 'Add a note…')]), ns.length ? h('p', { class: 'muted small', style: { margin: 0 } }, SK_NOTE_HINT + '. Sliders: across, down.') : null]));
+}
 function skEditLabel(id) {
   var g = S.byId.get(id), cur = (skV().nodes[id] || {}).labelText || (g ? g.label : id);
   askText('Label text', 'Text shown next to the bar', cur).then(function (v) { if (v !== null) skNodePatch([id], { labelText: v === (g ? g.label : id) ? '' : v }); });
@@ -171,7 +194,9 @@ function skBackgroundItems() {
   it.push({ t: 'More see-through', fn: function () { skPush(true); k.opacity = Math.max(0.08, k.opacity - 0.1); skCommit(false); } }, { t: 'Less see-through', fn: function () { skPush(true); k.opacity = Math.min(1, k.opacity + 0.1); skCommit(false); } },
     { sep: 1 }, { hd: 'Picture' },
     { t: (S.V.valueLabels ? '✓ ' : '') + 'Amounts on the flows', fn: function () { skPush(true); setV({ valueLabels: !S.V.valueLabels }, 'look'); renderRail(true); } },
-    { t: (k.nodeValues ? '✓ ' : '') + 'Totals under the names', fn: function () { skPush(true); k.nodeValues = !k.nodeValues; skCommit(false); } },
+    { t: (skVL(k) === 'under' ? '✓ ' : '') + 'Totals under the names', fn: function () { skPush(true); skSetVL(k, skVL(k) === 'under' ? 'none' : 'under'); skCommit(false); } },
+    { t: (skVL(k) === 'inline' ? '✓ ' : '') + 'Amount after each name', fn: function () { skPush(true); skSetVL(k, skVL(k) === 'inline' ? 'none' : 'inline'); skCommit(false); } },
+    { t: 'Add a note…', fn: function () { skAddNote(); } },
     { t: 'Thicker bars', fn: function () { skPush(true); k.nodeW = Math.min(80, k.nodeW + 6); skCommit(true); } }, { t: 'Thinner bars', fn: function () { skPush(true); k.nodeW = Math.max(4, k.nodeW - 4); skCommit(true); } },
     { t: 'Taller picture', fn: function () { skPush(true); k.height = Math.round((k.height || S.L.height) * 1.2); skCommit(true); } }, { t: 'Shorter picture', fn: function () { skPush(true); k.height = Math.max(200, Math.round((k.height || S.L.height) / 1.2)); skCommit(true); } },
     { t: 'Undo the last change', fn: skUndo, off: !skHist.length },
@@ -192,10 +217,13 @@ function skPanel() {
     slider('Space between bars', k.pad, 2, 60, 1, later(function (x) { k.pad = x; re(); }), function (x) { return Math.round(x) + ' px'; }),
     slider('Picture height', k.height || (S.L && S.L.height ? Math.round(S.L.height) : 600), 200, 2400, 20, later(function (x) { k.height = x; re(); }), function (x) { return Math.round(x) + ' px'; }),
     field('Labels', select([['auto', 'First column on the left, the rest on the right'], ['right', 'All on the right'], ['left', 'All on the left']], k.labels, function (v) { skPush(true); k.labels = v; skCommit(false); })),
-    check('Totals under the names', k.nodeValues, function (on) { skPush(true); k.nodeValues = on; skCommit(false); }),
+    field('Amounts with the names', select(SK_VALUE_MODES, skVL(k), function (v) { skPush(true); skSetVL(k, v); skCommit(false); })),
+    skVL(k) !== 'none' ? field('Unit (for example $ or GWh)', h('input', { type: 'text', maxlength: 12, value: k.unit || '', 'aria-label': 'Unit', onchange: function () { skPush(true); k.unit = this.value.trim(); skCommit(false); } })) : null,
+    skVL(k) === 'percent' || skVL(k) === 'both' ? field('Percent of', select([['total', 'The whole picture'], ['column', 'Its column']], k.percentOf || 'total', function (v) { skPush(true); k.percentOf = v; skCommit(false); })) : null,
     check('Amounts on the flows', S.V.valueLabels, function (on) { skPush(true); setV({ valueLabels: on }, 'look'); }),
     h('div', { class: 'row tight' }, [h('button', { class: 'sm', disabled: !skHist.length, onclick: skUndo }, 'Undo last change'), h('button', { class: 'sm', onclick: function () { skResetPlace(null); } }, 'Automatic arrangement'),
       h('button', { class: 'sm', onclick: function () { skPush(true); k.nodes = {}; k.links = {}; skCommit(false); toast('Hand-made colors and labels cleared.'); } }, 'Clear hand edits')]),
+    skNotesPanel(k),
     h('p', { class: 'muted small', style: { margin: 0 } }, 'Click a bar, flow or label for options (' + T('right-click', 'press and hold') + ' or double-click for the full menu). Drag a bar up or down to place it.')
   ]);
 }

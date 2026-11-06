@@ -107,7 +107,7 @@ function defaultView() {
     lab: { items: { show: true, scale: 1, color: 'auto', fixed: '#222222', topN: 0 }, links: { show: true, scale: 1 }, groups: { show: false, scale: 1 } },
     lens: { on: false, d: 3, r: 0.28 }, cam: { yaw: 0.6, pitch: 0.35, persp: 2.4, spin: false },
     vocab: {}, key: { x: null, y: null, min: true, hide: phoneLayout(), edits: {} }, pins: {}, saved: [],
-    sk: { color: 'target', opacity: 0.45, labels: 'auto', nodeValues: false, nodeW: 14, gap: 0, pad: 12, height: 0, justify: true, fixY: {}, order: null, nodes: {}, links: {} }
+    sk: { color: 'target', opacity: 0.45, labels: 'auto', nodeValues: false, valueLabel: 'none', unit: '', percentOf: 'total', notes: [], nodeW: 14, gap: 0, pad: 12, height: 0, justify: true, fixY: {}, order: null, nodes: {}, links: {} }
   };
 }
 var VKEY = function () { return 'nfm-v:' + (S.graph.name || 'Untitled'); };

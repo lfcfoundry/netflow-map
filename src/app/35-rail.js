@@ -578,6 +578,9 @@ function cleanSk(v) {
   if (['target', 'source', 'gradient', 'solid'].indexOf(v.color) >= 0) o.color = v.color;
   if (['auto', 'left', 'right'].indexOf(v.labels) >= 0) o.labels = v.labels;
   o.opacity = num(v.opacity, 0.05, 1, d.opacity); o.nodeW = num(v.nodeW, 4, 80, d.nodeW); o.gap = num(v.gap, 60, 700, d.gap); o.pad = num(v.pad, 2, 80, d.pad); o.height = num(v.height, 0, 4000, 0);
+  if (['none', 'under', 'inline', 'percent', 'both'].indexOf(v.valueLabel) >= 0) o.valueLabel = v.valueLabel;
+  if (typeof v.unit === 'string') o.unit = v.unit.slice(0, 12); if (v.percentOf === 'column') o.percentOf = 'column';
+  if (Array.isArray(v.notes)) o.notes = v.notes.slice(0, 20).filter(function (n) { return n && typeof n.text === 'string'; }).map(function (n) { return { text: n.text.slice(0, 300), x: typeof n.x === 'number' && isFinite(n.x) ? Math.max(0, Math.min(1, n.x)) : 0.5, y: typeof n.y === 'number' && isFinite(n.y) ? Math.max(0, Math.min(1, n.y)) : 0.05, align: ['l', 'c', 'r'].indexOf(n.align) >= 0 ? n.align : 'c', size: typeof n.size === 'number' && isFinite(n.size) ? Math.max(8, Math.min(60, n.size)) : 14 }; });
   if (typeof v.nodeValues === 'boolean') o.nodeValues = v.nodeValues; if (typeof v.justify === 'boolean') o.justify = v.justify;
   var colorOk = function (x) { return typeof x === 'string' && /^#[0-9a-f]{3,8}$/i.test(x); };
   var clean = function (src, keys, max) {
