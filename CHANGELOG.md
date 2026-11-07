@@ -8,6 +8,8 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 6
 
+- 2026.11.06.2048: Updated the built-in file packer and map-saving parts to their newest versions. Nothing looks different, and speed is the same within measuring noise.
+
 - 2026.11.06.2036: Opening a map file reads its rows faster: about 8 to 17 percent less time on 30,000 items in Chromium, Firefox and WebKitGTK, and the same map comes out.
 
 - 2026.11.06.2024: Opening or replacing a big map freezes the page for a shorter time: the map is handed to the helper threads as text instead of a copy of every item. On 30,000 items the longest freeze dropped about 16 percent in Chromium, 8 percent in Firefox and 31 percent in WebKitGTK.

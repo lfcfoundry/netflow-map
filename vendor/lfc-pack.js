@@ -2,7 +2,7 @@
  * lfc-pack.js: JSON archive format LFC-pack (.json.lfc): blocks of rows, each field stored as columns, zstd inside, a footer with zone maps.
  * Part of JS-modules, https://github.com/lfcfoundry/JS-modules
  * Copyright (c) 2026 LFC Foundry. MIT License (see LICENSE at the repository root).
- * Version 0.4.24 (API 0)
+ * Version 0.5.5 (API 0)
  *
  * Needs WebAssembly (zstd, the tokenizer and the string deduplicator are compiled from C; page policy 'wasm-unsafe-eval' and nothing else). No other dependency, one file.
  * Contains zstd 1.5.7 (BSD-3-Clause, Meta Platforms), compiled to wasm32; see NOTICE-zstd.txt next to this file.
@@ -991,6 +991,10 @@
   }
   // which engine runs the list builders above; the output is the same either way, only the speed differs
   var V8 = (typeof process === 'object' && process !== null && !!process.versions && !!process.versions.v8) || (typeof navigator === 'object' && navigator !== null && /Chrome\//.test(navigator.userAgent));
+  // Firefox (Gecko) only: joining four short pieces makes one flat string there (no rope), and that beats writing the digits and cutting them out of one decoded text (cloud Firefox 158, 300,000 log rows: unpack 0.87 of the time). Chromium keeps ipColV8; WebKitGTK, whose joins make ropes, keeps ipCol
+  var GECKO = !V8 && typeof navigator === 'object' && navigator !== null && /Firefox\//.test(navigator.userAgent);
+  var IPS = [], IPT = []; (function () { for (var v = 0; v < 256; v++) { IPS.push(String(v)); IPT.push(v + '.'); } })();
+  function ipColCat(r, n) { var o = new Array(n), i, q; for (i = 0; i < n; i++) { q = 4 * i; o[i] = IPT[r[q]] + IPT[r[q + 1]] + IPT[r[q + 2]] + IPS[r[q + 3]]; } return o; }
   // ascending id lists for Firefox and WebKitGTK: array literals for 1 to 4 items (packed arrays, no growth), a push loop beyond. Kept out of decodeColumn on purpose: adding it inline slowed the plain fill that V8 uses
   function ascLit(o, al, av, n) {
     var i, an, aa, ac, aj, a3, ap = 0;
@@ -1020,6 +1024,9 @@
   // each column kind is read by its own small function (keep it that way): with all the loops inside decodeColumn, every hot loop made Chromium rebuild fast code for the whole big function on the first open of a page (a hex id column took 88 ms on that open, 7 ms later; 100,000 log rows opened in 0.66 of the time once split). The hex column also writes two letters per step through HEX2.
   function hexCol(r, n, L) { var bl = L / 2, L2 = L, i, o, hb = new Uint16Array(n * bl), big; for (i = 0; i < n * bl; i++) hb[i] = HEX2[r[i]]; big = tlat.decode(hb); o = new Array(n); for (i = 0; i < n; i++) o[i] = big.substring(i * L2, i * L2 + L2); return o; }
   function uuidCol(frames0, n) { var i, o, ur = frames0, ub = new Uint8Array(n * 36), up = 0, uq, uv; for (i = 0; i < n; i++) { for (uq = 0; uq < 16; uq++) { uv = ur[i * 16 + uq]; ub[up++] = HEXA[uv >> 4]; ub[up++] = HEXA[uv & 15]; if (uq === 3 || uq === 5 || uq === 7 || uq === 9) ub[up++] = 45; } } var ubig = tlat.decode(ub); o = new Array(n); for (i = 0; i < n; i++) o[i] = ubig.substring(i * 36, i * 36 + 36); return o; }
+  // Chromium (V8) only: each byte's digits come from a 256-entry table, three bytes copied and the length added (cloud Chromium 155, 300,000 log rows: with the column-at-a-time dense read below, unpack took 0.93 of the time; Firefox was no faster, so it keeps the digit math)
+  var IPD = new Uint8Array(1024); (function () { for (var v = 0; v < 256; v++) { var s = String(v); IPD[v * 4] = s.length; for (var k = 0; k < s.length; k++) IPD[v * 4 + 1 + k] = s.charCodeAt(k); } })();
+  function ipColV8(frames0, n) { var i, o, ir = frames0, ib = new Uint8Array(n * 16), ip = 0, io = new Uint32Array(n + 1), iq, iv; for (i = 0; i < n; i++) { io[i] = ip; for (iq = 0; iq < 4; iq++) { iv = ir[4 * i + iq] << 2; ib[ip] = IPD[iv + 1]; ib[ip + 1] = IPD[iv + 2]; ib[ip + 2] = IPD[iv + 3]; ip += IPD[iv]; ib[ip++] = 46; } ip--; } io[n] = ip; var ibig = tlat.decode(ib.subarray(0, ip)); o = new Array(n); for (i = 0; i < n; i++) o[i] = ibig.substring(io[i], io[i + 1]); return o; }
   function ipCol(frames0, n) { var i, o, ir = frames0, ib = new Uint8Array(n * 15), ip = 0, io = new Uint32Array(n + 1), iq, iv; for (i = 0; i < n; i++) { io[i] = ip; for (iq = 0; iq < 4; iq++) { iv = ir[4 * i + iq]; if (iv >= 100) { ib[ip++] = 48 + ((iv / 100) | 0); ib[ip++] = 48 + (((iv / 10) | 0) % 10); ib[ip++] = 48 + iv % 10; } else if (iv >= 10) { ib[ip++] = 48 + ((iv / 10) | 0); ib[ip++] = 48 + iv % 10; } else ib[ip++] = 48 + iv; if (iq < 3) ib[ip++] = 46; } } io[n] = ip; var ibig = tlat.decode(ib.subarray(0, ip)); o = new Array(n); for (i = 0; i < n; i++) o[i] = ibig.substring(io[i], io[i + 1]); return o; }
   function colV(frames, n, p) { var i, u, o; u = unvarints(frames[0], n); if (p.mono) { var s = 0; for (i = 0; i < n; i++) { s += u[i]; u[i] = s; } if (s > 9007199254740992) throw new Error('damaged block: number column out of range'); } else if (p.delta) { var s2 = 0; for (i = 0; i < n; i++) { s2 += unzz(u[i]); if (s2 > 9007199254740992 || s2 < -9007199254740992) throw new Error('damaged block: number column out of range'); u[i] = s2; } } else for (i = 0; i < n; i++) u[i] = unzz(u[i]); if (p.scale !== 1) { for (i = 0; i < n; i++) u[i] /= p.scale; return u; } return narrow(u); }
   function colB(frames, n, p) { var i, u, o; var bu = bitunpack(frames[0], n, p.w); o = new Float64Array(n); for (i = 0; i < n; i++) o[i] = (bu[i] + p.mn) / p.scale; return p.scale === 1 ? narrow(o) : o; }
@@ -1035,7 +1042,7 @@
     if ((t === 'H' && frames[0].length < n * (p.L / 2)) || (t === 'U' && frames[0].length < n * 16) || (t === 'I' && frames[0].length < n * 4)) throw new Error('damaged block: ' + t + ' column cut off');   // fixed-width columns: the frame must hold n values
     if (t === 'H') return hexCol(frames[0], n, p.L);
     if (t === 'U') return uuidCol(frames[0], n);
-    if (t === 'I') return ipCol(frames[0], n);
+    if (t === 'I') return V8 ? ipColV8(frames[0], n) : GECKO ? ipColCat(frames[0], n) : ipCol(frames[0], n);
     if (t === 'A') {
       var al = unvarints32(frames[0], n) || unvarints(frames[0], n), av = unvarints32(frames[1], p.m) || unvarints(frames[1], p.m), ap = 0, aa, aj, ac, an, ar = p.asc;
       o = new Array(n);
@@ -1054,7 +1061,8 @@
     // fast path: one JSON.parse of the whole block as an array (same row count as lines, or fall back to line by line)
     while ((at = text.indexOf('\n', at + 1)) >= 0) nl++;
     if (text.charCodeAt(text.length - 1) !== 10) nl++;
-    try { r = JSON.parse('[' + text.replace(/\n+$/, '').replace(/\n/g, ',') + ']'); if (r.length === nl) rows = r; } catch (e) { rows = []; }
+    for (j = text.length; j > 0 && text.charCodeAt(j - 1) === 10; j--);     // trailing newlines off by hand: /\n+$/ retried every run of newlines (slow, and quadratic on a long run of blank lines)
+    try { r = JSON.parse('[' + (j < text.length ? text.slice(0, j) : text).replace(/\n/g, ',') + ']'); if (r.length === nl) rows = r; } catch (e) { rows = []; }
     if (rows.length) { for (i = 0; i < rows.length; i++) { r = rows[i]; if (r === null || typeof r !== 'object' || Array.isArray(r)) { rows = []; break; } } }
     lines = rows.length ? [] : text.split('\n');
     for (i = 0; i < lines.length; i++) { var l = lines[i]; if (l.charCodeAt(l.length - 1) === 13) l = l.slice(0, -1); if (!l.trim()) continue; try { r = JSON.parse(l); } catch (e) { return null; } if (r === null || typeof r !== 'object' || Array.isArray(r)) return null; rows.push(r); }
@@ -1282,27 +1290,8 @@
     for (i = 0; i < F.cols.length; i++) { c = F.cols[i]; if (!c) continue; if (c.pre) t.push(c.pre.buffer); else for (q = 0; q < c.fr.length; q++) t.push(c.fr[q].buffer); }
     return t;
   }
-  // one-time timing of the ways to make dense row objects on the first big dense block (its first 8,192 rows: timing the whole block cost a first big open up to 9 extra passes over it; alternating rounds after a warm-up; a way must be at least 20% faster than the plain one, because the probe time and the real read time differ by a few percent in some engines; a way that is more than 2.5 times slower in the warm-up round is dropped at once). Answer: 0 plain (objects first, then one key at a time down each column), 1 clone (objects cloned from one with all the keys), 2 row by row (each object filled with all its keys before the next)
-  var cloneBest = {};   // by number of keys
-  function probeClone(keys, vals, tpl, K) {
-    var m = Math.min(vals[0].length, 8192), i, j, r, t0, sink = 0, q, best = [Infinity, Infinity, Infinity], live = [true, true, true], ways;
-    function plain() { var out = new Array(m); for (i = 0; i < m; i++) out[i] = {}; for (j = 0; j < K; j++) { var v = vals[j], key = keys[j]; for (i = 0; i < m; i++) out[i][key] = v[i]; } return out; }
-    function clone() { var out = new Array(m); for (i = 0; i < m; i++) out[i] = { ...tpl }; for (j = 0; j < K; j++) { var v = vals[j], key = keys[j]; for (i = 0; i < m; i++) out[i][key] = v[i]; } return out; }
-    function rowMajor() { var out = new Array(m), o; for (i = 0; i < m; i++) { o = {}; for (j = 0; j < K; j++) o[keys[j]] = vals[j][i]; out[i] = o; } return out; }
-    ways = [plain, clone, rowMajor];
-    for (r = 0; r < 3; r++) {
-      for (q = 0; q < 3; q++) {
-        if (!live[q]) continue;
-        t0 = clock(); sink += ways[q]().length; t0 = clock() - t0;
-        if (r && t0 < best[q]) best[q] = t0;
-        if (r === 0 && q === 0) best[3] = t0;
-        if (r === 0 && q && t0 > best[3] * 2.5) live[q] = false;
-      }
-    }
-    var win = 0, wt = best[0] * 0.8;
-    for (q = 1; q < 3; q++) if (live[q] && best[q] < wt) { win = q; wt = best[q]; }
-    return sink > 0 ? win : 0;
-  }
+  // dense rows: cloning one object that already has every key lays each row out once; that wins from about 16 keys in Chromium, Firefox and WebKitGTK, and under that the plain way (objects first, then one key at a time down its column) is as fast. A fixed rule: the timing probe it replaced cost 30 to 90 ms on the first big read of each key count (a fresh page with 5 key counts read 0.30 to 0.50 of the time without it), and its pick flipped between runs below 16 keys
+  var CLONE_KEYS = 16;
   // opt-in generated row builders ({ rows: 'generated' }): one function per key set that fills a row with plain assignments. Needs 'unsafe-eval' in the page's security policy; if the engine refuses, the normal ways are used. Never used unless asked for.
   var genCache = {}, genRefused = false;
   function rowBuilder(keys) {
@@ -1319,19 +1308,26 @@
     var gen = false;
     function assemble(F, want) {
       var meta = F.meta, n = F.n, K = meta.keys.length, vals = new Array(K), pl = F.pl, ordList = F.ordList, ordIds = F.ordIds, i, j;
-      for (j = 0; j < K; j++) vals[j] = F.cols[j] === null ? null : F.cols[j].pre ? F.cols[j].pre : decodeColumn(meta.cols[j], zs, F.cols[j].fr);
       var pb = (n + 7) >> 3, ptr = new Int32Array(K), out = new Array(n), keys = meta.keys, o, hasProto = keys.indexOf('__proto__') >= 0;
+      // Chromium (V8) only, a dense block (plain rows, or clones from CLONE_KEYS keys; no generated code): each column is decoded, assigned down and dropped, so fewer column arrays are alive at the next young-generation collection. Same objects, same key order
+      if (V8 && !ordList && !gen && !hasProto && K > 0 && K <= 250 && n >= 2000) {
+        var allDense = true; for (j = 0; j < K && allDense; j++) allDense = F.cols[j] !== null && (F.cols[j].pre ? F.cols[j].pre.length === n : meta.cols[j].n === n);
+        if (allDense) {
+          if (K >= CLONE_KEYS) { var ts0 = '{'; for (j = 0; j < K; j++) ts0 += (j ? ',' : '') + JSON.stringify(keys[j]) + ':null'; var tpl0 = JSON.parse(ts0 + '}'); for (i = 0; i < n; i++) out[i] = { ...tpl0 }; } else for (i = 0; i < n; i++) out[i] = {};
+          for (j = 0; j < K; j++) { var vv = F.cols[j].pre ? F.cols[j].pre : decodeColumn(meta.cols[j], zs, F.cols[j].fr), kj = keys[j]; for (i = 0; i < n; i++) out[i][kj] = vv[i]; }
+          return out;
+        }
+      }
+      for (j = 0; j < K; j++) vals[j] = F.cols[j] === null ? null : F.cols[j].pre ? F.cols[j].pre : decodeColumn(meta.cols[j], zs, F.cols[j].fr);
       if (ordList) { for (i = 0; i < n; i++) { var sq2 = ordList[ordIds[i]], m2 = sq2.length; o = {}; for (j = 0; j < m2; j++) { var kk = sq2[j]; if (!vals[kk]) continue; if (hasProto) setKey(o, keys[kk], vals[kk][ptr[kk]++]); else o[keys[kk]] = vals[kk][ptr[kk]++]; } out[i] = o; } return out; }
       // column by column (the row-object rule): every row object is made first, then each key is assigned down its column, so the objects share one shape history
       // dense block (every key in every row): cloning one object that already has all the keys lays each row out once. Whether that is faster depends on the engine, so it is timed once against the plain way on the first dense block and the answer is kept per number of keys
       var dense = !hasProto && K > 0 && K <= 250, tpl, ts;
       for (j = 0; j < K && dense; j++) if (!vals[j] || vals[j].length !== n) dense = false;
       if (dense) { for (j = 0, ts = '{'; j < K; j++) ts += (j ? ',' : '') + JSON.stringify(keys[j]) + ':null'; tpl = JSON.parse(ts + '}'); }
-      var useClone = dense && cloneBest[K];
-      if (dense && useClone === undefined && n >= 2000) useClone = cloneBest[K] = probeClone(keys, vals, tpl, K);
+      var useClone = dense && K >= CLONE_KEYS;
       if (dense && gen && n >= 1) { var mk = rowBuilder(keys); if (mk) { for (i = 0; i < n; i++) out[i] = mk(vals, i); return out; } }
-      if (dense && useClone === 2) { for (i = 0; i < n; i++) { o = {}; for (j = 0; j < K; j++) o[keys[j]] = vals[j][i]; out[i] = o; } return out; }
-      if (dense && useClone === 1) { for (i = 0; i < n; i++) out[i] = { ...tpl }; }
+      if (useClone) { for (i = 0; i < n; i++) out[i] = { ...tpl }; }
       else for (i = 0; i < n; i++) out[i] = {};
       for (j = 0; j < K; j++) {
         var v = vals[j]; if (!v) continue;
@@ -1870,7 +1866,72 @@
     if (!S.zdec || !S.zdec.xxh64) throw new Error('LfcPack: xxh64 needs init() first');
     var h = S.zdec.xxh64(bytes); return (h[1] + 4294967296).toString(16).slice(1) + (h[0] + 4294967296).toString(16).slice(1);
   }
-  var api = { _arena: function (on, ms) { ARENA_ON = !!on; if (ms != null) ARENA_MS = ms; arenaDrop(); return ARENA_ON; }, _arenaBytes: function () { return ARENA.buf ? ARENA.buf.byteLength : 0; }, trim: trim, _trimPacker: trimPacker, _helperTrimMs: function (ms) { HELPER_TRIM_MS = ms; }, _autoTrimMs: function (ms) { AUTO_TRIM_MS = ms; if (S.idle) { clearTimeout(S.idle); S.idle = null; } }, hash: hash, unpackColumns: unpackColumns, packRows: packRows, packTables: packTables, unpackTables: unpackTables, pool: function (o) { return init({ readOnly: true }).then(function () { return makePool(o); }); }, _job: function (m) { return runJob(m); }, init: init, pack: pack, packParallel: packParallel, warmPack: warmPack, packStream: packStream, unpack: unpack, info: info, metadata: metadata, unpackRows: unpackRows, stats: stats, unpackText: unpackText, version: '0.4.24', apiVersion: 0 };
+  // ---- open(src): read a file a block at a time, without holding all of it. src is a Blob or File, a function read(offset, length) -> Uint8Array (or a promise of one), or bytes.
+  // Reads the 16-byte trailer and the footer first; rows({ from, count, table }) and block(i) then fetch only the byte ranges of the blocks they need. Rows are the same as unpackRows gives.
+  // Memory is bounded by the footer and one block. Files with raw blocks (exact mode) are read whole on the first rows() or block() call.
+  function open(src) {
+    return init({ readOnly: true }).then(function () {
+      var size, read, whole = null;
+      if (src && typeof src.slice === 'function' && typeof src.size === 'number' && typeof src.arrayBuffer === 'function') { size = src.size; read = function (o, n) { return src.slice(o, o + n).arrayBuffer().then(function (b) { return new Uint8Array(b); }); }; }
+      else if (typeof src === 'function') { if (typeof src.size !== 'number') throw new Error('LfcPack.open: a read function needs its file size as read.size'); size = src.size; read = function (o, n) { return Promise.resolve(src(o, n)).then(bytesOf); }; }
+      else { whole = bytesOf(src); size = whole.length; read = function (o, n) { return Promise.resolve(whole.subarray(o, o + n)); }; }
+      if (size < 17) throw new Error('not an LFC-pack file: too short');
+      return read(size - 16, 16).then(function (t) {
+        if (t.length !== 16 || t[12] !== 76 || t[13] !== 70 || t[14] !== 67 || t[15] !== 49) throw new Error('not an LFC-pack file');
+        var flen = rd32(t, 0); if (flen > size - 16) throw new Error('footer length out of range');
+        return read(size - 16 - flen, flen + 16);
+      }).then(function (tail) {
+        var f = readFooter(S.zdec, tail), blocks = jsonSec(f.sec[SEC_BLOCKS]), i, raw = false, starts = {}, at = {};
+        if (!blocks) throw new Error('damaged file: block table missing');
+        f.bodyEnd = size - tail.length;
+        var file = { bytes: null, footer: f, blocks: blocks, header: jsonSec(f.sec[SEC_HEADER]), zone: jsonSec(f.sec[SEC_ZONE]), meta: jsonSec(f.sec[SEC_META]) };
+        for (i = 0; i < blocks.length; i++) { if (blocks[i][4] === 'r') raw = true; var tb = blocks[i][5] || 0; at[i] = starts[tb] || 0; starts[tb] = at[i] + blocks[i][3]; }
+        var full = null, getAll = function () { return full || (full = (whole ? Promise.resolve(whole) : read(0, size)).then(function (b) { return b; })); };
+        var fetch = function (i) {   /* one block's bytes, checked like blockBytes() */
+          var b = blocks[i]; if (!b) return Promise.reject(new Error('block ' + i + ' out of range'));
+          if (b[0] + b[1] > f.bodyEnd) return Promise.reject(new Error('block ' + i + ' out of range'));
+          return read(b[0], b[1]).then(function (x) {
+            if (x.length !== b[1]) throw new Error('block ' + i + ' short read');
+            if (typeof b[6] === 'string' && RX_X64.test(b[6]) && S.zdec && S.zdec.xxh64 ? hash(x, 'xxh64') !== b[6] : crcOf(x) !== b[2]) throw new Error('block ' + i + ' checksum mismatch');
+            return x;
+          });
+        };
+        var rn = null, rf = null, readers = function () { if (!rf) { rn = arenaReader(makeNestedReader(arenaZs(S.zdec), sharedOf(file))); rf = arenaReader(makeFlatReader(arenaZs(S.zdec))); } };
+        var decode = function (i, x, lo, hi) { readers(); var b = blocks[i], r; if (b[4] === 'f') return rf.readRange(x, lo, hi); r = rn.readBlock(x); return lo === 0 && hi >= r.length ? r : r.slice(lo, hi); };
+        var R = {
+          size: size, blocks: blocks.map(function (b, k) { return { offset: b[0], length: b[1], rows: b[3], kind: b[4], table: b[5] || 0, first: at[k] }; }),
+          info: { rows: file.header.rows, blocks: blocks.length, size: size, major: f.major, minor: f.minor }, meta: file.meta === undefined ? null : file.meta,
+          block: function (i) {
+            if (raw) return getAll().then(function (all) { var b = blocks[i]; if (!b) throw new Error('block ' + i + ' out of range'); return unpackRows(all, { table: b[5] || 0, from: at[i], count: b[3] }); });
+            return fetch(i).then(function (x) { return decode(i, x, 0, blocks[i][3]); });
+          },
+          rows: function (o) {
+            o = o || {}; var from = o.from || 0, count = o.count == null ? Infinity : o.count, tb = o.table || 0, out = [], k = 0;
+            if (raw) return getAll().then(function (all) { return unpackRows(all, o); });
+            var step = function () {   /* one block at a time, in order: memory holds one block */
+              while (k < blocks.length && ((blocks[k][5] || 0) !== tb || at[k] + blocks[k][3] <= from)) k++;
+              if (k >= blocks.length || out.length >= count) return out;
+              var i = k++, lo = Math.max(0, from - at[i]), hi = Math.min(blocks[i][3], lo + (count - out.length));
+              return fetch(i).then(function (x) { var r = decode(i, x, lo, hi); for (var q = 0; q < r.length; q++) out.push(r[q]); return step(); });
+            };
+            return Promise.resolve().then(step);
+          }
+        };
+        return R;
+      });
+    });
+  }
+  // ---- one call without init() (since 0.5.1): before init() has finished, pack and the readers load the WebAssembly themselves and give a promise of the usual result,
+  // so `await LfcPack.pack(text)` and `await LfcPack.unpack(bytes)` work as the only line. Once loaded they answer at once, as before (await works on both).
+  function auto(fn, write) {
+    return function () {
+      var a = arguments;
+      if (write ? S.sh : S.zdec) return fn.apply(null, a);
+      if (write && !WASM['zstd-full']) return fn.apply(null, a);   /* the read-only build: the usual message */
+      return init(write ? undefined : { readOnly: true }).then(function () { return fn.apply(null, a); });
+    };
+  }
+  var api = { _arena: function (on, ms) { ARENA_ON = !!on; if (ms != null) ARENA_MS = ms; arenaDrop(); return ARENA_ON; }, _arenaBytes: function () { return ARENA.buf ? ARENA.buf.byteLength : 0; }, trim: trim, _trimPacker: trimPacker, _helperTrimMs: function (ms) { HELPER_TRIM_MS = ms; }, _autoTrimMs: function (ms) { AUTO_TRIM_MS = ms; if (S.idle) { clearTimeout(S.idle); S.idle = null; } }, hash: hash, unpackColumns: auto(unpackColumns, false), packRows: auto(packRows, true), packTables: auto(packTables, true), unpackTables: auto(unpackTables, false), pool: function (o) { return init({ readOnly: true }).then(function () { return makePool(o); }); }, _job: function (m) { return runJob(m); }, init: init, pack: auto(pack, true), packParallel: packParallel, warmPack: warmPack, packStream: packStream, unpack: auto(unpack, false), info: auto(info, false), metadata: auto(metadata, false), unpackRows: auto(unpackRows, false), open: open, stats: auto(stats, false), unpackText: auto(unpackText, false), version: '0.5.5', apiVersion: 0 };
 // Copyright (c) 2026 LFC Foundry. MIT License. Source part of lfc-pack.js (joined by build.py).
 
   // ================================================================ helper workers: only byte work moves (CRC, zstd, number columns); strings and rows are built on the calling thread

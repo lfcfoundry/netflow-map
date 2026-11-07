@@ -2,7 +2,7 @@
  * memory-compression.js: keep big data packed in memory (bytes, typed arrays, big lists of plain JavaScript objects) and bring it back exactly, fast. One file.
  * Part of JS-modules, https://github.com/lfcfoundry/JS-modules
  * Copyright (c) 2026 LFC Foundry. MIT License (see LICENSE at the repository root).
- * Version 2.6.6 (API 2)
+ * Version 2.12.0 (API 2)
  *
  * What it gives you (plain JavaScript, no dependencies, works offline, one file; sets MemoryCompression, and MemoryCompressionJSO as the object layer alone)
  *  - pack(value) / unpack(bytes) / view(bytes) on MemoryCompression choose the layer by themselves: bytes and typed arrays go through the packing core (as memory-compression 1.x did),
@@ -148,6 +148,7 @@
   var idleHook = null;                                    // set by the object layer: called when WebAssembly memory has grown, so it can be given back when things are quiet
   var W = null, wasmState = 'idle', wasmReadyPromise = null, wasmOff = false, WMOD = null;
   function b64decode(str) {
+    if (typeof Uint8Array.fromBase64 === 'function') return Uint8Array.fromBase64(str);
     var tab = new Uint8Array(128), i, n = 0, bits = 0, acc = 0, out;
     for (i = 0; i < 64; i++) tab['ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.charCodeAt(i)] = i;
     out = new Uint8Array(((str.length * 3) >> 2) + 3);
@@ -1782,14 +1783,21 @@
       KWC = opts && opts.wasm === false ? null : kwGet(); STAT = null;
       try { return packRun(values, opts); } finally { KWC = null; STAT = null; }
     }
+    var AUTO_MAX = 100000;
     function packRun(values, opts) {
-      var a = values instanceof Float64Array ? values : Float64Array.from(values), n = a.length, o = { sample: !(opts && opts.sample === false), noEntropy: !!(opts && opts.noEntropy) }, w = new Wr(), i, part, k = 0, won = [], wonInts = [], full, H = opts && opts.hint;
+      var a = values instanceof Float64Array ? values : Float64Array.from(values), n = a.length, o = { sample: !(opts && opts.sample === false), noEntropy: !!(opts && opts.noEntropy), quick: !!(opts && opts.quick) }, w = new Wr(), i, part, k = 0, won = [], wonInts = [], full, H = opts && opts.hint;
+      var autoQ = !!(opts && opts.auto), stable = false, prevBpn = 0, blk, qk;   // opts.auto (2.8.0, on by default from the JSO layer): a whole-number column of up to AUTO_MAX values tries every way on its first block only
       if (H) { k = H.k || 0; won = H.won || (H.won = []); wonInts = H.wonInts || (H.wonInts = []); }       // opts.hint: what won for this column in earlier packs; a pack then counts on as if its blocks came after those
       w.vi(n); w.vi(CHUNK);
       for (i = 0; i < n; i += CHUNK) {
-        k++; full = !(k > 2 && k % 8 !== 0 && won.length);
+        k++; blk = a.subarray(i, Math.min(n, i + CHUNK));
+        qk = o.quick || (autoQ && stable && n <= AUTO_MAX);
+        full = !(k > (qk ? 1 : 2) && k % (autoQ && stable ? 32 : 8) !== 0 && won.length);
         o.prefer = full || !wonInts.length ? null : wonInts; o.top = 2;
-        part = encChunk(a.subarray(i, Math.min(n, i + CHUNK)), 2, o, full ? null : won);   // a block tries every way for the first blocks and every 8th; the rest try only the ways that have won before
+        part = encChunk(blk, 2, o, full ? null : won);   // a block tries every way for the first blocks and every 8th (every 32nd for a whole-number column under opts.auto); the rest try only the ways that have won before
+        if (autoQ && !full && stable && prevBpn > 0 && part.length / blk.length > prevBpn * 99) { part = encChunk(blk, 2, o = Object.assign({}, o, { prefer: null }), null); stable = false; }   // a block far worse than the one before: try every way again and stop skipping
+        prevBpn = part.length / blk.length;
+        if (autoQ && k === 1) stable = part[0] === CS.INTS;
         if (won.indexOf(part[0]) < 0 && part[0] !== CS.RAWF) won.push(part[0]);
         if (part[0] === CS.INTS && wonInts.indexOf(part[1]) < 0 && part[1] !== IS.RAW) wonInts.push(part[1]);
         w.vi(part.length); w.bytes(part);
@@ -1826,7 +1834,38 @@
       } finally { KWC = null; }
       return st.i >= st.n;
     }
-    return { pack: pack, unpack: unpack, available: available, unpackStart: unpackStart, unpackStep: unpackStep };
+    // windowOpen: the column opened without being decoded. block(b) decodes block b (8,192 numbers) into w.out when asked for; all() decodes the rest. Blocks stand alone, so this reads exactly what unpack() reads.
+    function windowOpen(bytes, count, wasm) {
+      var r = new Rd(bytes), n = r.vi(), c = r.vi(), starts = [], lens = [], i, len, out, done;
+      if (n !== count || c < 1 || c > 1048576) pfail('the data does not match the column');
+      for (i = 0; i < n; i += c) { len = r.vi(); starts.push(r.p); lens.push(len); r.bytes(len); }
+      out = new Float64Array(n); done = new Uint8Array(starts.length);
+      return {
+        n: n, c: c, out: out,
+        block: function (b) {
+          var at, c2;
+          if (done[b]) return;
+          at = b * c; c2 = Math.min(c, n - at);
+          KWC = wasm === false ? null : kwGet();
+          try { into1(out, at, c2, decChunk(new Rd(bytes.subarray(starts[b], starts[b] + lens[b])), c2, out.subarray(at, at + c2))); } finally { KWC = null; }
+          done[b] = 1;
+        },
+        all: function () {
+          var b, at, c2;
+          KWC = wasm === false ? null : kwGet();
+          try {
+            for (b = 0; b < starts.length; b++) {
+              if (done[b]) continue;
+              at = b * c; c2 = Math.min(c, n - at);
+              into1(out, at, c2, decChunk(new Rd(bytes.subarray(starts[b], starts[b] + lens[b])), c2, out.subarray(at, at + c2)));
+              done[b] = 1;
+            }
+          } finally { KWC = null; }
+          return out;
+        }
+      };
+    }
+    return { pack: pack, unpack: unpack, available: available, unpackStart: unpackStart, unpackStep: unpackStep, windowOpen: windowOpen };
   })();
 
   // ================================================================ the object layer
@@ -1895,11 +1934,11 @@
   }
   function freeBuffers() { POOL = []; POOL_BYTES = 0; MC.dropPackBuffer(); }   // also lets go of the output buffer pack() keeps between calls
   // After the last big pack has been quiet for IDLE_MS, the buffer pool is emptied and both WebAssembly helpers give their memory back (a page that packs again simply makes them again, about 1 to 4 ms).
-  var IDLE_MS = 2000, idleTimer = null;
+  var IDLE_MS = 2000, idleTimer = null, RESERVE = true;      // since 2.8.1: after the idle trim a small fresh pair of helpers is made right away (about 6 MB) so the next pack does not pay for starting them
   function idleSoon() {
     if (idleTimer !== null) clearTimeout(idleTimer);
     if (typeof setTimeout !== 'function') return;
-    idleTimer = setTimeout(function () { idleTimer = null; freeBuffers(); kwTrim(); MC.trimMemory(); }, IDLE_MS);
+    idleTimer = setTimeout(function () { idleTimer = null; freeBuffers(); kwTrim(); MC.trimMemory(); if (RESERVE && !MC._noReserve) { try { MC.ready(); kwGet(); } catch (e) { /* the next call makes them */ } } }, IDLE_MS);
     if (idleTimer && typeof idleTimer.unref === 'function') idleTimer.unref();
   }
   if (typeof MC.onGrow === 'function') MC.onGrow(idleSoon);
@@ -2027,6 +2066,8 @@
     this.front = !(opts && opts.front === false);                       // text columns that share long starts with the row before (sorted words, paths) may be stored as 'start length + new end'
     this.fsst = !!(opts && opts.fsst);                                  // opt-in: text columns may be stored as FSST codes (any one string readable alone); costs training time
     this.patterns = !(opts && opts.patterns === false);                 // text patterns on by default; off saves time on text-heavy data at the cost of size
+    this.quick = !!(opts && opts.quickTries);                           // opt-in: the picker tries every way on the first block only (faster pack, up to about 1% bigger)
+    this.auto = !(opts && opts.autoTries === false);                    // since 2.8.0, on by default: whole-number columns of up to 100,000 values try every way on their first block only (as quickTries); autoTries: false = the 2.7.0 bytes
     this.float32 = !!(opts && opts.float32);                       // opt-in and lossy: columns of fractions that need 8 bytes each are kept in 4
     this.seen = this.refs ? new Map() : null;
     this.keys = new Map(); this.depth = 0;
@@ -2134,9 +2175,20 @@
   };
   // one tight pass over a column that is probably all numbers; results go to SCAN (module-level so nothing is allocated)
   var SCAN = { min: 0, max: 0, allInt: true, f32: true, neg0: false, same: true };
-  function scanNumbers(vals, n) {
-    var i, x, min = Infinity, max = -Infinity, first = vals[0], same = true, nonInt = false, nonF32 = false, neg0 = false;
-    for (i = 0; i < n; i++) {
+  function scanNumbers(vals, n) {                              // in chunks: each chunk call finishes (and so warms its tail) before the loop gets hot
+    var from, to, st = SCAN_ST;
+    st.min = Infinity; st.max = -Infinity; st.same = true; st.nonInt = false; st.nonF32 = false; st.neg0 = false; st.first = vals[0];
+    for (from = 0; from < n; from += 8192) {
+      to = from + 8192 < n ? from + 8192 : n;
+      if (!scanChunk(vals, from, to)) return false;
+    }
+    SCAN.min = st.min; SCAN.max = st.max; SCAN.allInt = !st.nonInt; SCAN.f32 = !st.nonF32; SCAN.neg0 = st.neg0; SCAN.same = st.same;
+    return true;
+  }
+  var SCAN_ST = { min: 0, max: 0, same: true, nonInt: false, nonF32: false, neg0: false, first: 0 };
+  function scanChunk(vals, from, to) {
+    var i, x, st = SCAN_ST, min = st.min, max = st.max, first = st.first, same = st.same, nonInt = st.nonInt, nonF32 = st.nonF32, neg0 = st.neg0;
+    for (i = from; i < to; i++) {
       x = vals[i];
       if (typeof x !== 'number') return false;
       if (x < min) min = x;
@@ -2147,24 +2199,11 @@
         if (!nonF32 && x === x && Math.fround(x) !== x) nonF32 = true;
       } else if (x === 0 && 1 / x < 0) neg0 = true;
     }
-    SCAN.min = min; SCAN.max = max; SCAN.allInt = !nonInt; SCAN.f32 = !nonF32; SCAN.neg0 = neg0; SCAN.same = same;
+    st.min = min; st.max = max; st.same = same; st.nonInt = nonInt; st.nonF32 = nonF32; st.neg0 = neg0;
     return true;
   }
-  Enc.prototype.columnBody = function (vals, n) {
-    var c = this.ctl, i, x, t, nNum = 0, nStr = 0, nBool = 0, nNull = 0, nUndef = 0, nArr = 0, nObj = 0, nOther = 0;
-    var allInt = true, f32 = true, neg0 = false, min = Infinity, max = -Infinity, same = true, first = vals[0];
-    if (typeof first === 'number' && scanNumbers(vals, n)) {
-      if (SCAN.same && n > 1 && !(first === 0 && SCAN.neg0)) { c.u8(CT_CONST); this.value(first); return; }
-      if (this.defer && n >= ADAPT_MIN) { this.deferNumbers(vals, n, SCAN.allInt && !SCAN.neg0, SCAN.f32, SCAN.min, SCAN.max, SCAN.neg0); return; }
-      this.numbers(vals, n, SCAN.allInt && !SCAN.neg0, SCAN.f32, SCAN.min, SCAN.max, SCAN.neg0); return;
-    }
-    if (this.refs && typeof first === 'object' && first !== null) {           // with shared objects kept: a column of references to objects already written, or of flat records written here
-      if (this.seen.has(first)) { if (this.refColumn(vals, n)) return; }
-      else if (Object.getPrototypeOf(first) === OP && this.refRecords(vals, n)) return;
-    } else if (typeof first === 'object' && first !== null) {          // a column of arrays or plain objects with one layout: checked and split in a single pass
-      if (Array.isArray(first)) { if ((first.length > 0 && first.length <= 8 && this.fusedTuples(vals, n, first.length)) || this.fusedArrays(vals, n)) return; }
-      else if (Object.getPrototypeOf(first) === OP && this.fusedRecords(vals, n)) return;
-    }
+  function kindScan(vals, n, first) {                                 // the mixed-kind pass on its own, so number columns never share its type feedback
+    var i, x, t, nNum = 0, nStr = 0, nBool = 0, nNull = 0, nUndef = 0, nArr = 0, nObj = 0, nOther = 0, allInt = true, f32 = true, neg0 = false, min = Infinity, max = -Infinity, same = true;
     for (i = 0; i < n; i++) {
       x = vals[i]; t = typeof x;
       if (t === 'number') {
@@ -2189,6 +2228,26 @@
         else nOther++;
       } else nOther++;
     }
+    return { nNum: nNum, nStr: nStr, nBool: nBool, nNull: nNull, nUndef: nUndef, nArr: nArr, nObj: nObj, nOther: nOther, allInt: allInt, f32: f32, neg0: neg0, min: min, max: max, same: same };
+  }
+  Enc.prototype.columnBody = function (vals, n) {
+    var c = this.ctl, i, x, t, nNum = 0, nStr = 0, nBool = 0, nNull = 0, nUndef = 0, nArr = 0, nObj = 0, nOther = 0;
+    var allInt = true, f32 = true, neg0 = false, min = Infinity, max = -Infinity, same = true, first = vals[0];
+    if (typeof first === 'number' && scanNumbers(vals, n)) {
+      if (SCAN.same && n > 1 && !(first === 0 && SCAN.neg0)) { c.u8(CT_CONST); this.value(first); return; }
+      if (this.defer && n >= ADAPT_MIN) { this.deferNumbers(vals, n, SCAN.allInt && !SCAN.neg0, SCAN.f32, SCAN.min, SCAN.max, SCAN.neg0); return; }
+      this.numbers(vals, n, SCAN.allInt && !SCAN.neg0, SCAN.f32, SCAN.min, SCAN.max, SCAN.neg0); return;
+    }
+    if (this.refs && typeof first === 'object' && first !== null) {           // with shared objects kept: a column of references to objects already written, or of flat records written here
+      if (this.seen.has(first)) { if (this.refColumn(vals, n)) return; }
+      else if (Object.getPrototypeOf(first) === OP && this.refRecords(vals, n)) return;
+    } else if (typeof first === 'object' && first !== null) {          // a column of arrays or plain objects with one layout: checked and split in a single pass
+      if (Array.isArray(first)) { if ((first.length > 0 && first.length <= 8 && this.fusedTuples(vals, n, first.length)) || this.fusedArrays(vals, n)) return; }
+      else if (Object.getPrototypeOf(first) === OP && this.fusedRecords(vals, n)) return;
+    }
+    var K = kindScan(vals, n, first);
+    nNum = K.nNum; nStr = K.nStr; nBool = K.nBool; nNull = K.nNull; nUndef = K.nUndef; nArr = K.nArr; nObj = K.nObj; nOther = K.nOther;
+    allInt = K.allInt; f32 = K.f32; neg0 = K.neg0; min = K.min; max = K.max; same = K.same;
     var kinds = (nNum > 0) + (nStr > 0) + (nBool > 0) + (nArr > 0) + (nObj > 0), nonValue = nNull + nUndef;
     if (nOther > 0 || kinds > 1 || (this.refs && (nArr || nObj))) { this.any(vals, n); return; }
     if (kinds === 0) { if (same) { c.u8(CT_CONST); this.value(first); } else this.nullable(vals, n); return; }
@@ -2213,11 +2272,14 @@
     this.blob(kind, 'nulls');
     if (m > 0) this.column(compact, m);
   };
+  function fillU8(t, vals, min, n) { for (var i = 0; i < n; i++) t[i] = vals[i] - min; }            // one loop per width: each sees one kind of array
+  function fillU16(t, vals, min, n) { for (var i = 0; i < n; i++) t[i] = vals[i] - min; }
+  function fillU32(t, vals, min, n) { for (var i = 0; i < n; i++) t[i] = vals[i] - min; }
   // CT_INT body: width, base, packed offsets. Caller checked max - min < 2^32. With a tag (CT_INT, or CT_DEC with its scale e) this writes the tag too, and
   // a column of 1024 or more is also tried with the number picker when it is on: the smaller one is kept.
   Enc.prototype.intData = function (vals, n, min, max, tag, e) {
     var range = max - min, w = range < 256 ? 1 : range < 65536 ? 2 : 4, i, t = w === 1 ? new Uint8Array(n) : w === 2 ? new Uint16Array(n) : new Uint32Array(n), pre = null, src, c = this.ctl;
-    for (i = 0; i < n; i++) t[i] = vals[i] - min;
+    if (w === 1) fillU8(t, vals, min, n); else if (w === 2) fillU16(t, vals, min, n); else fillU32(t, vals, min, n);
     if (tag !== undefined) {
       if (this.picker && n >= ADAPT_MIN) {
         pre = MC.pack(t, this.mcOpts);
@@ -2267,20 +2329,20 @@
     var a = PK, small = this.mode === 'small', best, z = 0, p, ne, probe, got, got0, plain, tryNe = true, i;
     try {
       if (src.length >= 32768) {                    // a long column is first tried on its first 8,192 numbers; if the chooser gains under 5% there, the rest is not tried
-        probe = src.subarray(0, 8192); got = got0 = a.pack(probe, { sample: true, wasm: this.mcOpts.wasm });
+        probe = src.subarray(0, 8192); got = got0 = a.pack(probe, { sample: true, quick: this.quick, auto: this.auto, wasm: this.mcOpts.wasm });
         if (small) { p = MC.pack(got, this.mcOpts); if (p.length < got.length) got = p; }
         plain = MC.pack(probe, this.mcOpts);
         if (got.length > plain.length * 0.95) return null;
         if (small) {                                // the second pass (no entropy coding, then deflate) is only worth its time when it comes close on the same 8,192 numbers
-          ne = a.pack(probe, { sample: true, noEntropy: true, wasm: this.mcOpts.wasm });
+          ne = a.pack(probe, { sample: true, quick: this.quick, auto: this.auto, noEntropy: true, wasm: this.mcOpts.wasm });
           if (ne.length === got0.length) { for (i = 0; i < ne.length && ne[i] === got0[i]; i++); tryNe = i < ne.length; }   // the very same bytes: the second pass would only repeat the first
           if (tryNe) { p = MC.pack(ne, this.mcOpts); tryNe = p.length < got.length * 1.02; }
         }
       }
-      best = a.pack(src, { sample: true, wasm: this.mcOpts.wasm, hint: this.hints ? (this.hints[this.path] || (this.hints[this.path] = {})) : null });
+      best = a.pack(src, { sample: true, quick: this.quick, auto: this.auto, wasm: this.mcOpts.wasm, hint: this.hints ? (this.hints[this.path] || (this.hints[this.path] = {})) : null });
       if (small) {
         p = MC.pack(best, this.mcOpts); if (p.length < best.length) { best = p; z = 1; }
-        if (tryNe) { ne = a.pack(src, { sample: true, noEntropy: true }); p = MC.pack(ne, this.mcOpts); if (p.length < best.length) { best = p; z = 1; } }
+        if (tryNe) { ne = a.pack(src, { sample: true, quick: this.quick, auto: this.auto, noEntropy: true }); p = MC.pack(ne, this.mcOpts); if (p.length < best.length) { best = p; z = 1; } }
       }
     } catch (err) { return null; }
     return { bytes: best, z: z };
@@ -2382,6 +2444,7 @@
   // ---- the pattern scan: JavaScript below, and the same loop in WebAssembly (wasm/jso-kernels.c) when the page allows it
   var TRIE_NODES = 1024, KERNELS_B64 = /*KW:BEGIN*/'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'/*KW:END*/, KW = null, KW_STATE = 0;
   function b64bytes(t) {
+    if (typeof Uint8Array.fromBase64 === 'function') return Uint8Array.fromBase64(t);
     var bin = typeof atob === 'function' ? atob(t) : Buffer.from(t, 'base64').toString('binary'), u = new Uint8Array(bin.length), i;
     for (i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
     return u;
@@ -3211,6 +3274,21 @@
     function(out,from,to,k,c){var i,r,k0=k[0],c0=c[0],k1=k[1],c1=c[1],k2=k[2],c2=c[2],k3=k[3],c3=c[3],k4=k[4],c4=c[4],k5=k[5],c5=c[5],k6=k[6],c6=c[6],k7=k[7],c7=c[7],k8=k[8],c8=c[8],k9=k[9],c9=c[9],k10=k[10],c10=c[10],k11=k[11],c11=c[11],k12=k[12],c12=c[12],k13=k[13],c13=c[13],k14=k[14],c14=c[14];for(i=from;i<to;i++){r={};r[k0]=c0[i];r[k1]=c1[i];r[k2]=c2[i];r[k3]=c3[i];r[k4]=c4[i];r[k5]=c5[i];r[k6]=c6[i];r[k7]=c7[i];r[k8]=c8[i];r[k9]=c9[i];r[k10]=c10[i];r[k11]=c11[i];r[k12]=c12[i];r[k13]=c13[i];r[k14]=c14[i];out[i]=r;}},
     function(out,from,to,k,c){var i,r,k0=k[0],c0=c[0],k1=k[1],c1=c[1],k2=k[2],c2=c[2],k3=k[3],c3=c[3],k4=k[4],c4=c[4],k5=k[5],c5=c[5],k6=k[6],c6=c[6],k7=k[7],c7=c[7],k8=k[8],c8=c[8],k9=k[9],c9=c[9],k10=k[10],c10=c[10],k11=k[11],c11=c[11],k12=k[12],c12=c[12],k13=k[13],c13=c[13],k14=k[14],c14=c[14],k15=k[15],c15=c[15];for(i=from;i<to;i++){r={};r[k0]=c0[i];r[k1]=c1[i];r[k2]=c2[i];r[k3]=c3[i];r[k4]=c4[i];r[k5]=c5[i];r[k6]=c6[i];r[k7]=c7[i];r[k8]=c8[i];r[k9]=c9[i];r[k10]=c10[i];r[k11]=c11[i];r[k12]=c12[i];r[k13]=c13[i];r[k14]=c14[i];r[k15]=c15[i];out[i]=r;}}
   ];
+  var STREAM_LAZY_ROWS = 131072;      // stream: lists up to this many rows take the plain path (no gain from pages, and it is faster)
+  function pageCols(cols, a, z) {                                    // rows a..z-1 of every column as plain arrays that start at 0, so a page of rows is made by the same row builders as a whole list
+    var res = new Array(cols.length), j, i, c, m, o, x, d;
+    for (j = 0; j < cols.length; j++) {
+      c = cols[j]; m = c.mode; x = c.a; d = c.d;
+      if (m === 0) { res[j] = Array.isArray(x) ? x.slice(a, z) : x.subarray(a, z); continue; }
+      o = new Array(z - a);
+      if (m === 1) for (i = a; i < z; i++) o[i - a] = x[i] === 1;
+      else if (m === 2) for (i = a; i < z; i++) o[i - a] = d[x[i]];
+      else if (m === 3) for (i = a; i < z; i++) o[i - a] = d;
+      else for (i = a; i < z; i++) o[i - a] = c.get(i);
+      res[j] = o;
+    }
+    return res;
+  }
   function plainCol(col) { return col.mode === 0 ? col.a : col.full(); }
   function fixedRows(out, from, to, keys, cols) {
     var f = FIXED_ROWS[keys.length], i, j, r, nk = keys.length;
@@ -3227,12 +3305,12 @@
     this.wasm = opts && opts.wasm === false ? false : undefined;
   }
   Dec.prototype.spend = function (n) { this.budget -= n; if (this.budget < 0) jfail('the data asks for more than maxItems values; pass a bigger maxItems if it is yours'); };
-  Dec.prototype.blob = function (Ctor, n) {
+  Dec.prototype.blob = function (Ctor, n, into) {                       // into: a typed array of n the caller keeps; a packed piece is unpacked straight into it instead of into fresh memory
     var b = this.bl, kind = b.u8(), len, t, u;
     if (kind === 0 || kind === 2) return rawGet(b, Ctor, n);
     if (kind !== 1) jfail('bad blob');
     len = b.varint(); u = b.take(len);
-    t = MC.unpack(u, { maxSize: n * Ctor.BYTES_PER_ELEMENT + 64, wasm: this.wasm });
+    t = MC.unpack(u, into && into.constructor === Ctor && into.length === n ? { maxSize: n * Ctor.BYTES_PER_ELEMENT + 64, wasm: this.wasm, into: into } : { maxSize: n * Ctor.BYTES_PER_ELEMENT + 64, wasm: this.wasm });
     if (!(t instanceof Ctor) || t.length !== n) jfail('a packed column has the wrong size');
     return t;
   };
@@ -3303,11 +3381,12 @@
     return r;
   };
   Dec.prototype.typed = function (kind, n) {
-    var Ctor = TYPED_CTORS[kind], raw, t;
-    if (kind === 0) return this.blob(Uint8Array, n);
+    var Ctor = TYPED_CTORS[kind], raw, t, into = this.into;
+    this.into = null;                                                   // only the first typed array (the whole value) may use the caller's array
+    if (kind === 0) return this.blob(Uint8Array, n, into);
     if (kind === 1 || kind === 2) { raw = this.blob(Uint8Array, n); return new Ctor(raw.buffer, raw.byteOffset, n); }
-    if (kind === 7 || kind === 8) return this.blob(Ctor, n);
-    t = this.blob(kind === 3 || kind === 4 ? Uint16Array : Uint32Array, n);
+    if (kind === 7 || kind === 8) return this.blob(Ctor, n, into);
+    t = this.blob(kind === 3 || kind === 4 ? Uint16Array : Uint32Array, n, kind === 4 || kind === 6 ? into : null);
     return kind === 4 || kind === 6 ? t : new Ctor(t.buffer, t.byteOffset, n);
   };
   Dec.prototype.items = function (n) {
@@ -3325,6 +3404,35 @@
   // Modes 7 to 10 are for a nested column of a view (lazyNow): 7 records (an object made per row from its columns), 8 arrays (row ends plus one flat column), 9 tuples (an array made per row), 10 date-times (text made per row from the numbers);
   // a.row(i) makes the value. They are never turned into plain arrays (that would hold every object), so each read makes its own value.
   // full() gives a plain array of the values.
+  var WIN_MIN = 16384;                               // a column of fewer rows is just decoded whole
+  function winRow(w, p, d) {                           // the reader of a number column (p: divisor, 0 for none) or dictionary column (d: the table) that decodes 8,192 numbers at a time
+    var out = w.out, c = w.c, m = d ? d.length : 0, scaled = false, hits = 0, lim = w.n >> 9, r;
+    r = {
+      col: null,
+      row: function (i) {
+        var b = (i / c) | 0, v, x;
+        if (++hits > lim && r.col) { x = r.col; if (d) { x.a = r.codes(); x.d = d; x.mode = 2; } else { x.a = r.all(); x.d = null; x.mode = 0; } x.t = 0; return d ? d[x.a[i]] : x.a[i]; }       // read often enough: the rest is decoded in one go and the column becomes a plain one (the reads after that cost what any column costs)
+        w.block(b); v = out[i];
+        if (d) { if (!(v >= 0 && v < m)) jfail('dictionary index out of range'); return d[v]; }
+        return p && !scaled ? v / p : v;
+      },
+      all: function () {
+        var i, n = w.n, r;
+        w.all();
+        if (d) { r = new Array(n); for (i = 0; i < n; i++) { if (!(out[i] >= 0 && out[i] < m)) jfail('dictionary index out of range'); r[i] = d[out[i]]; } return r; }
+        if (p && !scaled) { for (i = 0; i < n; i++) out[i] = out[i] / p; scaled = true; }
+        return out;
+      },
+      codes: function () {                              // a dictionary column as the table plus its small codes, the form a column read whole has
+        var q, k, n = w.n, cd = new (m <= 256 ? Uint8Array : m <= 65536 ? Uint16Array : Uint32Array)(n);
+        w.all();
+        for (q = 0; q < n; q++) { k = out[q]; if (!(k >= 0 && k < m)) jfail('dictionary index out of range'); cd[q] = k; }
+        return cd;
+      },
+      bytes: function () { return 64 + out.byteLength; }
+    };
+    return r;
+  }
   function Col(n, mode, a, d) { this.n = n; this.mode = mode; this.a = a; this.d = d; this.t = 0; this.hits = 0; }
   Col.prototype.get = function (i) { var m = this.mode; return m === 0 ? this.a[i] : m === 1 ? this.a[i] === 1 : m === 2 ? this.d[this.a[i]] : m === 3 ? this.d : this.cut(i); };   // kept small on purpose: it is read once per value in every row builder and must stay inlinable
   function lazyCol(n, kind, a) { var c = new Col(n, kind, a, null); c.t = kind; return c; }
@@ -3336,6 +3444,7 @@
   };
   Col.prototype.make = function () {                                  // a new array of all the strings of a column that is not made yet
     var n = this.n, a = this.a, out, i, big, off;
+    if (this.mode === 11) return this.a.all();
     if (this.mode === 4) return fsAll(a, n);
     out = new Array(n);
     if (this.mode === 5) { big = a.big; off = a.off; for (i = 0; i < n; i++) out[i] = big.substring(off[i], off[i + 1]); }
@@ -3350,6 +3459,7 @@
   };
   Col.prototype.full = function () {
     var n = this.n, a = this.a, d = this.d, out, i, m = this.mode;
+    if (m === 11) return a.all();
     if (m >= 4) return this.make();
     if (m === 0 && Array.isArray(a)) return this.t ? a.slice() : a;
     out = new Array(n);
@@ -3392,6 +3502,10 @@
         if (e > 10 || k > 1) jfail('bad adaptive column');
         a = this.bl.take(m);
         if (!PK.available()) jfail('this file stores a number column with the number picker, which needs a little-endian machine');
+        if (this.win && (this.depth === 1 || this.depth === this.winAt) && !k && n >= WIN_MIN) {
+          try { t = PK.windowOpen(a, n, this.wasm); } catch (err) { jfail('an adaptive number column is damaged'); }
+          col = new Col(n, 11, winRow(t, e > 0 ? P10[e] : 0, null), null); col.a.col = col; return col;
+        }
         try {
           if (k) a = MC.unpack(a, { maxSize: m * 64 + n * 16 + 4096, wasm: this.wasm });
           t = PK.unpack(a, n, this.wasm);
@@ -3451,6 +3565,10 @@
         m = c.varint(); this.spend(m); this.spend(n); if (m > n || m < 2) jfail('bad dictionary column');
         d = this.rawStrings(m); k = c.u8(); e = c.varint(); if (k > 1) jfail('bad dictionary column');
         t = this.bl.take(e);
+        if (this.win && (this.depth === 1 || this.depth === this.winAt) && !k && n >= WIN_MIN) {
+          try { a = PK.windowOpen(t, n, this.wasm); } catch (err) { jfail('a dictionary column is damaged'); }
+          col = new Col(n, 11, winRow(a, 0, d), null); col.a.col = col; return col;
+        }
         try { if (k) t = MC.unpack(t, { maxSize: e * 64 + n * 16 + 4096, wasm: this.wasm }); t = PK.unpack(t, n, this.wasm); } catch (err) { jfail('a dictionary column is damaged'); }
         a = new (m <= 256 ? Uint8Array : m <= 65536 ? Uint16Array : Uint32Array)(n);
         for (i = 0; i < n; i++) { if (!(t[i] >= 0 && t[i] < m)) jfail('dictionary index out of range'); a[i] = t[i]; }
@@ -3469,9 +3587,9 @@
         return new Col(n, 0, out, null);
       case CT_TUPLE:
         k = c.varint(); if (k < 1 || k > 8) jfail('bad tuple'); this.spend(n * k);
-        var cols = [], lz = this.lazyNow(), la = this.lazyAt; if (lz) this.lazyAt = this.depth + 1;
+        var cols = [], lz = this.lazyNow(), la = this.lazyAt, wa5 = this.winAt; if (lz) { this.lazyAt = this.depth + 1; this.winAt = this.depth + 1; }
         for (j = 0; j < k; j++) cols.push(this.column(n));
-        this.lazyAt = la;
+        this.lazyAt = la; this.winAt = wa5;
         if (lz) return new Col(n, 9, { cols: cols, k: k, row: k === 2 ? function (i) { return [cols[0].get(i), cols[1].get(i)]; } : function (i) { var r = new Array(k), q; for (q = 0; q < k; q++) r[q] = cols[q].get(i); return r; } }, null);
         out = new Array(n);
         if (k === 2) {
@@ -3484,12 +3602,13 @@
       case CT_ARRAYS:
         m = c.varint(); this.spend(m + n);
         lens = this.lengthCol(n);
-        var lz = this.lazyNow(), la = this.lazyAt; if (lz) this.lazyAt = this.depth + 1;
+        var lz = this.lazyNow(), la = this.lazyAt, wa2 = this.winAt; if (lz) { this.lazyAt = this.depth + 1; this.winAt = this.depth + 1; }
         flat = m > 0 ? this.column(m) : null;
-        this.lazyAt = la;
+        this.lazyAt = la; this.winAt = wa2;
         if (lz) {                                                                          // row ends and the one flat column; an array is made when its row is read
-          var ro = new Uint32Array(n + 1);
-          for (i = 0; i < n; i++) { ro[i + 1] = ro[i] + lens.get(i); if (ro[i + 1] > m) jfail('bad array lengths'); }
+          var ro = new Uint32Array(n + 1), la2 = lens.mode === 0 ? lens.a : null;
+          if (la2 !== null) for (i = 0; i < n; i++) { ro[i + 1] = ro[i] + la2[i]; if (ro[i + 1] > m) jfail('bad array lengths'); }       // the row lengths are a plain array: summed straight from it
+          else for (i = 0; i < n; i++) { ro[i + 1] = ro[i] + lens.get(i); if (ro[i + 1] > m) jfail('bad array lengths'); }
           if (ro[n] !== m) jfail('bad array lengths');
           return new Col(n, 8, { off: ro, flat: flat, row: flat === null ? function () { return []; } : flat.mode === 0 && Array.isArray(flat.a) ? function (i) { return flat.a.slice(ro[i], ro[i + 1]); } : function (i) { var b = ro[i], e = ro[i + 1], r = new Array(e - b), q; for (q = b; q < e; q++) r[q - b] = flat.get(q); return r; } }, null);
         }
@@ -3573,11 +3692,12 @@
   }
   // The text of one date-time from its number, the calendar part kept for the last 256 distinct days; the column keeps just the numbers.
   function timesLazy(n, L, g, ts) {
-    var per = g === 3 ? 1 : g === 5 ? 1440 : g === 6 ? 86400 : 86400000, ra = ts.mode === 3 ? null : ts.a, cv = ts.mode === 3 ? ts.d : 0, i, v;
-    for (i = 0; i < n; i++) { v = ra ? ra[i] : cv; if (v - v !== 0) jfail('bad date pattern'); if (!ra) break; }
+    var wn = ts.mode === 11 ? ts.a : null, per = g === 3 ? 1 : g === 5 ? 1440 : g === 6 ? 86400 : 86400000, ra = ts.mode === 3 || wn ? null : ts.a, cv = ts.mode === 3 ? ts.d : 0, i, v;
+    if (!wn) for (i = 0; i < n; i++) { v = ra ? ra[i] : cv; if (v - v !== 0) jfail('bad date pattern'); if (!ra) break; }        // numbers in windows are checked when their row is read
     var tags = new Float64Array(256).fill(NaN), strs = new Array(256).fill(''), last = NaN, lastDay = '';
     function row(i) {
-      var v = ra ? ra[i] : cv, days = Math.floor(v / per), slot, day, rest, sec, ms, k;
+      var v = wn ? wn.row(i) : ra ? ra[i] : cv, days = Math.floor(v / per), slot, day, rest, sec, ms, k;
+      if (wn && v - v !== 0) jfail('bad date pattern');
       if (days === last) day = lastDay;
       else {
         slot = days & 255;
@@ -3708,9 +3828,11 @@
     this.spend(n * (R + 1));
     for (j = 0; j <= R; j++) L.push(c.str());
     for (j = 0; j < R; j++) { if (j < g) widths.push(TS_WIDTH[j]); else { widths.push(c.varint()); if (widths[j] === 1 || widths[j] > 15) jfail('bad date pattern'); } }
-    ts = this.column(n);
-    if (ts.mode !== 0 && ts.mode !== 3) jfail('bad date pattern');
-    if (R === g && this.lazyNow()) return timesLazy(n, L, g, ts);
+    var lzd = R === g && this.lazyNow(), wa3 = this.winAt;
+    if (lzd) this.winAt = this.depth + 1;                           // the numbers of a date column read lazily may be opened in windows
+    ts = this.column(n); this.winAt = wa3;
+    if (ts.mode !== 0 && ts.mode !== 3 && !(lzd && ts.mode === 11)) jfail('bad date pattern');
+    if (lzd) return timesLazy(n, L, g, ts);
     if (R === g && n >= 2048) return new Col(n, 0, buildTimes(n, L, g, ts), null);
     cols = tsUnpack(g, ts, n).map(function (a) { var k, x = a[0]; for (k = 1; k < n && a[k] === x; k++); return k === n ? new Col(n, 3, null, x) : new Col(n, 0, a, null); });   // a number that never changes becomes part of the text
     for (j = g; j < R; j++) cols.push(this.column(n));
@@ -3723,8 +3845,11 @@
     for (t = 0; t < nt; t++) { L = []; for (j = 0; j <= R; j++) L.push(c.str()); tpls.push(L); }
     for (j = 0; j < R; j++) { w = c.varint(); if (w === 1 || w > 15) jfail('bad string pattern'); widths.push(w); }
     if (nt > 1) { tid = this.blob(Uint8Array, n); for (i = 0; i < n; i++) if (tid[i] >= nt) jfail('bad string pattern'); }
+    var lzt = this.lazyNow(), wa4 = this.winAt;
+    if (lzt) this.winAt = this.depth + 1;                           // the number slots of a template read lazily may be opened in windows
     for (j = 0; j < R; j++) cols.push(this.column(n));
-    return buildTemplate(n, tpls, R, widths, tid, cols, this.lazyNow() && CAN_EVAL);
+    this.winAt = wa4;
+    return buildTemplate(n, tpls, R, widths, tid, cols, lzt);
   };
   var ZEROS = '000000000000000';
   function pad(v, w) { var s = '' + v; return s.length >= w ? s : ZEROS.substring(0, w - s.length) + s; }
@@ -3780,11 +3905,29 @@
     return { lits: nl, R: nk.length, widths: nw, kinds: nk, arrs: na, tabs: nt, los: nlo };
   }
   // The strings come back as literal + number + literal ...; a column of numbers that spans few values is turned into text once and looked up.
-  function buildTemplate(n, tpls, R, widths, tid, cols, lazy) {      // a Col; lazy: the strings are put together when a row is read, not now
-    var nt = tpls.length, out = new Array(n), kinds = [], arrs = [], tabs = [], los = [], lits, j, t, i, a, lo, hi, x, k, sig, f, v;
+  var TPL_CHUNK = 8192, TPL_CHUNK_MIN = 65536;
+  // A long lazy template column is made in chunks of 8,192 rows when its first row in a chunk is read: the passes over the numbers (range, merged table, text per combination) then
+  // cost 8,192 rows each time instead of every row at once, so the first read of a long list does not wait for them. Only for plain number slots; a slot in windows keeps the whole way.
+  function chunkedTemplate(n, tpls, R, widths, tid, cols) {
+    var nc = Math.ceil(n / TPL_CHUNK), chunks = new Array(nc), j, b;
+    function make(b) {
+      var s = b * TPL_CHUNK, e = s + TPL_CHUNK < n ? s + TPL_CHUNK : n, sub = [], q;
+      for (q = 0; q < R; q++) sub.push(cols[q].mode === 3 ? cols[q] : new Col(e - s, 0, cols[q].a.subarray(s, e), null));
+      return buildTemplate(e - s, tpls, R, widths, tid ? tid.subarray(s, e) : null, sub, true, true).a;
+    }
+    return lazyCol(n, 6, { row: function (i) { var b = i >> 13, ch = chunks[b] || (chunks[b] = make(b)); return ch.row(i - (b << 13)); }, arrs: [], tabs: [], tid: null, chunks: chunks });
+  }
+  function buildTemplate(n, tpls, R, widths, tid, cols, lazy, inner) {      // a Col; lazy: the strings are put together when a row is read, not now
+    var j;
+    if (lazy && !inner && n >= TPL_CHUNK_MIN) {
+      for (j = 0; j < R; j++) if (cols[j].mode !== 3 && !(cols[j].mode === 0 && cols[j].a.subarray)) break;
+      if (j === R) return chunkedTemplate(n, tpls, R, widths, tid, cols);
+    }
+    var nt = tpls.length, out = new Array(n), kinds = [], arrs = [], tabs = [], los = [], lits, t, i, a, lo, hi, x, k, sig, f, v;
     for (j = 0; j < R; j++) {
       a = cols[j]; kinds.push(0); arrs.push(null); tabs.push(null); los.push(0);
       if (a.mode === 3) { kinds[j] = 3; tabs[j] = widths[j] ? pad(a.d, widths[j]) : '' + a.d; continue; }       // one value for every row: part of the text
+      if (a.mode === 11) { kinds[j] = widths[j] ? 5 : 4; arrs[j] = a; continue; }       // numbers in windows: each is read from its column when the row is made
       a = a.a; arrs[j] = a; lo = Infinity; hi = -Infinity;
       for (i = 0; i < n; i++) { x = a[i]; if (x < lo) lo = x; if (x > hi) hi = x; }
       if (hi - lo <= 4096 && n > 4 * (hi - lo + 1) && lo === Math.floor(lo)) {
@@ -3802,7 +3945,7 @@
           var e = '', pend = tpls[t][0];
           for (j = 0; j < R; j++) {
             if (kinds[j] === 3) { pend += tabs[j] + tpls[t][j + 1]; continue; }       // constant: folded into the text
-            e += (e ? '+' : '') + JSON.stringify(pend) + '+' + (kinds[j] === 0 ? 'A' + j + '[i]' : kinds[j] === 1 ? 'T' + j + '[A' + j + '[i]-' + 'LO' + j + ']' : 'pad(A' + j + '[i],' + widths[j] + ')');
+            e += (e ? '+' : '') + JSON.stringify(pend) + '+' + (kinds[j] === 0 ? 'A' + j + '[i]' : kinds[j] === 1 ? 'T' + j + '[A' + j + '[i]-' + 'LO' + j + ']' : kinds[j] === 4 ? 'A' + j + '.get(i)' : kinds[j] === 5 ? 'pad(A' + j + '.get(i),' + widths[j] + ')' : 'pad(A' + j + '[i],' + widths[j] + ')');
             pend = tpls[t][j + 1];
           }
           e = e ? e + (pend ? '+' + JSON.stringify(pend) : '') : JSON.stringify(pend);
@@ -3823,7 +3966,7 @@
             t = tid ? tid[i] : 0; L = tpls[t]; s = L[0];
             for (jj = 0; jj < R; jj++) {
               q = 4 + jj * 3;
-              v = kinds[jj] === 3 ? tabs[jj] : kinds[jj] === 1 ? arguments[q + 1][arguments[q][i] - arguments[q + 2]] : kinds[jj] === 2 ? padf(arguments[q][i], widths[jj]) : arguments[q][i];
+              v = kinds[jj] === 3 ? tabs[jj] : kinds[jj] === 1 ? arguments[q + 1][arguments[q][i] - arguments[q + 2]] : kinds[jj] === 2 ? padf(arguments[q][i], widths[jj]) : kinds[jj] === 4 ? arguments[q].get(i) : kinds[jj] === 5 ? padf(arguments[q].get(i), widths[jj]) : arguments[q][i];
               s += v + L[jj + 1];
             }
             out[i] = s;
@@ -3834,6 +3977,13 @@
     }
     var args = [out, n, tid, pad];
     for (j = 0; j < R; j++) { args.push(arrs[j]); args.push(tabs[j]); args.push(los[j]); }
+    if (lazy && !CAN_EVAL) {                                          // since 2.8.2, a page that forbids eval: the same row, put together by a loop over the slots
+      return lazyCol(n, 6, { row: function (i) {
+        var tt = tid ? tid[i] : 0, L = tpls[tt], str = L[0], jj, v;
+        for (jj = 0; jj < R; jj++) { v = kinds[jj] === 3 ? tabs[jj] : kinds[jj] === 1 ? tabs[jj][arrs[jj][i] - los[jj]] : kinds[jj] === 2 ? pad(arrs[jj][i], widths[jj]) : kinds[jj] === 4 ? arrs[jj].get(i) : kinds[jj] === 5 ? pad(arrs[jj].get(i), widths[jj]) : arrs[jj][i]; str += v + L[jj + 1]; }
+        return str;
+      }, arrs: arrs, tabs: tabs, tid: tid });
+    }
     if (lazy) {
       var row = f.apply(null, args);
       return lazyCol(n, 6, { row: row, arrs: arrs, tabs: tabs, tid: tid });
@@ -3841,6 +3991,9 @@
     f.apply(null, args);
     return new Col(n, 0, out, null);
   }
+  function addU8(a, t, base, n) { for (var i = 0; i < n; i++) a[i] = t[i] + base; }
+  function addU16(a, t, base, n) { for (var i = 0; i < n; i++) a[i] = t[i] + base; }
+  function addU32(a, t, base, n) { for (var i = 0; i < n; i++) a[i] = t[i] + base; }
   Dec.prototype.intCol = function (n) {
     var c = this.c, w = c.u8(), base, t, i, a, Ctor;
     if (w !== 1 && w !== 2 && w !== 4) jfail('bad int width');
@@ -3848,9 +4001,7 @@
     t = this.blob(Ctor, n);
     if (base === 0) return new Col(n, 0, t, null);
     a = (base >= -2147483648 && base + (w === 4 ? 4294967295 : 65535) <= 2147483647 && w !== 4) ? new Int32Array(n) : new Float64Array(n);
-    if (t instanceof Uint8Array) for (i = 0; i < n; i++) a[i] = t[i] + base;                  // one loop per width, so each loop sees one type of array
-    else if (t instanceof Uint16Array) for (i = 0; i < n; i++) a[i] = t[i] + base;
-    else for (i = 0; i < n; i++) a[i] = t[i] + base;
+    if (t instanceof Uint8Array) addU8(a, t, base, n); else if (t instanceof Uint16Array) addU16(a, t, base, n); else addU32(a, t, base, n);
     return new Col(n, 0, a, null);
   };
   Dec.prototype.lengthCol = function (n) {
@@ -3889,6 +4040,9 @@
     if (q !== n) jfail('bad string lengths');
     return out;
   };
+  function recordRowPlain(keys) {                                   // since 2.8.2: the same without making code at run time (a page that forbids eval): one loop over the keys
+    return function (c) { var nk = keys.length; return function (i) { var r = {}, j; for (j = 0; j < nk; j++) define(r, keys[j], c[j].get(i)); return r; }; };
+  }
   function recordRow(keys) {                                        // a function that gives a function making row i from the columns
     var sig = 'r' + JSON.stringify(keys), f = GEN_CACHE[sig], j, src;
     if (f) return f;
@@ -3899,7 +4053,7 @@
     return f;
   }
   Dec.prototype.records = function (n, register) {
-    var base = 0, c = this.c, ns = c.varint(), shapes = [], i, j, nk, keys, shapeOf = null, cols, sh, out, counts = [], modes, args, rows, pos, cnt, lz = !register && this.ver >= 2 && CAN_EVAL && this.lazyNow(), la = this.lazyAt;
+    var base = 0, c = this.c, ns = c.varint(), shapes = [], i, j, nk, keys, shapeOf = null, cols, sh, out, counts = [], modes, args, rows, pos, cnt, lz = !register && this.ver >= 2 && this.lazyNow(), la = this.lazyAt;
     if (ns < 1 || ns > MAX_SHAPES || (register && ns !== 1)) jfail('bad shape count');
     if (register) { base = this.refs.length; this.spend(n); for (i = 0; i < n; i++) this.refs.push(RESERVED); }
     for (i = 0; i < ns; i++) {
@@ -3916,15 +4070,15 @@
       if (ns === 1 && this.ver >= 2) {                                            // a directory of sizes comes first; each column has its own key numbering
         var dirC = [], dirB = [], c0, b0, savedKeys;
         for (j = 0; j < keys.length; j++) { dirC.push(c.varint()); dirB.push(c.varint()); }
-        if (lz) this.lazyAt = this.depth + 1;
+        var wa = this.winAt; if (lz) { this.lazyAt = this.depth + 1; this.winAt = this.depth + 1; }
         for (j = 0; j < keys.length; j++) {
           c0 = c.p; b0 = this.bl.p; savedKeys = this.keys; this.keys = [];
           var col2 = this.column(cnt); this.keys = savedKeys;
           if (c.p - c0 !== dirC[j] || this.bl.p - b0 !== dirB[j]) jfail('a column does not match its directory entry');
           cols.push(col2); modes.push(col2.mode); args.push(col2.a, col2.d);
         }
-        this.lazyAt = la;
-        if (lz && ns === 1) return new Col(n, 7, { keys: keys, cols: cols, row: recordRow(keys)(cols) }, null);       // an object is made per row from the columns
+        this.lazyAt = la; this.winAt = wa;
+        if (lz && ns === 1) return new Col(n, 7, { keys: keys, cols: cols, row: (CAN_EVAL ? recordRow : recordRowPlain)(keys)(cols) }, null);       // an object is made per row from the columns
       } else
       for (j = 0; j < keys.length; j++) {
         if (cnt > 0) { var col = this.column(cnt); cols.push(col); modes.push(col.mode); args.push(col.a, col.d); }
@@ -4235,10 +4389,10 @@
     if (T) T.encode = performance.now() - tA;
     if (!defer.jobs.length) return Promise.resolve(finishPack(e, e.ctl.done(), e.blobs, opts));
     runner = opts.workers && typeof opts.workers.run === 'function' ? opts.workers.run : function (jobs) {
-      return Promise.resolve().then(function () { return jobs.map(function (j) { return j.kind === 1 ? colsFor(j.src, j.n, j.a, j.wopts) : adaptFor(j.src, e.mode, e.mcOpts.wasm); }); });
+      return Promise.resolve().then(function () { return jobs.map(function (j) { return j.kind === 1 ? colsFor(j.src, j.n, j.a, j.wopts) : adaptFor(j.src, e.mode, e.mcOpts.wasm, e.quick); }); });
     };
-    var tB = T ? performance.now() : 0, wopts = { mode: opts.mode, picker: opts.picker, level: opts.level, float32: opts.float32, wasm: opts.wasm };
-    var jobsMsg = defer.jobs.map(function (j) { return j.kind === 1 ? { kind: 1, src: j.src, n: j.n, a: j.a, wopts: wopts, mode: e.mode, wasm: e.mcOpts.wasm } : { kind: 0, src: j.src, n: j.n, e: j.e, plainLen: j.plainLen, mode: e.mode, wasm: e.mcOpts.wasm }; });
+    var tB = T ? performance.now() : 0, wopts = { mode: opts.mode, picker: opts.picker, level: opts.level, float32: opts.float32, quickTries: opts.quickTries, autoTries: opts.autoTries, wasm: opts.wasm };
+    var jobsMsg = defer.jobs.map(function (j) { return j.kind === 1 ? { kind: 1, src: j.src, n: j.n, a: j.a, wopts: wopts, mode: e.mode, wasm: e.mcOpts.wasm } : { kind: 0, src: j.src, n: j.n, e: j.e, plainLen: j.plainLen, mode: e.mode, wasm: e.mcOpts.wasm, quick: e.quick }; });
     var pr = runner(jobsMsg); if (T) T.post = performance.now() - tB;
     return pr.then(function (res) {
       var tC = T ? performance.now() : 0, ctl = e.ctl.done(), flat, pos = 0, ctlOut = new Out(), blobOut = [], bpos = 0, i, j, r, tag, acc = [], d, at, dc, db, t, total = 0;
@@ -4278,9 +4432,9 @@
     flat = new Uint8Array(blobs.size()); blobs.copyTo(flat, 0);
     return { ctl: e2.ctl.done().slice(), blob: flat, v5: !!e2.needsV5 };
   }
-  function adaptFor(src, mode, wasm) {                                 // what the picker answers for one column, for a worker or the page
+  function adaptFor(src, mode, wasm, quick) {                                 // what the picker answers for one column, for a worker or the page
     var mcOpts = { mode: mode }; if (wasm === false) mcOpts.wasm = false;
-    return Enc.prototype.adaptBytes.call({ mode: mode, mcOpts: mcOpts, hints: null, path: '' }, src);
+    return Enc.prototype.adaptBytes.call({ mode: mode, mcOpts: mcOpts, hints: null, path: '', quick: !!quick }, src);
   }
   function open(bytes, opts) {
     opts = opts || {};
@@ -4306,7 +4460,9 @@
     return d;
   }
   function unpack(bytes, opts) {
-    var d = open(bytes, opts), v = d.value();
+    var d = open(bytes, opts), v;
+    if (opts && opts.into && ArrayBuffer.isView(opts.into) && d.c.b[d.c.p] === T_TYPED) d.into = opts.into;       // opts.into: for a packed typed array, the array to fill (same type and length) instead of a new one
+    v = d.value();
     if (d.c.p !== d.c.end) jfail('extra data after the value');
     return v;
   }
@@ -4351,6 +4507,7 @@
       if (n < SLICE_MIN) { c.p = p0; return Promise.resolve(finishUnpack(d)); }
       d.depth = 1; d.spend(n);
       d.onRows = opts && typeof opts.onRows === 'function' ? opts.onRows : null;                 // opts.onRows(rows, from, to): called after each slice with the list being filled, rows from..to-1 ready (a list of records, not nested ones)
+      d.stream = !!(d.onRows && opts.stream); if (d.stream) { d.lazyText = true; d.lazyAt = 3; d.streamPage = opts.page > 0 ? opts.page | 0 : 4096; }   // since 2.9.0, opt-in stream: rows are made a page at a time, handed to onRows and let go; text columns stay uncut until a row needs them
     } catch (err) { return Promise.reject(err); }
     return d.columnAsync(n).then(function (col) {
       var out = col.full();
@@ -4374,6 +4531,7 @@
     var d = this, c = d.c, ns = c.varint(), nk, j = 0, keys = [], dirC = [], dirB = [], cols = [], modes = [], out, tell = d.onRows && d.depth === 2 ? d.onRows : null;
     nk = c.varint(); if (nk > 100000) jfail('too many keys');
     for (j = 0; j < nk; j++) keys.push(c.u8() === 0 ? c.str() : d.str16());
+    if (d.stream && n <= STREAM_LAZY_ROWS) { d.stream = false; d.lazyText = false; }       // a short list gains nothing from pages (its pauses are short) and the plain path is faster: stream only acts on longer lists
     d.spend(n * nk);
     for (j = 0; j < nk; j++) { dirC.push(c.varint()); dirB.push(c.varint()); }
     j = 0;
@@ -4391,6 +4549,18 @@
     return columns().then(function () {
       var k, f, args, plain;
       out = new Array(n);
+      if (d.stream && tell) {
+        return slicedLoop(n, function (from, to) {
+          var a, z, i, pc, tmp;
+          for (a = from; a < to; a = z) {
+            z = Math.min(to, a + d.streamPage);
+            pc = pageCols(cols, a, z); tmp = new Array(z - a); fixedRows(tmp, 0, z - a, keys, pc);
+            for (i = a; i < z; i++) out[i] = tmp[i - a];
+            tell(out, a, z); for (i = a; i < z; i++) out[i] = undefined;
+          }
+          return true;
+        }, UNPACK_SLICE_MS).then(function () { return new Col(n, 0, out, null); });
+      }
       if (!CAN_EVAL) {
         plain = cols.map(plainCol);
         return slicedLoop(n, function (from, to) { fixedRows(out, from, to, keys, plain); if (tell) tell(out, from, to); return true; }, UNPACK_SLICE_MS);
@@ -4518,7 +4688,7 @@
       var x = cols[q], sub;
       if (x) return x;
       sub = new Dec(new In(ctlBuf, offC[q], offC[q] + dirC[q]), new In(blobBuf, offB[q], offB[q] + dirB[q]), vopts);
-      sub.ver = d.ver; sub.lazyText = true; sub.spend(n);
+      sub.ver = d.ver; sub.lazyText = true; sub.win = true; sub.spend(n);
       x = sub.column(n);
       if (sub.c.p !== sub.c.end || sub.bl.p !== sub.bl.end) jfail('a column does not match its directory entry');
       cols[q] = x; getter = null;
@@ -4537,6 +4707,7 @@
     function colBytes(x) {                                          // about what the restored column takes: a number column exactly, text 8 bytes a slot plus a string header (32 for a long one, as it is cut from a bigger text) and the text itself
       var a = x.a, m = x.mode;
       if (m === 3) return 0;
+      if (m === 11) return a.bytes();
       if (x.t && m === 0) {                                           // a text column read often enough to have been made in one pass: the strings (a cut one is a 32 byte header on the big text, which stays)
         var k, t2 = 24, len;
         if (!x.d) return t2 + estimateBytes(a);
@@ -4550,7 +4721,8 @@
       if (m === 10) return 4400 + colBytes(a.ts);
       if (m === 6) {                                                  // the numbers each slot reads and the tables of text it looks up
         var t = 16 + (a.tid ? a.tid.byteLength : 0), seen = [], j;
-        for (j = 0; j < a.arrs.length; j++) if (a.arrs[j] && seen.indexOf(a.arrs[j]) < 0) { seen.push(a.arrs[j]); t += 16 + a.arrs[j].byteLength; }
+        if (a.chunks) { for (j = 0; j < a.chunks.length; j++) if (a.chunks[j]) t += colBytes({ mode: 6, a: a.chunks[j], n: 0 }); return t; }
+        for (j = 0; j < a.arrs.length; j++) if (a.arrs[j] && seen.indexOf(a.arrs[j]) < 0) { seen.push(a.arrs[j]); t += 16 + (a.arrs[j].byteLength !== undefined ? a.arrs[j].byteLength : colBytes(a.arrs[j])); }
         for (j = 0; j < a.tabs.length; j++) if (a.tabs[j]) t += estimateBytes(a.tabs[j], 32);
         return t;
       }
@@ -5101,7 +5273,7 @@
       var src, i, w;
       if (!usable || ws.length) return;
       try {
-        src = 'var MC=' + unified.workerSource() + ';self.onmessage=function(ev){var d=ev.data,out=[],tr=[],i,r,b;for(i=0;i<d.jobs.length;i++){r=null;try{if(d.jobs[i].kind===1){r=MC.objects.cols(d.jobs[i].src,d.jobs[i].n,d.jobs[i].a,d.jobs[i].wopts);out.push({id:d.jobs[i].id,ctl:r.ctl,blob:r.blob,v5:r.v5});tr.push(r.ctl.buffer);tr.push(r.blob.buffer);continue;}r=MC.objects.adapt(d.jobs[i].src,d.jobs[i].mode,d.jobs[i].wasm);}catch(e){r=null;if(d.jobs[i].kind===1){out.push({id:d.jobs[i].id,fail:1});continue;}}if(r&&r.bytes){b=r.bytes.slice();out.push({id:d.jobs[i].id,bytes:b,z:r.z});tr.push(b.buffer);}else out.push({id:d.jobs[i].id,bytes:null,z:0});}self.postMessage({out:out},tr);};';
+        src = 'var MC=' + unified.workerSource() + ';self.onmessage=function(ev){var d=ev.data,out=[],tr=[],i,r,b;for(i=0;i<d.jobs.length;i++){r=null;try{if(d.jobs[i].kind===1){r=MC.objects.cols(d.jobs[i].src,d.jobs[i].n,d.jobs[i].a,d.jobs[i].wopts);out.push({id:d.jobs[i].id,ctl:r.ctl,blob:r.blob,v5:r.v5});tr.push(r.ctl.buffer);tr.push(r.blob.buffer);continue;}r=MC.objects.adapt(d.jobs[i].src,d.jobs[i].mode,d.jobs[i].wasm,d.jobs[i].quick);}catch(e){r=null;if(d.jobs[i].kind===1){out.push({id:d.jobs[i].id,fail:1});continue;}}if(r&&r.bytes){b=r.bytes.slice();out.push({id:d.jobs[i].id,bytes:b,z:r.z});tr.push(b.buffer);}else out.push({id:d.jobs[i].id,bytes:null,z:0});}self.postMessage({out:out},tr);};';
         url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
         for (i = 0; i < size; i++) {
           w = new Worker(url);
@@ -5115,7 +5287,7 @@
     function run(jobs) {
       var order = [], load = [], mine = [], i, k, w, ps = [], rows = 0, timer = null, results = new Array(jobs.length), all;
       begin();
-      if (!usable || !ws.length) return Promise.resolve(jobs.map(function (j) { return j.kind === 1 ? colsFor(j.src, j.n, j.a, j.wopts) : adaptFor(j.src, j.mode, j.wasm); }));
+      if (!usable || !ws.length) return Promise.resolve(jobs.map(function (j) { return j.kind === 1 ? colsFor(j.src, j.n, j.a, j.wopts) : adaptFor(j.src, j.mode, j.wasm, j.quick); }));
       for (i = 0; i < jobs.length; i++) { order.push(i); rows += jobs[i].n; }
       order.sort(function (a, b) { return jobs[b].n - jobs[a].n; });
       for (w = 0; w < ws.length; w++) { load.push(0); mine.push([]); }
@@ -5125,7 +5297,7 @@
         (function (w) {
           var msg = [], tr = [];
           mine[w].forEach(function (ix) {
-            var id = nextId++; msg.push({ id: id, kind: jobs[ix].kind, src: jobs[ix].src, n: jobs[ix].n, a: jobs[ix].a, wopts: jobs[ix].wopts, mode: jobs[ix].mode, wasm: jobs[ix].wasm }); tr.push(jobs[ix].src.buffer);
+            var id = nextId++; msg.push({ id: id, kind: jobs[ix].kind, src: jobs[ix].src, n: jobs[ix].n, a: jobs[ix].a, wopts: jobs[ix].wopts, mode: jobs[ix].mode, wasm: jobs[ix].wasm, quick: jobs[ix].quick }); tr.push(jobs[ix].src.buffer);
             ps.push(new Promise(function (res, rej) { pending[id] = { fail: function (why) { rej(new Error('MemoryCompression pool: ' + why)); }, ok: function (o) { results[ix] = o.fail ? { fail: 1 } : o.ctl ? { ctl: o.ctl, blob: o.blob, v5: o.v5 } : { bytes: o.bytes || null, z: o.z }; res(); } }; }));
           });
           try { ws[w].postMessage({ jobs: msg }, tr); } catch (err) { fail('postMessage failed'); }
