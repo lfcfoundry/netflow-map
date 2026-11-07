@@ -16,14 +16,23 @@ function stateWidthMax() {
 function stateAbort() { ST.token++; ST.pending = null; ST.frames = null; ST.ring = null; ST.shown = null; if (ST.playing) pauseStates(true); }
 
 /* ---------------------------------------------------------------- Data tab: making states */
-HOOKS.graph.push(function () { ST.frames = null; ST.ring = null; ST.pos = curState() > 0 ? curState() : 0; renderStatesCard(); renderTimeline(); });
+HOOKS.graph.push(function () { ST.frames = null; ST.ring = null; ST.pos = curState() > 0 ? curState() : 0; statesCardSoon(); renderTimeline(); });
 function applyStatesSpec(spec) {
   var g; try { g = NFMColumns.buildStates(S.graph, spec); } catch (e) { toast(e.message); return; }
   S.V.state = 0; saveView(); setGraph(g, true, true);
   toast('Done: ' + plural(g.states.names.length, 'state') + '. Open the Map to see the timeline.');
 }
 var REP = new WeakMap();   /* link lists -> whether pairs repeat; weak, so no old list is held */
+/** The States card for new data, drawn when the page is idle (it took 19 ms of the 90,000-item open); a card asked for sooner (a tab shown, a check) is drawn at once. */
+var statesJob = 0;
+function statesCardSoon() {
+  var big = S.graph.nodes.length + S.graph.edges.length >= 20000;
+  if (!big || typeof requestIdleCallback !== 'function') { renderStatesCard(); return; }
+  var my = ++statesJob;
+  requestIdleCallback(function () { if (statesJob === my) { statesJob = 0; renderStatesCard(); } }, { timeout: 500 });
+}
 function renderStatesCard() {
+  statesJob = 0;
   var card = $('states'); if (!card) return;
   if (!S.graph.nodes.length || !S.graph.edges.length) { card.hidden = true; return; }
   card.hidden = false;
