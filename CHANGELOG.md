@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 7
 
+- 2026.11.07.1300: Charts tab, bars: a bar chart with more than 15 categories (and no value below zero) now shows the 10 biggest and one gray Others bar for the rest, so every name stays readable. A new Long lists setting under Bars (Top 10 plus Others, or All bars) turns it off. Lists of 15 or fewer look the same.
 - 2026.11.07.1246: Chart code updated (netflow-plot 2.12.1: top 10 plus Others, percents, up to 16 named lines, a real Other category) and lfc-pack 0.6.0. The Charts tab pictures were compared before and after in light and dark, eight chart types, three browsers: at most 0.03 percent of pixels changed.
 - 2026.11.07.1230: Opening a big map holds the page about 30 to 50 percent less again (90,000 items, longest freeze: Chromium 91 to 64 ms, Firefox 178 to 88, WebKitGTK 154 to 108): the helper that reads the file also finds where each link's two ends sit and the link kinds, so the page no longer looks up every end by name. Nothing looks different.
 - 2026.11.07.1142: Opening a big map holds the page about 30 percent less again (90,000 items, longest freeze: Chromium 187 to 116 ms, Firefox 262 to 192, WebKitGTK 235 to 165): the helper that reads the file also works out what each column holds. A map that sits untouched is also packed a little sooner after its first idle moment (the memory-compression warm-up runs once while the page is quiet: first pack Chromium 51 to 41 ms, WebKitGTK 122 to 45, Firefox the same). Nothing looks different.

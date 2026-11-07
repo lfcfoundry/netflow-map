@@ -227,6 +227,16 @@ async function open() {
       const why = use.parentNode.previousSibling.textContent; use.click(); NFM.drawChart(true); const C = NFM.charts(); return { why, type: NFM.state.V.chart.type, shapes: C.scene.rects ? C.scene.rects.length : C.scene.marks.length }; });
     say(!r.none && !r.noUse && r.why && r.why.length > 12 && r.shapes > 0, `Charts tab, Suggest a chart: ${r.why || JSON.stringify(r)} -> ${r.type} drew ${r.shapes} shapes`);
   }
+  {   /* Charts tab, long bar lists: more than 15 categories show the 10 biggest plus a gray Others bar unless Show says All; short lists are unchanged */
+    const r = await ev(async () => {
+      const mk = (k) => 'id,region,sales,cost,note\n' + Array.from({ length: 80 }, (_, i) => 'r' + i + ',' + ['North', 'South', 'East'][i % 3] + ',' + (100 + (i * 37) % 900) + ',' + (50 + (i * 53) % 400) + ',City' + (i % k)).join('\n');
+      const bars = async (k, show) => { await NFM.ingest([{ name: 'long' + k + '.csv', text: mk(k) }]); await new Promise((r) => setTimeout(r, 500)); NFM.showTab('charts'); await new Promise((r) => setTimeout(r, 400));
+        NFM.state.V.chart = Object.assign({}, NFM.state.V.chart, { rows: 'nodes', type: 'bar', x: 'note', y: 'sales', color: '', show }); NFM.drawChart(true); const s = NFM.charts().scene, f = new Set((s.rects || []).map((x) => x.fill.slice(0, 3).map((c) => Math.round(c * 255)).join(',')));
+        return { n: (s.rects || []).length, fills: f.size }; };
+      return { longAuto: await bars(25, 'auto'), longAll: await bars(25, 'all'), shortAuto: await bars(12, 'auto'), shortAll: await bars(12, 'all') };
+    });
+    say(r.longAuto.n < r.longAll.n && r.longAuto.fills === 2 && r.longAll.fills === 1 && r.shortAuto.n === r.shortAll.n && r.shortAuto.fills === 1, 'Charts tab, bars: 25 categories give ' + JSON.stringify(r.longAuto) + ' (10 + a gray Others) and with All ' + JSON.stringify(r.longAll) + '; 12 categories stay ' + JSON.stringify(r.shortAuto));
+  }
   await ev(() => NFM.showTab('data')); await set('#examples', 'story'); await click('#b-example'); await click('#tabbtn-map');   /* the story map again for the blocks below */
   await D.wait(() => NFM.state.scene && NFM.manager() && NFM.manager().r && !NFM.state.graph.nodes.some((n) => n.id === 'r59'), null, 30000);
 

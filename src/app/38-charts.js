@@ -2,7 +2,7 @@
  * Netflow Map app, part 5b: the Charts tab (bars, lines, donuts and more from the table's columns, drawn by vendor/netflow-plot.js, a copy of JS-modules netflow-plot). Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var CHT = { r: null, rP: null, scene: null, view: null, key: '' };
-var CHART_DEFAULT = { rows: 'nodes', rowsPicked: false, type: 'bar', x: '', y: '', color: '', size: '', agg: 'sum', stack: 'stack', horizontal: false, sort: 'value', smooth: 0, index: false, bins: 0, cols: [] };
+var CHART_DEFAULT = { rows: 'nodes', rowsPicked: false, type: 'bar', x: '', y: '', color: '', size: '', agg: 'sum', stack: 'stack', horizontal: false, sort: 'value', show: 'auto', smooth: 0, index: false, bins: 0, cols: [] };
 function chartSpec() { var c = S.V.chart; if (!c || typeof c !== 'object') c = S.V.chart = Object.assign({}, CHART_DEFAULT); if (c.type === 'pie') c.type = 'donut';   /* pie is no longer offered: older saves open as a donut */ Object.keys(CHART_DEFAULT).forEach(function (k) { if (c[k] === undefined) c[k] = Array.isArray(CHART_DEFAULT[k]) ? [] : CHART_DEFAULT[k]; }); return c; }
 /** The columns of items or links with what kind each is (built-in ones first). */
 function chartCols(rows) {
@@ -102,6 +102,7 @@ function renderChartSide() {
   if (need.agg && c.y) kids.push(field('Combine values', select([['sum', 'Total'], ['mean', 'Average'], ['median', 'Middle (median)'], ['min', 'Lowest'], ['max', 'Highest'], ['count', 'Count of rows']], c.agg, function (v) { c.agg = v; saveView(); drawChart(true); })));
   if (need.stack && c.color) kids.push(field('Several colors', seg(c.type === 'area' ? [['stack', 'Stacked'], ['normalize', 'Shares'], ['stream', 'Stream'], ['none', 'Overlapping']] : [['stack', 'Stacked'], ['group', 'Side by side'], ['normalize', 'Shares']], c.stack, function (v) { c.stack = v; saveView(); drawChart(true); })));
   if (need.horizontal) kids.push(field('Bars', seg([['up', 'Upright'], ['side', 'Sideways']], c.horizontal ? 'side' : 'up', function (v) { c.horizontal = v === 'side'; saveView(); drawChart(true); })));
+  if (need.top) kids.push(field('Long lists', seg([['auto', 'Top 10 + Others'], ['all', 'All bars']], c.show === 'all' ? 'all' : 'auto', function (v) { c.show = v; saveView(); drawChart(true); renderChartSide(); })));
   if (need.sort) kids.push(field('Order', seg([['value', 'Biggest first'], ['name', 'By name'], ['none', 'As in the table']], c.sort, function (v) { c.sort = v; saveView(); drawChart(true); })));
   if (need.smooth) kids.push(field('Smooth over', select([['0', 'No smoothing'], ['3', '3 points'], ['7', '7 points'], ['30', '30 points']], String(c.smooth || 0), function (v) { c.smooth = Number(v); saveView(); drawChart(true); }), 'A moving average: each point becomes the average of the last few.'));
   if (need.index) kids.push(field('Scale', seg([['abs', 'Values'], ['idx', 'From 100']], c.index ? 'idx' : 'abs', function (v) { c.index = v === 'idx'; saveView(); drawChart(true); }), 'From 100 starts every line at 100, to compare growth.'));
@@ -110,13 +111,26 @@ function renderChartSide() {
   kids.push(h('p', { class: 'muted small', id: 'charts-note', style: { margin: 0 } }, ''));
   kids.forEach(function (k) { side.appendChild(k); });
 }
+/** Bars of a long list: more than 15 categories (and no value below zero) show the 10 biggest and one gray bar for the rest, unless Show says All (netflow-plot top option). Counted once per data, rows and column. */
+var CHT_TOP = { key: '', n: 0, neg: false };
+function chartTop(c) {
+  if (c.type !== 'bar' || c.show === 'all' || !c.x) return null;
+  var key = [S.gver, c.rows, c.x, c.y].join('|');
+  if (CHT_TOP.key !== key) {
+    var rows = chartRows(c.rows), seen = new Set(), neg = false, i, v;
+    for (i = 0; i < rows.length; i++) { seen.add(chartGet(rows[i], c.x)); if (c.y && !neg) { v = Number(chartGet(rows[i], c.y)); if (v < 0) neg = true; } }
+    CHT_TOP = { key: key, n: seen.size, neg: neg };
+  }
+  return CHT_TOP.n > 15 && !CHT_TOP.neg ? 10 : null;
+}
 function chartSize() { var st = $('charts-stage'); return st ? [Math.max(200, st.clientWidth), Math.max(200, st.clientHeight)] : [900, 560]; }
 function drawChart(rebuild) {
   var host = $('charts-host'); if (!host || S.tab !== 'charts') return;
   var c = chartFill(chartSpec()), wh = chartSize(), key = [S.gver, themeName(), S.V.palette, JSON.stringify(c), wh[0], wh[1]].join('|');
   if (rebuild || key !== CHT.key || !CHT.scene) {
     CHT.key = key;
-    CHT.scene = NetflowPlot.make(chartRows(c.rows), c, { width: wh[0], height: wh[1], theme: themeName(), palette: S.V.palette, get: chartGet }, NFMScene);
+    var top = chartTop(c), spec = top ? Object.assign({}, c, { top: top }) : c;
+    CHT.scene = NetflowPlot.make(chartRows(c.rows), spec, { width: wh[0], height: wh[1], theme: themeName(), palette: S.V.palette, get: chartGet }, NFMScene);
     var note = $('charts-note'); if (note) note.textContent = nfmt(chartRows(c.rows).length) + ' rows, drawn in ' + Math.round(CHT.scene.ms) + ' ms.';
   }
   var go = function (r) { r.setScene(CHT.scene); r.resize(wh[0], wh[1], window.devicePixelRatio || 1); r.draw({ k: 1, tx: -CHT.scene.x0 - 10, ty: -CHT.scene.y0 - 10 }); };
