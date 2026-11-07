@@ -19,15 +19,34 @@ const MAP = {
   'src/look.js': ['colors', '1'], 'src/sim.js': ['states', '8'], 'src/check.js': ['itself', 'states'], 'src/tune.js': ['itself', '8'],
   'src/pack.js': ['views', 'undopack'], 'src/unpack.js': ['views', 'undopack'], 'src/field-report-start.js': ['report'], 'src/probe.js': ['itself'], 'src/gpustress.js': ['itself']
 };
-/** Blocks for a list of changed paths: an array (in no special order), or null for everything. Files the browser test does not cover are ignored. */
-function blocksFor(changed) {
+/* The function map (test/fnmap.json, built by node tools/fnmap.js): which blocks run each function. It narrows a changed file to the blocks of the functions
+ * the change sits in, but only when the file is the very version the map was built from (same git blob id) and every changed spot lies wholly inside one
+ * function that some block runs and the page start does not; anything else keeps the hand map above. */
+let FNMAP = null;
+try { FNMAP = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'fnmap.json'), 'utf8')); } catch (e) { FNMAP = null; }
+/** The blocks for a changed spot list [[firstLine, lastLine], ...] of the file as it was (old side of the diff), or null for no narrowing. */
+function narrow(file, sha, spots) {
+  const m = FNMAP && FNMAP.files[file]; if (!m || m.sha !== sha || !spots || !spots.length) return null;
+  const out = new Set();
+  for (const [a, b] of spots) {
+    if (b < a) return null;   /* a pure insertion: no old line to place it in */
+    let best = null; for (const f of m.fns) { if (f[0] <= a && f[1] >= b && (!best || f[1] - f[0] < best[1] - best[0])) best = f; }
+    if (!best || best[2] === -1 || !best[2].length) return null;
+    best[2].forEach((i) => out.add(FNMAP.blocks[i]));
+  }
+  return Array.from(out);
+}
+/** Blocks for a list of changed paths: an array (in no special order), or null for everything. Files the browser test does not cover are ignored.
+ *  spots (optional): { file: { sha, spots } } from the diff, to narrow a mapped file by function (see narrow). */
+function blocksFor(changed, spots) {
   const out = new Set(CHEAP); let any = false;
   for (const c of changed) {
-    if (/^(CHANGELOG|README|AGENTS)\.md$|^docs\/|^bench\/|^wasm\/.*\.(md|txt)$|^test\/(?!browser\.test\.js$|baseline\.js(on)?$)/.test(c)) continue;
+    if (/^(CHANGELOG|README|AGENTS)\.md$|^docs\/|^bench\/|^tools\/fnmap\.js$|^wasm\/.*\.(md|txt)$|^test\/(?!browser\.test\.js$|baseline\.js(on)?$)/.test(c)) continue;
     if (c === 'index.html') continue;   /* built from the sources; their changes say what to run */
     if (!MAP[c]) return ALL;
-    any = true; MAP[c].forEach((b) => out.add(b));
+    any = true; const n = spots && spots[c] ? narrow(c, spots[c].sha, spots[c].spots) : null;
+    (n || MAP[c]).forEach((b) => out.add(b));
   }
   return any ? Array.from(out) : [];
 }
-module.exports = { blocksFor, MAP, CHEAP };
+module.exports = { blocksFor, narrow, MAP, CHEAP };
