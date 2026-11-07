@@ -8,6 +8,8 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 6
 
+- 2026.11.06.2024: Opening or replacing a big map freezes the page for a shorter time: the map is handed to the helper threads as text instead of a copy of every item. On 30,000 items the longest freeze dropped about 16 percent in Chromium, 8 percent in Firefox and 31 percent in WebKitGTK.
+
 - 2026.11.06.1455: Sankey notes can be dragged straight on the picture (the two sliders in the Look tab still work).
 
 - 2026.11.06.1350: Sankey can show amounts with the names: the total under the name, the amount after the name, a percent, or both, with a unit such as $ or GWh and a choice of percent of the whole picture or of its column. You can also write notes on the picture; numbers such as {total}, {top}, {value:Name}, {share:Name} and {flow:From>To} fill in by themselves and follow your data. Notes and amounts are saved with the view and appear in exports.
