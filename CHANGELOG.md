@@ -9,6 +9,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 ## November 6
 
 - 2026.11.06.2203: Sankey notes: {top} now ends with the amount ("Salary → Rent, $1,800") and the new {topbox} gives the biggest box with its amount ("Salary, $3,000"). The map-file packer and drawing parts are updated to smaller builds with the same output.
+- 2026.11.06.2147: Opening a big map file no longer freezes the page for as long: a helper thread now reads the file and the page only reads the result. On 30,000 items the longest freeze dropped about 60 percent in Chromium, Firefox and WebKitGTK. Merging into the current map still reads on the page.
 
 - 2026.11.06.2048: Updated the built-in file packer and map-saving parts to their newest versions. Nothing looks different, and speed is the same within measuring noise.
 
