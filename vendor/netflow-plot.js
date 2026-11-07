@@ -1,13 +1,13 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. https://github.com/lfcfoundry/JS-modules */
 /*
- * Version 2.9.0 (API 2)
+ * Version 2.12.1 (API 2)
  * netflow-plot.js: plain charts from a table's columns (bars, lines, areas, dots, donuts, box plots, histograms, density, hexbins, heat maps,
  * parallel lines, scatter matrix, Q-Q, Voronoi cells, word cloud). make(rows, spec, o, NS) returns drawing lists in the same shape as a map
  * picture (rects, dots, curves, polys, labels), so the same renderer, export and themes draw them. No page, no DOM, no dependencies.
  *
  * rows: plain objects (an item or a link); a column is read with get(row, key) (o.get, default row.attrs[key] ?? row[key]).
  * spec: { type, x, y, color, size, agg ('sum' | 'mean' | 'count' | 'min' | 'max' | 'median'), stack ('stack' | 'group' | 'normalize' | 'stream' | 'none'),
- *         horizontal, bins, smooth (moving average window), index (lines from 100), cols (parallel / matrix), sort ('value' | 'name' | 'none') }.
+ *         horizontal, top (bars: the N biggest plus one bar for the rest), bins, smooth (moving average window), index (lines from 100), cols (parallel / matrix), sort ('value' | 'name' | 'none') }.
  * Marks: S.marks = [{ x0, y0, x1, y1, row (index) or rows, t (tooltip text) }] for pointing at things.
  */
 var NetflowPlot = (function () {
@@ -64,22 +64,40 @@ var NetflowPlot = (function () {
     var steps = [[1, 'd'], [2, 'd'], [7, 'd'], [14, 'd'], [1, 'm'], [3, 'm'], [6, 'm'], [1, 'y'], [2, 'y'], [5, 'y'], [10, 'y'], [25, 'y'], [50, 'y'], [100, 'y']], st = steps[steps.length - 1];
     for (var i = 0; i < steps.length; i++) { var len = steps[i][0] * (steps[i][1] === 'd' ? D : steps[i][1] === 'm' ? 30.4 * D : 365.25 * D); if (span / len <= n) { st = steps[i]; break; } }
     var d = new Date(lo); d.setUTCHours(0, 0, 0, 0);
-    if (st[1] !== 'd') { d.setUTCDate(1); if (st[1] === 'y') d.setUTCMonth(0); }
+    if (st[1] !== 'd') { d.setUTCDate(1); if (st[1] === 'y') { d.setUTCMonth(0); d.setUTCFullYear(Math.floor(d.getUTCFullYear() / st[0]) * st[0]); } else d.setUTCMonth(Math.floor(d.getUTCMonth() / st[0]) * st[0]); }   /* steps land on round years (2005, 2010) and months (Jan, Apr, Jul, Oct) */
     while (d.getTime() < lo) adv(d, st);
     for (var k = 0; d.getTime() <= hi && k < 120; k++) { list.push(d.getTime()); adv(d, st); }
-    fmt = st[1] === 'y' ? function (t) { return String(new Date(t).getUTCFullYear()); } : st[1] === 'm' ? function (t) { var x = new Date(t); return MONTHS[x.getUTCMonth()] + (x.getUTCMonth() === 0 ? ' ' + x.getUTCFullYear() : ''); } : dayText;
+    var first = list[0];
+    fmt = st[1] === 'y' ? function (t) { return String(new Date(t).getUTCFullYear()); } : st[1] === 'm' ? function (t) { var x = new Date(t); return MONTHS[x.getUTCMonth()] + (x.getUTCMonth() === 0 || t === first ? ' ' + x.getUTCFullYear() : ''); } : dayText;   /* the first month label carries its year too */
     return { lo: lo, hi: hi, list: list, fmt: fmt };
     function adv(x, s) { if (s[1] === 'd') x.setUTCDate(x.getUTCDate() + s[0]); else if (s[1] === 'm') x.setUTCMonth(x.getUTCMonth() + s[0]); else x.setUTCFullYear(x.getUTCFullYear() + s[0]); }
   }
   function dayText(t) { var x = new Date(t); return MONTHS[x.getUTCMonth()] + ' ' + x.getUTCDate(); }
+  var PCT = false;   /* while make() draws a chart whose values are fractions between 0 and 1 (since 2.11.0): those values are written as percents */
   function fmtNum(v) {
     if (!isFinite(v)) return '';
+    if (PCT && Math.abs(v) <= 1) { var pc = Number((v * 100).toFixed(1)); return (pc === 0 ? 0 : pc) + '%'; }
     var a = Math.abs(v);
     if (a >= 1e9) return (v / 1e9).toFixed(a >= 1e10 ? 0 : 1).replace(/\.0$/, '') + 'B';
     if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M';
     if (a >= 1e4) return (v / 1e3).toFixed(a >= 1e5 ? 0 : 1).replace(/\.0$/, '') + 'k';
     if (a >= 100 || v === Math.round(v)) { var r = Math.round(v); return r === 0 && 1 / r < 0 ? '-0' : (r < 0 ? '-' : '') + String(Math.abs(r)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }   /* the same text as toLocaleString('en-US'), which costs about 25 microseconds a call in Chromium */
     return Number(v.toPrecision(3)).toString();
+  }
+  /** One precision for a chart (visuals review, 2026.11.07): values in the same unit (B, M, k or none) get the same number of decimals, set by the biggest of them, so 9.7M never sits next to 10M. */
+  function fmtFor(vals) {
+    var U = { B: 1e9, M: 1e6, k: 1e3, '': 1 }, top = { B: 0, M: 0, k: 0, '': 0 }, frac = false, i, v, u;
+    var unit = function (a) { return a >= 1e9 ? 'B' : a >= 1e6 ? 'M' : a >= 1e4 ? 'k' : ''; };
+    for (i = 0; i < vals.length; i++) { v = vals[i]; if (!isFinite(v)) continue; u = unit(Math.abs(v)); top[u] = Math.max(top[u], Math.abs(v) / U[u]); if (!u && v !== Math.round(v)) frac = true; }
+    return function (x) {
+      if (!isFinite(x)) return '';
+      if (PCT && Math.abs(x) <= 1) { var px = (x * 100).toFixed(top[''] * 100 >= 99.95 || frac ? 1 : 0); return (+px === 0 ? px.replace('-', '') : px) + '%'; }
+      var a = Math.abs(x), w = unit(a), m = Math.max(top[w], a / U[w]), d, t;
+      if (w) d = m >= (w === 'k' ? 100 : 10) ? 0 : 1;
+      else { if (!frac || m >= 100) return fmtNum(Math.round(x)); d = Math.min(6, Math.max(0, 2 - Math.floor(Math.log10(m || 1)))); }
+      t = (x / U[w]).toFixed(d); if (+t === 0) t = t.replace('-', '');
+      return t + w;
+    };
   }
   function quant(sorted, p) { var n = sorted.length; if (!n) return NaN; var h = (n - 1) * p, i = Math.floor(h); return i + 1 < n ? sorted[i] + (sorted[i + 1] - sorted[i]) * (h - i) : sorted[i]; }
   function aggregate(vals, how) {
@@ -127,7 +145,7 @@ var NetflowPlot = (function () {
     var F = { S: S, T: T, NS: NS, alpha: alpha, W: W, H: H, L: 70, R: W - 24, Tp: 24, B: H - 56, groups: T.groups };
     /* clean look: values written on the bars and boxes instead of a number axis and gridlines (where they fit), and a calmer color set */
     F.clean = o.clean !== undefined ? !!o.clean : (o.theme === 'editorial' || CLEAN_DEFAULT);
-    F.calm = function () { if (F.clean && !o.palette) { T.groups = (isDark(T) ? CALM.dark : CALM.light).map(function (h) { return NS.hex(h); }); F.groups = T.groups; } };
+    F.palette0 = !!o.palette; F.navy = NS.hex(isDark(T) ? CALM.dark[0] : CALM.light[0]); F.calm = function () { if (F.clean && !o.palette) { T.groups = (isDark(T) ? CALM.dark : CALM.light).map(function (h) { return NS.hex(h); }); F.groups = T.groups; } };
     F.text = function (x, y, t, size, col, op) { var l = { x: x, y: y, t: String(t), size: size || 12, color: col || T.fg, align: 'c', bold: false, rot: 0, minK: 0, node: -1 }; if (op) for (var k in op) l[k] = op[k]; if (l.rot) l.rot *= 180 / Math.PI; S.labels.push(l); return l; };   /* angles in radians here, the renderer takes degrees */
     F.line = function (pts, w, col, extra) { if (pts.length < 4) return; var P = [], n = pts.length / 2; P.push(pts[0], pts[1]); for (var i = 1; i < n; i++) { var ax = pts[i * 2 - 2], ay = pts[i * 2 - 1], bx = pts[i * 2], by = pts[i * 2 + 1]; P.push(ax + (bx - ax) / 3, ay + (by - ay) / 3, ax + 2 * (bx - ax) / 3, ay + 2 * (by - ay) / 3, bx, by); } var c = { P: P, w: w, color: col, arrow: false, line: n === 2, edge: -1 }; if (extra) for (var k in extra) c[k] = extra[k]; S.curves.push(c); return c; };
     F.rect = function (x, y, w, h, fill, mark) { if (w < 0) { x += w; w = -w; } if (h < 0) { y += h; h = -h; } S.rects.push({ x: x, y: y, w: w, h: h, r: 0, fill: fill, stroke: [0, 0, 0, 0], sw: 0, layer: 1, node: -1, a: 1 }); if (mark) { mark.x0 = x; mark.y0 = y; mark.x1 = x + w; mark.y1 = y + h; S.marks.push(mark); } };
@@ -155,6 +173,7 @@ var NetflowPlot = (function () {
     /** Axes: x and y are { kind: 'num' | 'time' | 'band', lo, hi, list, fmt, map(v) -> px, cats }. */
     F.axes = function (ax, ay, xName, yName, grid) {
       xName = axisName(xName); yName = axisName(yName);
+      if (ax && (ax.kind === 'time' || ax.years) && /date|year|time|month|week|day|^yr$|period/i.test(xName || '')) xName = '';   /* the labels already say they are dates or years */
       var c = alpha(T.muted, 0.9), gc = alpha(T.boxLine, 0.35);
       if (ay && F.noY) {   /* values are on the marks: no number axis, no gridlines; the axis name sits small at the top left */
         if (yName && !F.keyRow) F.yName = F.text(F.L, F.Tp - 8, yName, 11, c, { align: 'l' });
@@ -169,12 +188,21 @@ var NetflowPlot = (function () {
           var wrapAll = false, fits = function (step) { var prevX = null, prevW = 0; for (var li = 0; li < labs.length; li += step) { var lx = ax.map(labs[li]) + ax.bw / 2, lw = wrap2(labT(labs[li]), wrapAll).reduce(function (m, t) { return Math.max(m, Math.min(14, t.length)); }, 0) * 6.05; if (prevX !== null && lx - prevX < (lw + prevW) / 2 + 9) return false; prevX = lx; prevW = lw; } return true; };
           if (every > 1 && fits(1)) every = 1; else if (!fits(every)) { wrapAll = true; if (every > 1 && fits(1)) every = 1; else rot = !fits(every); if (rot) wrapAll = false; }   /* crowded: every two-word name on two lines before anything tilts */
           if (every === 2 && !rot && F.clean) { stag = wrapAll ? 28 : 14; every = 1; }   /* clean look: when every other name would be left out, all names show on two staggered rows instead */
+        } else {   /* numbers and dates: every 2nd (3rd, ...) label when two would touch (10 px gap at least) */
+          var roomy = function (step) { var px = null, pw = 0; for (var li = 0; li < labs.length; li += step) { var lx = ax.map(labs[li]); if (lx < F.L - 1 || lx > F.R + 1) continue; var lw = labT(labs[li]).length * CW; if (lx - lw / 2 < F.L - 2) lx = F.L - 2 + lw / 2; if (px !== null && lx - px < (lw + pw) / 2 + 10) return false; px = lx; pw = lw; } return true; };
+          for (var tn = labs.length - 1; tn >= 2 && !roomy(1); tn--) {   /* first fewer, rounder steps (2005, 2010 rather than 2001, 2005; Jan 1855, Jul rather than every 4th month) */
+            if (ax.kind === 'time') { var tt = timeTicks(ax.lo, ax.hi, tn); ax.list = tt.list; ax.fmt = tt.fmt; }
+            else { var t2 = ticks(ax.lo, ax.hi, tn).list; if (ax.years) t2 = t2.filter(function (v) { return v === Math.floor(v); }); ax.list = t2; }
+            labs = ax.list;
+          }
+          while (every < labs.length && !roomy(every)) every++;
         }
         labs.forEach(function (v, i) {
           if (i % every) return; var x = ax.map(v) + (ax.kind === 'band' ? ax.bw / 2 : 0); if (x < F.L - 1 || x > F.R + 1) return; if (grid !== false && ax.kind !== 'band' && !F.noY) F.line([x, F.Tp, x, F.B], 1, gc);
           if (rot) { F.text(x, F.B + 16, clip(labT(v), 18), 11, c, { rot: -Math.PI / 5, align: 'r' }); return; }
           var ls = ax.kind === 'band' ? wrap2(labT(v), wrapAll) : [labT(v)]; var lw0 = ls.reduce(function (m, t) { return Math.max(m, Math.min(14, t.length)); }, 0) * CW, al = null, lx0 = x;
           if (ax.kind === 'band' && x - lw0 / 2 < F.L - 4) { al = { align: 'l' }; lx0 = F.L - 4; } else if (ax.kind === 'band' && x + lw0 / 2 > F.W - 4) { al = { align: 'r' }; lx0 = F.W - 4; }   /* an end name never runs past the number axis or the edge */
+          else if (ax.kind !== 'band' && x - labT(v).length * CW / 2 < F.L - 2) { al = { align: 'l' }; lx0 = F.L - 2; }   /* a first number or date at the corner starts at the axis, clear of the values left of it */
           var sy = stag && i % 2 ? stag : 0; if (sy) F.line([x, F.B + 3, x, F.B + 7 + sy - 12], 1, alpha(T.muted, 0.5));   /* a short tick leads down to a name on the second row */
           ls.forEach(function (t, k) { F.text(lx0, F.B + 16 + sy + k * 14, clip(t, 14), 11, c, al); });
         });
@@ -189,8 +217,10 @@ var NetflowPlot = (function () {
       if (!F.keyRow) return;   /* a row of swatches over the plot (room was made for it), so the picture and its SVG carry their own key */
       var x = F.L, y = 14, cw = 6.6, more = 0;
       if (title) { F.text(x, y + 4, clip(title, 24) + ':', 12, T.fg, { align: 'l', bold: true }); x += Math.min(24, String(title).length + 1) * cw * 1.05 + 10; }
-      S.legend.forEach(function (l) { var w = 16 + Math.min(18, l.t.length) * cw + 14; if (x + w > F.R) { more++; return; } F.rect(x, y - 5, 11, 11, l.c); F.text(x + 16, y + 4, clip(l.t, 18), 12, T.fg, { align: 'l' }); x += w; });
-      if (more) F.text(Math.min(x, F.R - 60), y + 4, '+' + more + ' more', 12, T.muted, { align: 'l' });
+      var ws = S.legend.map(function (l) { return 16 + Math.min(18, l.t.length) * cw + 14; }), end = x; ws.forEach(function (w) { end += w; });
+      var lim = end - 14 > F.R ? F.R - 64 : F.R;   /* when not every name fits, room is kept for "+N more" so it never sits on the last name */
+      S.legend.forEach(function (l, i) { var w = ws[i]; if (more || x + w - 14 > lim) { more++; return; } F.rect(x, y - 5, 11, 11, l.c); F.text(x + 16, y + 4, clip(l.t, 18), 12, T.fg, { align: 'l' }); x += w; });
+      if (more) F.text(x, y + 4, '+' + more + ' more', 12, T.muted, { align: 'l' });
     };
     return F;
   }
@@ -217,7 +247,7 @@ var NetflowPlot = (function () {
     if (isTime) { var tt = timeTicks(lo, hi, n || 8); return { kind: 'time', lo: lo, hi: hi, list: tt.list, fmt: tt.fmt, map: linear(lo, hi === lo ? lo + 1 : hi, a, b) }; }
     var t = ticks(lo, hi, n || 6), ax = { kind: 'num', lo: t.lo, hi: t.hi, list: t.list, map: linear(t.lo, t.hi, a, b) };
     if (lo >= 1800 && hi <= 2200 && hi - lo <= 300 && vals.every(function (v) { return v !== v || v === Math.floor(v); })) {   /* whole numbers 1800 to 2200 are years: written 2015, not 2,015, and only whole-year ticks */
-      ax.list = ax.list.filter(function (v) { return v === Math.floor(v); }); ax.fmt = function (v) { return String(v); };
+      ax.list = ax.list.filter(function (v) { return v === Math.floor(v); }); ax.fmt = function (v) { return String(v); }; ax.years = true;
     }
     return ax;
   }
@@ -243,6 +273,20 @@ var NetflowPlot = (function () {
     };
     return R;
   }
+  function mostlyNum(R, k) { var v = R.num(k), g = 0; for (var i = 0; i < v.length; i++) if (v[i] === v[i]) g++; return g > 0 && g >= 0.8 * countFilled(R.raw(k)); }
+  var NOT_PCT = /p.?val|corr|coef|^r2$|index|score|^lat|^lon|^x$|^y$/i;
+  /** Fractions: every value of y is between 0 and 1, some are not whole, the name does not say it is something else, and each bar or point is one row or an average (a sum of rates is not a rate). */
+  function fractionCol(R, sp, type) {
+    if (!(type === 'bar' || type === 'dotplot' || type === 'line') || !sp.y || sp.color || sp.stack || NOT_PCT.test(sp.y)) return false;
+    var v = R.num(sp.y), i, frac = 0, n = 0; if (v.time) return false;
+    for (i = 0; i < v.length; i++) { if (v[i] !== v[i]) continue; if (v[i] < 0 || v[i] > 1) return false; n++; if (v[i] > 0 && v[i] < 1) frac++; }
+    if (!n || frac < n / 2) return false;
+    if (sp.agg === 'mean' || sp.agg === 'median') return true;
+    if (sp.agg && sp.agg !== 'sum') return false;
+    var xs = sp.x ? R.raw(sp.x) : null, seen = new Set(); if (!xs) return false;
+    for (i = 0; i < xs.length; i++) { var key = String(xs[i]); if (seen.has(key)) return false; seen.add(key); }
+    return true;
+  }
   function countFilled(a) { var c = 0; for (var i = 0; i < a.length; i++) if (a[i] !== undefined && a[i] !== null && a[i] !== '') c++; return c; }
   /** Categories in a stable order: by total (biggest first), by name, or as they come. */
   var HI = null;   /* while make() runs with options.highlight: { name, F, ck: color column, xk: x column } */
@@ -261,6 +305,7 @@ var NetflowPlot = (function () {
     var other = null;
     var hi = HI && (keys === HI.ck || keys === HI.xk) ? HI.name : undefined;   /* the highlighted series (or bar) keeps its own place, never folded into Other */
     if (cap && list.length > cap) { var keep = hi !== undefined && list.indexOf(hi) >= cap - 1; other = list.slice(keep ? cap - 2 : cap - 1); if (keep) other.splice(other.indexOf(hi), 1); list = list.slice(0, keep ? cap - 2 : cap - 1).concat(keep ? [hi, 'Other'] : ['Other']); }
+    if (other && list.indexOf('Other') >= 0 && list.indexOf('Other') < list.length - 1) { list.splice(list.indexOf('Other'), 1); other.push('Other'); }   /* a real value named Other joins the folded rest, so there are never two series called Other */
     if (hi !== undefined) { if (keys === HI.ck) HI.F.hiCi = list.indexOf(hi); if (keys === HI.xk) HI.F.hiX = list.indexOf(hi) >= 0 ? hi : undefined; }
     return { list: list, other: other ? new Set(other) : null, tot: tot };
   }
@@ -279,8 +324,12 @@ var NetflowPlot = (function () {
   var CH = {};
   CH.bar = function (F, R, sp) {
     var xk = R.cat(sp.x), v = sp.y ? R.num(sp.y) : null, how = sp.y ? (sp.agg || 'sum') : 'count', ck = sp.color && sp.color !== sp.x ? R.cat(sp.color) : null;
-    var xc = catsOf(xk, v, sp.sort || 'value', sp.horizontal ? 60 : 50), cc = ck ? catsOf(ck, v, 'value', 12) : { list: [''], other: null };
+    var xc = catsOf(xk, v, sp.top > 0 ? 'value' : sp.sort || 'value', sp.top > 0 ? Math.floor(sp.top) + 1 : sp.horizontal ? 60 : 50), cc = ck ? catsOf(ck, v, 'value', 12) : { list: [''], other: null };
     var cell = cross(xk, ck, v, how, xc, cc), mode = ck ? (sp.stack || 'stack') : 'none', horiz = !!sp.horizontal;
+    if (sp.top > 0 && xc.other && v && how === 'sum' && !G_ADD.test(sp.y)) {   /* top: the rest is one bar; a value that does not add up (a rate, a score) shows the average of the rest, named so */
+      var OA = 'Others, average'; xc.list = xc.list.map(function (x) { return x === 'Other' ? OA : x; });
+      cc.list.forEach(function (c) { var e = cell.get('Other\u0000' + c); if (!e) return; cell.delete('Other\u0000' + c); cell.set(OA + '\u0000' + c, { v: aggregate(e.rows.map(function (r) { return v[r]; }), 'mean'), rows: e.rows }); });
+    } else if (sp.top > 0 && xc.other) { xc.list = xc.list.map(function (x) { return x === 'Other' ? 'Others' : x; }); cc.list.forEach(function (c) { var e = cell.get('Other\u0000' + c); if (e) { cell.delete('Other\u0000' + c); cell.set('Others\u0000' + c, e); } }); }
     var totals = new Map(), lo = 0, hi = 0;
     xc.list.forEach(function (x) { var pos = 0, neg = 0, t = 0; cc.list.forEach(function (c) { var e = cell.get(x + '\u0000' + c); if (!e || e.v !== e.v) return; if (e.v >= 0) pos += e.v; else neg += e.v; t += Math.abs(e.v); }); totals.set(x, t); if (mode === 'group' || mode === 'none') { cc.list.forEach(function (c) { var e = cell.get(x + '\u0000' + c); if (e && e.v === e.v) { lo = Math.min(lo, e.v); hi = Math.max(hi, e.v); } }); } else { lo = Math.min(lo, neg); hi = Math.max(hi, pos); } });
     if (mode === 'normalize') { lo = 0; hi = 1; }
@@ -289,7 +338,8 @@ var NetflowPlot = (function () {
     if (mode === 'normalize') val.fmt = function (p) { return Math.round(p * 100) + '%'; };
     if (!ck) F.hiCi = -1;   /* no color column (or color is x): a highlight picks one bar */
     else F.hiX = undefined;
-    var zero = val.map(0), colOf = function (ci) { return ck ? F.color(ci) : F.color(0); }, segs = [], ends = [];
+    var navy = mode === 'none' && !ck && lo < 0 && F.clean && !F.palette0 ? F.navy : null;   /* a bar chart with values below zero: navy above, red below */
+    var zero = val.map(0), colOf = function (ci) { return ck ? F.color(ci) : navy || F.color(0); }, segs = [], ends = [];
     xc.list.forEach(function (x) {
       var b0 = band.map(x), up = 0, dn = 0, tot = totals.get(x) || 1, nC = cc.list.length, sUp = 0, sDn = 0;
       cc.list.forEach(function (c, ci) {
@@ -301,21 +351,22 @@ var NetflowPlot = (function () {
         else { v0 = 0; v1 = e.v; }
         var a = val.map(v0), b = val.map(v1), col = mode === 'none' && !ck && e.v < 0 ? F.T.bad : colOf(ci);
         if (F.hiX !== undefined && x !== F.hiX) col = F.gray;   /* highlight one bar, gray the rest (no color column) */
+        if (sp.top > 0 && !ck && (x === 'Others' || x === 'Others, average')) col = F.gray;   /* the rest of a top-N chart is a lighter gray, so the named bars lead */
         var mark = { rows: e.rows, t: (x === '' ? '(blank)' : x) + (ck ? ' \u00b7 ' + (c || '(blank)') : '') + ': ' + fmtNum(e.v) };
         if (horiz) F.rect(a, s0, b - a, sw, col, mark); else F.rect(s0, b, sw, a - b, col, mark);
         var vt = mode === 'normalize' ? Math.round(Math.abs(e.v) / tot * 100) + '%' : fmtNum(e.v);
         if (mode === 'stack' || mode === 'normalize') { segs.push({ s0: s0, sw: sw, a: a, b: b, t: vt, col: col }); if (e.v >= 0) sUp += e.v; else sDn += e.v; }
-        else ends.push({ s0: s0, sw: sw, end: b, neg: v1 < v0, t: vt });
+        else ends.push({ s0: s0, sw: sw, end: b, neg: v1 < v0, t: vt, col: col });
       });
       if (mode === 'stack') { if (sUp > 0 || !sDn) ends.push({ s0: b0, sw: band.bw, end: val.map(up), neg: false, t: fmtNum(sUp) }); if (sDn < 0) ends.push({ s0: b0, sw: band.bw, end: val.map(dn), neg: true, t: fmtNum(sDn) }); }
     });
     /* clean look: every bar end gets its value when all of them fit beside their bars; otherwise the number axis stays */
     if (F.clean) F.noY = ends.every(function (q) { return horiz ? q.sw >= 12 : q.t.length * CW <= q.sw + Math.max(4, band.step - band.bw - 4); }) && (ends.length || segs.length);
-    if (horiz) { F.axes(null, null); var vy = val; if (!F.noY) vy.list.forEach(function (t) { var x = vy.map(t); F.line([x, F.Tp, x, F.B], 1, F.alpha(F.T.boxLine, 0.35)); F.text(x, F.B + 16, mode === 'normalize' ? Math.round(t * 100) + '%' : fmtNum(t), 11, F.alpha(F.T.muted, 0.9)); }); xc.list.forEach(function (x) { F.text(F.L - 8, band.map(x) + band.bw / 2 + 4, clip(x === '' ? '(blank)' : x, 28), 11, F.T.fg, { align: 'r' }); }); F.line([zero, F.Tp, zero, F.B], 1, F.alpha(F.T.muted, 0.8)); }
+    if (horiz) { F.axes(null, null); var vy = val; if (!F.noY) vy.list.forEach(function (t) { var x = vy.map(t); F.line([x, F.Tp, x, F.B], 1, F.alpha(F.T.boxLine, 0.35)); F.text(x, F.B + 16, mode === 'normalize' ? Math.round(t * 100) + '%' : fmtNum(t), 11, F.alpha(F.T.muted, 0.9)); }); var every = Math.max(1, Math.ceil(13 / Math.max(1, band.step || (F.B - F.Tp) / Math.max(1, xc.list.length)))); xc.list.forEach(function (x, xi) { if (xi % every) return; F.text(F.L - 8, band.map(x) + band.bw / 2 + 4, clip(x === '' ? '(blank)' : x, 28), 11, F.T.fg, { align: 'r' }); });   /* names 13 px apart at least: when the bars are thinner, every k-th name */ F.line([zero, F.Tp, zero, F.B], 1, F.alpha(F.T.muted, 0.8)); }
     else { F.axes(band, val, sp.x, sp.y ? (how === 'sum' ? '' : how + ' of ') + sp.y : 'Rows'); F.line([F.L, zero, F.R, zero], 1, F.alpha(F.T.muted, 0.8)); }
     if (F.noY) {
       ends.forEach(function (q) {
-        if (horiz) { var room = F.R - q.end; F.text(q.neg ? q.end - 5 : (room > q.t.length * CW + 6 ? q.end + 5 : q.end - 5), q.s0 + q.sw / 2 + 4, q.t, 11, room > q.t.length * CW + 6 || q.neg ? F.T.fg : inkOn(F.color(0)), { align: q.neg || room <= q.t.length * CW + 6 ? 'r' : 'l' }); }
+        if (horiz) { var room = F.R - q.end; F.text(q.neg ? q.end - 5 : (room > q.t.length * CW + 6 ? q.end + 5 : q.end - 5), q.s0 + q.sw / 2 + 4, q.t, 11, room > q.t.length * CW + 6 || q.neg ? F.T.fg : inkOn(q.col || F.color(0)), { align: q.neg || room <= q.t.length * CW + 6 ? 'r' : 'l' }); }
         else F.text(q.s0 + q.sw / 2, q.neg ? q.end + 14 : q.end - 5, q.t, 11, F.T.fg, null);
       });
       /* a stacked part is named inside itself when the number fits there */
@@ -367,9 +418,9 @@ var NetflowPlot = (function () {
     s.list.forEach(function (l) { allX = allX.concat(l.xs); allY = allY.concat(l.ys); });
     /* clean look: each line is named at its right end (no key row over the chart), up to 10 lines; room for the names is kept on the right */
     var ends = F.clean && !!sp.color && !F.keyRow && s.list.length > 1, ew = 0;
-    if (ends && s.list.length > 10) { ends = false; F.keyRow = true; F.Tp = 44; }
+    if (ends && s.list.length > Math.min(16, Math.max(10, Math.floor((F.B - F.Tp) / 14)))) { ends = false; F.keyRow = true; F.Tp = 44; }   /* names at the line ends while each can have 14 px (up to 16 lines), else the key row */
     /* clean look: no number axis and no gridlines; each line's first and last values are written on it (a single line also gets its high and low) */
-    var vt = function (v) { return fmtNum(v); }, lastY = function (l) { for (var j = l.ys.length - 1; j >= 0; j--) if (l.ys[j] === l.ys[j]) return l.ys[j]; return NaN; };
+    var vt = fmtFor(allY), lastY = function (l) { for (var j = l.ys.length - 1; j >= 0; j--) if (l.ys[j] === l.ys[j]) return l.ys[j]; return NaN; };
     if (ends) { s.list.forEach(function (l) { ew = Math.max(ew, (clip(l.name || '(blank)', 16).length + 1 + vt(lastY(l)).length) * CW); }); F.R = Math.max(F.L + 120, F.R - ew - 8); }
     else if (F.clean && s.list.length === 1) { var lw = vt(lastY(s.list[0])).length * CW; F.R = Math.max(F.L + 120, F.R - lw - 8); }
     var ax = axisFor(allX, s.time, F.L, F.R, false, 8), ay = axisFor(allY, false, F.B, F.Tp, !!sp.zero);
@@ -383,7 +434,7 @@ var NetflowPlot = (function () {
       if (many <= 400) for (var k = 0; k < l.xs.length; k++) if (l.ys[k] === l.ys[k]) F.dot(ax.map(l.xs[k]), ay.map(l.ys[k]), 2.5, col, { rows: l.rows[k], t: (l.name ? l.name + ' \u00b7 ' : '') + (s.time ? dayText(l.xs[k]) : ax.fmt ? ax.fmt(l.xs[k]) : fmtNum(l.xs[k])) + ': ' + fmtNum(l.ys[k]) });
       if (F.clean && pts.length) {   /* values on the line: first point to the left of the plot, last point after the name (or alone for one line) */
         var fi = 0; while (l.ys[fi] !== l.ys[fi]) fi++;
-        starts.push({ x: pts[0] - 6, y: pts[1] + 4, t: vt(l.ys[fi]), c: readable(col, F.T) });
+        if ((pts[0] <= F.L + 2 && (ends || s.list.length === 1 || !sp.color)) || s.list.length === 1) starts.push({ x: pts[0] - 6, y: pts[1] + 4, t: vt(l.ys[fi]), c: readable(col, F.T) });   /* in series order: the biggest series first */
         if (s.list.length === 1) {
           var hiK = -1, loK = -1, k2, nk = 0; for (k2 = 0; k2 < l.ys.length; k2++) if (l.ys[k2] === l.ys[k2]) { nk++; if (hiK < 0 || l.ys[k2] > l.ys[hiK]) hiK = k2; if (loK < 0 || l.ys[k2] < l.ys[loK]) loK = k2; }
           var lk = l.ys.length - 1; while (l.ys[lk] !== l.ys[lk]) lk--;
@@ -401,12 +452,16 @@ var NetflowPlot = (function () {
       for (i = tags.length - 1; i >= 0; i--) tags[i].y = Math.min(tags[i].y, i < tags.length - 1 ? tags[i + 1].y - 13 : hi);
       tags.forEach(function (g) { F.text(g.x, g.y, g.t, 11, g.c, { align: 'l', bold: true }); });
     }
-    if (starts.length) {   /* first values left of the plot, moved apart the same way */
-      starts.sort(function (a, b) { return a.y - b.y; });
-      var i2, lo2 = F.Tp + 8, hi2 = F.B + 4;
-      for (i2 = 0; i2 < starts.length; i2++) starts[i2].y = Math.max(starts[i2].y, i2 ? starts[i2 - 1].y + 13 : lo2);
-      for (i2 = starts.length - 1; i2 >= 0; i2--) starts[i2].y = Math.min(starts[i2].y, i2 < starts.length - 1 ? starts[i2 + 1].y - 13 : hi2);
-      starts.forEach(function (g) { F.text(g.x, g.y, g.t, 11, g.c, { align: 'r', bold: true }); });
+    if (starts.length) {   /* first values left of their lines: each stays within 7 px of its point; one that would touch a value already placed is left out (visuals review, 2026.11.07) */
+      var kept = [], lo2 = F.Tp + 8, hi2 = F.B + 4;
+      starts.forEach(function (g) {
+        var w = g.t.length * CW, offs = [0, -7, 7];
+        for (var q = 0; q < offs.length; q++) {
+          var y = Math.min(hi2, Math.max(lo2, g.y + offs[q]));
+          if (kept.every(function (k) { return Math.abs(k.y - y) >= 13 || g.x - w > k.x + 4 || k.x - k.w > g.x + 4; })) { g.y = y; g.w = w; kept.push(g); return; }
+        }
+      });
+      kept.forEach(function (g) { F.text(g.x, g.y, g.t, 11, g.c, { align: 'r', bold: true }); });
     }
     if (s.list.length > 1) { F.R -= 0; F.legend(sp.color, s.cats); }
   };
@@ -733,7 +788,7 @@ var NetflowPlot = (function () {
 
   /** What a chart needs: which settings mean something for each type. */
   var NEEDS = {
-    bar: { x: 'cat', y: 'num?', color: 'cat?', agg: 1, stack: 1, horizontal: 1, sort: 1 }, dotplot: { x: 'cat', y: 'num?', color: 'cat?', agg: 1, sort: 1 },
+    bar: { x: 'cat', y: 'num?', color: 'cat?', agg: 1, stack: 1, horizontal: 1, sort: 1, top: 1 }, dotplot: { x: 'cat', y: 'num?', color: 'cat?', agg: 1, sort: 1 },
     line: { x: 'num', y: 'num?', color: 'cat?', agg: 1, smooth: 1, index: 1 }, area: { x: 'num', y: 'num?', color: 'cat?', agg: 1, stack: 1, smooth: 1 },
     scatter: { x: 'num', y: 'num', color: 'cat?', size: 'num?' }, connected: { x: 'num', y: 'num', color: 'cat?' }, voronoi: { x: 'num', y: 'num', color: 'cat?' },
     beeswarm: { x: 'num', color: 'cat?' }, hist: { x: 'num', color: 'cat?', bins: 1 }, box: { x: 'cat?', y: 'num' }, density: { x: 'num', color: 'cat?' }, ridgeline: { x: 'num', color: 'cat' },
@@ -744,12 +799,17 @@ var NetflowPlot = (function () {
   function make(rows, spec, o, NS) {
     o = o || {}; spec = spec || {};
     var F = frame(spec, o, NS), R = reader(rows, o), type = CH[spec.type] ? spec.type : 'bar', t0 = Date.now();
+    if ((type === 'bar' || type === 'dotplot') && spec.x && spec.y && rows.length && !mostlyNum(R, spec.y) && mostlyNum(R, spec.x)) {   /* x is the number and y the names: swap them and lay the bars sideways instead of drawing an empty chart */
+      spec = Object.assign({}, spec, { x: spec.y, y: spec.x }); if (type === 'bar') spec.horizontal = true;
+      if (type === 'bar' && spec.top === undefined && o.top !== false) { var sx = new Set(R.cat(spec.x)); if (sx.size > 25 && !Array.prototype.some.call(R.num(spec.y), function (y) { return y < 0; })) spec.top = 10; }   /* our own swap, so the same rule as auto: more than 25 names gives the 10 biggest plus the rest */
+    }
     var hl = o.highlight !== undefined && o.highlight !== null && o.highlight !== '' ? String(o.highlight) : undefined;
     HI = hl !== undefined && rows.length ? { name: hl, F: F, ck: spec.color ? R.cat(spec.color) : null, xk: spec.x ? R.cat(spec.x) : null } : null;
+    PCT = o.percent !== false && rows.length > 0 && fractionCol(R, spec, type);
     try {
       if (!rows.length) F.text(F.W / 2, F.H / 2, 'No rows to draw.', 14, F.T.muted);
-      else { if (spec.color && !NOKEYROW[type] && !(F.clean && type === 'line')) { F.keyRow = true; F.Tp = 44; } if (type === 'bar' || type === 'box') F.calm(); CH[type](F, R, spec); }   /* the clean look's calm colors go with its value labels (bars and boxes) */
-    } finally { HI = null; }
+      else { if (spec.color && !NOKEYROW[type] && !(F.clean && type === 'line')) { F.keyRow = true; F.Tp = 44; } CH[type](F, R, spec); }   /* since 2.12.0 bars and boxes use the same mauve-first colors as every other chart (owner card, 2026.11.07); the calm navy stays for bars that go below zero (navy and red pairs) */
+    } finally { HI = null; PCT = false; }
     if (F.yName) {   /* the small axis name is left out when a value written on a mark would touch it */
       var yl = F.yName, x1 = yl.x + yl.t.length * CW + 4;
       if (F.S.labels.some(function (l) { if (l === yl) return false; var w = l.t.length * CW, lx = l.align === 'l' ? l.x : l.align === 'r' ? l.x - w : l.x - w / 2; return lx < x1 && lx + w > yl.x - 4 && l.y - l.size < yl.y + 4 && l.y + 3 > yl.y - yl.size; })) F.S.labels.splice(F.S.labels.indexOf(yl), 1);
@@ -776,7 +836,7 @@ var NetflowPlot = (function () {
     var words = t.split(' ').map(function (w) { return /[A-Z]/.test(w.slice(1)) || w === w.toUpperCase() && /[A-Z]/.test(w) ? w : w.toLowerCase(); }).join(' ');
     return words.charAt(0).toUpperCase() + words.slice(1);
   }
-  var SPEC_KEYS = ['type', 'x', 'y', 'color', 'size', 'agg', 'stack', 'horizontal', 'bins', 'smooth', 'index', 'cols', 'sort', 'from', 'to', 'value', 'id', 'parent'];
+  var SPEC_KEYS = ['type', 'x', 'y', 'color', 'size', 'agg', 'stack', 'horizontal', 'top', 'bins', 'smooth', 'index', 'cols', 'sort', 'from', 'to', 'value', 'id', 'parent'];
   /* ---- picking a chart from the shape of the rows (since 2.9.0; owner's card, 2026.11.07) ----
      guess(rows) -> { type, spec, why, others }: type is a plot type, or 'sankey' or 'treemap' (drawn by netflow-sankey and netflow-hierarchy).
      Checked on 54 real tables (vega-datasets): 39 used to set the rules, all right; 15 held out and labeled before the rules ran on them, all right. */
@@ -819,7 +879,15 @@ var NetflowPlot = (function () {
     var labels = of(['cat', 'month']).filter(function (c) { return c.uniq === c.n; }), groups = of(['cat', 'code', 'month']).filter(function (c) { return c.uniq < c.n && c.uniq >= 2 && c.uniq <= 60; });
     var add = nums.filter(function (c) { return G_ADD.test(c.k); })[0], measure = add || nums[0];
     var from = named(/^(from|source|src|origin|from_?id)$/i), to = named(/^(to|target|dest|destination|to_?id)$/i), par = named(/^(parent|parent_?id|parentid)$/i);
-    if (from && to && from.kind !== 'num' && to.kind !== 'num') put('sankey', { from: from.k, to: to.k, value: add ? add.k : undefined }, 'it has ' + gQ(from) + ' and ' + gQ(to) + ' columns, so it shows the flows' + (add ? ' sized by ' + gQ(add) : ', each row counting 1'));
+    if (from && to && from.kind !== 'num' && to.kind !== 'num') {
+      var pairs = Object.create(null), np = 0, sends = Object.create(null), gets = Object.create(null), both = 0, all = 0, fa, fb, fk;
+      for (var fst = Math.max(1, Math.ceil(rows.length / 5000)), i = 0; i < rows.length; i += fst) { fa = rows[i][from.k]; fb = rows[i][to.k]; if (fa === undefined || fa === null || fa === '' || fb === undefined || fb === null || fb === '') continue; fk = fa + '\u0001' + fb; if (!pairs[fk]) { pairs[fk] = 1; np++; } sends[fa] = 1; gets[fb] = 1; }   /* up to 5,000 rows spread over the whole table: tables sorted by their first column hide their loops in the first rows */
+      for (fk in sends) { all++; if (fk in gets) both++; } for (fk in gets) if (!(fk in sends)) all++;
+      var fsp = { from: from.k, to: to.k, value: add ? add.k : undefined }, fsz = add ? ' sized by ' + gQ(add) : ', each row counting 1', fwhy = 'it has ' + gQ(from) + ' and ' + gQ(to) + ' columns, so it shows the flows' + fsz;
+      /* many links where most places both send and receive: a Sankey of that is a tangle of loops, a chord reads (visuals review, 2026.11.07); small Sankeys stay as they were */
+      if (np > FLOW_MAX && both >= 0.3 * all) put('chord', { from: fsp.from, to: fsp.to, value: fsp.value }, 'it has ' + gQ(from) + ' and ' + gQ(to) + ' columns and most places both send and receive, so it shows the flows around a circle (a chord)' + fsz);
+      put('sankey', fsp, fwhy);
+    }
     if (par) { var id = named(/^(id|name|node|label)$/i) || of(['cat', 'id'])[0]; if (id && id !== par) put('treemap', { id: id.k, parent: par.k, size: measure ? measure.k : undefined }, 'it has a ' + gQ(par) + ' column, so it is a tree'); }
     var lat = named(/^(lat|latitude)$/i), lon = named(/^(lon|lng|long|longitude)$/i);
     if (lat && lon && lat.kind === 'num' && lon.kind === 'num') put('scatter', { x: lon.k, y: lat.k, color: small[0] ? small[0].k : undefined }, 'it has latitude and longitude, so each row is a point on a map-like grid');
@@ -873,14 +941,20 @@ var NetflowPlot = (function () {
   function tName(k) { var t = axisName(k) || String(k); return /^[A-Z][a-z]/.test(t) && !/[A-Z]/.test(t.slice(1)) ? t.charAt(0).toLowerCase() + t.slice(1) : t; }
   function tNum(r, k) { var v = r[k]; if (v === '' || v === null || v === undefined) return NaN; v = +v; return isFinite(v) ? v : NaN; }
   function tList(items, f) { var s = items.slice(0, 20).map(f).join(', '); return items.length > 20 ? s + ' and ' + (items.length - 20) + ' more' : s; }
+  function tPts(d) { var p = Math.round(Math.abs(d) * 1000) / 10; return p + (p === 1 ? ' point' : ' points'); }   /* a gap between two percents, in percentage points (since 2.12.1) */
   function tLead(a, b) {   /* how far a is ahead of b, in words that hold on any base */
     if (a === b) return null;
-    if (b > 0 && a > 0) { var q = a / b; if (q >= 2) return q >= 100 ? 'far ahead of' : (Math.round(q * 10) / 10) + ' times as much as'; if (b >= a / 10) return Math.round((a - b) / b * 100) + '% more than'; }
+    if (b > 0 && a > 0) { var q = a / b; if (q >= 2) return q >= 100 ? 'far ahead of' : (Math.round(q * 10) / 10) + ' times as much as'; if (PCT) return tPts(a - b) + ' more than'; if (b >= a / 10) return Math.round((a - b) / b * 100) + '% more than'; }
     return 'ahead of';
   }
-  function takeaway(rows, spec) {
-    rows = (rows || []).map(function (r) { return r && r.attrs ? r.attrs : r; }).filter(function (r) { return r && typeof r === 'object'; });
-    spec = spec || {};
+  function takeaway(rows, spec, o) {   /* o: the chart's options; values written as percents when the chart writes them so (since 2.12.1), percent: false turns it off */
+    var was = PCT;
+    try { rows = (rows || []).map(function (r) { return r && r.attrs ? r.attrs : r; }).filter(function (r) { return r && typeof r === 'object'; }); spec = spec || {};
+      PCT = !(o && o.percent === false) && rows.length > 0 && !!spec.type && fractionCol(reader(rows, {}), spec, spec.type);
+      return takeaway0(rows, spec);
+    } finally { PCT = was; }
+  }
+  function takeaway0(rows, spec) {
     var t = spec.type, none = { text: '', alt: '' }, i;
     if (!rows.length) return none;
     if (t === 'bar' || t === 'dotplot' || t === 'donut') {
@@ -914,7 +988,7 @@ var NetflowPlot = (function () {
       ch.sort(function (p, q) { return Math.abs(q.d) - Math.abs(p.d); });
       var c = ch[0], who = spec.color ? c.k : yname;
       if (c.d === 0) return { text: who + ' was the same at the start and the end (' + fmtNum(c.f[1]) + ')', alt: alt2 };
-      var pc = c.f[1] > 0 && c.l[1] > 0 && c.f[1] >= c.mx / 10 ? ' ' + Math.round(Math.abs(c.d) / c.f[1] * 100) + '%' : '';
+      var pc = PCT ? ' ' + tPts(c.d) : c.f[1] > 0 && c.l[1] > 0 && c.f[1] >= c.mx / 10 ? ' ' + Math.round(Math.abs(c.d) / c.f[1] * 100) + '%' : '';
       return { text: who + ' ' + (c.d > 0 ? 'rose' : 'fell') + pc + ' from ' + fmtNum(c.f[1]) + ' to ' + fmtNum(c.l[1]) + (ch.length > 1 ? ', the biggest change of ' + ch.length : ''), alt: alt2 };
     }
     if (t === 'scatter' || t === 'hexbin') {
@@ -935,7 +1009,7 @@ var NetflowPlot = (function () {
       var q1 = quant(v2, 0.25), q2 = quant(v2, 0.5), q3 = quant(v2, 0.75), nm = tName(k2);
       return { text: 'Half the rows have ' + nm + ' between ' + fmtNum(q1) + ' and ' + fmtNum(q3) + ' (middle value ' + fmtNum(q2) + ')', alt: v2.length + ' values of ' + nm + ' from ' + fmtNum(v2[0]) + ' to ' + fmtNum(v2[v2.length - 1]) + '; middle value ' + fmtNum(q2) + '.' };
     }
-    if (t === 'sankey') {
+    if (t === 'sankey' || t === 'chord') {
       var fl = flowLinks(rows, spec), L2 = fl.links; if (!L2.length) return none;
       var out = Object.create(null); L2.forEach(function (e) { out[e.from] = (out[e.from] || 0) + e.value; });
       var b0 = L2[0], sh = Math.round(b0.value / out[b0.from] * 100);
@@ -943,11 +1017,25 @@ var NetflowPlot = (function () {
     }
     return none;
   }
-  function autoTitle(rows, spec, o) { var c = {}, k; for (k in o) c[k] = o[k]; var tx = takeaway(rows, spec).text; if (tx) c.title = tx.charAt(0).toUpperCase() + tx.slice(1); else delete c.title; return c; }   /* title: 'auto' draws the takeaway as the title */
+  function autoTitle(rows, spec, o) { var c = {}, k; for (k in o) c[k] = o[k]; var tx = takeaway(rows, spec, o).text; if (tx) c.title = tx.charAt(0).toUpperCase() + tx.slice(1); else delete c.title; return c; }   /* title: 'auto' draws the takeaway as the title */
+  /** The column whose points nearly all fall in one 1/150 of its range (a few far values squash the rest), or ''. */
+  function squashed(rows, sp) {
+    var ks = [sp.y, sp.x];
+    for (var j = 0; j < ks.length; j++) {
+      var k = ks[j], v = []; if (!k) continue;
+      rows.forEach(function (r) { r = r && r.attrs ? r.attrs : r; var x = r ? tNum(r, k) : NaN; if (x === x) v.push(x); });
+      if (v.length < 10) continue; v.sort(function (a, b) { return a - b; });
+      var lo = v[0], hi = v[v.length - 1], md = quant(v, 0.5), band = (hi - lo) / 150, c = 0; if (!(hi > lo)) continue;
+      for (var q = 0; q < v.length; q++) if (Math.abs(v[q] - md) <= band) c++;
+      if (c > 0.9 * v.length) return '"' + k + '"';
+    }
+    return '';
+  }
   /* draws one pick; null when the module it needs is not on the page */
   function drawPick(rows, pick, o) {
     var d = {}, k; for (k in o) if (SPEC_KEYS.indexOf(k) < 0) d[k] = o[k];
     if (pick.type === 'sankey') { var SK = lib('NetflowSankey', 'netflow-sankey'); if (!SK) return null; var f = flowLinks(rows, pick.spec); pick.shown = f.links.length; pick.of = f.all; return SK.toSvg(f.links, d); }
+    if (pick.type === 'chord') { var CI = lib('NetflowCircular', 'netflow-circular'); if (!CI) return null; var f2 = flowLinks(rows, pick.spec); pick.shown = f2.links.length; pick.of = f2.all; return CI.toSvg(f2.links, d); }
     if (pick.type === 'treemap') { var H = lib('NetflowHierarchy', 'netflow-hierarchy'); if (!H) return null; d.type = 'treemap'; return H.toSvg(treeLinks(rows, pick.spec), d); }
     for (k in pick.spec) d[k] = pick.spec[k];
     var NS = sceneLib('netflow-plot');
@@ -963,10 +1051,18 @@ var NetflowPlot = (function () {
     var g = guess(rows);
     if (!g) return { svg: toSvg(rows, { type: 'bar', title: o.title }), type: 'bar', spec: { type: 'bar' }, why: rows.length ? 'no column could be read as a number or a category' : 'there are no rows', others: [] };
     var list = [{ type: g.type, spec: g.spec, why: g.why }].concat(g.others), i, svg = null;
+    if (o.top !== false) list.forEach(function (p) {   /* more than 25 bars: only about 1 name in 5 fits, so the 10 biggest plus one bar for the rest (since 2.11.0; top: false keeps every bar) */
+      if (p.type !== 'bar' || !p.spec.x || p.spec.color || p.spec.top) return;
+      if (p.spec.y && rows.some(function (r) { var y = r && r.attrs && Object.prototype.hasOwnProperty.call(r.attrs, p.spec.y) ? r.attrs[p.spec.y] : r && r[p.spec.y]; return +y < 0; })) return;   /* values below zero: the biggest 10 would hide the most negative ones */
+      var seen = new Set(), q, rq, av; for (q = 0; q < rows.length && seen.size <= 25; q++) { rq = rows[q]; av = rq && rq.attrs && Object.prototype.hasOwnProperty.call(rq.attrs, p.spec.x) ? rq.attrs[p.spec.x] : rq && rq[p.spec.x]; seen.add(String(av)); }
+      if (seen.size > 25) { p.spec = Object.assign({}, p.spec, { top: 10, horizontal: true }); p.why += '; there are more than 25 names, so it shows the 10 biggest and one bar for the rest, laid sideways so every name fits'; }
+    });
     for (i = 0; i < list.length && svg === null; i++) svg = drawPick(rows, list[i], o.title === 'auto' ? autoTitle(rows, list[i].spec, o) : o);
     var p = list[i - 1], why = p.why;
-    if (p.type === 'sankey' && p.of > p.shown) why += ' (the ' + p.shown + ' biggest of ' + p.of + ' links)';
-    var tk = takeaway(rows, p.spec);
+    if ((p.type === 'sankey' || p.type === 'chord') && p.of > p.shown) why += ' (the ' + p.shown + ' biggest of ' + p.of + ' links)';
+    var sq = p.type === 'scatter' ? squashed(rows, p.spec) : '';
+    if (sq) why += '; but most points sit on one thin line along ' + sq + ' because a few values are far out, so this chart says little (others has more picks)';
+    var tk = takeaway(rows, p.spec, o);
     return { svg: svg, type: p.type, spec: p.spec, why: why, others: list.slice(i), takeaway: tk.text, alt: tk.alt };
   }
   /**
@@ -976,7 +1072,7 @@ var NetflowPlot = (function () {
    */
   function toSvg(rows, o) {
     o = o || {}; rows = rows || [];
-    if (o.type === 'sankey' || o.type === 'treemap') { var sp = { from: o.from, to: o.to, value: o.value, id: o.id, parent: o.parent, size: o.size }, pk = { type: o.type, spec: sp }, out = drawPick(rows, pk, o); if (out === null) throw new Error('netflow-plot: type ' + o.type + ' needs ' + (o.type === 'sankey' ? 'netflow-sankey' : 'netflow-hierarchy') + '.js on the page.'); return out; }
+    if (o.type === 'sankey' || o.type === 'treemap' || o.type === 'chord') { var sp = { from: o.from, to: o.to, value: o.value, id: o.id, parent: o.parent, size: o.size }, pk = { type: o.type, spec: sp }, out = drawPick(rows, pk, o); if (out === null) throw new Error('netflow-plot: type ' + o.type + ' needs ' + (o.type === 'sankey' ? 'netflow-sankey' : o.type === 'chord' ? 'netflow-hierarchy and netflow-circular' : 'netflow-hierarchy') + '.js on the page.'); return out; }
     if (o.type === undefined && o.x === undefined && o.y === undefined && rows.length) return auto(rows, o).svg;
     if (o.title === 'auto') { var sp2 = {}; SPEC_KEYS.forEach(function (k) { if (o[k] !== undefined) sp2[k] = o[k]; }); o = autoTitle(rows, sp2, o); }
     var spec = {}; SPEC_KEYS.forEach(function (k) { if (o[k] !== undefined) spec[k] = o[k]; });
