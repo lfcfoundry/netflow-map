@@ -1,6 +1,6 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. https://github.com/lfcfoundry/JS-modules */
 /*
- * Version 2.12.1 (API 2)
+ * Version 2.14.1 (API 2)
  * netflow-plot.js: plain charts from a table's columns (bars, lines, areas, dots, donuts, box plots, histograms, density, hexbins, heat maps,
  * parallel lines, scatter matrix, Q-Q, Voronoi cells, word cloud). make(rows, spec, o, NS) returns drawing lists in the same shape as a map
  * picture (rects, dots, curves, polys, labels), so the same renderer, export and themes draw them. No page, no DOM, no dependencies.
@@ -87,14 +87,16 @@ var NetflowPlot = (function () {
   /** One precision for a chart (visuals review, 2026.11.07): values in the same unit (B, M, k or none) get the same number of decimals, set by the biggest of them, so 9.7M never sits next to 10M. */
   function fmtFor(vals) {
     var U = { B: 1e9, M: 1e6, k: 1e3, '': 1 }, top = { B: 0, M: 0, k: 0, '': 0 }, frac = false, i, v, u;
-    var unit = function (a) { return a >= 1e9 ? 'B' : a >= 1e6 ? 'M' : a >= 1e4 ? 'k' : ''; };
+    var big = 0; for (i = 0; i < vals.length; i++) { v = Math.abs(vals[i]); if (v > big && isFinite(v)) big = v; }
+    var kAt = big < 1e5 ? Infinity : 1e4;   /* below 100,000 every value is written in full (10,000 next to 8,287, not 10.0k next to 8,287; since 2.13.0) */
+    var unit = function (a) { return a >= 1e9 ? 'B' : a >= 1e6 ? 'M' : a >= kAt ? 'k' : ''; };
     for (i = 0; i < vals.length; i++) { v = vals[i]; if (!isFinite(v)) continue; u = unit(Math.abs(v)); top[u] = Math.max(top[u], Math.abs(v) / U[u]); if (!u && v !== Math.round(v)) frac = true; }
     return function (x) {
       if (!isFinite(x)) return '';
       if (PCT && Math.abs(x) <= 1) { var px = (x * 100).toFixed(top[''] * 100 >= 99.95 || frac ? 1 : 0); return (+px === 0 ? px.replace('-', '') : px) + '%'; }
       var a = Math.abs(x), w = unit(a), m = Math.max(top[w], a / U[w]), d, t;
       if (w) d = m >= (w === 'k' ? 100 : 10) ? 0 : 1;
-      else { if (!frac || m >= 100) return fmtNum(Math.round(x)); d = Math.min(6, Math.max(0, 2 - Math.floor(Math.log10(m || 1)))); }
+      else { if (!frac || m >= 100) { var rr = Math.round(x); return Math.abs(rr) >= 1e4 ? (rr < 0 ? '-' : '') + String(Math.abs(rr)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : fmtNum(rr); } d = Math.min(6, Math.max(0, 2 - Math.floor(Math.log10(m || 1)))); }
       t = (x / U[w]).toFixed(d); if (+t === 0) t = t.replace('-', '');
       return t + w;
     };
@@ -213,7 +215,7 @@ var NetflowPlot = (function () {
       F.line([F.L, F.B, F.R, F.B], 1, alpha(T.muted, 0.7));
     };
     F.legend = function (title, names, colorOf) {
-      S.legendTitle = title || ''; names.slice(0, 24).forEach(function (n, i) { S.legend.push({ k: 'group', c: colorOf ? colorOf(n, i) : F.color(i), t: n === '' ? '(blank)' : String(n), key: 'p:' + n }); });
+      title = title ? axisName(title) || String(title) : ''; S.legendTitle = title; names.slice(0, 24).forEach(function (n, i) { S.legend.push({ k: 'group', c: colorOf ? colorOf(n, i) : F.color(i), t: n === '' ? '(blank)' : String(n), key: 'p:' + n }); });
       if (!F.keyRow) return;   /* a row of swatches over the plot (room was made for it), so the picture and its SVG carry their own key */
       var x = F.L, y = 14, cw = 6.6, more = 0;
       if (title) { F.text(x, y + 4, clip(title, 24) + ':', 12, T.fg, { align: 'l', bold: true }); x += Math.min(24, String(title).length + 1) * cw * 1.05 + 10; }
@@ -246,7 +248,8 @@ var NetflowPlot = (function () {
     if (zero) { lo = Math.min(0, lo); hi = Math.max(0, hi); }
     if (isTime) { var tt = timeTicks(lo, hi, n || 8); return { kind: 'time', lo: lo, hi: hi, list: tt.list, fmt: tt.fmt, map: linear(lo, hi === lo ? lo + 1 : hi, a, b) }; }
     var t = ticks(lo, hi, n || 6), ax = { kind: 'num', lo: t.lo, hi: t.hi, list: t.list, map: linear(t.lo, t.hi, a, b) };
-    if (lo >= 1800 && hi <= 2200 && hi - lo <= 300 && vals.every(function (v) { return v !== v || v === Math.floor(v); })) {   /* whole numbers 1800 to 2200 are years: written 2015, not 2,015, and only whole-year ticks */
+    if (t.step > 0 && t.step < 1 && Math.max(Math.abs(t.lo), Math.abs(t.hi)) >= 100) { var dp = Math.min(6, Math.ceil(-Math.log10(t.step) - 1e-9)); ax.fmt = function (v) { var x = v.toFixed(dp); return +x === 0 ? x.replace('-', '') : x; }; }   /* -118.4, -118.2, not -118 three times: ticks closer than 1 apart keep the decimals their step needs (since 2.13.0) */
+    if ((lo >= 1800 || (vals.yearName && lo >= 1000)) && hi <= 2200 && hi - lo <= (vals.yearName ? 1200 : 300) && Array.prototype.every.call(vals, function (v) { return v !== v || v === Math.floor(v); })) {   /* whole numbers 1800 to 2200 are years: written 2015, not 2,015, and only whole-year ticks; from 1000 when the column is named year (since 2.12.2) */
       ax.list = ax.list.filter(function (v) { return v === Math.floor(v); }); ax.fmt = function (v) { return String(v); }; ax.years = true;
     }
     return ax;
@@ -266,6 +269,7 @@ var NetflowPlot = (function () {
         var raw = R.raw(k), out = new Float64Array(rows.length), good = 0, dates = 0, i;
         for (i = 0; i < raw.length; i++) { var v = num(raw[i]); out[i] = v; if (v === v) good++; }
         if (good < 0.8 * countFilled(raw)) { var dt = new Float64Array(rows.length), seen = new Map(); for (i = 0; i < raw.length; i++) { var rv = raw[i], d = typeof rv === 'string' ? seen.get(rv) : undefined; if (d === undefined) { d = dateMs(rv); if (typeof rv === 'string') seen.set(rv, d); } dt[i] = d; if (d === d) dates++; }   /* each date text is read once */ if (dates > good) { dt.time = true; out = dt; } }
+        if (!out.time && /year|^yr$/i.test(k)) out.yearName = true;   /* a column named year: 1565 is a year, not 1,565 (since 2.12.2) */
         cache.set(key, out); return out;
       },
       cat: function (k) { var key = 'c' + k; if (cache.has(key)) return cache.get(key); var raw = R.raw(k), out = new Array(raw.length); for (var i = 0; i < raw.length; i++) out[i] = raw[i] === undefined || raw[i] === null ? '' : String(raw[i]); cache.set(key, out); return out; },
@@ -362,7 +366,7 @@ var NetflowPlot = (function () {
     });
     /* clean look: every bar end gets its value when all of them fit beside their bars; otherwise the number axis stays */
     if (F.clean) F.noY = ends.every(function (q) { return horiz ? q.sw >= 12 : q.t.length * CW <= q.sw + Math.max(4, band.step - band.bw - 4); }) && (ends.length || segs.length);
-    if (horiz) { F.axes(null, null); var vy = val; if (!F.noY) vy.list.forEach(function (t) { var x = vy.map(t); F.line([x, F.Tp, x, F.B], 1, F.alpha(F.T.boxLine, 0.35)); F.text(x, F.B + 16, mode === 'normalize' ? Math.round(t * 100) + '%' : fmtNum(t), 11, F.alpha(F.T.muted, 0.9)); }); var every = Math.max(1, Math.ceil(13 / Math.max(1, band.step || (F.B - F.Tp) / Math.max(1, xc.list.length)))); xc.list.forEach(function (x, xi) { if (xi % every) return; F.text(F.L - 8, band.map(x) + band.bw / 2 + 4, clip(x === '' ? '(blank)' : x, 28), 11, F.T.fg, { align: 'r' }); });   /* names 13 px apart at least: when the bars are thinner, every k-th name */ F.line([zero, F.Tp, zero, F.B], 1, F.alpha(F.T.muted, 0.8)); }
+    if (horiz) { F.axes(null, null); var vy = val; if (!F.noY) { var hvt = function (t) { return mode === 'normalize' ? Math.round(t * 100) + '%' : fmtNum(t); }, hev = 1; while (hev < vy.list.length && vy.list.some(function (t, ti) { if (ti % hev || ti + hev >= vy.list.length) return false; var t2 = vy.list[ti + hev]; return vy.map(t2) - vy.map(t) < (hvt(t).length + hvt(t2).length) * CW / 2 + 10; })) hev++; vy.list.forEach(function (t, ti) { var x = vy.map(t); F.line([x, F.Tp, x, F.B], 1, F.alpha(F.T.boxLine, 0.35)); if (ti % hev === 0) F.text(x, F.B + 16, hvt(t), 11, F.alpha(F.T.muted, 0.9)); }); }   /* every 2nd (3rd, ...) number when two would touch (since 2.13.0) */ var every = Math.max(1, Math.ceil(13 / Math.max(1, band.step || (F.B - F.Tp) / Math.max(1, xc.list.length)))); xc.list.forEach(function (x, xi) { if (xi % every) return; F.text(F.L - 8, band.map(x) + band.bw / 2 + 4, clip(x === '' ? '(blank)' : x, 28), 11, F.T.fg, { align: 'r' }); });   /* names 13 px apart at least: when the bars are thinner, every k-th name */ F.line([zero, F.Tp, zero, F.B], 1, F.alpha(F.T.muted, 0.8)); }
     else { F.axes(band, val, sp.x, sp.y ? (how === 'sum' ? '' : how + ' of ') + sp.y : 'Rows'); F.line([F.L, zero, F.R, zero], 1, F.alpha(F.T.muted, 0.8)); }
     if (F.noY) {
       ends.forEach(function (q) {
@@ -415,7 +419,7 @@ var NetflowPlot = (function () {
   }
   CH.line = function (F, R, sp) {
     var s = series(F, R, sp), allX = [], allY = [];
-    s.list.forEach(function (l) { allX = allX.concat(l.xs); allY = allY.concat(l.ys); });
+    s.list.forEach(function (l) { allX = allX.concat(l.xs); allY = allY.concat(l.ys); }); if (sp.x && R.num(sp.x).yearName) allX.yearName = true;
     /* clean look: each line is named at its right end (no key row over the chart), up to 10 lines; room for the names is kept on the right */
     var ends = F.clean && !!sp.color && !F.keyRow && s.list.length > 1, ew = 0;
     if (ends && s.list.length > Math.min(16, Math.max(10, Math.floor((F.B - F.Tp) / 14)))) { ends = false; F.keyRow = true; F.Tp = 44; }   /* names at the line ends while each can have 14 px (up to 16 lines), else the key row */
@@ -439,21 +443,21 @@ var NetflowPlot = (function () {
           var hiK = -1, loK = -1, k2, nk = 0; for (k2 = 0; k2 < l.ys.length; k2++) if (l.ys[k2] === l.ys[k2]) { nk++; if (hiK < 0 || l.ys[k2] > l.ys[hiK]) hiK = k2; if (loK < 0 || l.ys[k2] < l.ys[loK]) loK = k2; }
           var lk = l.ys.length - 1; while (l.ys[lk] !== l.ys[lk]) lk--;
           F.text(pts[pts.length - 2] + 6, pts[pts.length - 1] + 4, vt(l.ys[lk]), 11, readable(col, F.T), { align: 'l', bold: true });
-          [hiK, loK].forEach(function (k3, w) { if (nk < 3 || k3 === fi || k3 === lk || (w && l.ys[loK] === l.ys[hiK])) return; var hx = ax.map(l.xs[k3]), hy = ay.map(l.ys[k3]), side = w ? hy + 16 > F.B - 2 : hy - 8 < F.Tp + 2; F.text(side ? hx + 6 : hx, side ? hy + 4 : hy + (w ? 16 : -8), vt(l.ys[k3]), 11, readable(col, F.T), side ? { bold: true, align: 'l' } : { bold: true }); });   /* beside the point when above or below would leave the plot */
+          [hiK, loK].forEach(function (k3, w) { if (nk < 3 || k3 === fi || k3 === lk || (w && l.ys[loK] === l.ys[hiK])) return; var hx = ax.map(l.xs[k3]), hy = ay.map(l.ys[k3]), side = w ? hy + 16 > F.B - 2 : hy - 8 < F.Tp + 2; F.text(side ? hx + 6 : hx, side ? Math.min(hy + 4, F.B - 1) : hy + (w ? 16 : -8), vt(l.ys[k3]), 11, readable(col, F.T), side ? { bold: true, align: 'l' } : { bold: true }); });   /* (since 2.14.1 a value beside the point stays above the bottom edge, clear of the dates under it) beside the point when above or below would leave the plot */
         }
       }
       if (ends && pts.length) tags.push({ x: pts[pts.length - 2] + 6, y: pts[pts.length - 1] + 4, t: clip(l.name || '(blank)', 16) + (F.clean ? ' ' + vt(lastY(l)) : ''), c: readable(col, F.T) });
       else if (s.list.length > 1 && pts.length && !F.keyRow) F.text(pts[pts.length - 2] + 6, pts[pts.length - 1] + 4, clip(l.name || '(blank)', 16), 11, col, { align: 'l' });
     });
-    if (tags.length) {   /* names at the line ends, moved apart (13 px) so they never overlap, and kept inside the chart */
+    if (tags.length) {   /* names at the line ends, moved apart (14 px since 2.14.0, was 13) so they never overlap, and kept inside the chart */
       tags.sort(function (a, b) { return a.y - b.y; });
-      var i, lo = F.Tp + 8, hi = F.B + 4;
-      for (i = 0; i < tags.length; i++) tags[i].y = Math.max(tags[i].y, i ? tags[i - 1].y + 13 : lo);
-      for (i = tags.length - 1; i >= 0; i--) tags[i].y = Math.min(tags[i].y, i < tags.length - 1 ? tags[i + 1].y - 13 : hi);
+      var i, lo = F.Tp + 8, hi = F.B - 1;   /* (since 2.14.0: F.B - 1, was F.B + 4, so the lowest name stays clear of the year under the corner) */
+      for (i = 0; i < tags.length; i++) tags[i].y = Math.max(tags[i].y, i ? tags[i - 1].y + 14 : lo);
+      for (i = tags.length - 1; i >= 0; i--) tags[i].y = Math.min(tags[i].y, i < tags.length - 1 ? tags[i + 1].y - 14 : hi);
       tags.forEach(function (g) { F.text(g.x, g.y, g.t, 11, g.c, { align: 'l', bold: true }); });
     }
     if (starts.length) {   /* first values left of their lines: each stays within 7 px of its point; one that would touch a value already placed is left out (visuals review, 2026.11.07) */
-      var kept = [], lo2 = F.Tp + 8, hi2 = F.B + 4;
+      var kept = [], lo2 = F.Tp + 8, hi2 = F.B - 1;
       starts.forEach(function (g) {
         var w = g.t.length * CW, offs = [0, -7, 7];
         for (var q = 0; q < offs.length; q++) {
@@ -1056,6 +1060,13 @@ var NetflowPlot = (function () {
       if (p.spec.y && rows.some(function (r) { var y = r && r.attrs && Object.prototype.hasOwnProperty.call(r.attrs, p.spec.y) ? r.attrs[p.spec.y] : r && r[p.spec.y]; return +y < 0; })) return;   /* values below zero: the biggest 10 would hide the most negative ones */
       var seen = new Set(), q, rq, av; for (q = 0; q < rows.length && seen.size <= 25; q++) { rq = rows[q]; av = rq && rq.attrs && Object.prototype.hasOwnProperty.call(rq.attrs, p.spec.x) ? rq.attrs[p.spec.x] : rq && rq[p.spec.x]; seen.add(String(av)); }
       if (seen.size > 25) { p.spec = Object.assign({}, p.spec, { top: 10, horizontal: true }); p.why += '; there are more than 25 names, so it shows the 10 biggest and one bar for the rest, laid sideways so every name fits'; }
+    });
+    list.forEach(function (p) {   /* long names that would touch under upright bars: the bars lie sideways instead, so every name reads flat (since 2.13.0) */
+      if (p.type !== 'bar' || !p.spec.x || p.spec.color || p.spec.horizontal || p.spec.stack) return;
+      var names = new Set(), q, rq, av; for (q = 0; q < rows.length && names.size <= 26; q++) { rq = rows[q]; av = rq && rq.attrs && Object.prototype.hasOwnProperty.call(rq.attrs, p.spec.x) ? rq.attrs[p.spec.x] : rq && rq[p.spec.x]; if (av !== undefined && av !== null && av !== '') names.add(String(av)); }
+      if (names.size < 3 || names.size > 26) return;
+      var need = 0, long = 0; names.forEach(function (t) { var L = (axisName(t) || t).length; need += Math.min(14, L) * 6.05 + 9; if (L > 12) long++; });
+      if (long * 3 >= names.size && need > ((o.width || 640) - 100) * 1.6) { p.spec = Object.assign({}, p.spec, { horizontal: true }); p.why += '; the names are long, so the bars lie sideways and every name reads flat'; }
     });
     for (i = 0; i < list.length && svg === null; i++) svg = drawPick(rows, list[i], o.title === 'auto' ? autoTitle(rows, list[i].spec, o) : o);
     var p = list[i - 1], why = p.why;
