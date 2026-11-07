@@ -21,6 +21,7 @@
   }
 
   /** o: { delay: ms quiet before packing, min: smallest list to bother with, alive(): is this layout still the one on screen, hold(): true while something is using the objects, done(): called after packing } */
+  var WARMED = false;
   function attach(L, o) {
     var MC = root.MemoryCompression || (typeof globalThis !== "undefined" ? globalThis.MemoryCompression : null);
     if (!L || !MC || !MC.pack || L.parked) return null;
@@ -80,6 +81,7 @@
       timer = 0;
       if (gone || (o.alive && !o.alive())) { gone = true; return; }
       if (packed || refused) return;
+      if (!WARMED && MC.warm && size() >= min && Date.now() - touchedAt >= delay / 2 && !(o.hold && o.hold())) { WARMED = true; try { MC.warm().catch(function () { /* a failed warm-up costs nothing */ }); } catch (e) { /* none */ } }   /* once a page, while it is quiet and a big pack is due: the first pack then skips cold-start work */
       if (Date.now() - touchedAt >= delay && size() >= min && !(o.hold && o.hold())) startPack(); else schedule();
     }
     function startPack() {

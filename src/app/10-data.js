@@ -101,6 +101,7 @@ function afterRead(files, opts, res, open) {
     skippedCount = 0;
     if (archiveNotes.length) { archiveNotes.forEach(function (n) { res.report.notes.push(n); }); archiveNotes = []; }
     SAFE.del('nfm-v:' + g.name);
+    if (res.prof && !merged) HANDPROF = { g: g, p: res.prof };   /* the worker worked out the column profile while it read the file */
     setGraph(g, true, merged); shareTextSoon();
     if (open && !merged && cleanRead(res, g)) { autoOpen(res, g); return; }   /* a table that reads cleanly goes straight to the map (a Sankey when it has from, to and a weight); anything unclear stops here on the Data tab */
     $('report').scrollIntoView({ behavior: 'auto', block: 'nearest' });
