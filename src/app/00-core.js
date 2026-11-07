@@ -299,8 +299,11 @@ function showTab(name) {
 
 /* ---------------------------------------------------------------- the graph: one place that changes it */
 /** The links of every item as two lists of numbers (where each item's links start, and which links they are) instead of a Map of arrays: 84% less memory on a big map, and reading them is quicker. get(id) gives the link objects in the order they were added, each(id, fn) visits them without making a list, has(id) says whether the item has any, count(id) says how many (without making a list). Links that name an item the map does not have are kept in a small side table. */
-function makeLinkLists(edges, pos, field, nNodes) {
-  var M = edges.length, off = new Int32Array(nNodes + 1), ord = new Int32Array(M), i, v, loose = null, idx = new Int32Array(M);
+function makeLinkLists(edges, pos, field, nNodes, pre) {
+  var M = edges.length, off = new Int32Array(nNodes + 1), ord = new Int32Array(M), i, v, loose = null, idx = pre && pre.length === M ? pre : new Int32Array(M);
+  if (idx === pre) {   /* the worker already found where each link's end sits (-1: no such item) */
+    for (i = 0; i < M; i++) { v = idx[i]; if (v < 0) { if (!loose) loose = new Map(); var key2 = edges[i][field]; if (!loose.has(key2)) loose.set(key2, []); loose.get(key2).push(edges[i]); } else off[v + 1]++; }
+  } else
   for (i = 0; i < M; i++) { v = pos.get(edges[i][field]); if (v === undefined) { if (!loose) loose = new Map(); var key = edges[i][field]; if (!loose.has(key)) loose.set(key, []); loose.get(key).push(edges[i]); idx[i] = -1; } else { idx[i] = v; off[v + 1]++; } }
   for (i = 0; i < nNodes; i++) off[i + 1] += off[i];
   var cur = off.slice(0, nNodes), other = field === 'from' ? 'to' : 'from', oth = new Array(M);
@@ -333,6 +336,7 @@ function makeLinkLists(edges, pos, field, nNodes) {
  * places and names (a rename, a group, an outcome mark) the index is updated for the changed items only, and the link lists are kept when
  * every link keeps its two ends. Anything else (items added, removed or renamed by id, links moved) builds it whole, as before.
  */
+var HANDIX = null;   /* { g, fi, ti, kinds }: for each link of graph g, the places of its two ends, and the link kinds, made by the worker that read the file */
 var HANDPROF = null;   /* { g, p }: the column profile of graph g, made by the worker that read the file */
 var IDX = { g: null, pos: null, ghosts: -1 };   /* ghosts: how many placeholder items the indexed graph has (the Data tab's count) */
 /** The slots of list a (now) that differ from list b (before), when both have the same length and few differ; else null. */
@@ -361,9 +365,10 @@ function indexGraph() {
     }
   }
   if (!by) { var gh = 0; by = new Map(); pos = new Map(); g.nodes.forEach(function (n, j) { by.set(n.id, n); pos.set(n.id, j); if (n.ghost) gh++; }); IDX.ghosts = gh; }
-  if (!kindsSame) { var kinds = new Set(); g.edges.forEach(function (e) { if (e.kind) kinds.add(e.kind); }); S.kinds = Array.from(kinds).sort(); }
+  var hx = HANDIX && HANDIX.g === g ? HANDIX : null; HANDIX = null;   /* link ends and kinds the worker worked out from this very graph */
+  if (!kindsSame) { if (hx) S.kinds = hx.kinds; else { var kinds = new Set(); g.edges.forEach(function (e) { if (e.kind) kinds.add(e.kind); }); S.kinds = Array.from(kinds).sort(); } }
   var wasBy = S.byId; S.byId = by;
-  if (!links) { S.outAdj = makeLinkLists(g.edges, pos, 'from', g.nodes.length); S.inAdj = makeLinkLists(g.edges, pos, 'to', g.nodes.length); }
+  if (!links) { S.outAdj = makeLinkLists(g.edges, pos, 'from', g.nodes.length, hx && hx.fi); S.inAdj = makeLinkLists(g.edges, pos, 'to', g.nodes.length, hx && hx.ti); }
   IDX.g = g; IDX.pos = pos; IDX.why = by === wasBy && old ? (links ? 'quick+links' : 'quick') : (old === g ? 'same' : !old ? 'first' : 'full');
   /* the column profile: worked out for the changed items and links only when nothing is calculated (then S.dg is the graph itself) */
   var dg = NFMColumns.derive(g), prof = null;
