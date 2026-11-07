@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 7
 
+- 2026.11.07.1853: Chart and scene code updated (netflow-plot 2.14.5, netflow-scene 1.10.1: fewer small objects when drawing a chart, rounding fix in saved chart pictures). The Charts tab pictures were compared before and after in light and dark, 8 chart types, 3 browsers: all 48 identical.
 - 2026.11.07.1623: The first Sankey after another view opens sooner. While the background engine is idle it already draws one small made-up Sankey, so the first real one skips the browser's warm-up (100 items: Chromium 24 to 12 ms, Firefox 16 to 9 ms, WebKitGTK 52 to 37 ms, same picture to the digit).
 - 2026.11.07.1554: Chart code updated again (netflow-plot 2.14.4: one unit per number axis, treemaps sized by their size column, close averages drawn as dots). The Charts tab pictures were compared before and after in light and dark, eight chart types, three browsers: no pixel changed.
 - 2026.11.07.1311: Chart code updated (netflow-plot 2.14.1: years before 1800 and full numbers below 100,000 read right, tick decimals, tidy key titles, sideways bars for long names, no touching labels on 53 test charts). The Charts tab pictures were compared before and after in light and dark, eight chart types, three browsers, with Top 10 plus Others bars included: at most 0.01 percent of pixels changed.
