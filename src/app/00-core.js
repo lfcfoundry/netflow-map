@@ -333,6 +333,7 @@ function makeLinkLists(edges, pos, field, nNodes) {
  * places and names (a rename, a group, an outcome mark) the index is updated for the changed items only, and the link lists are kept when
  * every link keeps its two ends. Anything else (items added, removed or renamed by id, links moved) builds it whole, as before.
  */
+var HANDPROF = null;   /* { g, p }: the column profile of graph g, made by the worker that read the file */
 var IDX = { g: null, pos: null, ghosts: -1 };   /* ghosts: how many placeholder items the indexed graph has (the Data tab's count) */
 /** The slots of list a (now) that differ from list b (before), when both have the same length and few differ; else null. */
 function changedSlots(a, b) {
@@ -368,6 +369,8 @@ function indexGraph() {
   var dg = NFMColumns.derive(g), prof = null;
   if (by === wasBy && dn && de && dg === g && IDX.dg === old && S.prof) prof = NFMColumns.profileUpdate(S.prof, old, g, dn, de);
   IDX.prof = prof ? 'quick' : 'full';
+  if (!prof && HANDPROF && HANDPROF.g === g && dg === g) prof = HANDPROF.p;   /* made by the worker from this very graph (the same code on the same data) */
+  HANDPROF = null;
   S.dg = dg; IDX.dg = dg; S.prof = prof || NFMColumns.profile(dg); S.story = dg === g ? NFMColumns.isStoryOf(g, S.prof) : NFMColumns.isStory(g);
 }
 /** For the checks: true when the index matches one built from nothing, else what differs. */
