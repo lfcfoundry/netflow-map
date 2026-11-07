@@ -31,12 +31,12 @@ function lfcSource() {
    Opening a file keeps the map from before it for Undo, whole (about 70 MB for a 16 MB table in Chromium). It is packed as map-file bytes
    (LFC-pack, about 5 MB) on a thread of its own, made when needed and ended 30 s after its last job, so the page never waits for it.
    Undo reads the bytes back (about half a second for 100,000 items). All of Undo is held to UNDO_CAP: past it the oldest steps go. */
-var UNDO_CAP = 16 * 1048576, UNDOPACK = { w: null, idle: null, seq: 0, wait: new Map() };
+var UNDO_CAP = 16 * 1048576, UNDOPACK = { str: JSON.stringify.bind(JSON), w: null, idle: null, seq: 0, wait: new Map() };
 var UNDOPACK_MAIN = '\nself.onmessage=function(e){var d=e.data,fail=function(err){self.postMessage({id:d.id,error:String(err&&err.message||err)});};' +
   /* keep: the layout worker's graph arrives on a port and goes back to the page as map-file bytes; give: bytes in, the graph out on a port to a fresh layout worker */
   'if(d.kind==="keep"){var kp=e.ports[0];kp.onmessage=function(m){kp.close();var g=m.data.graph,meta={},k;for(k in g)if(k!=="nodes"&&k!=="edges"&&g[k]!==undefined)meta[k]=g[k];LfcPack.init().then(function(){return LfcPack.packTables({meta:meta,nodes:g.nodes,links:g.edges});}).then(function(u){self.postMessage({id:d.id,u8:u},[u.buffer]);},fail);};return;}' +
   'if(d.kind==="give"){var gp=e.ports[0];LfcPack.init().then(function(){return LfcPack.unpackTables(d.u8);}).then(function(x){var g={},m=x.meta||{},k;for(k in m)g[k]=m[k];g.nodes=x.nodes;g.edges=x.links;gp.postMessage({graph:g});gp.close();self.postMessage({id:d.id,u8:null});},fail);return;}' +
-  'LfcPack.init().then(function(){return LfcPack.packTables(d.doc);}).then(function(u){self.postMessage({id:d.id,u8:u},[u.buffer]);},function(err){self.postMessage({id:d.id,error:String(err&&err.message||err)});});};';
+  'LfcPack.init().then(function(){return LfcPack.packTables(d.text!==undefined?JSON.parse(d.text):d.doc);}).then(function(u){self.postMessage({id:d.id,u8:u},[u.buffer]);},function(err){self.postMessage({id:d.id,error:String(err&&err.message||err)});});};';
 function undoMeta(g) { var m = {}; Object.keys(g).forEach(function (k) { if (k !== 'nodes' && k !== 'edges' && g[k] !== undefined) m[k] = g[k]; }); return m; }   /* every other field of the map, as an undo step keeps them (src/undo.js) */
 function undoPacker() {
   if (UNDOPACK.w) return Promise.resolve(UNDOPACK.w);
@@ -66,7 +66,7 @@ function undoPackSoon(st) {
   }).then(function (w) {
     var id = ++UNDOPACK.seq;
     clearTimeout(UNDOPACK.idle);
-    return new Promise(function (ok, bad) { UNDOPACK.wait.set(id, { ok: ok, bad: bad }); w.postMessage({ id: id, doc: { meta: undoMeta(g), nodes: g.nodes, links: g.edges } }); });
+    return new Promise(function (ok, bad) { UNDOPACK.wait.set(id, { ok: ok, bad: bad }); w.postMessage({ id: id, text: UNDOPACK.str({ meta: undoMeta(g), nodes: g.nodes, links: g.edges }) }); });   /* as text: the page is held about a third as long as with a copy of the objects */
   }).then(function (u8) {
     st.packing = false;
     if (S.hist.indexOf(st) < 0) return;   // undone or dropped meanwhile

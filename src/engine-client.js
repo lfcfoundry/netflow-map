@@ -140,7 +140,7 @@ var NFMEngineClient = (function () {
     'if(d.type==="helpersOk"){__HP.can=true;__API.pieces=__HP.run;return;}' +
     'if(d.type==="helperPorts"){__HP.got(Array.prototype.slice.call(e.ports||[]),d.error);return;}' +
     'if(d.type==="helperFailed"){if(__HP.fail)__HP.fail("a helper failed ("+(d.error||"error")+")");else __HP.stop();return;}' +
-    'if(d.type==="graph"){__st.R=d.graph;__st.G=NFMColumns.derive(d.graph);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
+    'if(d.type==="graph"){if(d.text!==undefined)d.graph=JSON.parse(d.text);__st.R=d.graph;__st.G=NFMColumns.derive(d.graph);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
     'if(d.type==="graphDiff"){if(__st.ver!==d.base||!__st.R){self.postMessage({id:d.id,ok:true,result:"full"});return;}var R=__st.R,g={},k;for(k in d.meta)g[k]=d.meta[k];g.nodes=__back(d.nodes,R.nodes);g.edges=__back(d.edges,R.edges);__st.R=g;__st.G=NFMColumns.derive(g);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +   // only what changed since the graph it has (graphDiff below)
     'if(d.type==="handOver"){var hp=e.ports[0];hp.postMessage({graph:__st.R,ver:__st.ver});hp.close();return;}' +   // parking: the graph goes to the keeper thread on a port, never through the page
     'if(d.type==="graphFromPort"){var gp=e.ports[0];gp.onmessage=function(m){gp.close();__st.R=m.data.graph;__st.G=NFMColumns.derive(__st.R);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});};return;}' +
@@ -258,6 +258,9 @@ var NFMEngineClient = (function () {
    * between a common start and end. The worker rebuilds the new lists from the ones it has. A big difference, a small graph, or a worker
    * that does not have the graph before gets the whole graph, as before.
    */
+  /** A whole graph for the worker, as text: a string is copied at memory speed (the page is held about 35 ms instead of 75-160 ms on 30,000 items) and the worker reads it off the page. */
+  var jsonText = JSON.stringify.bind(JSON);   /* kept at load, so a page that swaps JSON.stringify later cannot change what the worker is sent */
+  function graphMsg(graph, ver) { return { type: 'graph', text: jsonText(graph), ver: ver }; }
   Client.prototype.setGraph = function (graph) {
     this.graph = graph; this.ver++; this.st = null; this.lastPic = null;
     if (this.parked) return Promise.resolve(true);   // the fresh worker gets this graph when the next job starts it
@@ -268,12 +271,12 @@ var NFMEngineClient = (function () {
   Client.prototype.sendGraph = function (call) {
     var self = this, prev = this.sent, base = this.sentVer, graph = this.graph, ver = this.ver, msg = prev && this.w ? graphDiff(prev, graph) : null;
     this.sent = graph; this.sentVer = ver;
-    if (!msg) return call({ type: 'graph', graph: graph, ver: ver });
+    if (!msg) return call(graphMsg(graph, ver));
     msg.type = 'graphDiff'; msg.base = base; msg.ver = ver; this.diffs = (this.diffs || 0) + 1;
     return call(msg).then(function (r) {
       if (r === true || self.sent !== graph) return true;   // applied, or a newer graph went after it
       self.fulls = (self.fulls || 0) + 1;
-      return call({ type: 'graph', graph: graph, ver: ver });   // the worker did not have the graph before: the whole graph
+      return call(graphMsg(graph, ver));   // the worker did not have the graph before: the whole graph
     });
   };
   /** Runs a job (build, compare, check, simStart, simRun, simExact, sweep). If a newer request of the same kind arrives while one waits, only the newest waits its turn. */
