@@ -79,7 +79,16 @@ var NFMEngineClient = (function () {
       while (k--) { t = Math.floor(j / per) * per + Math.floor(r() * per); add(j, t); }
       if (r() < 0.12) add(j, Math.floor(r() * n));
     }
-    return API.E.build(API.C.derive({ name: 'warm', start: null, nodes: nodes, edges: edges }), { view: 'network', colorBy: 'group' });
+    var net = API.E.build(API.C.derive({ name: 'warm', start: null, nodes: nodes, edges: edges }), { view: 'network', colorBy: 'group' });
+    /* then a small made-up Sankey (24 items in 4 columns): the Sankey's first call also pays for the browser speeding the code up (about 14 ms at 100 items in Chromium, 8.6 after this), and the app's first Sankey is usually a switch from another view */
+    try {
+      var sn = [], se = [], sseen = {}, q, a, b;
+      for (q = 0; q < 24; q++) sn.push({ id: 's' + q, label: 's' + q, group: 'g' + (q % 3), valence: '', ghost: false, attrs: {} });
+      for (q = 1; q < 24; q++) { a = Math.max(0, (Math.floor(q / 6) - 1) * 6) + Math.floor(r() * 6); if (a >= q) a = 0; sseen[a + '>' + q] = 1; se.push({ from: 's' + a, to: 's' + q, label: '', kind: '', weight: 1 + Math.floor(r() * 4), attrs: {} }); }
+      for (q = 0; q < 14; q++) { a = Math.floor(r() * 18); b = a + 1 + Math.floor(r() * 5); if (b > 23 || sseen[a + '>' + b]) continue; sseen[a + '>' + b] = 1; se.push({ from: 's' + a, to: 's' + b, label: '', kind: '', weight: 1 + Math.floor(r() * 4), attrs: {} }); }
+      API.E.build(API.C.derive({ name: 'warm-sankey', start: 's0', nodes: sn, edges: se }), { view: 'sankey', colorBy: 'group', sk: { color: 'target', opacity: 0.45, labels: 'auto', nodeW: 14, pad: 12, justify: true } });
+    } catch (err) { /* the warm-up is only a help */ }
+    return net;
   }
   /*
    * Helper threads for the separate pieces of a Network map (engine buildPieces). Runs in the engine worker. The page makes the helpers when the
