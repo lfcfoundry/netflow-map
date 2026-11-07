@@ -221,6 +221,12 @@ async function open() {
       let diff = 0; for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 30) diff++; return { backend: m.name, share: diff / (d.length / 4), marks: C.scene.marks.length, shapes: C.scene.rects.length + C.scene.dots.length + C.scene.polys.length, words: C.scene.labels.length }; }, t);
     say(t === 'words' ? r.words > 3 : r.share > 0.01 && r.shapes > 0, `Charts tab, ${t}: drew ${r.shapes} shapes and ${r.words} words (${(r.share * 100).toFixed(1)}% of pixels) with ${r.backend}`);
   }
+  {   /* Suggested chart: the button asks netflow-plot for a pick, names why, and Use it draws that chart */
+    const r = await ev(() => { const side = document.getElementById('charts-side'), b = Array.from(side.querySelectorAll('button')).find((x) => x.textContent === 'Suggest a chart'); if (!b) return { none: true }; b.click();
+      const use = Array.from(document.getElementById('charts-side').querySelectorAll('button')).find((x) => /^Use /.test(x.textContent)); if (!use) return { noUse: true, text: document.getElementById('charts-side').textContent.slice(0, 300) };
+      const why = use.parentNode.previousSibling.textContent; use.click(); NFM.drawChart(true); const C = NFM.charts(); return { why, type: NFM.state.V.chart.type, shapes: C.scene.rects ? C.scene.rects.length : C.scene.marks.length }; });
+    say(!r.none && !r.noUse && r.why && r.why.length > 12 && r.shapes > 0, `Charts tab, Suggest a chart: ${r.why || JSON.stringify(r)} -> ${r.type} drew ${r.shapes} shapes`);
+  }
   await ev(() => NFM.showTab('data')); await set('#examples', 'story'); await click('#b-example'); await click('#tabbtn-map');   /* the story map again for the blocks below */
   await D.wait(() => NFM.state.scene && NFM.manager() && NFM.manager().r && !NFM.state.graph.nodes.some((n) => n.id === 'r59'), null, 30000);
 

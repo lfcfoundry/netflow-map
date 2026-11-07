@@ -43,6 +43,38 @@ function chartGet(r, k) {
   if (k === 'id' || k === 'label' || k === 'group' || k === 'from' || k === 'to' || k === 'weight' || k === 'kind' || k === 'valence') { var v = r[k]; return k === 'label' && v === undefined ? r.id : v; }
   return undefined;
 }
+/** Suggested chart (netflow-plot 2.9.0 auto): the chart is picked from the shape of the first 3,000 rows, only when asked; a pick is applied with the columns the module chose. */
+var SUG = { key: '', res: null };
+function suggestRows(which) {
+  return chartRows(which).slice(0, 3000).map(function (r) {
+    var o = Object.assign({}, r.attrs), b = which === 'edges' ? ['from', 'to', 'weight', 'kind'] : ['id', 'label', 'group'], i;
+    for (i = 0; i < b.length; i++) if (r[b[i]] !== undefined && !Object.prototype.hasOwnProperty.call(o, b[i])) o[b[i]] = r[b[i]];
+    return o;
+  });
+}
+function suggestRun(c) {
+  var res = NetflowPlot.auto(suggestRows(c.rows)), known = {};
+  NetflowPlot.TYPES.forEach(function (t) { known[t[0]] = t[1]; });
+  var list = [{ type: res.type, spec: res.spec, why: res.why }].concat(res.others || []).filter(function (q) { return known[q.type] !== undefined; });
+  SUG = { key: S.gver + '|' + c.rows, res: { list: list, takeaway: res.takeaway } };
+}
+function suggestApply(c, q) {
+  var k; for (k in q.spec) if (k in CHART_DEFAULT) c[k] = q.spec[k];
+  c.rowsPicked = true; chartFill(c); saveView(); renderChartSide(); drawChart(true);
+}
+function suggestBox(c) {
+  var box = h('div', { class: 'field' }), name = function (t) { var f = NetflowPlot.TYPES.filter(function (x) { return x[0] === t; })[0]; return f ? f[1] : t; };
+  box.appendChild(h('button', { class: 'sm', onclick: function () { suggestRun(c); renderChartSide(); } }, 'Suggest a chart'));
+  var cur = SUG.res && SUG.key === S.gver + '|' + c.rows ? SUG.res : null;
+  if (cur && cur.list.length) {
+    var top = cur.list[0];
+    box.appendChild(h('p', { class: 'muted small', style: { margin: '4px 0' } }, name(top.type) + ': ' + top.why + '.'));
+    var row = h('div', { class: 'row tight' }, [h('button', { class: 'sm primary', onclick: function () { suggestApply(c, top); } }, 'Use ' + name(top.type).toLowerCase())]);
+    cur.list.slice(1).forEach(function (q) { row.appendChild(h('button', { class: 'sm', title: q.why, onclick: function () { suggestApply(c, q); } }, name(q.type))); });
+    box.appendChild(row);
+  } else if (cur) box.appendChild(h('p', { class: 'muted small', style: { margin: '4px 0' } }, 'Nothing in these rows suggests a chart here.'));
+  return box;
+}
 function renderChartSide() {
   var side = $('charts-side'); if (!side) return; clear(side);
   var c = chartFill(chartSpec()), need = NetflowPlot.NEEDS[c.type] || {}, cols = chartCols(c.rows);
@@ -54,6 +86,7 @@ function renderChartSide() {
   kids.push(field('Rows', seg([['nodes', word('Items')], ['edges', 'Links']], c.rows, function (v) { c.rows = v; c.rowsPicked = true; c.x = c.y = c.color = c.size = ''; c.cols = []; chartFill(c); saveView(); renderChartSide(); drawChart(true); })));
   kids.push(field('Chart', select(NetflowPlot.TYPES.map(function (t) { return [t[0], t[1]]; }), c.type, function (v) { c.type = v; chartFill(c); saveView(); renderChartSide(); drawChart(true); })));
   kids.push(h('p', { class: 'muted small', style: { margin: 0 } }, (NetflowPlot.TYPES.filter(function (t) { return t[0] === c.type; })[0] || [])[2] || ''));
+  kids.push(suggestBox(c));
   var kindOf = function (s) { return s ? s.replace('?', '').replace('+', '') : ''; };
   if (need.x) kids.push(colSel(c.type === 'box' ? 'Split by' : c.type === 'words' ? 'Text column' : need.x === 'num' ? 'Along (x)' : 'Categories', 'x', kindOf(need.x), /\?/.test(need.x)));
   if (need.y) kids.push(colSel(c.type === 'box' || c.type === 'scatter' || c.type === 'hexbin' || c.type === 'connected' || c.type === 'voronoi' ? 'Up (y)' : 'Value', 'y', 'num', /\?/.test(need.y)));
