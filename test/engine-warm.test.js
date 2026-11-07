@@ -9,6 +9,17 @@ const graph = (n) => ({ start: 'n0', nodes: Array.from({ length: n }, (_, i) => 
 /* run the worker's own text with a pretend `self` */
 const worker = () => { const out = []; const self = { postMessage: (m) => out.push(m) }; new Function('self', 'NFMEngine', 'NFMSim', 'NFMCheck', 'NFMColumns', 'NFMPack', CL.workerMain)(self, E, global.NFMSim, global.NFMCheck, global.NFMColumns, global.NFMPack); return { self, out }; };
 (async () => {
+  await t('a Sankey drawn after the warm-up is the same picture as one drawn before it', async () => {
+    const sk = { view: 'sankey', colorBy: 'group', sk: { color: 'target', opacity: 0.45, labels: 'auto', nodeW: 14, pad: 12, justify: true } };
+    const pic = (m) => JSON.stringify(m.result.nodes.map((n) => [n.cx, n.cy, n.w, n.h]).concat(m.result.edges.map((e) => e.pts)));
+    const w = worker(), g = graph(60);
+    w.self.onmessage({ data: { type: 'graph', id: 1, ver: 1, graph: g } });
+    w.self.onmessage({ data: { type: 'build', id: 2, ver: 1, opts: sk } });
+    w.self.onmessage({ data: { type: 'warm', id: 3 } });
+    w.self.onmessage({ data: { type: 'build', id: 4, ver: 1, opts: sk } });
+    ok(w.out[1].ok && w.out[3].ok, 'both Sankey builds answer');
+    ok(pic(w.out[1]) === pic(w.out[3]), 'the Sankey changed after a warm-up');
+  });
   await t('the worker answers a warm-up and leaves its real graph alone', async () => {
     const w = worker(), g = graph(300);
     w.self.onmessage({ data: { type: 'graph', id: 1, ver: 1, graph: g } });
