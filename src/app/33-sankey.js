@@ -123,7 +123,7 @@ var SK_VALUE_MODES = [['none', 'No amounts'], ['under', 'Total under the name'],
 function skVL(k) { return k.valueLabel && k.valueLabel !== 'none' ? k.valueLabel : (k.nodeValues ? 'under' : 'none'); }
 function skSetVL(k, v) { k.valueLabel = v; k.nodeValues = v === 'under'; }
 /** Notes written on the picture. {total}, {top}, {value:name}, {share:name} and {flow:from>to} are filled in with live numbers. */
-var SK_NOTE_HINT = 'Numbers fill in by themselves: {total}, {top}, {value:Name}, {share:Name}, {flow:From>To}';
+var SK_NOTE_HINT = 'Numbers fill in by themselves: {total}, {top} (biggest link), {topbox} (biggest box), {value:Name}, {share:Name}, {flow:From>To}';
 function skAddNote() {
   askText('Add a note', SK_NOTE_HINT, 'Total: {total}').then(function (v) {
     if (v === null || !String(v).trim()) return;
