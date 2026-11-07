@@ -70,6 +70,8 @@ function importOptions() { return { format: $('fmt').value, outlineSeparate: $('
 function busy(msg) { var c = $('report'); c.hidden = false; $('stats').textContent = ''; mount($('notes'), h('li', null, msg)); $('mapping').hidden = true; }
 function renderError(msg) { var c = $('report'); c.hidden = false; $('stats').textContent = ''; $('mapping').hidden = true; mount($('notes'), h('li', null, [h('b', null, 'I could not read that. '), msg])); }
 
+/* Files under this many characters are read on the page: a round trip to the worker costs more than reading them (2,000 items: 28 ms on the page, 38 ms through the worker; 8,000 items: 85 and 104). */
+var WORKER_READ_MIN = 1000000;
 /** Everything that brings data in goes through here. */
 function ingest(files, extra, open) {
   if (MAPFILE.queue.length) { var mf = MAPFILE.queue[0]; MAPFILE.queue = []; skippedCount = 0; return openMapFile(mf); }
@@ -81,7 +83,8 @@ function ingest(files, extra, open) {
   return nextFrame().then(function () {
     var opts = Object.assign(importOptions(), extra || {});
     /* the worker reads the file when it can (the page is held about a quarter as long); otherwise, and for a merge, the page reads it as before */
-    var viaWorker = importMode() === 'merge' ? Promise.resolve(null) : client.importFiles(files, opts).catch(function () { return null; });   /* any trouble in the worker: the page reads it, and shows the real message if the file is bad */
+    var chars = files.reduce(function (n, f) { return n + (f.text ? f.text.length : 0); }, 0);
+    var viaWorker = importMode() === 'merge' || chars < WORKER_READ_MIN ? Promise.resolve(null) : client.importFiles(files, opts).catch(function () { return null; });   /* any trouble in the worker: the page reads it, and shows the real message if the file is bad */
     return viaWorker.then(function (r) {
       if (r) { r.rowsDropped && files.length === 1 && (r.rowsFrom = files[0].text); delete r.rowsDropped; return r; }
       return NFMImport.importAny(files, opts);
