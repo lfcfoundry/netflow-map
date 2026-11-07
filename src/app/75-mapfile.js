@@ -38,6 +38,23 @@ var UNDOPACK_MAIN = '\nself.onmessage=function(e){var d=e.data,fail=function(err
   'if(d.kind==="give"){var gp=e.ports[0];LfcPack.init().then(function(){return LfcPack.unpackTables(d.u8);}).then(function(x){var g={},m=x.meta||{},k;for(k in m)g[k]=m[k];g.nodes=x.nodes;g.edges=x.links;gp.postMessage({graph:g});gp.close();self.postMessage({id:d.id,u8:null});},fail);return;}' +
   'LfcPack.init().then(function(){return LfcPack.packTables(d.text!==undefined?JSON.parse(d.text):d.doc);}).then(function(u){self.postMessage({id:d.id,u8:u},[u.buffer]);},function(err){self.postMessage({id:d.id,error:String(err&&err.message||err)});});};';
 function undoMeta(g) { var m = {}; Object.keys(g).forEach(function (k) { if (k !== 'nodes' && k !== 'edges' && g[k] !== undefined) m[k] = g[k]; }); return m; }   /* every other field of the map, as an undo step keeps them (src/undo.js) */
+/** The map as text for the packer, in slices of 6,000 with the page free in between (one 90,000-item stringify held the page 136 ms); the same text as stringifying it whole. */
+function undoText(g) {
+  var n = g.nodes, e = g.edges, Z = 6000, parts = ['{"meta":' + UNDOPACK.str(undoMeta(g)) + ',"nodes":['], i = 0, j = 0;
+  var ch = typeof MessageChannel === 'function' ? new MessageChannel() : null;
+  var piece = function (a, k) { var t = UNDOPACK.str(a.slice(k, k + Z)); return t.slice(1, -1); };
+  return new Promise(function (ok) {
+    var step = function () {
+      if (i < n.length) { var t = piece(n, i); if (t) parts.push((i ? ',' : '') + t); i += Z; if (i >= n.length) parts.push('],"links":['); }
+      else if (j < e.length) { var u = piece(e, j); if (u) parts.push((j ? ',' : '') + u); j += Z; }
+      else { parts.push(']}'); if (ch) { ch.port1.onmessage = null; ch.port1.close(); } ok(parts.join('')); return; }
+      if (ch) ch.port2.postMessage(0); else setTimeout(step, 0);
+    };
+    if (!n.length) parts.push('],"links":[');
+    if (ch) ch.port1.onmessage = step;
+    step();
+  });
+}
 function undoPacker() {
   if (UNDOPACK.w) return Promise.resolve(UNDOPACK.w);
   return lfcSource().then(function (src) {
@@ -66,7 +83,7 @@ function undoPackSoon(st) {
   }).then(function (w) {
     var id = ++UNDOPACK.seq;
     clearTimeout(UNDOPACK.idle);
-    return new Promise(function (ok, bad) { UNDOPACK.wait.set(id, { ok: ok, bad: bad }); w.postMessage({ id: id, text: UNDOPACK.str({ meta: undoMeta(g), nodes: g.nodes, links: g.edges }) }); });   /* as text: the page is held about a third as long as with a copy of the objects */
+    return undoText(g).then(function (text) { return new Promise(function (ok, bad) { UNDOPACK.wait.set(id, { ok: ok, bad: bad }); w.postMessage({ id: id, text: text }); }); });   /* as text: the page is held about a third as long as with a copy of the objects */
   }).then(function (u8) {
     st.packing = false;
     if (S.hist.indexOf(st) < 0) return;   // undone or dropped meanwhile
