@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 7
 
+- 2026.11.07.1554: Chart code updated again (netflow-plot 2.14.4: one unit per number axis, treemaps sized by their size column, close averages drawn as dots). The Charts tab pictures were compared before and after in light and dark, eight chart types, three browsers: no pixel changed.
 - 2026.11.07.1311: Chart code updated (netflow-plot 2.14.1: years before 1800 and full numbers below 100,000 read right, tick decimals, tidy key titles, sideways bars for long names, no touching labels on 53 test charts). The Charts tab pictures were compared before and after in light and dark, eight chart types, three browsers, with Top 10 plus Others bars included: at most 0.01 percent of pixels changed.
 - 2026.11.07.1300: Charts tab, bars: a bar chart with more than 15 categories (and no value below zero) now shows the 10 biggest and one gray Others bar for the rest, so every name stays readable. A new Long lists setting under Bars (Top 10 plus Others, or All bars) turns it off. Lists of 15 or fewer look the same.
 - 2026.11.07.1246: Chart code updated (netflow-plot 2.12.1: top 10 plus Others, percents, up to 16 named lines, a real Other category) and lfc-pack 0.6.0. The Charts tab pictures were compared before and after in light and dark, eight chart types, three browsers: at most 0.03 percent of pixels changed.
