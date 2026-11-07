@@ -22,9 +22,24 @@ var NFMImport = (function () {
     this.map = new Map();
     this.ci = !!this.opts.caseInsensitive;
     this.r = { dupNodes: 0, selfLoops: 0, dupEdges: 0, summed: 0, zeroWeight: 0, droppedEdges: 0, ghosts: 0, emptyIds: 0, trimmed: 0, badNum: 0, attrsCut: false, skippedLinks: 0, capped: false, notes: [] };
-    this.edgeKeys = new Map();   /* link key -> its place in the list of links, so a repeated link can add its weight to the first one */ this.nodeIx = new Map();
+    this.edgeKeys = new Map();   /* link key -> its place in the list of links, so a repeated link can add its weight to the first one */ this.pairs = new PairTable();
     this.longs = new Map();   // very long names (over MAX_LABEL): the whole name -> its item, so two long names that start alike stay two items
   }
+  /* The place of each node in the list lives on the node under a symbol (JSON and copies to other threads leave it out). */
+  var IX = Symbol('ix');
+  /* Pairs of item places -> the place of their first link, in plain typed arrays: a Map keyed by one big number hashes it as a heap number, slower than this. */
+  function PairTable() { this.cap = 1024; this.n = 0; this.a = new Int32Array(this.cap).fill(-1); this.b = new Int32Array(this.cap); this.v = new Int32Array(this.cap); }
+  PairTable.prototype.slot = function (x, y) { var m = this.cap - 1, h = (Math.imul(x, 0x9e3779b1) ^ Math.imul(y + 0x7f4a7c15, 0x85ebca6b)) >>> 0; h = (h ^ (h >>> 15)) & m; while (this.a[h] !== -1 && (this.a[h] !== x || this.b[h] !== y)) h = (h + 1) & m; return h; };
+  PairTable.prototype.get = function (x, y) { var h = this.slot(x, y); return this.a[h] === -1 ? undefined : this.v[h]; };
+  PairTable.prototype.set = function (x, y, val) {
+    if ((this.n + 1) * 2 > this.cap) {
+      var oa = this.a, ob = this.b, ov = this.v, oc = this.cap, i;
+      this.cap = oc * 2; this.a = new Int32Array(this.cap).fill(-1); this.b = new Int32Array(this.cap); this.v = new Int32Array(this.cap);
+      for (i = 0; i < oc; i++) if (oa[i] !== -1) { var q = this.slot(oa[i], ob[i]); this.a[q] = oa[i]; this.b[q] = ob[i]; this.v[q] = ov[i]; }
+    }
+    var h = this.slot(x, y); if (this.a[h] === -1) this.n++;
+    this.a[h] = x; this.b[h] = y; this.v[h] = val;
+  };
   function clip(s, n) { s = String(s === undefined || s === null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
   var PLAIN = /^[\x20-\x7e]*$/;   // printable ASCII: nothing to normalize or strip, only trim
   function cleanText(s) {
@@ -128,7 +143,7 @@ var NFMImport = (function () {
     }
     this.map.set(k, nd);
     if (longKey !== null) this.longs.set(longKey, nd);
-    this.nodeIx.set(nd, this.g.nodes.length);
+    nd[IX] = this.g.nodes.length;
     this.g.nodes.push(nd);
     return nd;
   };
@@ -138,9 +153,9 @@ var NFMImport = (function () {
     if (a === b) this.r.selfLoops++;
     var kind = props.kind || '', label = props.label ? clip(cleanText(props.label), MAX_LABEL) : '';
     // a plain link (no kind, no label) is remembered by the two items' positions as one number; the rest by text
-    var ia = this.nodeIx.get(a), ib = this.nodeIx.get(b);
-    var dk = kind === '' && label === '' && ia !== undefined && ib !== undefined ? ia * 33554432 + ib : a.id + '\u0001' + b.id + '\u0001' + kind + '\u0001' + label;
-    var first = this.edgeKeys.get(dk);
+    var ia = a[IX], ib = b[IX];
+    var plain = kind === '' && label === '' && ia !== undefined && ib !== undefined, dk = plain ? 0 : a.id + '\u0001' + b.id + '\u0001' + kind + '\u0001' + label;
+    var first = plain ? this.pairs.get(ia, ib) : this.edgeKeys.get(dk);
     if (first !== undefined) {
       this.r.dupEdges++;
       if (!this.opts.keepDuplicates) {   /* a repeated link adds its weight to the first one (like a pivot table); with no weights anywhere it is just dropped */
@@ -152,7 +167,7 @@ var NFMImport = (function () {
       }
     }
     if (this.g.edges.length >= this.maxEdges) { this.r.capped = true; return null; }
-    this.edgeKeys.set(dk, this.g.edges.length);
+    if (plain) this.pairs.set(ia, ib, this.g.edges.length); else this.edgeKeys.set(dk, this.g.edges.length);
     var pw = props.weight, wt;
     if (pw === undefined || pw === '' || pw === null) wt = undefined;
     else if (typeof pw === 'string') { wt = readNumber(pw, '.'); if (wt !== wt) this.r.badNum++; }   // text is read like a table cell; what cannot be read is counted
@@ -466,13 +481,16 @@ var NFMImport = (function () {
     var B = new Builder(name, opts), shape = 'unknown';
     var nodeProps = function (o) {
       var attrs = {}, skip = NODE_SKIP;
-      Object.keys(o).forEach(function (k) { if (!skip[k] && !BAD_KEYS[k] && scalar(o[k]) !== undefined) attrs[k] = o[k]; });
-      var g = scalar(pick(o, ['group', 'cluster', 'community', 'class', 'category', 'type']));
-      return { label: scalar(pick(o, ['label', 'name', 'title', 'text'])), group: g === undefined ? '' : String(g), valence: valenceOf(scalar(pick(o, ['valence', 'outcome']))), attrs: attrs };
+      var ks = Object.keys(o), ki, k;
+      for (ki = 0; ki < ks.length; ki++) { k = ks[ki]; if (!skip[k] && !BAD_KEYS[k] && scalar(o[k]) !== undefined) attrs[k] = o[k]; }
+      var g = scalar(pick(o, GROUP_NAMES));
+      return { label: scalar(pick(o, NLABEL_NAMES)), group: g === undefined ? '' : String(g), valence: valenceOf(scalar(pick(o, VALENCE_NAMES))), attrs: attrs };
     };
-    var idOf = function (o) { var v = scalar(pick(o, ['id', 'key', '_id', 'name', 'label', 'title'])); return v === undefined ? undefined : String(v); };
-    var edgeFrom = function (o) { return pick(o, ['source', 'from', 'src', 'fromNode', 'start', 'u', 'a', 'parent']); };
-    var edgeTo = function (o) { return pick(o, ['target', 'to', 'dst', 'toNode', 'end', 'v', 'b', 'child']); };
+    var GROUP_NAMES = ['group', 'cluster', 'community', 'class', 'category', 'type'], NLABEL_NAMES = ['label', 'name', 'title', 'text'], VALENCE_NAMES = ['valence', 'outcome'], ID_NAMES = ['id', 'key', '_id', 'name', 'label', 'title'];
+    var idOf = function (o) { var v = scalar(pick(o, ID_NAMES)); return v === undefined ? undefined : String(v); };
+    var FROM_NAMES = ['source', 'from', 'src', 'fromNode', 'start', 'u', 'a', 'parent'], TO_NAMES = ['target', 'to', 'dst', 'toNode', 'end', 'v', 'b', 'child'], W_NAMES = ['weight', 'value', 'strength', 'count', 'w'], KIND_NAMES = ['kind', 'type', 'edge_type'], LABEL_NAMES = ['label', 'name', 'relation', 'title', 'text'];   /* made once, not once per link */
+    var edgeFrom = function (o) { return pick(o, FROM_NAMES); };
+    var edgeTo = function (o) { return pick(o, TO_NAMES); };
     var refId = function (v, list) {
       if (v !== null && typeof v === 'object') return refId(pick(v, ['id', 'key', 'name']), list);
       if (list && typeof v === 'number' && list.byIndex && !list.ids.has(String(v))) { var nd = list.byIndex[v]; return nd ? nd : null; }
@@ -485,13 +503,14 @@ var NFMImport = (function () {
         else if (e === null || typeof e !== 'object') { B.r.skippedLinks++; return; }
         else {
           a = edgeFrom(e); b = edgeTo(e);
-          Object.keys(e).forEach(function (k) { var v = e[k]; if (!EDGE_SKIP[k] && !BAD_KEYS[k] && v !== null && v !== '' && scalar(v) !== undefined) { if (!xattrs) xattrs = {}; xattrs[k] = v; } });
+          var ks = Object.keys(e), ki, k, v;
+          for (ki = 0; ki < ks.length; ki++) { k = ks[ki]; v = e[k]; if (!EDGE_SKIP[k] && !BAD_KEYS[k] && v !== null && v !== '' && scalar(v) !== undefined) { if (!xattrs) xattrs = {}; xattrs[k] = v; } }
         }
         if (a === null || b === null) { B.r.skippedLinks++; return; }
         var ra = refId(a, nodeList), rb = refId(b, nodeList);
-        var w = scalar(pick(e, ['weight', 'value', 'strength', 'count', 'w']));
+        var w = scalar(pick(e, W_NAMES)), kd = scalar(pick(e, KIND_NAMES));
         B.edge(typeof ra === 'object' && ra ? B.node(idOf(ra) || '') : B.node(ra === undefined ? '' : ra), typeof rb === 'object' && rb ? B.node(idOf(rb) || '') : B.node(rb === undefined ? '' : rb), {
-          label: scalar(pick(e, ['label', 'name', 'relation', 'title', 'text'])), weight: w, kind: scalar(pick(e, ['kind', 'type', 'edge_type'])) !== undefined ? String(scalar(pick(e, ['kind', 'type', 'edge_type']))) : '', attrs: xattrs
+          label: scalar(pick(e, LABEL_NAMES)), weight: w, kind: kd !== undefined ? String(kd) : '', attrs: xattrs
         });
       });
     };
