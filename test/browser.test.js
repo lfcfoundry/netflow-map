@@ -169,6 +169,15 @@ async function open() {
     say(nx1 > nx0 + 0.01 && ny1 > ny0 + 0.01, 'dragging a Sankey note moves it and keeps the new place: ' + nx0.toFixed(2) + ',' + ny0.toFixed(2) + ' to ' + nx1.toFixed(2) + ',' + ny1.toFixed(2));
     await ev(() => { const k = NFM.state.V.sk; NFM.setV({ sk: Object.assign({}, k, { valueLabel: 'none', unit: '', notes: [] }) }, 'look'); });
     await D.wait(() => NFM.state.scene && !NFM.state.scene.labels.some((l) => l.note) && NFM.pending() === 0, null, 20000);
+    /* a file is read in the worker and the page gets the same map as when the page reads it itself */
+    const wk = await ev(async () => {
+      const c = NFM.client(), used = []; const o = c.importFiles.bind(c); c.importFiles = (f, op) => o(f, op).then((r) => { used.push(r ? 'worker' : 'page'); return r; });
+      const same = []; const cases = [['w1.csv', 'source,target,amount\nA,B,3\nB,C,2\nA,C,5\n'], ['w2.json', JSON.stringify([{ source: 'x', target: 'y', weight: 2 }, { source: 'y', target: 'z' }])], ['w3.txt', 'a -> b\nb -> c\n']];
+      for (const [name, text] of cases) { await NFM.ingest([{ name, text }]); await new Promise((r) => setTimeout(r, 400)); const want = NFMImport.importAny([{ name, text }], {}).graph; same.push(JSON.stringify(JSON.parse(JSON.stringify(want)).nodes) === JSON.stringify(NFM.state.graph.nodes) && JSON.stringify(JSON.parse(JSON.stringify(want)).edges) === JSON.stringify(NFM.state.graph.edges)); }
+      await NFM.ingest([{ name: 'bad.json', text: '{"a": ' }]); const bad = document.getElementById('notes').textContent;
+      c.importFiles = o; return { used, same, bad: bad.slice(0, 80) };
+    });
+    say(wk.same.every(Boolean) && wk.used.indexOf('worker') >= 0, 'files are read in the worker when it is running and give the same map as the page reading them: ' + wk.used.join(',') + ' / ' + wk.same.join(',') + '; a bad file still says so: ' + wk.bad);
     /* opening the key must not cover the picture: it is fitted again beside the open key */
     await ev(() => { const b = document.querySelector('#key button[aria-label="Shrink or expand the key"]'); if (b && document.getElementById('key').classList.contains('min')) b.click(); }); await sleep(900); await settle(200);
     const keyHit = await ev(() => { const S = NFM.state, st = document.getElementById('stage').getBoundingClientRect(), kr = document.getElementById('key').getBoundingClientRect(), v = S.view; return S.scene.nodes.filter((n) => { const l = st.left + n.x * v.k + v.tx, t = st.top + n.y * v.k + v.ty; return l < kr.right && l + n.w * v.k > kr.left && t < kr.bottom && t + n.h * v.k > kr.top; }).length; });

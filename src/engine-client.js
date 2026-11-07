@@ -141,6 +141,8 @@ var NFMEngineClient = (function () {
     'if(d.type==="helperPorts"){__HP.got(Array.prototype.slice.call(e.ports||[]),d.error);return;}' +
     'if(d.type==="helperFailed"){if(__HP.fail)__HP.fail("a helper failed ("+(d.error||"error")+")");else __HP.stop();return;}' +
     'if(d.type==="graph"){if(d.text!==undefined)d.graph=JSON.parse(d.text);__st.R=d.graph;__st.G=NFMColumns.derive(d.graph);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
+    'if(d.type==="import"){try{var ir=NFMImport.importAny(d.files,d.opts),ig=ir.graph;if(ir.rows&&ir.delimiter&&d.files.length===1){ir.rowsDropped=true;ir.rows=null;}ir.graph=null;__st.next={R:ig,ver:d.ver};self.postMessage({id:d.id,ok:true,result:{res:ir,text:JSON.stringify(ig)}});}catch(ie){self.postMessage({id:d.id,ok:false,error:String(ie&&ie.message||ie)});}return;}' +   // reads the file here, off the page: the page gets the graph as text (reading text is about a quarter of reading a file)
+    'if(d.type==="adopt"){var nx=__st.next;__st.next=null;if(!nx||nx.ver!==d.ver){self.postMessage({id:d.id,ok:true,result:"full"});return;}__st.R=nx.R;__st.G=NFMColumns.derive(nx.R);__st.ver=nx.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
     'if(d.type==="graphDiff"){if(__st.ver!==d.base||!__st.R){self.postMessage({id:d.id,ok:true,result:"full"});return;}var R=__st.R,g={},k;for(k in d.meta)g[k]=d.meta[k];g.nodes=__back(d.nodes,R.nodes);g.edges=__back(d.edges,R.edges);__st.R=g;__st.G=NFMColumns.derive(g);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +   // only what changed since the graph it has (graphDiff below)
     'if(d.type==="handOver"){var hp=e.ports[0];hp.postMessage({graph:__st.R,ver:__st.ver});hp.close();return;}' +   // parking: the graph goes to the keeper thread on a port, never through the page
     'if(d.type==="graphFromPort"){var gp=e.ports[0];gp.onmessage=function(m){gp.close();__st.R=m.data.graph;__st.G=NFMColumns.derive(__st.R);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});};return;}' +
@@ -261,7 +263,23 @@ var NFMEngineClient = (function () {
   /** A whole graph for the worker, as text: a string is copied at memory speed (the page is held about 35 ms instead of 75-160 ms on 30,000 items) and the worker reads it off the page. */
   var jsonText = JSON.stringify.bind(JSON);   /* kept at load, so a page that swaps JSON.stringify later cannot change what the worker is sent */
   function graphMsg(graph, ver) { return { type: 'graph', text: jsonText(graph), ver: ver }; }
+  /** Reads files in the worker. Resolves to { res, graph } (the graph read back from text), or null when the worker cannot take it (not running, parked, busy starting): the page then reads the files itself. */
+  Client.prototype.importFiles = function (files, opts) {
+    var self = this;
+    if (this.mode !== 'worker' || !this.w || this.parked) return Promise.resolve(null);
+    var ver = this.ver + 1;
+    return this.rawCall({ type: 'import', files: files, opts: opts, ver: ver }).then(function (r) {
+      var q = r.L, g = JSON.parse(q.text); q.res.graph = g; self.adopt = { graph: g, ver: ver };
+      return q.res;
+    });
+  };
   Client.prototype.setGraph = function (graph) {
+    var ad = this.adopt; this.adopt = null;
+    if (ad && ad.graph === graph && ad.ver === this.ver + 1 && this.mode === 'worker' && !this.parked) {   // the worker already has this graph (it read the file): one small message makes it the current one
+      var me = this, prevSent = this.sent, prevVer = this.sentVer;
+      this.graph = graph; this.ver++; this.st = null; this.lastPic = null; this.sent = graph; this.sentVer = this.ver;
+      return this.call({ type: 'adopt', ver: this.ver }).then(function (r) { if (r === true || me.sent !== graph) return true; return me.call(graphMsg(graph, me.ver)); });
+    }
     this.graph = graph; this.ver++; this.st = null; this.lastPic = null;
     if (this.parked) return Promise.resolve(true);   // the fresh worker gets this graph when the next job starts it
     if (this.mode !== 'worker') return Promise.resolve(true);

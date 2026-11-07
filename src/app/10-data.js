@@ -79,8 +79,17 @@ function ingest(files, extra, open) {
   }
   busy('Reading ' + plural(files.length, 'file') + '…');
   return nextFrame().then(function () {
-    var opts = Object.assign(importOptions(), extra || {}), res;
-    try { res = NFMImport.importAny(files, opts); } catch (err) { renderError(err.message); return; }
+    var opts = Object.assign(importOptions(), extra || {});
+    /* the worker reads the file when it can (the page is held about a quarter as long); otherwise, and for a merge, the page reads it as before */
+    var viaWorker = importMode() === 'merge' ? Promise.resolve(null) : client.importFiles(files, opts).catch(function () { return null; });   /* any trouble in the worker: the page reads it, and shows the real message if the file is bad */
+    return viaWorker.then(function (r) {
+      if (r) { r.rowsDropped && files.length === 1 && (r.rowsFrom = files[0].text); delete r.rowsDropped; return r; }
+      return NFMImport.importAny(files, opts);
+    }).then(function (res) { afterRead(files, opts, res, open); }, function (err) { renderError(String(err && err.message || err).replace(/^Error: /, '')); });
+  });
+}
+function afterRead(files, opts, res, open) {
+  {
     var base = S.graph, mode = importMode();
     S.imp = leanImport({ files: files, opts: opts, base: mode === 'merge' ? base : null, mode: mode, res: res, name: res.graph.name });   /* the graph before is kept only to merge into again */
     var merged = mode === 'merge' && base.nodes.length, g = merged ? NFMImport.mergeGraphs(base, res.graph) : res.graph;
@@ -92,7 +101,7 @@ function ingest(files, extra, open) {
     setGraph(g, true, merged); shareTextSoon();
     if (open && !merged && cleanRead(res, g)) { autoOpen(res, g); return; }   /* a table that reads cleanly goes straight to the map (a Sankey when it has from, to and a weight); anything unclear stops here on the Data tab */
     $('report').scrollIntoView({ behavior: 'auto', block: 'nearest' });
-  });
+  }
 }
 /* A table read counts as clean when it is one table of links (or a parent column), the header row was found, the file said nothing but how it was read,
    and nothing was merged, dropped, left out or shortened. Anything else stays on the Data tab so the person can check it first. */
