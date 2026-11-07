@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Developer notes, in t
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 and WebKitGTK 2.52.6. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## November 7
+
+- 2026.11.07.0622: Opening a very big map no longer holds the page as long: the page reads the helper's answer and packs the old map for Undo in short slices, and the States card is drawn when the page is idle. On 90,000 items the longest freeze dropped about 55 percent in Chromium (326 to 135 ms), 33 percent in Firefox and 47 percent in WebKitGTK; the map appears up to 15 percent later in Firefox.
+
 ## November 6
 
 - 2026.11.06.2203: Sankey notes: {top} now ends with the amount ("Salary → Rent, $1,800") and the new {topbox} gives the biggest box with its amount ("Salary, $3,000"). The map-file packer and drawing parts are updated to smaller builds with the same output.
