@@ -81,7 +81,7 @@
       timer = 0;
       if (gone || (o.alive && !o.alive())) { gone = true; return; }
       if (packed || refused) return;
-      if (!WARMED && MC.warm && size() >= min && Date.now() - touchedAt >= delay / 2 && !(o.hold && o.hold())) { WARMED = true; try { MC.warm().catch(function () { /* a failed warm-up costs nothing */ }); } catch (e) { /* none */ } }   /* once a page, while it is quiet and a big pack is due: the first pack then skips cold-start work */
+      if (!WARMED && MC.warm && size() >= min && Date.now() - touchedAt >= delay / 2 && !(o.hold && o.hold())) { WARMED = true; try { MC.warm({ sample: live.edges ? live.edges.slice(0, 300) : null }).catch(function () { /* a failed warm-up costs nothing */ }); } catch (e) { /* none */ } }   /* once a page, while it is quiet and a big pack is due: the first pack then skips cold-start work */
       if (Date.now() - touchedAt >= delay && size() >= min && !(o.hold && o.hold())) startPack(); else schedule();
     }
     function startPack() {
