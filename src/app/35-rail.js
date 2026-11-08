@@ -55,7 +55,8 @@ function buildMapUI() {
     h('button', { 'data-tool': 'lasso', title: 'Draw around items to select them', onclick: function () { setTool('lasso'); } }, '◌')]),
     h('button', { class: 'sm', title: 'Fit everything on screen', onclick: function () { fitView(); } }, 'Fit'),
     h('button', { class: 'sm', id: 'exportbtn', title: 'Save a picture of the map (the format you pick first is remembered; all other exports are on the Export tab)', onclick: function () { exportQuick(); } }, 'Export'),
-    h('button', { class: 'sm', id: 'keybtn', title: 'Show or hide the key', onclick: function () { S.V.key.hide = !S.V.key.hide; saveView(); renderKey(); } }, 'Key')]);
+    h('button', { class: 'sm', id: 'keybtn', title: 'Show or hide the key', onclick: function () { S.V.key.hide = !S.V.key.hide; saveView(); renderKey(); } }, 'Key'),
+    h('button', { class: 'sm', id: 'findbtn', title: 'Search names, groups and columns (on a keyboard: press / or Ctrl+F)', 'aria-label': 'Search', onclick: function () { railTab('find'); var si = $('search'); if (si) si.focus(); } }, 'Find')]);
   var zoom = h('div', { id: 'zoom' }, [h('button', { class: 'glass', 'aria-label': 'Zoom in', onclick: function () { zoomAt(S.stageW / 2, S.stageH / 2, 1.5); } }, '+'), h('button', { class: 'glass', 'aria-label': 'Zoom out', onclick: function () { zoomAt(S.stageW / 2, S.stageH / 2, 1 / 1.5); } }, '−')]);
   var key = h('div', { id: 'key', class: 'glass', hidden: true });
   var minimap = buildMinimap();
