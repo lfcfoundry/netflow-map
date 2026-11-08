@@ -62,6 +62,11 @@
     };
     if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 3000 }); else run();
   }, 2500);
+  /* Warm the Tree, Sunburst, Chord and Bundles drawing code once in a later idle moment (6 to 11 ms each), so the first real picture of those views is not the engine's first run of it. */
+  setTimeout(function () {
+    var warm = function () { try { if (typeof NetflowHierarchy !== 'undefined' && NetflowHierarchy.warm) NetflowHierarchy.warm(); if (typeof NetflowCircular !== 'undefined' && NetflowCircular.warm) NetflowCircular.warm(); } catch (e) { /* only a speed-up */ } };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(warm, { timeout: 4000 }); else warm();
+  }, 3500);
   if (window.NFMReport) window.NFMReport.mark('first-screen');
   window.NFM = { groupSvg: groupSvg, svgText: svgText, mapFileBytes: mapFileBytes, openMapBytes: openMapBytes, neighborIds: neighborIds, routeIds: routeIds, gif: function () { return GX.result; }, gifRun: function (patch) { Object.assign(GX.opts, patch); return runGif(); }, gifTwin: function (patch) { return ensureMap().then(function () { return makeGif(Object.assign({}, GX.opts, patch, { preview: true, twin: true }), function () { }, function () { return false; }); }); }, pending: function () { return DEBOUNCING; }, moveItems: moveItems, dropItems: settleDrop, touch: function (v) { touchForce = v; placeChrome(); if (S.mapBuilt) renderMapUI(); }, state: S, engine: getEngine, client: function () { return client; }, manager: function () { return mgr; }, showTab: showTab, setGraph: setGraph, edit: edit, ingest: ingest, refreshMap: refreshMap, select: function (id) { setSel(id ? [id] : []); }, setSel: setSel, toggleChapter: toggleChapter, minimap: function () { var e = document.getElementById('minimap'); return { shown: !!(e && !e.hidden), w: e ? e.width : 0, h: e ? e.height : 0, box: e ? JSON.parse(JSON.stringify(e.getBoundingClientRect())) : null }; }, renderMinimap: renderMinimap, setV: setV, scheduleScene: scheduleScene, settleTurn: settleTurn, fitView: fitView, zoomAt: zoomAt, runSearch: runSearch, snapshot: snapshot, applySnapshot: applySnapshot, safe: SAFE, indexMatches: indexMatches, idx: IDX, charts: function () { return CHT; }, drawChart: drawChart };
   }

@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 8
 
+- Module code updated: netflow-hierarchy 1.6.0 and netflow-circular 1.4.0. The page now warms the Tree, Sunburst, Chord and Bundles drawing code once in an idle moment (6 to 11 ms) so the first picture of those views is not the engine's first run. In the app the first open is about the same (new over old, whole open: Chromium Tree 0.96, Chord 0.98; Firefox 1.00 and 1.04; WebKitGTK 1.02 and 1.01; scene build equal). Nothing looks different.
 - Module code updated: netflow-plot 2.16.1. Area chart hover text is built only when needed, which makes large area charts about 10 percent faster to draw. Pictures match (Firefox identical, Chromium and WebKitGTK 99.7 percent or better).
 - New: a Find button in the map's top bar on screens under 900 px wide (phones and narrow tablets). One tap opens the side panel on its Find tab with the cursor in the search box. Wider screens are unchanged; the / and Ctrl+F keys still work. Look approved by the owner on a before and after sheet.
 - The first map open starts the background layout work before the page tests its drawing path and reads the map's size, so those run while the layout is being built. The first Flow open of a small example is faster in all three browsers (new over old, phone-sized slowed Chromium 0.69, Chromium 0.94, Firefox 0.89, WebKitGTK 0.96). Pictures match; nothing looks different.
