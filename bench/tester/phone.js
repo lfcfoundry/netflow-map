@@ -123,7 +123,7 @@
     ['Leave the page idle for 20 seconds, then touch it', 'It responds right away; no frozen or blank screen.'],
     ['Overall feel on this phone', 'Fast enough that you would not wait on it.']
   ];
-  STEPS.push({ name: 'Touch checks (you do these)', run: async function () {
+  if (/[?&]touch\b/.test(location.search)) STEPS.push({ name: 'Touch checks (you do these)', run: async function () {
     var s = H.addSection('Touch checks (you do these)'), host = hostCard(s), results = CHECKS.map(function () { return { r: '', note: '' }; }), done = null;
     await mountApp(host); win.NFM.showTab('map'); win.NFM.setGraph(win.NFMExamples.LIST.filter(function (x) { return x.id === 'systems'; })[0].load().graph); await settle(40000);
     var intro = document.createElement('p'); intro.className = 'note'; intro.textContent = 'The app is above. Try each action in it, then press OK, Problem or Skip. Add a few words if something is wrong. Press "Finish" at the bottom when done; Skip is fine for anything you cannot try.';
