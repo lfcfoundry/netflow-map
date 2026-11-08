@@ -2163,3 +2163,17 @@ Whole build, cloud, median of 3 (bench plan `cap`, raw in bench/results/vs-libs-
 | band pieces over other bars | 0 | 276 | 256 | 1,916 |
 
 At 5,000 items: no cap 79-90 ms, cap 500 44-53 ms, d3-sankey 102-121 ms; band pieces over other bars 537 / 798 / 8,410. At 400 items the cap does not apply (4.6-9 ms against d3-sankey's 7.8-12 ms). Cloud noise is large here (d3-sankey alone ranged 27-43 ms in Chromium at 1,500 items).
+
+## Correction 2026.11.08: Flow against dagre and ELK uses the app's own default settings
+
+The 2026.11.07 refresh (PR 174) measured Netflow Map with the engine's bare defaults (no `rows`), which is the "route" row rule. The app sends `rows: 'best'` (V.rows, the default), so the app draws something else at 800 boxes and up. bench/vs-libs.js `vsFlow` now builds with `rows: 'best'`, as the app does (checked in the app page: 21,846 inner crossings at 1,000 items, 45,707 at 1,500).
+
+Run 2026.11.08, links crossing as drawn, time median of 3 (Chromium 155 / Firefox 158 / WebKitGTK 2.52.6):
+
+| Flow, items | Netflow Map | ms | dagre | ms | ELK | ms |
+|---|---:|---|---:|---|---:|---|
+| 200 | 969 | 54 / 68 / 56 | 1,700 | 201 / 144 / 204 | 1,330 | 256 / 299 / 215 |
+| 400 | 4,663 | 120 / 117 / 109 | 5,374 | 779 / 614 / 903 | 5,313 | 717 / 732 / 699 |
+| 1,000 | 21,812 | 126 / 102 / 104 | 23,965 | 8,107 / 6,485 / 9,270 | 22,602 | 1,841 / 2,529 / 1,766 |
+
+Same counts in the three browsers. At 1,000 items the deeper search gives the same picture as Auto's lighter one (hash be0021c3 both ways); at 1,500 items lighter + best draws 45,648 crossings in 193 ms and deeper + best the same 45,648 in 266 ms. Raw lines: /mnt/project-files/netflow-map/crossings-2026.11.08/.

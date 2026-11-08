@@ -175,7 +175,7 @@ footer{padding-block:34px;color:var(--muted);font-size:14px;border-top:1px solid
       <div id="flowCrossChart"></div>
     </div>
   </div>
-  <p class="note">Netflow Map is 30 times faster than ELK and 126 times faster than dagre, and at this size it draws 1 to 7 percent more crossings (24,185 against dagre's 23,965 and ELK's 22,602), because the Auto setting uses the lighter crossing search from 800 boxes up. Firefox and WebKitGTK give the same crossings: Netflow Map takes 67 and 73 ms, ELK 3.2 and 2.3 s, dagre 9.6 and 11.8 s. On smaller maps it is tidier too: at 400 items Netflow Map crosses 4,663 times against ELK's 5,313 and dagre's 5,374, in 67 ms against 893 and 856 ms.</p>
+  <p class="note">Netflow Map is 15 times faster than ELK and 64 times faster than dagre, and at this size it draws fewer crossings: 21,812 against ELK's 22,602 (3.5 percent fewer) and dagre's 23,965 (9 percent fewer). Firefox and WebKitGTK give the same crossings: Netflow Map takes 102 and 104 ms, ELK 2.5 and 1.8 s, dagre 6.5 and 9.3 s. On smaller maps it is tidier too: at 400 items Netflow Map crosses 4,663 times against ELK's 5,313 and dagre's 5,374, in 120 ms against 717 and 779 ms.</p>
 </div></section>
 <section><div class="wrap">
   <h2>Sankey view against d3-sankey</h2>
@@ -251,8 +251,8 @@ footer{padding-block:34px;color:var(--muted);font-size:14px;border-top:1px solid
   chart('net10Chart',[['Netflow Map', 438, '438 ms', 1], ['d3-force', 17286.4, '17.3 s'], ['d3-force + collide', 24923.6, '24.9 s'], ['ForceAtlas2', 18082.8, '18.1 s']],24923.6);
   chart('net1Chart',[['Netflow Map', 112.2, '112 ms', 1], ['d3-force', 1046.4, '1.0 s'], ['d3-force + collide', 1477.2, '1.5 s'], ['ForceAtlas2', 995.8, '1.0 s'], ['Cytoscape.js (cose)', 20009.2, '20.0 s']],20009.2);
   chart('touchChart',[['Netflow Map', 0, '0%', 1], ['d3-force', 20.9, '20.9%'], ['d3-force + collide', 23.7, '23.7%'], ['ForceAtlas2', 3.7, '3.7%']],23.7);
-  chart('flowTimeChart',[['Netflow Map', 71.5, '72 ms', 1], ['dagre', 9031.8, '9.0 s'], ['ELK', 2124.7, '2.1 s']],9031.8);
-  chart('flowCrossChart',[['Netflow Map', 24185, '24,185', 1], ['dagre', 23965, '23,965'], ['ELK', 22602, '22,602']],24185.0);
+  chart('flowTimeChart',[['Netflow Map', 126.1, '126 ms', 1], ['dagre', 8106.7, '8.1 s'], ['ELK', 1840.9, '1.8 s']],8106.7);
+  chart('flowCrossChart',[['Netflow Map', 21812, '21,812', 1], ['dagre', 23965, '23,965'], ['ELK', 22602, '22,602']],23965.0);
   chart('skTimeChart',[['Chromium, Netflow Map', 25.7, '26 ms', 1], ['Chromium, d3-sankey', 34, '34 ms'], ['Firefox, Netflow Map', 19, '19 ms', 1], ['Firefox, d3-sankey', 27, '27 ms'], ['WebKitGTK, Netflow Map', 32, '32 ms', 1], ['WebKitGTK, d3-sankey', 33, '33 ms']],34);
   chart('skCrossChart',[['Netflow Map', 256, '256', 1], ['d3-sankey', 1916, '1,916']],1916);
   chart('csvChart',[['Chromium, Netflow Map', 242, '242 ms', 1], ['Chromium, Papa Parse', 272, '272 ms'], ['Chromium, d3-dsv', 264.1, '264 ms'], ['Firefox, Netflow Map', 266, '266 ms', 1], ['Firefox, Papa Parse', 327, '327 ms'], ['Firefox, d3-dsv', 300, '300 ms'], ['WebKitGTK, Netflow Map', 101, '101 ms', 1], ['WebKitGTK, Papa Parse', 181, '181 ms'], ['WebKitGTK, d3-dsv', 112, '112 ms']],327.0);
