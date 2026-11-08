@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 8
 
+- New: a Find button in the map's top bar on screens under 900 px wide (phones and narrow tablets). One tap opens the side panel on its Find tab with the cursor in the search box. Wider screens are unchanged; the / and Ctrl+F keys still work. Look approved by the owner on a before and after sheet.
 - The first map open starts the background layout work before the page tests its drawing path and reads the map's size, so those run while the layout is being built. The first Flow open of a small example is faster in all three browsers (new over old, phone-sized slowed Chromium 0.69, Chromium 0.94, Firefox 0.89, WebKitGTK 0.96). Pictures match; nothing looks different.
 - On phones and narrow tablets, where the side panel starts closed, the panel is now built when it is first opened instead of on every first map draw. The first map open is about 9 to 13 percent faster in a slowed Chromium with a phone-sized screen (new over old 0.87 to 0.94). Nothing looks different.
 - Module code updated: lfc-pack 0.7.1 (the map-file format). Same maps save and open the same way; the first pack is a little faster in Chromium and the same in Firefox and WebKitGTK.

@@ -213,3 +213,4 @@ body.touch .chip button.x{min-height:28px;min-width:28px}body.touch #key button{
 .charts-stage .host{position:absolute;inset:0}
 .charts-tip{position:absolute;pointer-events:none;background:var(--panel);color:var(--fg);border:1px solid var(--line, rgba(0,0,0,.15));border-radius:6px;padding:4px 8px;font-size:12px;max-width:320px;box-shadow:0 2px 8px rgba(0,0,0,.15);z-index:3}
 @media (max-width:760px){.cht{grid-template-columns:1fr;grid-template-rows:auto 1fr}.charts-side{max-height:42vh;border-right:0;border-bottom:1px solid var(--line, rgba(0,0,0,.12))}}
+#findbtn{display:none}@media (max-width:899px){#findbtn{display:inline-block}}   /* the Find button is for phones and tablets; a keyboard has / and Ctrl+F */
