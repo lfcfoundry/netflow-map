@@ -1,6 +1,6 @@
 /* Copyright (c) 2026 LFC Foundry. MIT License. https://github.com/lfcfoundry/JS-modules */
 /*
- * Version 2.15.0 (API 2)
+ * Version 2.16.1 (API 2)
  * netflow-plot.js: plain charts from a table's columns (bars, lines, areas, dots, donuts, box plots, histograms, density, hexbins, heat maps,
  * parallel lines, scatter matrix, Q-Q, Voronoi cells, word cloud). make(rows, spec, o, NS) returns drawing lists in the same shape as a map
  * picture (rects, dots, curves, polys, labels), so the same renderer, export and themes draw them. No page, no DOM, no dependencies.
@@ -517,7 +517,9 @@ var NetflowPlot = (function () {
       F.band(px, top, bot, F.alpha(col, mode === 'none' ? 0.35 : 0.85));
       var pts = []; for (j = 0; j < M; j++) pts.push(px[j], top[j]); F.line(pts, 1.2, col);
     }
-    for (j = 0; j < M; j++) { var parts = []; for (k = 0; k < K; k++) if (Y[k][j]) parts.push((s.list[k].name || 'value') + ' ' + fmtNum(Y[k][j])); F.S.marks.push({ x0: px[j] - 3, x1: px[j] + 3, y0: F.Tp, y1: F.B, t: (s.time ? dayText(X[j]) : fmtNum(X[j])) + ': ' + parts.join(', ') }); }
+    var nm = s.list.map(function (l) { return l.name || 'value'; });   /* the tooltip text of a column is built when it is asked for (a getter), not for every column up front (since 2.16.1) */
+    function colMark(j) { return { x0: px[j] - 3, x1: px[j] + 3, y0: F.Tp, y1: F.B, get t() { var parts = [], q; for (q = 0; q < K; q++) if (Y[q][j]) parts.push(nm[q] + ' ' + fmtNum(Y[q][j])); return (s.time ? dayText(X[j]) : fmtNum(X[j])) + ': ' + parts.join(', '); } }; }
+    for (j = 0; j < M; j++) F.S.marks.push(colMark(j));
     if (K > 1) F.legend(sp.color, s.cats);
   };
   function scatterCore(F, R, sp, join) {
@@ -1145,6 +1147,20 @@ var NetflowPlot = (function () {
     return null;
   }
 
-  return { TYPES: TYPES, NEEDS: NEEDS, AGG: AGG, make: make, toSvg: toSvg, auto: auto, guess: guess, takeaway: takeaway, markAt: markAt, ticks: ticks, timeTicks: timeTicks, kde: kde, normInv: normInv, voronoiCells: voronoiCells, quant: quant, fmtNum: fmtNum };
+  /* warm(): optional, never called for you. Draws four small made-up charts (auto, bar, scatter, line; 40 rows) once and throws them away, so the browser's JavaScript engine has already
+     optimized the drawing code when your first real chart comes. Call it from an idle callback, after netflow-scene.js has loaded (7 to 13 ms of work). Returns true when it ran, false when
+     NetflowScene is missing. Nothing else changes: a chart comes out the same with or without it. */
+  function warm() {
+    if (typeof NetflowScene === 'undefined') return false;
+    var rows = [], i, s = 5, r = function () { return (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; };
+    for (i = 0; i < 40; i++) rows.push({ x: r() * 100, y: r() * 100, g: 'abc'[i % 3], c: 'cat' + (i % 8), v: r() * 50, t: i });
+    auto(rows, { width: 600, height: 360 });
+    toSvg(rows, { type: 'bar', x: 'c', y: 'v', width: 600, height: 360 });
+    toSvg(rows, { type: 'scatter', x: 'x', y: 'y', color: 'g', width: 600, height: 360 });
+    toSvg(rows, { type: 'line', x: 't', y: 'v', width: 600, height: 360 });
+    return true;
+  }
+
+  return { warm: warm, TYPES: TYPES, NEEDS: NEEDS, AGG: AGG, make: make, toSvg: toSvg, auto: auto, guess: guess, takeaway: takeaway, markAt: markAt, ticks: ticks, timeTicks: timeTicks, kde: kde, normInv: normInv, voronoiCells: voronoiCells, quant: quant, fmtNum: fmtNum };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NetflowPlot;
