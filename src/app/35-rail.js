@@ -249,7 +249,7 @@ function thumbInto(view, cv) {
   var key = [S.gver, view, o.colorBy, o.widthBy, o.sizeBy, o.arrange, themeName(), JSON.stringify(o.block), o.keep ? o.keep.length : 0, JSON.stringify(o.minEdge || null)].join('|');
   var draw = function (src) { var x = cv.getContext('2d'); x.clearRect(0, 0, 168, 108); x.drawImage(src, 0, 0, 168, 108); };
   if (THUMB.cache.has(key)) { draw(THUMB.cache.get(key)); return; }
-  setTimeout(function () {
+  thumbLater(function () {
     if (!cv.isConnected) return;
     try {
       var E = getEngine(), L = E.build(S.dg, o), sc = NFMScene.make(L, Object.assign(sceneOpts(), { lab: { items: { show: false }, links: { show: false }, groups: { show: false } }, lens: null }));
@@ -261,7 +261,20 @@ function thumbInto(view, cv) {
         THUMB.cache.set(key, c); if (THUMB.cache.size > 40) THUMB.cache.delete(THUMB.cache.keys().next().value); draw(c); try { r.destroy(); } catch (e) { /* ignore */ }
       });
     } catch (err) { /* a view that cannot be drawn just stays blank */ }
-  }, 30);
+  });
+}
+/* The five view thumbnails are made one per idle moment, after the Map's own first picture has been shown (each one is a whole layout and picture on the page: about 10 to 15 ms, so five in a row held the first picture back by about 50 ms and were one long task each). Same pictures, a little later. */
+var THUMBQ = { list: [], on: false };
+function thumbLater(job) {
+  THUMBQ.list.push(job); if (THUMBQ.on) return; THUMBQ.on = true;
+  var next = function () {
+    var j = THUMBQ.list.shift();
+    if (!j) { THUMBQ.on = false; return; }
+    try { j(); } catch (e) { /* a view that cannot be drawn just stays blank */ }
+    idle();
+  };
+  var idle = function () { if (typeof requestIdleCallback === 'function') requestIdleCallback(next, { timeout: 400 }); else setTimeout(next, 50); };
+  requestAnimationFrame(function () { requestAnimationFrame(function () { setTimeout(idle, 0); }); });
 }
 
 /* ---- Look */
