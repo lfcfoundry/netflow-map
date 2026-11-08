@@ -57,20 +57,27 @@
   STEPS.push({ name: 'The app: first open of every map view', run: async function () {
     var s = H.addSection('The app: first open of every map view'), rows = [], host = hostCard(s);
     var t0 = now(); await mountApp(host); var boot = now() - t0;
+    var loaf = [], po = null, watching = false;   /* Chrome's long-animation-frame entries: where a slow first open goes (our code, forced layout, drawing) */
+    var take = function (l) { l.getEntries().forEach(function (e) { if (!watching) return; loaf.push({ dur: Math.round(e.duration), scripts: Math.round((e.renderStart || e.startTime + e.duration) - e.startTime - (e.blockingDuration ? 0 : 0)), render: Math.round(Math.max(0, (e.styleAndLayoutStart || 0) ? e.startTime + e.duration - e.styleAndLayoutStart : 0)), forced: Math.round((e.scripts || []).reduce(function (a, x) { return a + (x.forcedStyleAndLayoutDuration || 0); }, 0)), top: (e.scripts || []).slice().sort(function (a, b) { return b.duration - a.duration; }).slice(0, 3).map(function (x) { return (x.invoker || x.sourceFunctionName || '?') + ' ' + Math.round(x.duration) + ' ms'; }).join('; ') });; }); };
+    try { po = new PerformanceObserver(take); po.observe({ type: 'long-animation-frame', buffered: false }); } catch (e) { po = null; }
     var sets = [['Small example (systems)', function () { return win.NFMExamples.LIST.filter(function (x) { return x.id === 'systems'; })[0].load().graph; }], ['1,000 items', function () { return win.NFMExamples.bigNetwork(1000, 9, 7); }]];
     var worstMs = 0, slow = [];
     for (var si = 0; si < sets.length; si++) {
       win.NFM.showTab('map'); win.NFM.setGraph(sets[si][1]()); await settle(40000);
       for (var vi = 0; vi < VIEWS.length; vi++) {
         H.setStatus('The app: ' + sets[si][0] + ', ' + VIEWS[vi] + '…'); await H.yieldUI();
+        if (si === 0 && vi === 0) { watching = true; }
         var t = now(), err = ''; try { win.NFM.setV({ view: VIEWS[vi] }); var ms = await settle(40000); } catch (e) { err = String(e && e.message || e); ms = now() - t; }
         var frames = 0, last = 0, worst = 0, t1 = now();   /* a short idle watch: does the page keep drawing smoothly after the first frame */
         await new Promise(function (res) { var tick = function (ts) { if (last) { frames++; worst = Math.max(worst, ts - last); } last = ts; if (now() - t1 < 1000) win.requestAnimationFrame(tick); else res(); }; win.requestAnimationFrame(tick); });
+        if (si === 0 && vi === 0 && po) { await sleep(120); take({ getEntries: function () { return po.takeRecords(); } }); watching = false; }
         var row = { data: sets[si][0], view: VIEWS[vi], openMs: r1(ms), idleFps: frames, worstGapMs: Math.round(worst), error: err };
         phone.views.push(row); rows.push([row.data, row.view, String(row.openMs), String(row.idleFps), String(row.worstGapMs), err || (win.NFM.state.sceneOk ? 'ok' : 'NOT DRAWN')]);
         if (err || !win.NFM.state.sceneOk) slow.push(row.view + ' (' + row.data + '): ' + (err || 'not drawn')); worstMs = Math.max(worstMs, ms);
       }
     }
+    if (po) { try { po.disconnect(); } catch (e) { /* done */ } }
+    phone.loaf = loaf.slice(0, 12); if (loaf.length) { s.notes.push('Long frames during the very first view open (Chrome long-animation-frame): ' + loaf.length + '. The slowest: ' + loaf.slice().sort(function (a, b) { return b.dur - a.dur; }).slice(0, 4).map(function (x) { return x.dur + ' ms (' + x.scripts + ' ms our code and waiting, ' + x.render + ' ms style, layout and drawing, ' + x.forced + ' ms forced layout; ' + (x.top || 'no script') + ')'; }).join(' | ') + '.'); }
     phone.bootMs = r1(boot); rows.unshift(['App starts inside this page', '-', String(phone.bootMs), '-', '-', 'ok']);
     s.head = ['Data', 'View', 'Open (ms)', 'Frames in 1 s', 'Slowest frame (ms)', 'Result']; s.rows = rows;
     s.notes.push('Open is the time from asking for the view until it is drawn and settled. Frames in 1 s is the page refresh while the map sits still (it can be low when nothing needs to move). On a phone, 1,000 items should open in well under a second or two.');
