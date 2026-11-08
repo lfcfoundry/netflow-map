@@ -419,9 +419,11 @@ function startRenderer() {
 }
 TAB_HOOKS.map = function () {
   if (!S.mapBuilt) { buildMapUI(); S.mapBuilt = true; }
-  startRenderer(); applySize();
   if (S.sel.size) { var a = Array.from(S.sel); S.sel = new Set(a); }
-  if (!S.scene || !S.sceneOk || S.mapStale !== S.gver || (S.simUsed !== S.simVer && simUsesMap())) { S.mapStale = S.gver; S.themeStale = false; refreshMap('shown'); } else if (freshTheme()) { if (S.needFit) { S.needFit = false; fitView(true); } } else { if (S.needFit) { S.needFit = false; fitView(true); } requestDraw(); renderMapUI(); }
+  var rebuild = !S.scene || !S.sceneOk || S.mapStale !== S.gver || (S.simUsed !== S.simVer && simUsesMap());
+  if (rebuild) { S.mapStale = S.gver; S.themeStale = false; refreshMap('shown'); }   /* the engine starts first, so the drawing-path test and the size reading below run while it works */
+  startRenderer(); applySize();
+  if (rebuild) { /* started above */ } else if (freshTheme()) { if (S.needFit) { S.needFit = false; fitView(true); } } else { if (S.needFit) { S.needFit = false; fitView(true); } requestDraw(); renderMapUI(); }
   attachSimOverlay(); renderTimeline(); spinLoop();
 };
 new ResizeObserver(function () { if (S.tab === 'map') { var was = S.stageW; applySize(); if (S.scene && (was <= 2 || Math.abs(S.stageW - was) / was > 0.2)) fitView(true); } }).observe(stage);
