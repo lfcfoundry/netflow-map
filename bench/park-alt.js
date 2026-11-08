@@ -4,10 +4,10 @@
 'use strict';
 const fs = require('fs'), path = require('path');
 const R = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
-const base = { columns: R('src/columns.js'), engine: R('src/engine.js'), gen: R('bench/gen.js'), layers: R('vendor/netflow-layers.js'), park: R('src/layout-park.js') };
+const base = { columns: R('src/columns.js'), engine: R('src/engine.js'), gen: R('bench/gen.js'), layers: R('vendor/netflow-layers.js'), gw: R('vendor/graph-walk.js'), sk: R('vendor/netflow-sankey.js'), park: R('src/layout-park.js') };
 async function inPage(arg) {
   const { base, mc, n } = arg, g = globalThis, ev = (code) => (0, eval)(code), strip = (t) => t.replace(/if \(typeof module[^\n]*\n?/, '');
-  g.MEMORY_COMPRESSION_NO_EVAL = true; ev(mc); ev(base.layers);
+  g.MEMORY_COMPRESSION_NO_EVAL = true; ev(mc); ev(base.layers); ev(base.gw); ev(base.sk);
   ev(strip(base.columns) + '\n;globalThis.NFMColumns = typeof NFMColumns !== "undefined" ? NFMColumns : globalThis.NFMColumns;');
   ev(strip(base.gen) + '\n;globalThis.NFMGen = NFMGen;');
   ev(strip(base.engine).replace(/var C = typeof NFMColumns[^\n]*\n/, 'var C = globalThis.NFMColumns;\n') + '\n;globalThis.NFMEngine = NFMEngine;');
