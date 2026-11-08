@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 8
 
+- Module code updated: lfc-pack 0.7.1 (the map-file format). Same maps save and open the same way; the first pack is a little faster in Chromium and the same in Firefox and WebKitGTK.
 - Module code updated: lfc-pack 0.7.0 (the map-file format). Same maps save and open the same way; first pack and unpack speed matched the old one in three browsers, within noise.
 - The five small view previews in the side rail are now drawn a moment after the first map frame, one at a time while the page is idle, so the first Map open is faster (100 items: Chromium 0.72, WebKitGTK 0.66, Firefox 1.00 of the old time; 400 items in Firefox 0.86). The previews appear slightly later. Nothing else changes.
 - Module code updated: memory-compression 2.14.1, netflow-circular 1.3.1 and netflow-scene 1.12.1. Short runs of dots with the same look are drawn more simply. No other change you can see (pictures matched 99.7 percent or better in three browsers). lfc-pack 0.7.0 is held back for now because the first pack in Chromium measured slower.
