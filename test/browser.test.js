@@ -489,6 +489,21 @@ async function open() {
     const c = await ev((k) => window.__px.cmp(k, 'base'), be);
     say(c.same && c.mean <= 1.5 && c.bad < 0.01, `${be} matches basic drawing: mean ${c.mean.toFixed(2)}/255, ${(c.bad * 100).toFixed(2)}% pixels far off`);
   }
+  {   /* the idle start test keeps its WebGL 2 canvas (made with the drawing's own settings) for the drawing to adopt: the stage then holds that very canvas and the picture is the one a fresh WebGL 2 canvas gives */
+    const ad = await ev(async () => {
+      const m = NFM.manager(); m.canary.webgl2 = { ok: true };
+      const c = document.createElement('canvas'); c.width = 4; c.height = 4;
+      const gl = c.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
+      if (!gl) return { err: 'no WebGL 2 here' };
+      c.__nfmGL = gl; NFMRender.setSpare(c);
+      try { await m.use('webgl2'); } catch (e) { return { err: e.message }; }
+      if (m.r.name !== 'webgl2') return { err: 'not available here (fell back to ' + m.r.name + ')' };
+      NFM.state.view = { k: 0.6, tx: 20, ty: 20 }; m.r.draw(NFM.state.view); const s = m.r.snapshot(); await m.r.flush(); window.__px.keep.adopt = s;
+      return { adopted: document.getElementById('stage').querySelector('canvas') === c };
+    });
+    if (ad.err) say(strict ? false : null, `adopted canvas: ${ad.err}`);
+    else { const cc = await ev(() => window.__px.cmp('adopt', 'webgl2')); say(ad.adopted && cc.same && cc.mean <= 0.5, `the drawing adopts the idle test's WebGL 2 canvas and draws the same picture (mean ${cc.mean.toFixed(2)}/255)`); }
+  }
   await ev(() => NFM.manager().use('auto'));
 
   blk('webgpu');

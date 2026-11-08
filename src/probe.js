@@ -30,10 +30,11 @@ var NFMProbe = (function () {
       return { ok: ok, why: ok ? '' : 'the browser changes canvas pixels (privacy protection), so drawings may look slightly off' };
     } catch (e) { return { ok: false, why: String(e && e.message || e) }; }
   }
-  function testWebGL2() {
+  /** keep: the canvas and its context are made with the settings the map's drawing uses and kept, returned as `spare` for the drawing to adopt (the idle start test); without it the context is let go as before. */
+  function testWebGL2(keep) {
     try {
       var c = document.createElement('canvas'); c.width = 4; c.height = 4;
-      var gl = c.getContext('webgl2', { alpha: false, antialias: false, failIfMajorPerformanceCaveat: false });
+      var gl = c.getContext('webgl2', keep ? { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: 'high-performance' } : { alpha: false, antialias: false, failIfMajorPerformanceCaveat: false });
       if (!gl) return { ok: false, why: 'WebGL 2 is not available' };
       var mk = function (t, s) { var o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
       var p = gl.createProgram();
@@ -43,9 +44,10 @@ var NFMProbe = (function () {
       gl.useProgram(p); gl.viewport(0, 0, 4, 4); gl.drawArrays(gl.TRIANGLES, 0, 3);
       var px = new Uint8Array(4); gl.readPixels(1, 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
       var dev = ''; try { var e = gl.getExtension('WEBGL_debug_renderer_info'); if (e) dev = String(gl.getParameter(e.UNMASKED_RENDERER_WEBGL) || ''); } catch (x) { /* hidden */ }
+      var ok = px[0] > 250 && Math.abs(px[1] - 128) < 4 && px[2] < 4, soft = SOFT.test(dev);
+      if (keep && ok && !soft) { gl.useProgram(null); gl.deleteProgram(p); c.__nfmGL = gl; return { ok: ok, why: '', software: soft, device: dev, spare: c }; }
       var lose = gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext();
-      var ok = px[0] > 250 && Math.abs(px[1] - 128) < 4 && px[2] < 4;
-      return { ok: ok, why: ok ? '' : 'a test drawing came back with the wrong colors', software: SOFT.test(dev), device: dev };
+      return { ok: ok, why: ok ? '' : 'a test drawing came back with the wrong colors', software: soft, device: dev };
     } catch (err) { return { ok: false, why: String(err && err.message || err) }; }
   }
   function testWebGPU() {
@@ -86,9 +88,9 @@ var NFMProbe = (function () {
     });
   }
   /** Quick, silent. Resolves to { canvas2d, webgl2, webgpu, worker }, each { ok, why, software, device }. */
-  function canary() {
+  function canary(keep) {
     return Promise.all([testWebGPU(), testWorker()]).then(function (r) {
-      return { canvas2d: testCanvas2D(), webgl2: testWebGL2(), webgpu: r[0], worker: r[1] };
+      return { canvas2d: testCanvas2D(), webgl2: testWebGL2(keep), webgpu: r[0], worker: r[1] };
     });
   }
 

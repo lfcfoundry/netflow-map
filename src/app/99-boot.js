@@ -51,6 +51,17 @@
     }, function () { /* no IndexedDB: it stays in localStorage */ });
   });
   client.start().then(function () { if (window.NFMReport) window.NFMReport.mark('engine-ready'); client.setTune(S.tune); client.setGraph(S.graph); maybeAskTune(); if (S.tab === 'map') refreshMap('boot'); });
+  /* The quick test of each drawing path (a WebGL 2 test drawing, about 20 to 30 ms) runs once in an idle moment after start, so the first Map is not held up by it. Its WebGL 2 canvas is kept for the first drawing to adopt, so the browser does not build a second context. The answer is the same one the Map would get itself. */
+  setTimeout(function () {
+    var run = function () {
+      if (S.canary || S.canaryP || mgr || mgrStarting) return;
+      S.canaryP = NFMProbe.canary(true).then(function (c) {
+        var sp = c.webgl2 && c.webgl2.spare; if (sp) { delete c.webgl2.spare; if (S.canary || mgr || mgrStarting) { try { var x = sp.__nfmGL.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); } catch (e) { /* gone */ } } else NFMRender.setSpare(sp); }
+        if (!S.canary) S.canary = c; return c;
+      }, function () { S.canaryP = null; return NFMProbe.canary(); });
+    };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 3000 }); else run();
+  }, 2500);
   if (window.NFMReport) window.NFMReport.mark('first-screen');
   window.NFM = { groupSvg: groupSvg, svgText: svgText, mapFileBytes: mapFileBytes, openMapBytes: openMapBytes, neighborIds: neighborIds, routeIds: routeIds, gif: function () { return GX.result; }, gifRun: function (patch) { Object.assign(GX.opts, patch); return runGif(); }, gifTwin: function (patch) { return ensureMap().then(function () { return makeGif(Object.assign({}, GX.opts, patch, { preview: true, twin: true }), function () { }, function () { return false; }); }); }, pending: function () { return DEBOUNCING; }, moveItems: moveItems, dropItems: settleDrop, touch: function (v) { touchForce = v; placeChrome(); if (S.mapBuilt) renderMapUI(); }, state: S, engine: getEngine, client: function () { return client; }, manager: function () { return mgr; }, showTab: showTab, setGraph: setGraph, edit: edit, ingest: ingest, refreshMap: refreshMap, select: function (id) { setSel(id ? [id] : []); }, setSel: setSel, toggleChapter: toggleChapter, minimap: function () { var e = document.getElementById('minimap'); return { shown: !!(e && !e.hidden), w: e ? e.width : 0, h: e ? e.height : 0, box: e ? JSON.parse(JSON.stringify(e.getBoundingClientRect())) : null }; }, renderMinimap: renderMinimap, setV: setV, scheduleScene: scheduleScene, settleTurn: settleTurn, fitView: fitView, zoomAt: zoomAt, runSearch: runSearch, snapshot: snapshot, applySnapshot: applySnapshot, safe: SAFE, indexMatches: indexMatches, idx: IDX, charts: function () { return CHT; }, drawChart: drawChart };
   }
