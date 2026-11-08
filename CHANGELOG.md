@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 8
 
+- On phones and narrow tablets, where the side panel starts closed, the panel is now built when it is first opened instead of on every first map draw. The first map open is about 9 to 13 percent faster in a slowed Chromium with a phone-sized screen (new over old 0.87 to 0.94). Nothing looks different.
 - Module code updated: lfc-pack 0.7.1 (the map-file format). Same maps save and open the same way; the first pack is a little faster in Chromium and the same in Firefox and WebKitGTK.
 - Module code updated: lfc-pack 0.7.0 (the map-file format). Same maps save and open the same way; first pack and unpack speed matched the old one in three browsers, within noise.
 - The five small view previews in the side rail are now drawn a moment after the first map frame, one at a time while the page is idle, so the first Map open is faster (100 items: Chromium 0.72, WebKitGTK 0.66, Firefox 1.00 of the old time; 400 items in Firefox 0.86). The previews appear slightly later. Nothing else changes.
