@@ -70,24 +70,24 @@ The same network (about 3 links per item, with groups) laid out by each library 
 
 | 10,000 items | Layout time | Items touching |
 |---|---:|---:|
-| **Netflow Map** | **413 ms** | **0%** |
-| d3-force | 17.4 s | 20.9% |
-| d3-force + collide | 22.7 s | 23.7% |
-| ForceAtlas2 | 18.8 s | 3.7% |
+| **Netflow Map** | **438 ms** | **0%** |
+| d3-force | 17.3 s | 20.9% |
+| d3-force + collide | 24.9 s | 23.7% |
+| ForceAtlas2 | 18.1 s | 3.7% |
 
-At 10,000 items Netflow Map was 42 times faster than the fastest library in Chromium, 35 in Firefox 158 and 30 in WebKitGTK 2.52.6. Cytoscape.js (cose) took 20.9 s at 1,000 items against 131 ms.
+At 10,000 items Netflow Map was 39 times faster than the fastest library in Chromium, 33 in Firefox 158 and 37 in WebKitGTK 2.52.6. Cytoscape.js (cose) took 20.0 s at 1,000 items against 112 ms.
 
 ## Flow view against dagre and ELK
 
-1,000 items and 1,900 links with no loops, Chromium 155, links crossing as drawn: Netflow Map 21,812 in 129 ms, dagre 23,965 in 8.4 s, ELK 22,602 in 2.1 s. At 400 items Netflow Map now draws 4,663 crossings against dagre's 5,374 and ELK's 5,313, and at 200 items 969 against 1,746 and 1,338: on maps under 500 boxes it tries the harder untangling too and keeps the tidier picture (build 2026.11.01.0017; 82 ms at 400 items in Chromium, against 792 ms for dagre and 767 ms for ELK). The same counts come out in Firefox and WebKitGTK, and small maps get tidier too (200 items: 1,919 to 1,303 crossings). Build 2026.10.31.2021 added the deeper crossing search and the Fewest crossings row choice that do this. Since build 2026.10.31.2339 the Crossing search setting (Auto, Deeper, Lighter) picks how hard to look: Auto uses the deeper search below 800 boxes and the lighter one from there, which draws this 1,000-item map with the same 21,812 crossings in 74 ms (Chromium), 85 ms (Firefox) and 86 ms (WebKitGTK).
+1,000 items and 1,900 links with no loops, Chromium 155, links crossing as drawn (re-measured 2026.11.07, Auto crossing search, which is the lighter one from 800 boxes up): Netflow Map 24,185 in 72 ms, dagre 23,965 in 9.0 s, ELK 22,602 in 2.1 s, so at this size Netflow Map draws 1 to 7 percent more crossings and is 30 to 126 times faster. At 400 items Netflow Map now draws 4,663 crossings against dagre's 5,374 and ELK's 5,313 (67 ms against 856 and 893), and at 200 items 969 against 1,746 and 1,338: on maps under 500 boxes it tries the harder untangling too and keeps the tidier picture (build 2026.11.01.0017; 82 ms at 400 items in Chromium, against 792 ms for dagre and 767 ms for ELK). The same counts come out in Firefox and WebKitGTK, and small maps get tidier too (200 items: 1,919 to 1,303 crossings). Build 2026.10.31.2021 added the deeper crossing search and the Fewest crossings row choice that do this. Since build 2026.10.31.2339 the Crossing search setting (Auto, Deeper, Lighter) picks how hard to look: Auto uses the deeper search below 800 boxes and the lighter one from there, which draws this 1,000-item map with the same 21,812 crossings in 74 ms (Chromium), 85 ms (Firefox) and 86 ms (WebKitGTK).
 
 ## Sankey view against d3-sankey
 
-1,500 items, whole build (Netflow Map / d3-sankey): Chromium 12 / 27 ms, Firefox 12 / 23 ms, WebKitGTK 13 / 25 ms. Long links are routed around other bars: 256 band pieces pass over a bar they do not belong to, against d3-sankey's 1,916. On maps of 1,000 items or more Netflow Map keeps at most 500 hidden stops and draws the lightest long links straight; smaller maps route every link (400 items: 5-9 ms against 8-12, with no band over another bar and 23% fewer crossings). Netflow Map also works out what flows from the start item and handles loops, which d3-sankey refuses.
+1,500 items, first draw on a fresh page, re-measured 2026.11.07 (Netflow Map / d3-sankey): Chromium 26 / 34 ms, Firefox 19 / 27 ms, WebKitGTK 32 / 33 ms. On small maps d3-sankey draws the first picture sooner (100 items: 3.3 against 9.2 ms in Chromium; 400 items: 8.4 against 11.6 ms) while Netflow Map tidies: at 100 items 381 crossings against 635 and no band over a bar against 62. Long links are routed around other bars: 256 band pieces pass over a bar they do not belong to, against d3-sankey's 1,916. On maps of 1,000 items or more Netflow Map keeps at most 500 hidden stops and draws the lightest long links straight; smaller maps route every link (400 items: no band over another bar against 393, and 5,574 crossings against 7,223). Netflow Map also works out what flows from the start item and handles loops, which d3-sankey refuses.
 
 ## Reading a 16 MB table against Papa Parse and d3-dsv
 
-563,563 rows, median of 4 rotated turns, build 2026.10.31.1948. Netflow Map is the fastest of the three in every browser: Chromium 169 / 212 / 254 ms (Netflow Map / Papa Parse / d3-dsv), Firefox 223 / 234 / 277 ms, WebKitGTK 110 / 149 / 125 ms. Before that build WebKitGTK took 575 ms, because splitting lines without quotes is slow there; they are now read character by character.
+563,563 rows, 16.4 MB. Netflow Map is the fastest of the three in every browser (re-measured 2026.11.07): Chromium 242 / 272 / 264 ms (Netflow Map / Papa Parse / d3-dsv), Firefox 266 / 327 / 300 ms, WebKitGTK 101 / 181 / 112 ms. Before that build WebKitGTK took 575 ms, because splitting lines without quotes is slow there; they are now read character by character.
 
 ## Memory to hold 100,000 items
 
