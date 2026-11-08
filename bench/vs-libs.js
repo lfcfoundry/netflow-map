@@ -96,7 +96,7 @@
   var centers = function (L) { var pos = {}; L.nodes.forEach(function (nd) { pos[nd.nodeId || nd.id] = [nd.x + nd.w / 2, nd.y + nd.h / 2]; }); return pos; };
   SUITES.vsFlow = async function (a) {   // a: { n, m, dagre, elk }
     var g = dag(a.n, a.m, a.n), out = { n: a.n, links: g.edges.length };
-    var dg = C.derive(clone(g)), r = T(function () { return E.build(dg, { view: 'flow', colorBy: 'group' }); });
+    var dg = C.derive(clone(g)), r = T(function () { return E.build(dg, Object.assign({ view: 'flow', colorBy: 'group', rows: 'best' }, a.opt || {})); });   /* rows 'best' is what the app sends by default (V.rows); without it the 1,000-item map drew 24,185 crossings instead of 21,812 */
     out.ours = { ms: r.ms, cross: crossings(centers(r.value), g.edges), drawn: polyCross(oursPolys(r.value)) };
     if (a.dagre !== false) { var dpol = []; var r2 = T(function () { var gr = new LIBS.dagre.graphlib.Graph(); gr.setGraph({ rankdir: 'LR', nodesep: 14, ranksep: 90 }); gr.setDefaultEdgeLabel(function () { return {}; }); g.nodes.forEach(function (x) { gr.setNode(x.id, { width: 176, height: 56 }); }); g.edges.forEach(function (e) { gr.setEdge(e.from, e.to); }); LIBS.dagre.layout(gr); var p = {}; gr.nodes().forEach(function (id) { var q = gr.node(id); p[id] = [q.x, q.y]; }); dpol = gr.edges().map(function (ed) { return [ed.v, ed.w, [p[ed.v]].concat(gr.edge(ed).points.map(function (q) { return [q.x, q.y]; }), [p[ed.w]])]; }); return p; });
       out.dagre = { ms: r2.ms, cross: crossings(r2.value, g.edges), drawn: polyCross(dpol) }; }

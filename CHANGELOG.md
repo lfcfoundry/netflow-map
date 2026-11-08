@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 8
 
+- Corrected the public page and README for the Flow view at 1,000 items. Netflow Map draws 21,812 crossings, which is 3.5 percent fewer than ELK (22,602) and 9 percent fewer than dagre (23,965), in about 100 to 126 ms. An earlier refresh (2026.11.07) had measured without the app's default row setting and wrongly said Netflow Map drew 1 to 7 percent more.
 - 2026.11.08.0030: The first Map opens sooner. In an idle moment after start the page already runs its quick test of the drawing paths and keeps the test's WebGL 2 canvas for the map to use, so the browser builds one drawing context instead of two. Opening a 100-item Flow map on a fresh page after idle: Chromium 0.72 and Firefox 0.80 of the old time, WebKitGTK level (0.99, within 5 percent). Pictures are the same. All checks at baseline in 3 browsers.
 
 ## November 7
