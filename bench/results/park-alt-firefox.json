@@ -1,17 +1,17 @@
 {
  "version": "firefox/158.0",
- "reps": 9,
+ "reps": 31,
  "edges": 59999,
  "rows": [
   {
    "k": "park",
-   "old": 99,
-   "nw": 101
+   "old": 65,
+   "nw": 66
   },
   {
    "k": "first",
-   "old": 5,
-   "nw": 4
+   "old": 2,
+   "nw": 2
   },
   {
    "k": "same",
@@ -20,18 +20,18 @@
   },
   {
    "k": "other",
-   "old": 2,
-   "nw": 2
+   "old": 1,
+   "nw": 1
   },
   {
    "k": "wake",
-   "old": 58,
-   "nw": 59
+   "old": 41,
+   "nw": 38
   },
   {
    "k": "bytes",
-   "old": 85285,
-   "nw": 85285
+   "old": 85336,
+   "nw": 85336
   }
  ]
 }
