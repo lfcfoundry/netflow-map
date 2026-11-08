@@ -8,7 +8,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var DEFAULT_ONLY = '';   /* the links-only file is this page with 'links' here, so a phone needs no address suffix */
   var params = new URLSearchParams(location.search); if (DEFAULT_ONLY && !params.has('only')) params.set('only', DEFAULT_ONLY);
-  var QUICK = params.has('quick');
+  var QUICK = params.has('quick') || !!window.__NFM_APP_B64;   /* the phone build is quick by default */
   var VERSION = '__VERSION__', EDGE = 130;
   var yieldUI = function () { return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); }); };
   var sections = [], total = 0, doneSteps = 0, running = false, t0Run = 0;
@@ -582,7 +582,7 @@
     if (hr.length) { L.push(mdTable(['Picture', 'What you did', 'Frames', 'FPS', 'Typical gap (ms)', 'Slowest 1 in 20 (ms)', 'Slowest (ms)', 'Frames over 34 ms', 'Our work per frame, typical (ms)', 'Our work per frame, worst (ms)'], hr)); L.push('_A gap is the time between two screen refreshes while you did that; 17 ms is a steady 60 FPS. "Our work per frame" is the page\'s own time (new angle plus drawing commands); if it is small while the gap is large, the wait is the graphics card or the browser._', ''); }
     else L.push('_Not tried yet. Drag and scroll the turning picture for a few seconds, then press Download again._', '');
     var hs = handsSummary(); hs.lines.forEach(function (t) { L.push('_' + t + '_', ''); });
-    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, turn: ctx.turn || null, split: ctx.split || null, small: ctx.small || null, hands: handsSummary().data, steady: steadyLog, deviceClosedBeforeDrawing: !!ctx.devClosed }, null, 1), '```', '');
+    L.push('## Raw data', '', '```json', JSON.stringify({ version: VERSION, quick: QUICK, info: ctx.info, correct: ctx.correct || null, ladder: ctx.ladder || null, kernels: ctx.kernels || null, groups: ctx.groups || null, cold: ctx.cold || null, turn: ctx.turn || null, split: ctx.split || null, small: ctx.small || null, hands: handsSummary().data, steady: steadyLog, phone: ctx.phone || null, deviceClosedBeforeDrawing: !!ctx.devClosed }, null, 1), '```', '');
     return L.join('\n');
   }
   function offerResults(md, elapsed) {
@@ -594,6 +594,7 @@
     $('cp').onclick = function () { md = buildMd(elapsed); if (window.__NFM_TESTER_RESULT) window.__NFM_TESTER_RESULT.md = md; if (navigator.clipboard) navigator.clipboard.writeText(md).then(function () { $('cp').textContent = 'Copied'; }, function () { $('cp').textContent = 'Copy blocked'; }); };
     window.__NFM_TESTER_RESULT = { md: md, sections: sections.map(function (s) { return { title: s.title, level: s.level, verdict: s.verdict }; }), ctx: ctx };
   }
+  window.__NFM_TESTER_HOOK = { STEPS: STEPS, addSection: addSection, ctx: ctx, yieldUI: yieldUI, now: now, r1: r1, setStatus: setStatus };
   async function runAll() {
     if (running) return; running = true; sections = []; $('out').innerHTML = ''; $('done').style.display = 'none'; $('show').style.display = 'none'; $('show').innerHTML = '<h2>The 3D map, turning</h2>'; previews.length = 0; hands = {}; document.querySelector('main').classList.remove('fin'); doneSteps = 0; if (params.get('only')) { var keep = STEPS.filter(function (x) { return x.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }); if (keep.length) { STEPS.length = 0; keep.forEach(function (x) { STEPS.push(x); }); } } total = STEPS.length; setBar(); t0Run = now(); startClock();
     delete ctx.gpuLine;
