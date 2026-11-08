@@ -221,13 +221,21 @@ var NFMRender = (function () {
 
   /* ---------------------------------------------------------------- host: two stacked canvases */
   function newCanvas() { return typeof document !== 'undefined' ? document.createElement('canvas') : new OffscreenCanvas(1, 1); }
-  function makeHost(host, cpu) {
+  /* A spare canvas whose WebGL 2 context the page's idle start test already built and checked with the same settings the drawing uses (see probe.js, spareTest). The next WebGL 2 renderer adopts it instead of making a new one, so the browser's first-context cost is paid once. Used at most once; a lost context is never adopted. */
+  var spare = null;
+  function setSpare(c) { spare = c || null; }
+  function takeSpare() {
+    var c = spare; spare = null;
+    try { if (c && c.__nfmGL && !c.__nfmGL.isContextLost()) return c; } catch (e) { /* gone */ }
+    return null;
+  }
+  function makeHost(host, cpu, adopt) {
     if (!host || host.offscreen) {   /* in a worker (no page): two off-screen canvases, nothing to put on a page */
       var oa = new OffscreenCanvas(1, 1), ob = new OffscreenCanvas(1, 1);
       return { main: oa, over: ob, ctx2: ob.getContext('2d', cpu ? { willReadFrequently: true } : undefined) };
     }
     host.textContent = '';
-    var a = document.createElement('canvas'), b = document.createElement('canvas');
+    var a = adopt || document.createElement('canvas'), b = document.createElement('canvas');
     [a, b].forEach(function (c) { c.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;display:block;touch-action:none'; });
     a.setAttribute('aria-hidden', 'true'); b.setAttribute('aria-hidden', 'true'); b.style.pointerEvents = 'none';
     host.appendChild(a); host.appendChild(b);
@@ -413,7 +421,7 @@ var NFMRender = (function () {
     return p;
   }
   function createWebGL2(host, hooks) {
-    var H = makeHost(host), gl = H.main.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
+    var sp = (host && !host.offscreen) ? takeSpare() : null, H = makeHost(host, false, sp), gl = H.main.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
     if (!gl) throw new Error('no WebGL2');
     var lost = false, destroyed = false;
     /* destroy() loses the context on purpose; that late event must not tell the manager the graphics were lost (it would tear down the renderer that replaced this one, and three of them in a minute switch WebGL 2 off) */
@@ -854,6 +862,6 @@ var NFMRender = (function () {
     return this.start().catch(function (err) { self.log.push('start failed: ' + (err && err.message)); return self.rescue(); });
   };
 
-  return { setFont: function (f) { if (typeof f === 'string' && f.length < 300) labelFamily = f; }, Manager: Manager, setWebGPUDrawing: function (on) { webgpuDrawing = !!on; }, webgpuDrawing: function () { return webgpuDrawing; }, tessellate: tessellate, drawLabels: drawLabels, createCanvas2D: createCanvas2D, createWebGL2: createWebGL2, createWebGPU: createWebGPU, copyViaCanvas: copyViaCanvas };
+  return { setSpare: setSpare, setFont: function (f) { if (typeof f === 'string' && f.length < 300) labelFamily = f; }, Manager: Manager, setWebGPUDrawing: function (on) { webgpuDrawing = !!on; }, webgpuDrawing: function () { return webgpuDrawing; }, tessellate: tessellate, drawLabels: drawLabels, createCanvas2D: createCanvas2D, createWebGL2: createWebGL2, createWebGPU: createWebGPU, copyViaCanvas: copyViaCanvas };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMRender;

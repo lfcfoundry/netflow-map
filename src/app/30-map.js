@@ -409,7 +409,7 @@ function startRenderer() {
   mgrStarting = true;
   mgr = new NFMRender.Manager(host, { onChange: attach, onRebuilt: function (r) { toast('The graphics were reset; the map is back.'); attach(r); }, onStepDown: function () { toast('Graphics kept failing, so I switched to a safer way of drawing.'); } });
   mgr.choice = S.method && S.method !== 'webgpu' ? S.method : 'auto';   /* a saved WebGPU choice from an older version means Automatic now */
-  var ready = S.canary ? Promise.resolve(S.canary) : NFMProbe.canary();
+  var ready = S.canary ? Promise.resolve(S.canary) : (S.canaryP || NFMProbe.canary());
   ready.then(function (c) {
     S.canary = c;
     mgr.canary = { canvas2d: { ok: true }, webgl2: { ok: c.webgl2.ok && !c.webgl2.software }, webgpu: { ok: c.webgpu.ok && !c.webgpu.software } };

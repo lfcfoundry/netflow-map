@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Developer notes, in t
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 and WebKitGTK 2.52.6. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## November 8
+
+- 2026.11.08.0030: The first Map opens sooner. In an idle moment after start the page already runs its quick test of the drawing paths and keeps the test's WebGL 2 canvas for the map to use, so the browser builds one drawing context instead of two. Opening a 100-item Flow map on a fresh page after idle: Chromium 0.72 and Firefox 0.80 of the old time, WebKitGTK level (0.99, within 5 percent). Pictures are the same. All checks at baseline in 3 browsers.
+
 ## November 7
 
 - 2026.11.07.2250: Module code updated: netflow-scene 1.11.0, netflow-plot 2.14.9 and netflow-sankey 2.13.0. On the Charts tab, a dot plot now shows each value beside its dot, biggest first, and long line-chart names wrap or sit in one column. Saved SVG files are smaller and a 20,000-dot scatter saved as SVG draws about 2 times faster (a straight line piece is written as a plain line). Pictures compared before and after in light and dark in 3 browsers: every Charts tab type and map view matches 99.5 percent or better except dot plots, which change on purpose (96.5 to 99.2 percent). Page start-up level (0.99 to 1.06 old over new). All checks at baseline in 3 browsers.
