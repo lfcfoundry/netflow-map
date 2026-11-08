@@ -67,8 +67,8 @@ function buildMapUI() {
   bindKeyDrag();
 }
 function railMode() { var u = $('ui'); if (u) u.dataset.rail = !RAIL.open ? 'closed' : RAIL.peek ? 'peek' : 'open'; }
-function setPeek(on) { RAIL.peek = on; railMode(); var r = $('rail'); r.classList.toggle('peek', on); var b = $('peekbtn'); if (b) b.textContent = on ? '⌃' : '⌄'; if (!on) renderRail(true); }
-function setRail(on) { RAIL.open = on; railMode(); $('rail').classList.toggle('closed', !on); if (S.scene) { var v = freeBoxChanged(); } renderKey(); }
+function setPeek(on) { RAIL.peek = on; if (on && RAIL.stale) renderRail(true); railMode(); var r = $('rail'); r.classList.toggle('peek', on); var b = $('peekbtn'); if (b) b.textContent = on ? '⌃' : '⌄'; if (!on) renderRail(true); }
+function setRail(on) { RAIL.open = on; railMode(); $('rail').classList.toggle('closed', !on); if (on && RAIL.stale) renderRail(true); if (S.scene) { var v = freeBoxChanged(); } renderKey(); }
 function freeBoxChanged() { return null; }
 function setTool(t) { S.tool = t; Array.prototype.forEach.call(document.querySelectorAll('#tools button'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.tool === t)); }); stage.classList.toggle('pick', t !== 'hand'); }
 function railTab(t) {
@@ -194,6 +194,8 @@ function slider(label, v, min, max, step, onin, fmtv) {
 }
 function renderRail(force) {
   var body = $('railbody'); if (!body) return;
+  if (!RAIL.open && !RAIL.peek && !force) { RAIL.stale = true; return; }   /* a closed rail (phones, narrow tablets) is built when it is opened, not on every first draw */
+  RAIL.stale = false;
   var ae = document.activeElement;
   if (!force && ae && body.contains(ae) && /^(INPUT|TEXTAREA)$/.test(ae.tagName) && ae.type !== 'checkbox') return;
   if (!S.graph.nodes.length) { mount(body, h('p', { class: 'muted' }, 'Bring in data on the Data tab, then the controls appear here.')); return; }
