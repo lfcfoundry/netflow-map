@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 7
 
+- 2026.11.07.2119: Module code updated: netflow-scene 1.10.5, netflow-hierarchy 1.5.1 and lfc-pack 0.6.2. Pictures compared before and after in light and dark in 3 browsers: Charts tab all identical, nested and round map views at most 0.10 percent of pixels different. Full 3-browser test run at baseline.
 - 2026.11.07.1959: Module code updated: netflow-plot 2.14.6, netflow-scene 1.10.3, netflow-hierarchy 1.5.0 and netflow-circular 1.3.0 (treemap and chord honor width and height), memory-compression 2.13.0 and lfc-pack 0.6.1. Pictures compared before and after in light and dark in 3 browsers: Charts tab all identical, nested and round map views at most 0.10 percent of pixels different. Full 3-browser test run at baseline.
 - Web page and README race numbers refreshed from a clean run on 2026.11.07 (Chromium 155, Firefox 158, WebKitGTK 2.52.6). Two claims changed: at 1,000 items the Flow view now draws 1 to 7 percent more crossings than dagre and ELK (still 30 to 126 times faster; the Auto setting uses the lighter search from 800 boxes), and the Sankey view is faster than d3-sankey at 1,500 items (1.0 to 1.4 times) but slower on the very first draw at 100 and 400 items.
 - 2026.11.07.1927: The layout engine starts about 3 ms sooner in Chromium (1 ms in Firefox): a 4,000-number self-check now runs the first time it is needed, not at every engine start. The page and every helper thread started it. Same pictures.
