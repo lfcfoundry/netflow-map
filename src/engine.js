@@ -1369,18 +1369,20 @@ var NFMEngine = (function () {
   }
   /* Used only where it gives exactly this browser's own Math.hypot (V8 does; Firefox and WebKit work hypot out another way, so they keep
    * Math.hypot and their pictures stay exactly as before). Checked once on 4,000 pairs of every size. */
-  var HYP_SAME = (function () {
+  var HYP_SAME = null;   /* worked out on first use (fitScale), not at load: the 4,000-pair check took about 2 ms of every engine start, in the page and in each helper thread */
+  var hypSame = function () { return HYP_SAME === null ? (HYP_SAME = hypCheck()) : HYP_SAME; };
+  function hypCheck() {
     var s = 0x2545f491, r = function () { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; };
     for (var i = 0; i < 4000; i++) { var a = (r() - 0.5) * Math.pow(10, (i % 9) - 2), b = (r() - 0.5) * Math.pow(10, ((i * 7) % 9) - 2); if (hyp2(a, b) !== Math.hypot(a, b)) return false; }
     return true;
-  })();
+  }
   function fitScale(X, k, off, nbr, EDGE) {
-    var dist = new Int32Array(k), queue = new Int32Array(k), num = 0, den = 0, ns = Math.min(8, k), s, t;
+    var dist = new Int32Array(k), queue = new Int32Array(k), num = 0, den = 0, ns = Math.min(8, k), s, t, hs = hypSame();
     for (s = 0; s < ns; s++) {
       var src = Math.floor(s * k / ns); dist.fill(-1); dist[src] = 0; queue[0] = src;
       var h = 0, tl = 1;
       while (h < tl) { var u = queue[h++]; for (var e = off[u]; e < off[u + 1]; e++) { var w = nbr[e]; if (dist[w] < 0) { dist[w] = dist[u] + 1; queue[tl++] = w; } } }
-      for (t = 0; t < k; t += 3) if (t !== src && dist[t] > 0) { var dx0 = X[2 * src] - X[2 * t], dy0 = X[2 * src + 1] - X[2 * t + 1], ex = (HYP_SAME ? hyp2(dx0, dy0) : Math.hypot(dx0, dy0)) / (dist[t] * EDGE); num += ex; den += ex * ex; }
+      for (t = 0; t < k; t += 3) if (t !== src && dist[t] > 0) { var dx0 = X[2 * src] - X[2 * t], dy0 = X[2 * src + 1] - X[2 * t + 1], ex = (hs ? hyp2(dx0, dy0) : Math.hypot(dx0, dy0)) / (dist[t] * EDGE); num += ex; den += ex * ex; }
     }
     return den > 0 && num > 0 ? num / den : 1;
   }

@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 7
 
+- 2026.11.07.1927: The layout engine starts about 3 ms sooner in Chromium (1 ms in Firefox): a 4,000-number self-check now runs the first time it is needed, not at every engine start. The page and every helper thread started it. Same pictures.
 - 2026.11.07.1853: Chart and scene code updated (netflow-plot 2.14.5, netflow-scene 1.10.1: fewer small objects when drawing a chart, rounding fix in saved chart pictures). The Charts tab pictures were compared before and after in light and dark, 8 chart types, 3 browsers: all 48 identical.
 - 2026.11.07.1623: The first Sankey after another view opens sooner. While the background engine is idle it already draws one small made-up Sankey, so the first real one skips the browser's warm-up (100 items: Chromium 24 to 12 ms, Firefox 16 to 9 ms, WebKitGTK 52 to 37 ms, same picture to the digit).
 - 2026.11.07.1554: Chart code updated again (netflow-plot 2.14.4: one unit per number axis, treemaps sized by their size column, close averages drawn as dots). The Charts tab pictures were compared before and after in light and dark, eight chart types, three browsers: no pixel changed.
