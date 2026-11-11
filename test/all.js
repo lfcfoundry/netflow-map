@@ -48,12 +48,20 @@ if (changedArg && changedList) {   /* the browser test's blocks for the same cha
 }
 const weight = (f) => (f.startsWith('fuzz') ? 1000 : f.startsWith('oracle') ? 500 : f.startsWith('stress-wasm') ? 100 : f.startsWith('engine-fixes') ? 90 : f.startsWith('tune') ? 8 : f.startsWith('card') ? 7 : f.startsWith('layout') ? 6 : f.startsWith('force-wasm') ? 5 : f.startsWith('archive') ? 4 : 1);   /* longest first (seconds, everyday run) so no long test starts last */
 files.sort((a, b) => weight(b) - weight(a));
-const T0 = Date.now(); let next = 0, active = 0, fails = 0; const lanes = Math.max(1, Math.min(os.cpus().length, 4));
+const T0 = Date.now(); let next = 0, active = 0, fails = 0; const lanes = Math.max(1, Math.min(os.cpus().length || (os.availableParallelism ? os.availableParallelism() : 1), 4));   /* some Android builds report no CPUs from os.cpus() */
 const run = (f) => new Promise((res) => {
   const t = Date.now(), args = ['--expose-gc', path.join(__dirname, f)]; if (f.startsWith('fuzz')) args.push(full ? '90' : '4');
   const p = spawn(process.execPath, args, { cwd: path.join(__dirname, '..'), env: full ? Object.assign({}, process.env, { NFM_FULL: '1' }) : process.env }); let out = '';
   p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { out += d; });
-  p.on('close', (code) => { const s = ((Date.now() - t) / 1000).toFixed(1).padStart(5); console.log((code === 0 ? 'ok   ' : 'FAIL ') + f.padEnd(22) + s + ' s'); if (code !== 0) { fails++; console.log(out.split('\n').slice(-12).join('\n')); } res(); });
+  /* a test that never ends is a failure with its last output, not a silent stall: after NFM_TEST_TIMEOUT_S seconds (default 900) the child is
+     killed and reported; a child that cannot start reports its error; 'exit' without 'close' (a grandchild holding the pipes) is reported too */
+  let settled = false, exitInfo = null;
+  const end = (code, why) => { if (settled) return; settled = true; clearTimeout(timer); const s = ((Date.now() - t) / 1000).toFixed(1).padStart(5); console.log((code === 0 ? 'ok   ' : 'FAIL ') + f.padEnd(22) + s + ' s' + (why ? ' (' + why + ')' : '')); if (code !== 0) { fails++; console.log(out.split('\n').slice(-12).join('\n')); } res(); };
+  const limit = (+process.env.NFM_TEST_TIMEOUT_S || 900) * 1000;
+  const timer = setTimeout(() => { const why = 'timed out after ' + limit / 1000 + ' s, pid ' + p.pid + (exitInfo ? ', exited ' + exitInfo + ' but its output pipes stayed open' : ', still running'); try { p.kill('SIGKILL'); } catch (e) { /* gone */ } end(1, why); }, limit);
+  p.on('error', (e) => end(1, 'could not run: ' + e.message));
+  p.on('exit', (code, sig) => { exitInfo = sig ? 'by ' + sig : 'with code ' + code; });
+  p.on('close', (code) => end(code, null));
 });
 const pump = () => { if (next >= files.length) return active === 0 ? finish() : null; while (active < lanes && next < files.length) { active++; run(files[next++]).then(() => { active--; pump(); }); } };
 const finish = () => { console.log(`${fails ? fails + ' FAILED' : 'all Node tests passed'} (${files.length} files, ${lanes} at a time, ${((Date.now() - T0) / 1000).toFixed(1)} s)`); process.exitCode = fails ? 1 : 0; };
