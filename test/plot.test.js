@@ -52,5 +52,24 @@ ok(Math.abs(sum - tot) < 1e-6 * tot || !sb.marks.some((m) => m.v !== undefined),
 const tk = P.ticks(0, 97, 6); ok(tk.lo <= 0 && tk.hi >= 97 && tk.list.length >= 3, 'ticks cover the range');
 const d = P.kde([1, 2, 3, 4, 5], 0, 6, 61, 0.8); let area = 0; for (let i = 0; i < 61; i++) area += d[i] * 0.1; ok(Math.abs(area - 1) < 0.05, 'density sums to one: ' + area.toFixed(3));
 ok(Math.abs(P.normInv(0.975) - 1.95996) < 1e-3, 'normal quantile');
+/* Four current-source edge cases, kept separate so each failure is identifiable. */
+{
+  const s = P.make([{ x: 'a\0b', c: 'c', v: 1 }, { x: 'a', c: 'b\0c', v: 10 }], { type: 'bar', x: 'x', y: 'v', color: 'c', stack: 'group' }, { width: 600, height: 400 }, global.NetflowScene);
+  ok(s.marks.length === 2 && s.marks.every((m) => m.rows.length === 1), 'NUL in grouped names keeps cells separate');
+}
+{
+  const s = P.make([{ cat: 'Other', v: 100 }, { cat: 'A', v: 90 }, { cat: 'B', v: 80 }, { cat: 'C', v: 70 }], { type: 'bar', x: 'cat', y: 'v', top: 2 }, { width: 600, height: 400 }, global.NetflowScene);
+  ok(s.marks.some((m) => m.rows.length === 1 && m.rows[0] === 0), 'real Other remains separate from top-N overflow');
+  ok(s.marks.some((m) => m.rows.length === 2 && m.rows.includes(2) && m.rows.includes(3)), 'top-N overflow has the two remaining rows');
+}
+{
+  const svg = P.toSvg([{ cat: 'A\u0001B', v: 2 }], { type: 'bar', x: 'cat', y: 'v', title: 'T\u0002' });
+  ok(!/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(svg), 'SVG omits XML-invalid controls');
+}
+{
+  const s = P.make([{ cat: 'large', v: 1000000 }, { cat: 'tiny', v: 1 }], { type: 'donut', x: 'cat', y: 'v' }, { width: 600, height: 400 }, global.NetflowScene);
+  const tiny = s.marks.find((m) => m.rows[0] === 1);
+  ok(tiny && tiny.wedge[5] > tiny.wedge[4], 'tiny positive donut share has a positive angle');
+}
 console.log(fails ? fails + ' of ' + checks + ' checks failed' : checks + ' checks passed');
 process.exit(fails ? 1 : 0);

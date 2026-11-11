@@ -1,0 +1,40 @@
+{"section":"bar","case":"real-only","version":"baseline","marks":[{"name":"Other: 100","rows":[0]},{"name":"A: 90","rows":[1]}],"distinctCoverage":2,"rows":2}
+{"section":"bar","case":"real-only","version":"candidate","marks":[{"name":"Other: 100","rows":[0]},{"name":"A: 90","rows":[1]}],"distinctCoverage":2,"rows":2}
+{"section":"bar","case":"both-top-ranked","version":"baseline","marks":[{"name":"A: 90","rows":[1]},{"name":"Others, average: 83.3","rows":[0,2,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"both-top-ranked","version":"candidate","marks":[{"name":"Other (category): 100","rows":[0]},{"name":"A: 90","rows":[1]},{"name":"Others, average: 75","rows":[2,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"both-real-low-ranked","version":"baseline","marks":[{"name":"A: 100","rows":[1]},{"name":"B: 90","rows":[2]},{"name":"Others, average: 40.5","rows":[0,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"both-real-low-ranked","version":"candidate","marks":[{"name":"A: 100","rows":[1]},{"name":"B: 90","rows":[2]},{"name":"Others, average: 40.5","rows":[0,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"top-one","version":"baseline","marks":[{"name":"Others, average: 85","rows":[0,1,2,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"top-one","version":"candidate","marks":[{"name":"Other (category): 100","rows":[0]},{"name":"Others, average: 80","rows":[1,2,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"top-three","version":"baseline","marks":[{"name":"Other: 100","rows":[0]},{"name":"A: 90","rows":[1]},{"name":"B: 80","rows":[2]},{"name":"C: 70","rows":[3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"top-three","version":"candidate","marks":[{"name":"Other: 100","rows":[0]},{"name":"A: 90","rows":[1]},{"name":"B: 80","rows":[2]},{"name":"C: 70","rows":[3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"top-four-no-overflow","version":"baseline","marks":[{"name":"Other: 100","rows":[0]},{"name":"A: 90","rows":[1]},{"name":"B: 80","rows":[2]},{"name":"C: 70","rows":[3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"top-four-no-overflow","version":"candidate","marks":[{"name":"Other: 100","rows":[0]},{"name":"A: 90","rows":[1]},{"name":"B: 80","rows":[2]},{"name":"C: 70","rows":[3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"overflow-without-real","version":"baseline","marks":[{"name":"A: 100","rows":[0]},{"name":"B: 90","rows":[1]},{"name":"Others, average: 75","rows":[2,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"overflow-without-real","version":"candidate","marks":[{"name":"A: 100","rows":[0]},{"name":"B: 90","rows":[1]},{"name":"Others, average: 75","rows":[2,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"empty-and-missing","version":"baseline","marks":[{"name":"(blank): 170","rows":[1,2]},{"name":"Other: 100","rows":[0]},{"name":"C: 70","rows":[3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"empty-and-missing","version":"candidate","marks":[{"name":"(blank): 170","rows":[1,2]},{"name":"Other: 100","rows":[0]},{"name":"C: 70","rows":[3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"real-other-and-others","version":"baseline","marks":[{"name":"Others: 90","rows":[1]},{"name":"Others, average: 83.3","rows":[0,2,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"real-other-and-others","version":"candidate","marks":[{"name":"Other (category): 100","rows":[0]},{"name":"Others: 90","rows":[1]},{"name":"Others, average: 75","rows":[2,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"grouped","version":"baseline","marks":[{"name":"A · red: 90","rows":[1]},{"name":"Others, average · red: 100","rows":[0]},{"name":"Others, average · blue: 75","rows":[2,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"grouped","version":"candidate","marks":[{"name":"Other (category) · red: 100","rows":[0]},{"name":"A · red: 90","rows":[1]},{"name":"Others, average · blue: 75","rows":[2,3]}],"distinctCoverage":4,"rows":4}
+{"section":"bar","case":"count-other-and-others","version":"baseline","marks":[{"name":"Others: 5","rows":[0,1,2,5,6]},{"name":"Others: 5","rows":[0,1,2,5,6]}],"distinctCoverage":5,"rows":7}
+{"section":"bar","case":"count-other-and-others","version":"candidate","marks":[{"name":"Other (category): 3","rows":[0,1,2]},{"name":"Others: 2","rows":[5,6]},{"name":"Others: 2","rows":[5,6]}],"distinctCoverage":5,"rows":7}
+{"section":"nul","version":"baseline","marks":[{"name":"a · b\u0000c: 10","rows":[1]},{"name":"a\u0000b · c: 1","rows":[0]}]}
+{"section":"nul","version":"candidate","marks":[{"name":"a · b\u0000c: 10","rows":[1]},{"name":"a\u0000b · c: 1","rows":[0]}]}
+{"section":"svg","version":"baseline","file":"svg-baseline.svg","hasValidSupplementary":true,"hasEscapedInvalid":false}
+{"section":"svg","version":"candidate","file":"svg-candidate.svg","hasValidSupplementary":true,"hasEscapedInvalid":true}
+{"section":"donut","version":"baseline","big":1000,"angle":0.00027690839878058426,"polyCount":15,"rawArea":1.5527416885288403,"roundedArea":1.6379999999971915}
+{"section":"donut","version":"baseline","big":1000000,"angle":-0.005993716820976047,"polyCount":14,"rawArea":2394.472896423489,"roundedArea":2394.3691}
+{"section":"donut","version":"baseline","big":1000000000,"angle":-0.0059999937168147,"polyCount":14,"rawArea":2394.5080539743813,"roundedArea":2394.3601500000004}
+{"section":"donut","version":"baseline","big":1000000000000,"angle":-0.005999999993717253,"polyCount":14,"rawArea":2394.5080891319685,"roundedArea":2394.3601500000004}
+{"section":"donut","version":"baseline","big":10000000000000000,"angle":-0.005999999999999339,"polyCount":14,"rawArea":2394.5080891671587,"roundedArea":2394.3601500000004}
+{"section":"donut","version":"baseline","big":100000000000000000000,"angle":-0.006000000000000227,"polyCount":14,"rawArea":2394.5080891671587,"roundedArea":2394.3601500000004}
+{"section":"donut-controls","version":"baseline","zeroMarks":["large: 100 (100.0%)"],"manyMarks":["large: 1M (100.0%)","tiny0: 1 (0.0%)","tiny1: 1 (0.0%)","tiny2: 1 (0.0%)","tiny3: 1 (0.0%)","tiny4: 1 (0.0%)","tiny5: 1 (0.0%)","tiny6: 1 (0.0%)","tiny7: 1 (0.0%)","tiny8: 1 (0.0%)","tiny9: 1 (0.0%)","tiny10: 1 (0.0%)"],"manyPolys":14}
+{"section":"donut","version":"candidate","big":1000,"angle":0.00027690839878058426,"polyCount":15,"rawArea":1.5527416885288403,"roundedArea":1.6379999999971915}
+{"section":"donut","version":"candidate","big":1000000,"angle":1.000000082740371e-9,"polyCount":15,"rawArea":0.000005607420462183654,"roundedArea":0}
+{"section":"donut","version":"candidate","big":1000000000,"angle":1.000000082740371e-9,"polyCount":15,"rawArea":0.000005607424100162461,"roundedArea":0}
+{"section":"donut","version":"candidate","big":1000000000000,"angle":6.282974140958686e-12,"polyCount":15,"rawArea":3.52283677784726e-8,"roundedArea":0}
+{"section":"donut","version":"candidate","big":10000000000000000,"angle":8.881784197001252e-16,"polyCount":15,"rawArea":5.4569682106375694e-12,"roundedArea":0}
+{"section":"donut","version":"candidate","big":100000000000000000000,"angle":0,"polyCount":14,"rawArea":2428.114182314519,"roundedArea":2428.074999999999}
+{"section":"donut-controls","version":"candidate","zeroMarks":["large: 100 (100.0%)"],"manyMarks":["large: 1M (100.0%)","tiny0: 1 (0.0%)","tiny1: 1 (0.0%)","tiny2: 1 (0.0%)","tiny3: 1 (0.0%)","tiny4: 1 (0.0%)","tiny5: 1 (0.0%)","tiny6: 1 (0.0%)","tiny7: 1 (0.0%)","tiny8: 1 (0.0%)","tiny9: 1 (0.0%)","tiny10: 1 (0.0%)"],"manyPolys":25}
