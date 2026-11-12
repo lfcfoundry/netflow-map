@@ -203,7 +203,7 @@ var SAFE = (function () {
         LS.set(BIG[k], JSON.stringify({ seq: n, size: text.length }));
         var me = flying = { k: k, text: text, n: n };
         if (going) spill(me);   /* the page is going away: a sure copy too, moved over at the next start */
-        tx('readwrite', function (st) { st.put({ seq: n, text: text }, k); }).then(function () {
+        tx('readwrite', function (st) { st.put({ seq: n, text: text }, k); st.delete(k + '-delta'); }).then(function () {
           if (flying === me) flying = null;
           if (LS.get(k) !== null && +(LS.get('nfm-seq:' + k) || 0) <= n) { LS.del(k); LS.del('nfm-seq:' + k); }   /* an older or spilled copy is not needed now */
         }, function () { if (flying === me) flying = null; spill(me); });   /* IndexedDB refused it: localStorage, as before */
@@ -219,9 +219,20 @@ var SAFE = (function () {
       if (!BIG[k] || !idbOK) return Promise.resolve(false);
       var n = next(); LS.del(k); LS.del('nfm-seq:' + k);
       LS.set(BIG[k], JSON.stringify({ seq: n, size: u8.length, packed: 1 }));
-      return tx('readwrite', function (st) { st.put({ seq: n, packed: u8 }, k); }).then(function () { return true; }, function () { LS.del(BIG[k]); return false; });
+      return tx('readwrite', function (st) { st.put({ seq: n, packed: u8 }, k); st.delete(k + '-delta'); }).then(function () { return n; }, function () { LS.del(BIG[k]); return false; });   /* resolves to the save number; a patch kept for an older full save goes */
     },
-    del: function (k) { if (TWIN) return; LS.del(k); LS.del('nfm-seq:' + k); if (BIG[k]) LS.del(BIG[k]); tx('readwrite', function (st) { st.delete(k); }).catch(function () { /* none */ }); },
+    /** Keeps a patch (LfcPack delta bytes) against the full save numbered baseSeq, next to it, and tells the marker. Resolves true when kept. */
+    setDelta: function (k, u8, baseSeq) {
+      if (TWIN) return Promise.resolve(true);
+      if (!BIG[k] || !idbOK) return Promise.resolve(false);
+      var n = next();
+      return tx('readwrite', function (st) { st.put({ seq: n, baseSeq: baseSeq, delta: u8 }, k + '-delta'); }).then(function () {
+        var m = null; try { m = JSON.parse(LS.get(BIG[k]) || 'null'); } catch (e) { m = null; }
+        if (!m || m.seq !== baseSeq) return 'stale';   /* a newer full save came meanwhile: this patch is not for it */
+        m.delta = n; LS.set(BIG[k], JSON.stringify(m)); return true;
+      }, function () { return false; });
+    },
+    del: function (k) { if (TWIN) return; LS.del(k); LS.del('nfm-seq:' + k); if (BIG[k]) LS.del(BIG[k]); tx('readwrite', function (st) { st.delete(k); if (BIG[k]) st.delete(k + '-delta'); }).catch(function () { /* none */ }); },
     /** Puts a safe copy back: into localStorage, or for the map, nowhere (IndexedDB already holds it) once IndexedDB works. */
     repair: function (k, r) { if (BIG[k] && idbOK) { LS.set(BIG[k], JSON.stringify({ seq: r.seq, size: r.text.length })); return; } LS.set(k, r.text); LS.set('nfm-seq:' + k, String(r.seq)); },
     /** The safe copy of key k ({ seq, text }) when it is newer than localStorage's, else null. */
@@ -233,7 +244,7 @@ var SAFE = (function () {
       }, function () { return null; });
     },
     /** The IndexedDB copy of key k ({ seq, text }) or null. */
-    read: function (k) { return tx('readonly', function (st) { return st.get(k); }).then(function (r) { if (r && r.seq) seq = Math.max(seq, r.seq); return r && (typeof r.text === 'string' || r.packed) ? r : null; }, function () { return null; }); },
+    read: function (k) { return tx('readonly', function (st) { return st.get(k); }).then(function (r) { if (r && r.seq) seq = Math.max(seq, r.seq); return r && (typeof r.text === 'string' || r.packed || r.delta) ? r : null; }, function () { return null; }); },
     /** True while the page is going away (flushSaves): the map is also written to localStorage then. */
     going: function (v) { going = !!v; if (going && flying) spill(flying); },   /* a map save still on its way to IndexedDB goes to localStorage too */
     has: function () { return idbOK; }
@@ -272,29 +283,56 @@ function textMayFit(g, max) {
   return (k ? a / k * n.length : 0) + (j ? b / j * e.length : 0) < max * 1.5;
 }
 var saveGraph = debounce(function () {
-  if (!S.graph.nodes.length) { PACKSAVE.n++; SAFE.del('nfm-graph'); return; }
+  if (!S.graph.nodes.length) { PACKSAVE.n++; PACKSAVE.base = null; SAFE.del('nfm-graph'); return; }
   var txt = textMayFit(S.graph, 1800000) ? JSON.stringify(S.graph) : graphText(S.graph, 1800000);   /* one whole stringify when it may fit (the quickest), item by item with an early stop when it surely won't */
-  if (txt !== null && txt.length < 1800000) { PACKSAVE.n++; if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else saveBig();
+  if (txt !== null && txt.length < 1800000) { PACKSAVE.n++; PACKSAVE.base = null; if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else saveBig();
 }, 600);
 /* A map over 1.8 MB of text is kept as map-file bytes (LFC-pack, about 4% of the text), packed on the thread the Undo steps use, so the page is not held. The old copy goes first: a page that closes
    before the packing ends keeps nothing, never an older map that would come back as if it were current. Without a packing thread, IndexedDB or room, the old "too big" notice stands. */
-var PACKSAVE = { n: 0 };
+var PACKSAVE = { n: 0, id: 0, base: null, deltas: 0 };   /* base: the last full save made by this page { id, seq, nodes, edges, len } while the saving thread still holds its tables */
+/** The rows (index, row, index, row ...) of list b that are not the same objects as list a's, or null past 2,000 rows (edit() replaces changed objects, never changes them in place). */
+function changedRows(a, b) {
+  var r = [], i;
+  for (i = 0; i < b.length; i++) if (a[i] !== b[i]) { r.push(i, b[i]); if (r.length > 4000) return null; }
+  return r;
+}
 function saveBig() {
-  var n = ++PACKSAVE.n, g = S.graph, ver = S.gver, stale = function () { return PACKSAVE.n !== n; };
-  SAFE.del('nfm-graph');
-  if (typeof undoPacker !== 'function' || typeof Worker === 'undefined' || typeof DecompressionStream === 'undefined' || !SAFE.has()) { saveWarn('big'); return; }
-  var later = typeof requestIdleCallback === 'function' ? function (f) { requestIdleCallback(f, { timeout: 3000 }); } : function (f) { setTimeout(f, 50); };
-  new Promise(later).then(function () {
-    if (stale()) throw 0;
-    return undoPacker();
-  }).then(function (w) {
-    var id = ++UNDOPACK.seq; clearTimeout(UNDOPACK.idle);
-    return undoText(g).then(function (text) { return new Promise(function (ok, bad) { UNDOPACK.wait.set(id, { ok: ok, bad: bad }); w.postMessage({ id: id, text: text }); }); });
-  }).then(function (u8) {
-    if (stale() || S.gver !== ver) throw 0;   /* changed while packing: the newer change makes its own save */
-    if (!u8 || u8.length > 48 * 1048576) throw 1;
-    return SAFE.setPacked('nfm-graph', u8);
-  }).then(function (ok) { if (ok === false) throw 1; }, function (e) { if (e === 0) return; saveWarn('big'); });
+  var n = ++PACKSAVE.n, g = S.graph, ver = S.gver, stale = function () { return PACKSAVE.n !== n; }, bs = PACKSAVE.base, packOK = typeof savePacker === 'function' && typeof Worker !== 'undefined' && typeof DecompressionStream !== 'undefined' && SAFE.has();
+  if (!packOK) { SAFE.del('nfm-graph'); saveWarn('big'); return; }
+  var full = function () {
+    PACKSAVE.base = null; SAFE.del('nfm-graph');   /* the old copy goes first: a page that closes before the packing ends keeps nothing, never an older map */
+    var later = typeof requestIdleCallback === 'function' ? function (f) { requestIdleCallback(f, { timeout: 3000 }); } : function (f) { setTimeout(f, 50); };
+    var id = ++PACKSAVE.id;
+    return new Promise(later).then(function () {
+      if (stale()) throw 0;
+      return undoText(g).then(function (text) { return savePackCall({ kind: 'full', text: text, baseId: id }); });
+    }).then(function (r) {
+      var u8 = r.u8;
+      if (stale() || S.gver !== ver) throw 0;   /* changed while packing: the newer change makes its own save */
+      if (!u8 || u8.length > 48 * 1048576) throw 1;
+      return SAFE.setPacked('nfm-graph', u8).then(function (seq) {
+        if (!seq) throw 1;
+        if (!stale()) { PACKSAVE.base = { id: id, seq: seq, nodes: g.nodes.slice(), edges: g.edges.slice(), len: u8.length }; PACKSAVE.deltas = 0; }
+      });
+    });
+  };
+  var go = full;
+  if (bs && bs.nodes.length === g.nodes.length && bs.edges.length === g.edges.length && PACKSAVE.deltas < 20) {
+    var cn = changedRows(bs.nodes, g.nodes), ce = cn && changedRows(bs.edges, g.edges);
+    if (ce) go = function () {   /* a small patch against the last full save, made on the saving thread: the page sends only the changed rows */
+      return savePackCall({ kind: 'delta', baseId: bs.id, meta: undoMeta(g), nodes: cn, links: ce }).then(function (r) {
+        if (stale() || S.gver !== ver) throw 0;
+        if (r.none || !r.u8) return full();   /* the thread lost its tables (ended, or a newer full save): a full save */
+        return SAFE.setDelta('nfm-graph', r.u8, bs.seq).then(function (ok) {
+          if (ok === 'stale') throw 0;
+          if (!ok) throw 1;
+          PACKSAVE.deltas++;
+          if (r.u8.length * 4 > bs.len) PACKSAVE.deltas = 99;   /* the patch passed a quarter of the full save: the next one is a full save */
+        });
+      });
+    };
+  }
+  go().then(null, function (e) { if (e === 0) return; PACKSAVE.base = null; saveWarn('big'); });
 }
 /** Saves that are still waiting for their delay are done now when the page is going away or hidden (a reload 600 ms after an edit used to lose it). */
 function flushSaves() { SAFE.going(true); try { [saveGraph, saveView, savePrefs, typeof saveAdv === 'function' ? saveAdv : null].forEach(function (f) { if (f && f.flush) f.flush(); }); } finally { SAFE.going(false); } }
