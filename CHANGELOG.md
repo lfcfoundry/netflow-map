@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 11
 
+- A big map (over 1.8 MB of saved text, about 6,500 items) is now kept between visits, packed to about 4 percent of its size (8,000 items and 24,751 links: 98 KB), instead of the notice that it was too big. Smaller maps save exactly as before. The packing runs on a thread of its own, so the page is not held. If the page closes before the packing ends, nothing is kept (never an older copy). Chosen by you on a card. Tested after reload in Chromium, Firefox and WebKitGTK; checks at baseline plus 1 new in each.
 - Module code updated: netflow-scene 1.13.0 (faster area charts). Area charts with many points draw a little faster; pictures matched 99.5 percent or better in Chromium, Firefox and WebKitGTK (22 chart types and 8 map views, light and dark), and an 800-point, 3-group area chart matched exactly. Nothing looks different.
 - Module code updated: lfc-pack 0.9.3 and memory-compression 2.16.0 (map files and the parked-layout store). Same maps save and open the same way; the first pack, unpack, park and wake times matched the old versions in Chromium, Firefox and WebKitGTK, within noise (both orders tested). Nothing looks different.
 
