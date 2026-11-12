@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Developer notes, in t
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 and WebKitGTK 2.52.6. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## November 11
+
+- Module code updated: lfc-pack 0.9.3 and memory-compression 2.16.0 (map files and the parked-layout store). Same maps save and open the same way; the first pack, unpack, park and wake times matched the old versions in Chromium, Firefox and WebKitGTK, within noise (both orders tested). Nothing looks different.
+
 ## November 8
 
 - Module code updated: netflow-hierarchy 1.6.0 and netflow-circular 1.4.0. The page now warms the Tree, Sunburst, Chord and Bundles drawing code once in an idle moment (6 to 11 ms) so the first picture of those views is not the engine's first run. In the app the first open is about the same (new over old, whole open: Chromium Tree 0.96, Chord 0.98; Firefox 1.00 and 1.04; WebKitGTK 1.02 and 1.01; scene build equal). Nothing looks different.
