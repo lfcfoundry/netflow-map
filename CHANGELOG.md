@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 11
 
+- Module code updated: netflow-scene 1.13.0 (faster area charts). Area charts with many points draw a little faster; pictures matched 99.5 percent or better in Chromium, Firefox and WebKitGTK (22 chart types and 8 map views, light and dark), and an 800-point, 3-group area chart matched exactly. Nothing looks different.
 - Module code updated: lfc-pack 0.9.3 and memory-compression 2.16.0 (map files and the parked-layout store). Same maps save and open the same way; the first pack, unpack, park and wake times matched the old versions in Chromium, Firefox and WebKitGTK, within noise (both orders tested). Nothing looks different.
 
 ## November 8
