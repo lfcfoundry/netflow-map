@@ -213,6 +213,14 @@ var SAFE = (function () {
       tx('readwrite', function (st) { st.put({ seq: n, text: text }, k); }).catch(function () { /* the localStorage copy stands */ });
       return ok;
     },
+    /** Saves a big map as map-file bytes (a packed copy, about 4% of its text) in IndexedDB only, with the marker. Resolves true when kept; false when IndexedDB is not there or refused it. */
+    setPacked: function (k, u8) {
+      if (TWIN) return Promise.resolve(true);
+      if (!BIG[k] || !idbOK) return Promise.resolve(false);
+      var n = next(); LS.del(k); LS.del('nfm-seq:' + k);
+      LS.set(BIG[k], JSON.stringify({ seq: n, size: u8.length, packed: 1 }));
+      return tx('readwrite', function (st) { st.put({ seq: n, packed: u8 }, k); }).then(function () { return true; }, function () { LS.del(BIG[k]); return false; });
+    },
     del: function (k) { if (TWIN) return; LS.del(k); LS.del('nfm-seq:' + k); if (BIG[k]) LS.del(BIG[k]); tx('readwrite', function (st) { st.delete(k); }).catch(function () { /* none */ }); },
     /** Puts a safe copy back: into localStorage, or for the map, nowhere (IndexedDB already holds it) once IndexedDB works. */
     repair: function (k, r) { if (BIG[k] && idbOK) { LS.set(BIG[k], JSON.stringify({ seq: r.seq, size: r.text.length })); return; } LS.set(k, r.text); LS.set('nfm-seq:' + k, String(r.seq)); },
@@ -225,7 +233,7 @@ var SAFE = (function () {
       }, function () { return null; });
     },
     /** The IndexedDB copy of key k ({ seq, text }) or null. */
-    read: function (k) { return tx('readonly', function (st) { return st.get(k); }).then(function (r) { if (r && r.seq) seq = Math.max(seq, r.seq); return r && typeof r.text === 'string' ? r : null; }, function () { return null; }); },
+    read: function (k) { return tx('readonly', function (st) { return st.get(k); }).then(function (r) { if (r && r.seq) seq = Math.max(seq, r.seq); return r && (typeof r.text === 'string' || r.packed) ? r : null; }, function () { return null; }); },
     /** True while the page is going away (flushSaves): the map is also written to localStorage then. */
     going: function (v) { going = !!v; if (going && flying) spill(flying); },   /* a map save still on its way to IndexedDB goes to localStorage too */
     has: function () { return idbOK; }
@@ -264,10 +272,30 @@ function textMayFit(g, max) {
   return (k ? a / k * n.length : 0) + (j ? b / j * e.length : 0) < max * 1.5;
 }
 var saveGraph = debounce(function () {
-  if (!S.graph.nodes.length) { SAFE.del('nfm-graph'); return; }
+  if (!S.graph.nodes.length) { PACKSAVE.n++; SAFE.del('nfm-graph'); return; }
   var txt = textMayFit(S.graph, 1800000) ? JSON.stringify(S.graph) : graphText(S.graph, 1800000);   /* one whole stringify when it may fit (the quickest), item by item with an early stop when it surely won't */
-  if (txt !== null && txt.length < 1800000) { if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else { SAFE.del('nfm-graph'); saveWarn('big'); }
+  if (txt !== null && txt.length < 1800000) { PACKSAVE.n++; if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else saveBig();
 }, 600);
+/* A map over 1.8 MB of text is kept as map-file bytes (LFC-pack, about 4% of the text), packed on the thread the Undo steps use, so the page is not held. The old copy goes first: a page that closes
+   before the packing ends keeps nothing, never an older map that would come back as if it were current. Without a packing thread, IndexedDB or room, the old "too big" notice stands. */
+var PACKSAVE = { n: 0 };
+function saveBig() {
+  var n = ++PACKSAVE.n, g = S.graph, ver = S.gver, stale = function () { return PACKSAVE.n !== n; };
+  SAFE.del('nfm-graph');
+  if (typeof undoPacker !== 'function' || typeof Worker === 'undefined' || typeof DecompressionStream === 'undefined' || !SAFE.has()) { saveWarn('big'); return; }
+  var later = typeof requestIdleCallback === 'function' ? function (f) { requestIdleCallback(f, { timeout: 3000 }); } : function (f) { setTimeout(f, 50); };
+  new Promise(later).then(function () {
+    if (stale()) throw 0;
+    return undoPacker();
+  }).then(function (w) {
+    var id = ++UNDOPACK.seq; clearTimeout(UNDOPACK.idle);
+    return undoText(g).then(function (text) { return new Promise(function (ok, bad) { UNDOPACK.wait.set(id, { ok: ok, bad: bad }); w.postMessage({ id: id, text: text }); }); });
+  }).then(function (u8) {
+    if (stale() || S.gver !== ver) throw 0;   /* changed while packing: the newer change makes its own save */
+    if (!u8 || u8.length > 48 * 1048576) throw 1;
+    return SAFE.setPacked('nfm-graph', u8);
+  }).then(function (ok) { if (ok === false) throw 1; }, function (e) { if (e === 0) return; saveWarn('big'); });
+}
 /** Saves that are still waiting for their delay are done now when the page is going away or hidden (a reload 600 ms after an edit used to lose it). */
 function flushSaves() { SAFE.going(true); try { [saveGraph, saveView, savePrefs, typeof saveAdv === 'function' ? saveAdv : null].forEach(function (f) { if (f && f.flush) f.flush(); }); } finally { SAFE.going(false); } }
 window.addEventListener('pagehide', flushSaves);

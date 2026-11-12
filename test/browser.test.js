@@ -919,13 +919,24 @@ async function open() {
       /* a small graph whose saved text is made to come out too long, so the page is not asked to hold megabytes */
       /* the autosave writes the items one at a time (graphText), so the long text comes from one item */
       JSON.stringify = function (v) { return v && (v.name === 'SaveBig' || v.id === 'SaveBigA') ? 'x'.repeat(1900000) : real.apply(this, arguments); };
+      const realW = window.Worker; window.Worker = undefined;   /* no packing thread: the old notice, as for a browser without one */
       try {
         NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SaveBig', nodes: [{ id: 'SaveBigA' }, { id: 'B' }], edges: [{ from: 'SaveBigA', to: 'B' }] }));
         await new Promise((q) => setTimeout(q, 1000));
-      } finally { JSON.stringify = real; }
+      } finally { JSON.stringify = real; window.Worker = realW; }
       return { shown: !t.hidden, text: t.textContent };
     });
     say(r4.shown && /too big/.test(r4.text), 'data too big to keep on this computer says so (not silently dropped): ' + JSON.stringify(r4.text));
+    /* a map over 1.8 MB of text is kept packed (map-file bytes, about 4 percent of the text) instead of the notice */
+    const r5 = await ev(async () => {
+      const t = document.getElementById('toast'), wait = (ms) => new Promise((q) => setTimeout(q, ms)); t.hidden = true; t.textContent = '';
+      const nodes = [], edges = []; for (let i = 0; i < 9000; i++) { nodes.push({ id: 'B' + i, label: 'Big item number ' + i + ' with a long label to fill the saved text out, ' + 'abcdefghij'.repeat(10) }); if (i) edges.push({ from: 'B' + (i >> 1), to: 'B' + i }); }
+      NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SaveBigPacked', nodes, edges }));
+      let m = null; const t0 = performance.now(); while (performance.now() - t0 < 20000) { await wait(100); m = await NFM.safe.read('nfm-graph'); if (m && m.packed) break; }
+      const mark = JSON.parse(localStorage.getItem('nfm-graph-at') || 'null');
+      return { packed: !!(m && m.packed), kb: m && m.packed ? Math.round(m.packed.length / 1024) : 0, marker: !!mark && mark.packed === 1 && !!m && mark.seq === m.seq, noText: localStorage.getItem('nfm-graph') === null, shown: !t.hidden, text: t.textContent };
+    });
+    say(r5.packed && r5.marker && r5.noText && !r5.shown && r5.kb > 0 && r5.kb < 400, 'a map over 1.8 MB of text is kept as packed bytes, with no too-big notice: ' + JSON.stringify(r5));
     await load(mkG('SaveEnd', ['A', 'B']), 'data'); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 

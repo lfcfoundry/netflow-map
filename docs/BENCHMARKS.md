@@ -2177,3 +2177,8 @@ Run 2026.11.08, links crossing as drawn, time median of 3 (Chromium 155 / Firefo
 | 1,000 | 21,812 | 126 / 102 / 104 | 23,965 | 8,107 / 6,485 / 9,270 | 22,602 | 1,841 / 2,529 / 1,766 |
 
 Same counts in the three browsers. At 1,000 items the deeper search gives the same picture as Auto's lighter one (hash be0021c3 both ways); at 1,500 items lighter + best draws 45,648 crossings in 193 ms and deeper + best the same 45,648 in 266 ms. Raw lines: /mnt/project-files/netflow-map/crossings-2026.11.08/.
+
+
+## Packed autosave for big maps (2026.11.12)
+
+Made-up Atlas maps, fresh page per run, medians of 3. 2,000 items (550 KB text): today's save is 2 ms stringify and 2 ms IndexedDB write (Chromium); packing takes 7 to 36 ms, so small maps keep the text save. 8,000 items and 24,751 links (2,248 KB text, over the 1.8 MB limit): packed 98 KB in 31 ms warm and 64 ms first (Chromium), 31 and 51 ms (Firefox), on the packing thread; after a reload the map comes back with the same items and links in Chromium, Firefox and WebKitGTK. The delta-save prototype (JS-modules draft PR 661) saved nothing on these maps (103 KB against 98 KB) because items carry a nested attrs object.

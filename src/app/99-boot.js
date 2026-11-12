@@ -20,12 +20,18 @@
      page that closed while saving, or no IndexedDB). The IndexedDB read is the one wait before the first screen (about 20 ms for a big map). */
   var savedLS = LS.get('nfm-graph');
   if (savedLS === null && LS.get('nfm-graph-at') && typeof indexedDB !== 'undefined') {
-    (window.NFM_EARLY ? window.NFM_EARLY.then(function (x) { if (x && x.db) SAFE.adopt(x.db); return x && x.r && typeof x.r.text === 'string' ? x.r : x && x.db ? null : SAFE.read('nfm-graph'); }) : SAFE.read('nfm-graph'))
-      .then(function (r) { rest(r ? r.text : null, false); }, function () { rest(null, false); });
+    (window.NFM_EARLY ? window.NFM_EARLY.then(function (x) { if (x && x.db) SAFE.adopt(x.db); return x && x.r && (typeof x.r.text === 'string' || x.r.packed) ? x.r : x && x.db ? null : SAFE.read('nfm-graph'); }) : SAFE.read('nfm-graph'))
+      .then(function (r) {
+        if (r && r.packed) {   /* a big map kept as map-file bytes (src/app/00-core.js saveBig) */
+          return undoUnpack({ bytes: r.packed }).then(function (g) { rest(null, false, g); }, function () { rest(null, false); });
+        }
+        rest(r ? r.text : null, false);
+      }, function () { rest(null, false); });
   }
   else rest(savedLS, true);
-  function rest(saved, fromLS) {
-  if (saved) { try { S.graph = NFMImport.sanitizeGraph(JSON.parse(saved)); S.gver++; } catch (e) { if (fromLS) LS.del('nfm-graph'); } }
+  function rest(saved, fromLS, gobj) {
+  if (gobj) { try { S.graph = NFMImport.sanitizeGraph(gobj); S.gver++; } catch (e) { /* not a map: start empty */ } }
+  else if (saved) { try { S.graph = NFMImport.sanitizeGraph(JSON.parse(saved)); S.gver++; } catch (e) { if (fromLS) LS.del('nfm-graph'); } }
   applyTheme(); placeChrome(); keyboardLift();
   if (window.matchMedia) ['(hover: none) and (pointer: coarse)', '(max-width:820px)'].forEach(function (q) { matchMedia(q).addEventListener('change', function () { placeChrome(); if (S.mapBuilt) renderMapUI(); }); });
   indexGraph(); loadView(); loadAdv();
