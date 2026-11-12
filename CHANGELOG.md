@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Developer notes, in t
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 and WebKitGTK 2.52.6. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## November 12
+
+- Module code updated: lfc-pack 0.9.5 (map files, the parked-layout store and the big-map autosave). Same maps save and open the same way (the same bytes); first pack and unpack of a 2,000-item map matched or beat 0.9.3 in Chromium, Firefox and WebKitGTK (both orders). Nothing looks different.
+
 ## November 11
 
 - A big map (over 1.8 MB of saved text, about 6,500 items) is now kept between visits, packed to about 4 percent of its size (8,000 items and 24,751 links: 98 KB), instead of the notice that it was too big. Smaller maps save exactly as before. The packing runs on a thread of its own, so the page is not held. If the page closes before the packing ends, nothing is kept (never an older copy). Chosen by you on a card. Tested after reload in Chromium, Firefox and WebKitGTK; checks at baseline plus 1 new in each.
