@@ -23,7 +23,13 @@
     (window.NFM_EARLY ? window.NFM_EARLY.then(function (x) { if (x && x.db) SAFE.adopt(x.db); return x && x.r && (typeof x.r.text === 'string' || x.r.packed) ? x.r : x && x.db ? null : SAFE.read('nfm-graph'); }) : SAFE.read('nfm-graph'))
       .then(function (r) {
         if (r && r.packed) {   /* a big map kept as map-file bytes (src/app/00-core.js saveBig) */
-          return undoUnpack({ bytes: r.packed }).then(function (g) { rest(null, false, g); }, function () { rest(null, false); });
+          var mk = null; try { mk = JSON.parse(LS.get('nfm-graph-at') || 'null'); } catch (e) { mk = null; }
+          var whole = function (d) { var g = {}, m = d.meta || {}; Object.keys(m).forEach(function (k) { g[k] = m[k]; }); g.nodes = d.nodes; g.edges = d.links; return g; };
+          /* with a patch kept after the full save (src/app/00-core.js saveBig): base plus patch; any trouble with it and the full save alone comes back. Either way a full save is made soon, so the next start reads one plain file. */
+          return (mk && mk.delta ? SAFE.read('nfm-graph-delta') : Promise.resolve(null)).then(function (dr) {
+            if (!dr || !dr.delta || dr.baseSeq !== r.seq) return undoUnpack({ bytes: r.packed }).then(function (g) { return { g: g, patched: false }; });
+            return lfcReady().then(function () { return LfcPack.unpackTables(dr.delta, { base: r.packed }); }).then(function (d) { return { g: whole(d), patched: true }; }, function () { return undoUnpack({ bytes: r.packed }).then(function (g) { return { g: g, patched: false }; }); });
+          }).then(function (o) { rest(null, false, o.g); if (o.patched) setTimeout(function () { if (!S.hist.length) saveGraph(); }, 3000); }, function () { rest(null, false); });
         }
         rest(r ? r.text : null, false);
       }, function () { rest(null, false); });

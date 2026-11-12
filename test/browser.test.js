@@ -934,9 +934,14 @@ async function open() {
       NFM.setGraph(NFMImport.sanitizeGraph({ name: 'SaveBigPacked', nodes, edges }));
       let m = null; const t0 = performance.now(); while (performance.now() - t0 < 20000) { await wait(100); m = await NFM.safe.read('nfm-graph'); if (m && m.packed) break; }
       const mark = JSON.parse(localStorage.getItem('nfm-graph-at') || 'null');
-      return { packed: !!(m && m.packed), kb: m && m.packed ? Math.round(m.packed.length / 1024) : 0, marker: !!mark && mark.packed === 1 && !!m && mark.seq === m.seq, noText: localStorage.getItem('nfm-graph') === null, shown: !t.hidden, text: t.textContent };
+      /* a later change is kept as a small patch against that full save (LfcPack delta), made on the saving thread */
+      NFM.edit((g) => { g.nodes[3] = Object.assign({}, g.nodes[3], { label: 'Patched item' }); });
+      let d = null; const t1 = performance.now(); while (performance.now() - t1 < 20000) { await wait(100); d = await NFM.safe.read('nfm-graph-delta'); if (d && d.delta) break; }
+      const mark2 = JSON.parse(localStorage.getItem('nfm-graph-at') || 'null');
+      return { packed: !!(m && m.packed), kb: m && m.packed ? Math.round(m.packed.length / 1024) : 0, marker: !!mark && mark.packed === 1 && !!m && mark.seq === m.seq, noText: localStorage.getItem('nfm-graph') === null, shown: !t.hidden, text: t.textContent, patchBytes: d && d.delta ? d.delta.length : 0, patchFor: !!d && !!m && d.baseSeq === m.seq, patchMarked: !!mark2 && !!d && mark2.delta === d.seq };
     });
     say(r5.packed && r5.marker && r5.noText && !r5.shown && r5.kb > 0 && r5.kb < 400, 'a map over 1.8 MB of text is kept as packed bytes, with no too-big notice: ' + JSON.stringify(r5));
+    say(r5.patchBytes > 0 && r5.patchBytes < 5000 && r5.patchFor && r5.patchMarked, 'the next change to that map is kept as a small patch against the full save: ' + JSON.stringify({ patchBytes: r5.patchBytes, patchFor: r5.patchFor, patchMarked: r5.patchMarked }));
     await load(mkG('SaveEnd', ['A', 'B']), 'data'); }
   } catch (e) { say(false, 'a step of the checks above stopped with an error: ' + String(e && e.message || e).split('\n')[0]); }
 

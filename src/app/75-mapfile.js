@@ -71,6 +71,39 @@ function undoPacker() {
     UNDOPACK.w = w; return w;
   });
 }
+/* The autosave's packing thread (src/app/00-core.js saveBig): it packs a big map's text in full, and keeps that map's tables so the next
+   saves are small patches against it (LfcPack delta saves; the page sends only the rows that changed since). Ended 5 minutes after its last job: its copy of the tables is not free. */
+var SAVEPACK = { w: null, idle: null, seq: 0, wait: new Map() };
+var SAVEPACK_MAIN = '\nvar BASE=null;self.onmessage=function(e){var d=e.data,fail=function(err){self.postMessage({id:d.id,error:String(err&&err.message||err)});};' +
+  'if(d.kind==="full"){BASE=null;var doc;try{doc=JSON.parse(d.text);}catch(x){fail(x);return;}LfcPack.init().then(function(){return LfcPack.packTables(doc);}).then(function(u){BASE={id:d.baseId,u8:u,doc:doc};self.postMessage({id:d.id,u8:u});},fail);return;}' +
+  'if(d.kind==="delta"){if(!BASE||BASE.id!==d.baseId){self.postMessage({id:d.id,none:true});return;}var n=BASE.doc.nodes.slice(),l=BASE.doc.links.slice(),dn=[],dl=[],i;for(i=0;i<d.nodes.length;i+=2){n[d.nodes[i]]=d.nodes[i+1];dn.push(d.nodes[i]);}for(i=0;i<d.links.length;i+=2){l[d.links[i]]=d.links[i+1];dl.push(d.links[i]);}' +
+  'Promise.resolve().then(function(){return LfcPack.packTables({meta:d.meta,nodes:n,links:l},{base:BASE.u8,dirty:{nodes:dn,links:dl}});}).then(function(u){self.postMessage({id:d.id,u8:u});},fail);return;}' +
+  'if(d.kind==="drop"){BASE=null;self.postMessage({id:d.id,u8:null});}};';
+function savePacker() {
+  if (SAVEPACK.w) return Promise.resolve(SAVEPACK.w);
+  return lfcSource().then(function (src) {
+    if (SAVEPACK.w) return SAVEPACK.w;
+    var url = URL.createObjectURL(new Blob([src + SAVEPACK_MAIN], { type: 'text/javascript' })), w = new Worker(url);
+    URL.revokeObjectURL(url);
+    var failAll = function (why) { SAVEPACK.wait.forEach(function (p) { p.bad(new Error(why)); }); SAVEPACK.wait.clear(); if (SAVEPACK.w === w) { SAVEPACK.w = null; if (typeof PACKSAVE !== 'undefined') PACKSAVE.base = null; } try { w.terminate(); } catch (e) { /* gone */ } };
+    w.onmessage = function (e) { var d = e.data, p = SAVEPACK.wait.get(d.id); if (!p) return; SAVEPACK.wait.delete(d.id); if (d.error) p.bad(new Error(d.error)); else p.ok(d); };
+    w.onerror = function (ev) { failAll('the saving thread stopped (' + (ev && ev.message || 'error') + ')'); };
+    SAVEPACK.w = w; return w;
+  });
+}
+/** One job for the saving thread: resolves to its answer ({ u8 } or { none: true }). */
+function savePackCall(msg) {
+  return savePacker().then(function (w) {
+    var id = ++SAVEPACK.seq; msg.id = id; clearTimeout(SAVEPACK.idle);
+    return new Promise(function (ok, bad) {
+      SAVEPACK.wait.set(id, { ok: ok, bad: bad }); w.postMessage(msg);
+    }).then(function (r) {
+      clearTimeout(SAVEPACK.idle);
+      SAVEPACK.idle = setTimeout(function () { if (!SAVEPACK.wait.size && SAVEPACK.w === w) { SAVEPACK.w = null; if (typeof PACKSAVE !== 'undefined') PACKSAVE.base = null; w.terminate(); } }, 300000);
+      return r;
+    });
+  });
+}
 /** A step that keeps a whole map (a file was opened, or a change replaced most of it): pack it while the page is idle. Small maps stay as they are. */
 function undoPackSoon(st) {
   var g = st.graph;
