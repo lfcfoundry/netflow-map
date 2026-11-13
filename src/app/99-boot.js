@@ -62,18 +62,20 @@
       if (newerOne) { LS.del('nfm-graph'); LS.del('nfm-seq:nfm-graph'); } else SAFE.set('nfm-graph', saved);
     }, function () { /* no IndexedDB: it stays in localStorage */ });
   });
-  client.start().then(function () { if (window.NFMReport) window.NFMReport.mark('engine-ready'); client.setTune(S.tune); client.setGraph(S.graph); maybeAskTune(); if (S.tab === 'map') refreshMap('boot'); });
+  var engineUp = false;
+  client.start().then(function () { engineUp = true; if (window.NFMReport) window.NFMReport.mark('engine-ready'); client.setTune(S.tune); client.setGraph(S.graph); maybeAskTune(); if (S.tab === 'map') refreshMap('boot'); });
   /* The quick test of each drawing path (a WebGL 2 test drawing, about 20 to 30 ms) runs once in an idle moment after start, so the first Map is not held up by it. Its WebGL 2 canvas is kept for the first drawing to adopt, so the browser does not build a second context. The answer is the same one the Map would get itself. */
   setTimeout(function () {
-    var run = function () {
+    var waited = 0, run = function () {
       if (S.canary || S.canaryP || mgr || mgrStarting) return;
+      if (!engineUp && waited++ < 30) { setTimeout(function () { if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 3000 }); else run(); }, 100); return; }   /* not while the layout engine is still starting (a first Map opened at 1.7 s: Chromium 0.81, Firefox 0.88 of the old time) */
       S.canaryP = NFMProbe.canary(true).then(function (c) {
         var sp = c.webgl2 && c.webgl2.spare; if (sp) { delete c.webgl2.spare; if (S.canary || mgr || mgrStarting) { try { var x = sp.__nfmGL.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); } catch (e) { /* gone */ } } else NFMRender.setSpare(sp); }
         if (!S.canary) S.canary = c; return c;
       }, function () { S.canaryP = null; return NFMProbe.canary(); });
     };
     if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 3000 }); else run();
-  }, 2500);
+  }, 1000);
   /* Warm the Tree, Sunburst, Chord and Bundles drawing code once in a later idle moment (6 to 11 ms each), so the first real picture of those views is not the engine's first run of it. */
   setTimeout(function () {
     var warm = function () { try { if (typeof NetflowHierarchy !== 'undefined' && NetflowHierarchy.warm) NetflowHierarchy.warm(); if (typeof NetflowCircular !== 'undefined' && NetflowCircular.warm) NetflowCircular.warm(); } catch (e) { /* only a speed-up */ } };
