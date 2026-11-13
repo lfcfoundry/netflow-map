@@ -248,7 +248,9 @@ var NFMEngineClient = (function () {
     return this.rawCall(msg);
   };
   Client.prototype.rawCall = function (msg, transfer) {
-    var self = this, id = ++this.seq;
+    var self = this, id;
+    if (this.gate && !this.bypass) { return this.gate.then(function () { return self.rawCall(msg, transfer); }); }   /* a big graph is still being turned into text: it goes first */
+    id = ++this.seq;
     return new Promise(function (resolve, reject) { self.pending.set(id, { resolve: resolve, reject: reject, type: msg.type }); msg.id = id; try { self.w.postMessage(msg, transfer || []); } catch (err) { self.pending.delete(id); reject(err); } });
   };
   /** What the worker needs to go from graph a (which it has) to graph b: null when sending b whole is the better choice. */
@@ -272,6 +274,42 @@ var NFMEngineClient = (function () {
   /** A whole graph for the worker, as text: a string is copied at memory speed (the page is held about 35 ms instead of 75-160 ms on 30,000 items) and the worker reads it off the page. */
   var jsonText = JSON.stringify.bind(JSON);   /* kept at load, so a page that swaps JSON.stringify later cannot change what the worker is sent */
   function graphMsg(graph, ver) { return { type: 'graph', text: jsonText(graph), ver: ver }; }
+  /** The same text as jsonText(graph), made in slices of 6,000 items or links with the page free in between (one stringify of 190,000 items and 592,086 links held the page 170 ms). */
+  function graphTextSliced(g) {
+    var keys = Object.keys(g), ki = 0, Z = 6000, parts = [], at = 0, cur = null, ch = new MessageChannel(), first = true;
+    return new Promise(function (ok) {
+      var out = function (t) { parts.push(t); }, kq;
+      var step = function () {
+        var t0 = Date.now();
+        while (Date.now() - t0 < 8) {   /* about 8 ms a slice */
+          if (cur) {
+            var a = cur.list;
+            if (at < a.length) { var t = jsonText(a.slice(at, at + Z)).slice(1, -1); if (t) out((at ? ',' : '') + t); at += Z; continue; }
+            out(']'); cur = null; at = 0; continue;
+          }
+          if (ki >= keys.length) { ch.port1.onmessage = null; ch.port1.close(); ok('{' + parts.join('') + '}'); return; }
+          var k = keys[ki++], v = g[k];
+          if ((k === 'nodes' || k === 'edges') && Array.isArray(v)) { out((first ? '' : ',') + jsonText(k) + ':['); first = false; cur = { list: v }; at = 0; continue; }
+          var tv = jsonText(v); if (tv === undefined) continue;
+          out((first ? '' : ',') + jsonText(k) + ':' + tv); first = false;
+        }
+        ch.port2.postMessage(0);
+      };
+      ch.port1.onmessage = step; step();
+    });
+  }
+  /** Sends a whole graph to the worker. A big one is turned into text in slices (graphTextSliced) with the page free in between; every other message to the worker waits until it has gone (this.gate), so the worker still sees the graph before anything that depends on it. */
+  Client.prototype.sendWhole = function (call, graph, ver) {
+    var self = this;
+    if (graph.nodes.length + graph.edges.length < 60000 || typeof MessageChannel !== 'function') return call(graphMsg(graph, ver));
+    var prev = this.gate, res = null, P = graphTextSliced(graph).then(function (text) { return prev ? prev.then(function () { return text; }) : text; }).then(function (text) {
+      if (self.gate === P) self.gate = null;
+      if (!self.w || self.mode === 'page' || self.parked) { res = Promise.resolve(true); return; }   /* the engine ended meanwhile: it gets the graph when it starts again */
+      self.bypass = true; try { res = call({ type: 'graph', text: text, ver: ver }); } finally { self.bypass = false; }
+    });
+    this.gate = P;
+    return P.then(function () { return res; });
+  };
   /** The graph read back from the worker's pieces, one short slice at a time with the page free in between (one 90,000-item read held the page 130 ms). */
   function readParts(p) {
     var g = JSON.parse(p.head), list = p.n.map(function (t) { return [g.nodes, t]; }).concat(p.e.map(function (t) { return [g.edges, t]; })), i = 0;
@@ -302,7 +340,7 @@ var NFMEngineClient = (function () {
     if (ad && ad.graph === graph && ad.ver === this.ver + 1 && this.mode === 'worker' && !this.parked) {   // the worker already has this graph (it read the file): one small message makes it the current one
       var me = this, prevSent = this.sent, prevVer = this.sentVer;
       this.graph = graph; this.ver++; this.st = null; this.lastPic = null; this.sent = graph; this.sentVer = this.ver;
-      return this.call({ type: 'adopt', ver: this.ver }).then(function (r) { if (r === true || me.sent !== graph) return true; return me.call(graphMsg(graph, me.ver)); });
+      return this.call({ type: 'adopt', ver: this.ver }).then(function (r) { if (r === true || me.sent !== graph) return true; return me.sendWhole(me.call.bind(me), graph, me.ver); });
     }
     this.graph = graph; this.ver++; this.st = null; this.lastPic = null;
     if (this.parked) return Promise.resolve(true);   // the fresh worker gets this graph when the next job starts it
@@ -313,12 +351,12 @@ var NFMEngineClient = (function () {
   Client.prototype.sendGraph = function (call) {
     var self = this, prev = this.sent, base = this.sentVer, graph = this.graph, ver = this.ver, msg = prev && this.w ? graphDiff(prev, graph) : null;
     this.sent = graph; this.sentVer = ver;
-    if (!msg) return call(graphMsg(graph, ver));
+    if (!msg) return this.sendWhole(call, graph, ver);
     msg.type = 'graphDiff'; msg.base = base; msg.ver = ver; this.diffs = (this.diffs || 0) + 1;
     return call(msg).then(function (r) {
       if (r === true || self.sent !== graph) return true;   // applied, or a newer graph went after it
       self.fulls = (self.fulls || 0) + 1;
-      return call(graphMsg(graph, ver));   // the worker did not have the graph before: the whole graph
+      return self.sendWhole(call, graph, ver);   // the worker did not have the graph before: the whole graph
     });
   };
   /** Runs a job (build, compare, check, simStart, simRun, simExact, sweep). If a newer request of the same kind arrives while one waits, only the newest waits its turn. */

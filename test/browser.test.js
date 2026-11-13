@@ -737,6 +737,14 @@ async function open() {
   await D.wait(() => NFM.state.L && NFM.state.L.view === 'network' && NFM.state.sceneOk && NFM.state.scene && NFM.state.L.nodes.length > 4900, null, 90000); await settle(300);
   say(await ev(() => NFM.state.roughCount >= 1 && !NFM.state.L.rough && NFM.state.sceneOk), 'a big map: rough picture shown first, then replaced by the finished one');
   await ev(() => { NFM.engine().stressTuning.previewMin = 40000; });
+  /* a graph of 60,000 items and links or more goes to the layout thread as text made in slices with the page free between them; the next job waits for it and sees that graph */
+  { const r = await ev(async () => {
+      const c = NFM.client(); if (c.mode !== 'worker') return { skip: c.mode };
+      const g = NFMExamples.bigNetwork(18000, 4, 7); NFM.setGraph(g); const gate = !!c.gate;
+      const k = await c.check({}); return { rows: g.nodes.length + g.edges.length, gate, items: k.L.stats.items, links: k.L.stats.links, n: g.nodes.length, e: g.edges.length, after: !!c.gate };
+    });
+    if (r.skip) say(true, 'sliced text for a big graph: skipped, the engine runs on the page (' + r.skip + ')');
+    else say(r.rows >= 60000 && r.gate && r.items === r.n && r.links === r.e && !r.after, 'a big graph reaches the layout thread as sliced text and the next job sees it: ' + JSON.stringify(r)); }
 
   blk('looks');
   /* a change of looks only (a color choice the engine does not use) makes a new picture from the layout already on the stage instead of working the layout out again; the picture is the one a full rebuild gives, and a change the engine does use still rebuilds */
