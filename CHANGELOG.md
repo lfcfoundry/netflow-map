@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 12
 
+- Module code updated: lfc-pack 0.10.1 (map files, the parked-layout store and the big-map autosave): faster equality reads, the same file format. First pack and unpack of a 2,000-item map matched 0.10.0 in Chromium, Firefox and WebKitGTK. Nothing looks different.
 - A big map (60,000 items and links or more) is now handed to the layout thread as text made in slices with the page free in between, instead of in one piece. 190,000 items and 592,086 links: the longest page freeze when the map is set fell from 0.74 to 0.43 s and from 0.86 to 0.53 s (Chromium, two rounds of 2 runs); the total page busy time was the same within noise. Smaller maps are unchanged. Nothing looks different.
 - A big map's autosave now makes one save at a time: edits made while a save is being packed no longer each start their own copy of the map's text; they wait and go as a small patch after it. 190,000 items and 592,086 links with 4 edits during the first save: the page's busy time fell from about 2.1 s to 1.0 to 1.3 s (Chromium). Maps under 1.8 MB are unchanged. Nothing looks different.
 - The quick test of the drawing paths now starts 1 s after the page opens (was 2.5 s) once the layout engine is ready and the browser is idle, so a first Map opened in the first seconds is not held up by it: opened at 1.7 s, 0.81 (Chromium), 0.88 (Firefox) and 0.92 (WebKitGTK) of the old time; opened at 3 s, 0.94, 0.97, 0.99. Nothing looks different.
