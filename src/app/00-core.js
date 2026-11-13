@@ -283,13 +283,13 @@ function textMayFit(g, max) {
   return (k ? a / k * n.length : 0) + (j ? b / j * e.length : 0) < max * 1.5;
 }
 var saveGraph = debounce(function () {
-  if (!S.graph.nodes.length) { PACKSAVE.n++; PACKSAVE.base = null; SAFE.del('nfm-graph'); return; }
+  if (!S.graph.nodes.length) { PACKSAVE.n++; PACKSAVE.base = null; PACKSAVE.again = false; SAFE.del('nfm-graph'); return; }
   var txt = textMayFit(S.graph, 1800000) ? JSON.stringify(S.graph) : graphText(S.graph, 1800000);   /* one whole stringify when it may fit (the quickest), item by item with an early stop when it surely won't */
-  if (txt !== null && txt.length < 1800000) { PACKSAVE.n++; PACKSAVE.base = null; if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else saveBig();
+  if (txt !== null && txt.length < 1800000) { PACKSAVE.n++; PACKSAVE.base = null; PACKSAVE.again = false; if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else saveBig();
 }, 600);
 /* A map over 1.8 MB of text is kept as map-file bytes (LFC-pack, about 4% of the text), packed on the thread the Undo steps use, so the page is not held. The old copy goes first: a page that closes
    before the packing ends keeps nothing, never an older map that would come back as if it were current. Without a packing thread, IndexedDB or room, the old "too big" notice stands. */
-var PACKSAVE = { n: 0, id: 0, base: null, deltas: 0 };   /* base: the last full save made by this page { id, seq, nodes, edges, len } while the saving thread still holds its tables */
+var PACKSAVE = { n: 0, id: 0, base: null, deltas: 0, flying: false, again: false };   /* base: the last full save made by this page { id, seq, nodes, edges, len } while the saving thread still holds its tables; flying: a save is being made (a change meanwhile only asks for one more after it) */
 /** The rows (index, row, index, row ...) of list b that are not the same objects as list a's, or null past 2,000 rows (edit() replaces changed objects, never changes them in place). */
 function changedRows(a, b) {
   var r = [], i;
@@ -297,7 +297,8 @@ function changedRows(a, b) {
   return r;
 }
 function saveBig() {
-  var n = ++PACKSAVE.n, g = S.graph, ver = S.gver, stale = function () { return PACKSAVE.n !== n; }, bs = PACKSAVE.base, packOK = typeof savePacker === 'function' && typeof Worker !== 'undefined' && typeof DecompressionStream !== 'undefined' && SAFE.has();
+  if (PACKSAVE.flying) { PACKSAVE.again = true; return; }   /* one save at a time: a change made while one runs gets the next one, a patch against what this one makes (each used to start its own whole text of the map) */
+  var n = PACKSAVE.n, g = S.graph, stale = function () { return PACKSAVE.n !== n; }, bs = PACKSAVE.base, packOK = typeof savePacker === 'function' && typeof Worker !== 'undefined' && typeof DecompressionStream !== 'undefined' && SAFE.has();
   if (!packOK) { SAFE.del('nfm-graph'); saveWarn('big'); return; }
   var full = function () {
     PACKSAVE.base = null; SAFE.del('nfm-graph');   /* the old copy goes first: a page that closes before the packing ends keeps nothing, never an older map */
@@ -308,11 +309,11 @@ function saveBig() {
       return undoText(g).then(function (text) { return savePackCall({ kind: 'full', text: text, baseId: id }); });
     }).then(function (r) {
       var u8 = r.u8;
-      if (stale() || S.gver !== ver) throw 0;   /* changed while packing: the newer change makes its own save */
+      if (stale()) throw 0;   /* a small or empty map was saved meanwhile */
       if (!u8 || u8.length > 48 * 1048576) throw 1;
       return SAFE.setPacked('nfm-graph', u8).then(function (seq) {
         if (!seq) throw 1;
-        if (!stale()) { PACKSAVE.base = { id: id, seq: seq, nodes: g.nodes.slice(), edges: g.edges.slice(), len: u8.length }; PACKSAVE.deltas = 0; }
+        if (!stale()) { PACKSAVE.base = { id: id, seq: seq, nodes: g.nodes.slice(), edges: g.edges.slice(), len: u8.length }; PACKSAVE.deltas = 0; }   /* the map as it was when this save began; a change made since is sent as a patch next */
       });
     });
   };
@@ -321,7 +322,7 @@ function saveBig() {
     var cn = changedRows(bs.nodes, g.nodes), ce = cn && changedRows(bs.edges, g.edges);
     if (ce) go = function () {   /* a small patch against the last full save, made on the saving thread: the page sends only the changed rows */
       return savePackCall({ kind: 'delta', baseId: bs.id, meta: undoMeta(g), nodes: cn, links: ce }).then(function (r) {
-        if (stale() || S.gver !== ver) throw 0;
+        if (stale()) throw 0;
         if (r.none || !r.u8) return full();   /* the thread lost its tables (ended, or a newer full save): a full save */
         return SAFE.setDelta('nfm-graph', r.u8, bs.seq).then(function (ok) {
           if (ok === 'stale') throw 0;
@@ -332,7 +333,11 @@ function saveBig() {
       });
     };
   }
-  go().then(null, function (e) { if (e === 0) return; PACKSAVE.base = null; saveWarn('big'); });
+  PACKSAVE.flying = true;
+  go().then(function () { return true; }, function (e) { if (e === 0) return false; PACKSAVE.base = null; PACKSAVE.again = false; saveWarn('big'); return false; }).then(function (ok) {
+    PACKSAVE.flying = false;
+    if (PACKSAVE.again) { PACKSAVE.again = false; if (S.graph !== g || ok) saveBig(); }   /* a change came while this save ran: save it now (as a patch against this one) */
+  });
 }
 /** Saves that are still waiting for their delay are done now when the page is going away or hidden (a reload 600 ms after an edit used to lose it). */
 function flushSaves() { SAFE.going(true); try { [saveGraph, saveView, savePrefs, typeof saveAdv === 'function' ? saveAdv : null].forEach(function (f) { if (f && f.flush) f.flush(); }); } finally { SAFE.going(false); } }
