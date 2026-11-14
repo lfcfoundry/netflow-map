@@ -153,14 +153,27 @@ var NFMColumns = (function () {
       if (at) for (k in at) { c = nc.get(k); if (!c) { c = makeCol('nodes', k, k, false); nc.set(k, c); } feed(c, at[k]); }
     }
     curI = -1;
-    for (i = 0; i < g.edges.length; i++) {
-      var e = g.edges[i]; curI = i;
-      feed(ec.get('weight'), e.weight); feed(ec.get('label'), e.label); feed(ec.get('kind'), e.kind);
-      var ea = e.attrs;
-      if (ea) for (k in ea) { c = ec.get(k); if (!c) { c = makeCol('edges', k, k, false); ec.set(k, c); } feed(c, ea[k]); }
+    var lc = typeof NFMLinkCols !== 'undefined' ? NFMLinkCols.pending(g) : null, nE;
+    if (lc) {   /* links held as columns (src/link-cols.js): the same values in the same order, read without making the link objects */
+      var cw = ec.get('weight'), cl = ec.get('label'), ck = ec.get('kind'), W = lc.w, KX = lc.kx, LX = lc.lx, kinds = lc.kinds, labels = lc.labels, ak = lc.ak, ac = lc.ac, na = ak.length, q, x;
+      nE = lc.n;
+      for (i = 0; i < nE; i++) {
+        curI = i;
+        if (W) { x = W[i]; if (x === x) feed(cw, x); }
+        feed(cl, labels[LX ? LX[i] : 0]); feed(ck, kinds[KX ? KX[i] : 0]);
+        for (q = 0; q < na; q++) { x = ac[q][i]; if (x !== undefined && x !== null) { k = ak[q]; c = ec.get(k); if (!c) { c = makeCol('edges', k, k, false); ec.set(k, c); } feed(c, x); } }
+      }
+    } else {
+      nE = g.edges.length;
+      for (i = 0; i < nE; i++) {
+        var e = g.edges[i]; curI = i;
+        feed(ec.get('weight'), e.weight); feed(ec.get('label'), e.label); feed(ec.get('kind'), e.kind);
+        var ea = e.attrs;
+        if (ea) for (k in ea) { c = ec.get(k); if (!c) { c = makeCol('edges', k, k, false); ec.set(k, c); } feed(c, ea[k]); }
+      }
     }
     curI = -1;
-    return close(nc, ec, g.nodes.length, g.edges.length);
+    return close(nc, ec, g.nodes.length, nE);
   }
   /*
    * update(prev, a, b, dn, de): the profile of graph b, worked out from prev (the profile of a) for the changed item slots dn and link
@@ -520,8 +533,9 @@ var NFMColumns = (function () {
    */
   /** true when many of the first 50,000 links repeat a (from, to) pair, the sign of one row per link per state. Reads only from and to. */
   function pairsRepeat(g) {
-    var pairs = new Map();
-    for (var i = 0; i < g.edges.length && i < 50000; i++) { var k = g.edges[i].from + '\u0001' + g.edges[i].to; pairs.set(k, (pairs.get(k) || 0) + 1); }
+    var pairs = new Map(), lc = typeof NFMLinkCols !== 'undefined' ? NFMLinkCols.pending(g) : null;
+    if (lc) for (var j = 0; j < lc.n && j < 50000; j++) { var k2 = lc.fi[j] * 4194304 + lc.ti[j]; pairs.set(k2, (pairs.get(k2) || 0) + 1); }   /* item numbers stand for the names (every name is one item) */
+    else for (var i = 0; i < g.edges.length && i < 50000; i++) { var k = g.edges[i].from + '\u0001' + g.edges[i].to; pairs.set(k, (pairs.get(k) || 0) + 1); }
     var repeated = 0; pairs.forEach(function (c) { if (c > 1) repeated++; });
     return !!pairs.size && repeated / pairs.size > 0.3;
   }

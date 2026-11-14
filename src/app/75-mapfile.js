@@ -188,9 +188,22 @@ function layoutXY(L) {
   return xy;
 }
 /** The map as file bytes: resolves to a Uint8Array. */
+/** From this many links a map file keeps the links as number columns (version 2, src/link-cols.js): opening it builds no link objects. Older builds say it is not a map file. */
+var LINKCOLS_MIN = 50000;
+/** The links of g as { lc: bundle } for a version 2 file, or null (a small map, a link that is not a plain clean one: the file keeps links as rows). */
+function linkColsDoc(g) {
+  var L = NFMLinkCols.pending(g);
+  if (!L) {
+    if (g.edges.length < LINKCOLS_MIN) return null;
+    var pos = new Map(), i; for (i = 0; i < g.nodes.length; i++) pos.set(g.nodes[i].id, i);
+    L = NFMLinkCols.fromEdges(g.edges, pos);
+  }
+  return L ? { lc: NFMLinkCols.toBundle(L) } : null;
+}
 function mapFileBytes() {
   return Promise.all([lfcReady(), mapFileLayout()]).then(function (r) {
-    var g = S.graph, doc = { format: 'netflow-map', version: 1, name: g.name, start: g.start, flavor: g.flavor, calc: g.calc, roles: g.roles, states: g.states, nodes: g.nodes, links: g.edges, view: S.V };
+    var g = S.graph, lk = linkColsDoc(g), doc = { format: 'netflow-map', version: lk ? 2 : 1, name: g.name, start: g.start, flavor: g.flavor, calc: g.calc, roles: g.roles, states: g.states, nodes: g.nodes, view: S.V };
+    if (lk) doc.lc = lk.lc; else doc.links = g.edges;
     if (r[1]) doc.layout = r[1];
     return LfcPack.packTables(doc);
   });
@@ -209,8 +222,8 @@ function saveMapFile() {
 function openMapBytes(u8) {
   var t0 = performance.now(), tU;
   return lfcReady().then(function () { var t1 = performance.now(); var d = LfcPack.unpackTables(u8); return Promise.resolve(d).then(function (x) { tU = performance.now() - t1; return x; }); }).then(function (doc) {
-    if (!doc || doc.format !== 'netflow-map' || !Array.isArray(doc.nodes) || !Array.isArray(doc.links)) throw new Error('this is not a Netflow Map file');
-    var g = NFMImport.sanitizeGraph({ name: doc.name, start: doc.start, flavor: doc.flavor, calc: doc.calc, roles: doc.roles, states: doc.states, nodes: doc.nodes, edges: doc.links });
+    if (!doc || doc.format !== 'netflow-map' || !Array.isArray(doc.nodes) || !(Array.isArray(doc.links) || (doc.lc && typeof doc.lc === 'object'))) throw new Error('this is not a Netflow Map file');
+    var g = docToGraph(doc);
     if (doc.view && typeof doc.view === 'object') SAFE.set('nfm-v:' + g.name, JSON.stringify(doc.view)); else SAFE.del('nfm-v:' + g.name);
     var L = doc.layout, LX = L && L.key ? layoutXY(L) : null, put = LX && client.store ? client.store.put(L.key, { key: L.key, xy: LX, width: L.width, height: L.height, rough: false, startId: L.startId, imp: impFromText(L.imp) }).catch(function () { /* the layout is worked out again */ }) : Promise.resolve();
     return put.then(function () {
@@ -218,6 +231,18 @@ function openMapBytes(u8) {
       setGraph(g, true, false);
     });
   });
+}
+/** The graph of a read map file: links as rows (version 1) or kept as columns until something reads them (version 2). Sets HANDIX so the item index needs no look-ups. */
+function docToGraph(doc) {
+  var head = { name: doc.name, start: doc.start, flavor: doc.flavor, calc: doc.calc, roles: doc.roles, states: doc.states, nodes: doc.nodes };
+  if (!doc.lc) { head.edges = doc.links; return NFMImport.sanitizeGraph(head); }
+  var L = NFMLinkCols.fromBundle(doc.lc);
+  head.edges = [];
+  var g = NFMImport.sanitizeGraph(head);
+  if (g.nodes.length === doc.nodes.length && !(head.states && head.states.names) && NFMLinkCols.valid(L, g.nodes.length)) return NFMLinkCols.lazyEdges(g, L);
+  head.edges = NFMLinkCols.rows(L, doc.nodes.map(function (n) { return { id: String(n.id) }; }));   /* an item was dropped or merged by sanitizing (item numbers moved), or the file is odd: the slow way, link by link */
+  head.nodes = doc.nodes;
+  return NFMImport.sanitizeGraph(head);
 }
 function openMapFile(file) {
   busy('Opening ' + file.name + '…');

@@ -187,7 +187,7 @@ function renderReport() {
   var ghosts = IDX.g === g && IDX.ghosts >= 0 ? IDX.ghosts : g.nodes.filter(function (n) { return n.ghost; }).length, ends = S.outAdj.none ? S.outAdj.none() : -1;
   if (ends < 0) ends = g.nodes.filter(function (n) { return !S.outAdj.has(n.id); }).length;
   var stat = function (b, s, small) { return h('div', { class: 'stat' }, [h('b', small ? { style: { fontSize: '15px' } } : null, b), h('span', null, s)]); };
-  mount($('stats'), [stat(nfmt(g.nodes.length), word('items')), stat(nfmt(g.edges.length), word('links')), stat(nfmt(ends), 'with no way on'), ghosts ? stat(nfmt(ghosts), 'placeholders') : null,
+  mount($('stats'), [stat(nfmt(g.nodes.length), word('items')), stat(nfmt(nEdges(g)), word('links')), stat(nfmt(ends), 'with no way on'), ghosts ? stat(nfmt(ghosts), 'placeholders') : null,
     g.start ? stat((S.byId.get(g.start) || {}).label || g.start, 'start', true) : null,
     S.prof ? stat(nfmt(S.prof.nodes.filter(function (c) { return !c.builtin; }).length + S.prof.edges.filter(function (c) { return !c.builtin; }).length), 'extra columns') : null]);
   var notes = S.imp ? S.imp.res.report.notes : [];
@@ -397,7 +397,7 @@ function renderCols() {
   var wcol = V.widthBy ? chLabel(V.widthBy, 'edges') : '';
   if (!V.widthBy && NFMColumns.findCol(S.prof.edges, 'weight')) kids.push(h('p', { class: 'small', style: { margin: 0, color: 'var(--gold)' } }, 'Your links have weights, but link width is off, so every line looks the same. Pick Weight above to make heavier links wider.'));
   kids.push(h('h3', null, cap(word('items')) + ' (' + nfmt(g.nodes.length) + ')'), colTable('nodes'));
-  kids.push(h('h3', null, cap(word('links')) + ' (' + nfmt(g.edges.length) + ')'), colTable('edges'));
+  kids.push(h('h3', null, cap(word('links')) + ' (' + nfmt(nEdges(g)) + ')'), colTable('edges'));
   kids.push(h('h3', null, 'Calculated columns'), h('p', { class: 'muted small', style: { margin: 0 } }, 'Make a new column from the others, for example a ratio, a share, or a score. It works like any other column.'), calcEditor());
   if (S.story) kids.push(h('p', { class: 'muted small', style: { margin: 0 } }, 'This looks like a story, so good and bad endings and starting points are available on the Nodes tab and in the Details panel.'));
   mount(card, kids);

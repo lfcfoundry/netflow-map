@@ -149,6 +149,7 @@ var NFMEngineClient = (function () {
     'if(d.type==="helpersOk"){__HP.can=true;__API.pieces=__HP.run;return;}' +
     'if(d.type==="helperPorts"){__HP.got(Array.prototype.slice.call(e.ports||[]),d.error);return;}' +
     'if(d.type==="helperFailed"){if(__HP.fail)__HP.fail("a helper failed ("+(d.error||"error")+")");else __HP.stop();return;}' +
+    'if(d.type==="graphLC"){var lg=JSON.parse(d.text);lg.edges=NFMLinkCols.rows(d.lc,lg.nodes);__st.R=lg;__st.G=NFMColumns.derive(lg);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
     'if(d.type==="graph"){if(d.text!==undefined)d.graph=JSON.parse(d.text);__st.R=d.graph;__st.G=NFMColumns.derive(d.graph);__st.ver=d.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
     'if(d.type==="import"){try{var ir=NFMImport.importAny(d.files,d.opts),ig=ir.graph;if(ir.rows&&ir.delimiter&&d.files.length===1){ir.rowsDropped=true;ir.rows=null;}ir.graph=null;__st.next={R:ig,ver:d.ver};var ipf=null,ix=null,ie=ig.edges,inn=ig.nodes,ipos=new Map(),ik=0,ikinds=new Set(),ifr=null,ito=null;try{if(NFMColumns.derive(ig)===ig)ipf=NFMColumns.profile(ig);}catch(pe){ipf=null;}try{for(ik=0;ik<inn.length;ik++)ipos.set(inn[ik].id,ik);ifr=new Int32Array(ie.length);ito=new Int32Array(ie.length);for(ik=0;ik<ie.length;ik++){var ia=ipos.get(ie[ik].from),ib=ipos.get(ie[ik].to);ifr[ik]=ia===undefined?-1:ia;ito[ik]=ib===undefined?-1:ib;if(ie[ik].kind)ikinds.add(ie[ik].kind);}ix={fi:ifr,ti:ito,kinds:Array.from(ikinds).sort()};}catch(xe){ix=null;}self.postMessage({id:d.id,ok:true,result:{res:ir,parts:__parts(ig),prof:ipf,ix:ix}},ix?[ifr.buffer,ito.buffer]:[]);}catch(ie){self.postMessage({id:d.id,ok:false,error:String(ie&&ie.message||ie)});}return;}' +   // reads the file here, off the page: the page gets the graph as text (reading text is about a quarter of reading a file)
     'if(d.type==="adopt"){var nx=__st.next;__st.next=null;if(!nx||nx.ver!==d.ver){self.postMessage({id:d.id,ok:true,result:"full"});return;}__st.R=nx.R;__st.G=NFMColumns.derive(nx.R);__st.ver=nx.ver;__st.sim=null;self.postMessage({id:d.id,ok:true,result:true});return;}' +
@@ -255,7 +256,7 @@ var NFMEngineClient = (function () {
   };
   /** What the worker needs to go from graph a (which it has) to graph b: null when sending b whole is the better choice. */
   function graphDiff(a, b) {
-    if (typeof NFMUndo === 'undefined' || !a.nodes || !a.edges || !b.nodes || !b.edges) return null;
+    if (typeof NFMUndo === 'undefined' || !a.nodes || !b.nodes || (typeof NFMLinkCols !== 'undefined' && (NFMLinkCols.pending(a) || NFMLinkCols.pending(b))) || !a.edges || !b.edges) return null;
     var n = b.nodes.length + b.edges.length; if (n < 2000) return null;   // small: the whole graph is quick
     var dn = NFMUndo.listDiff(b.nodes, a.nodes), de = NFMUndo.listDiff(b.edges, a.edges);
     var held = function (d) { return d.same ? 0 : d.at ? d.at.length : d.mid.length; };
@@ -300,12 +301,13 @@ var NFMEngineClient = (function () {
   }
   /** Sends a whole graph to the worker. A big one is turned into text in slices (graphTextSliced) with the page free in between; every other message to the worker waits until it has gone (this.gate), so the worker still sees the graph before anything that depends on it. */
   Client.prototype.sendWhole = function (call, graph, ver) {
-    var self = this;
-    if (graph.nodes.length + graph.edges.length < 60000 || typeof MessageChannel !== 'function') return call(graphMsg(graph, ver));
-    var prev = this.gate, res = null, P = graphTextSliced(graph).then(function (text) { return prev ? prev.then(function () { return text; }) : text; }).then(function (text) {
+    var self = this, lc = typeof NFMLinkCols !== 'undefined' ? NFMLinkCols.pending(graph) : null, head = graph;
+    if (lc) { head = {}; Object.keys(graph).forEach(function (k) { if (k !== 'edges') head[k] = graph[k]; }); }   /* links still columns: the worker gets them as numbers beside the items' text and builds the link rows itself */
+    if (!lc && (graph.nodes.length + graph.edges.length < 60000 || typeof MessageChannel !== 'function')) return call(graphMsg(graph, ver));
+    var prev = this.gate, res = null, P = graphTextSliced(head).then(function (text) { return prev ? prev.then(function () { return text; }) : text; }).then(function (text) {
       if (self.gate === P) self.gate = null;
       if (!self.w || self.mode === 'page' || self.parked) { res = Promise.resolve(true); return; }   /* the engine ended meanwhile: it gets the graph when it starts again */
-      self.bypass = true; try { res = call({ type: 'graph', text: text, ver: ver }); } finally { self.bypass = false; }
+      self.bypass = true; try { res = call(lc ? { type: 'graphLC', text: text, lc: lc, ver: ver } : { type: 'graph', text: text, ver: ver }); } finally { self.bypass = false; }
     });
     this.gate = P;
     return P.then(function () { return res; });
