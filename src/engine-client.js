@@ -18,7 +18,7 @@ var NFMEngineClient = (function () {
           E.forceExt.external = function (X, k, pairs, mass, rounds) { if (k !== fp.k || pairs.length !== fp.pairs) return false; for (var q = 0; q < 2 * k; q++) X[q] = fp.X[q]; return true; };
           try { return E.build(st.G, o3); } finally { E.forceExt.external = null; }
         }
-        if (!gp) return API.pieces && E.buildPieces ? E.buildPieces(st.G, d.opts, API.pieces) : E.build(st.G, d.opts);   // many big pieces: some go to helper threads (same picture)
+        if (!gp) return API.pieces && E.buildPieces ? E.buildPieces(st.G, Object.assign({ cacheHolder: st }, d.opts), API.pieces) : E.build(st.G, Object.assign({ cacheHolder: st }, d.opts));   // many big pieces: some go to helper threads (same picture)
         var o2 = Object.assign({}, d.opts); delete o2.gpuPicture;
         E.stressTuning.external = function (X, k) { if (k !== gp.k) return false; for (var q = 0; q < 2 * k; q++) X[q] = gp.X[q]; return true; };
         try { return E.build(st.G, o2); } finally { E.stressTuning.external = null; }
