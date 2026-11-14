@@ -336,6 +336,15 @@ async function open() {
   /* Sankey pictures: click and right-click on links, bars and labels, drag a bar, hand edits, undo */
   {
     await ev(() => NFM.setV({ view: 'sankey' })); await D.wait(() => NFM.state.L.view === 'sankey' && NFM.state.scene.view === 'sankey' && NFM.state.L.sk, null, 20000); await settle(300);
+    /* a Sankey of up to 1,500 items is laid out on the page, not in the helper: the same picture either way */
+    {
+      const pic = () => ev(() => JSON.stringify(NFM.state.L.nodes.map((n) => [n.id, Math.round(n.x * 1000), Math.round(n.y * 1000), Math.round((n.h || 0) * 1000)])));
+      const nw = async (w) => { await ev((w2) => NFM.setV({ sk: Object.assign({}, NFM.state.V.sk, { nodeW: w2 }) }), w); await D.wait(() => NFM.pending() === 0 && NFM.state.scene && NFM.state.L.sk, null, 20000); await settle(150); };
+      await ev(() => { NFM.client().pageSankey = 0; }); await nw(16); const viaHelper = await pic(); const r0 = await ev(() => NFM.client().pageRuns || 0);
+      await ev(() => { NFM.client().pageSankey = 1501; }); await nw(17); await nw(16); const onPage = await pic(); const r1 = await ev(() => NFM.client().pageRuns || 0);
+      say(r1 > r0 && viaHelper === onPage, 'a small Sankey laid out on the page matches the helper picture (page runs ' + r0 + ' to ' + r1 + ')');
+      await nw(14);
+    }
     const scr = (x, y) => ev(([a, b]) => { const S = NFM.state, r = document.getElementById('stage').getBoundingClientRect(); return [r.left + a * S.view.k + S.view.tx, r.top + b * S.view.k + S.view.ty]; }, [x, y]);
     const menu = async (x, y) => { await ev(([cx, cy]) => { document.getElementById('stage').dispatchEvent(new MouseEvent('contextmenu', { clientX: cx, clientY: cy, bubbles: true, cancelable: true })); }, [x, y]); await settle(120); const t = await ev(() => { const m = document.getElementById('ctx'); return m.hidden ? '' : m.textContent; }); await ev(() => { document.getElementById('ctx').hidden = true; }); return t; };
     const rb = await ev(() => { const r = NFM.state.scene.ribbons.filter((q) => q.y0b - q.y0a > 5)[0]; return [(r.x0 + r.x1) / 2, (r.y0a + r.y0b + r.y1a + r.y1b) / 4]; });
