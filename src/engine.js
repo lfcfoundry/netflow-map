@@ -2327,11 +2327,11 @@ var NFMEngine = (function () {
     var root = P.start >= 0 ? G.groupOf[P.start] : undefined, prev = o.prev || undefined, Lr;
     /* layered-drawing choices: see layered(). deep: the crossing search above; rows 'best' tries both row rules and keeps the one with fewer crossings */
     /* the crossing search (o.search, the app's Crossing search setting): 'deep' (netflow-layers deep: true), 'lite' (deep left out: the
-       module's lighter search, at most 12 rounds), or 'auto' (the default): deep under SEARCH_AUTO_LITE boxes, lite from there. On 47 test
+       module's lighter search, at most 12 rounds), 'sift' (Deeper, then netflow-layers sift: each box slides to its best place in its row; fewer crossings, about 1.3x the time), or 'auto' (the default): deep under SEARCH_AUTO_LITE boxes, lite from there. On 47 test
        maps the lighter search drew more crossings on 8 (0.1 to 7%), all at 700 boxes or fewer but one (0.1%); on the 1,000- and 1,500-item
        comparison data it drew the same picture in about 0.55 to 0.6 of the time (Chromium 132 to 73 ms, 298 to 182 ms). deep: false still means none. */
-    var deepOpt = o.deep === false ? false : o.search === 'lite' ? undefined : o.search === 'deep' || o.deep === true || G.nodes.length < SEARCH_AUTO_LITE ? true : undefined;
-    var LO = { rows: o.rows === 'story' || o.rows === 'best' ? o.rows : deepOpt === undefined ? 'route' : undefined, deep: deepOpt, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
+    var deepOpt = o.deep === false ? false : o.search === 'lite' ? undefined : o.search === 'deep' || o.search === 'sift' || o.deep === true || G.nodes.length < SEARCH_AUTO_LITE ? true : undefined;
+    var LO = { rows: o.rows === 'story' || o.rows === 'best' ? o.rows : deepOpt === undefined ? 'route' : undefined, deep: deepOpt, sift: o.search === 'sift' ? true : undefined, tagLen: o.tagLen > 1 ? o.tagLen : 0, better: !!o.better, bundle: !!o.bundle, spread: o.spread === 'wide' ? 'wide' : undefined, maxVertices: MAX_STOPS };
     var withLO = function (x) { return Object.assign(x, LO); };
     /* Auto on small maps (under BOTH_UNTANGLE boxes, 'Untangle harder' off, Crossing search Auto): the layout runs with and without the harder
        untangling and keeps the one with fewer crossings. Neither wins every time (40 imported tables under 500 boxes: harder fewer on about

@@ -170,6 +170,14 @@ t('crossing search: Auto draws exactly the Deeper picture under 800 boxes and th
   ok(pic(La) === pic(Ll), 'auto differs from lighter on a big map');
   return La.nodes.length + ' boxes';
 });
+t('crossing search Sift: never more crossings than Deeper, Auto and Lighter are unchanged by the new module', () => {
+  const out = [];
+  for (const [nm, s] of [['story 300', story(300, 5)], ['story 1000', story(1000, 12)], ['dag 300', dag(300, 700, 13)]]) {
+    const g = graph(s), d = info(g, { search: 'deep', untangleBoth: false }), f = info(g, { search: 'sift', untangleBoth: false });
+    ok(f.crossings <= d.crossings, nm + ': ' + f.crossings + ' crossings with Sift vs ' + d.crossings + ' with Deeper'); out.push(nm + ' ' + d.crossings + '->' + f.crossings);
+  }
+  return out.join(', ');
+});
 t('small maps under Auto: the layout keeps whichever untangling crosses less, so it is never messier than either alone', () => {
   let n = 0;
   for (const [size, seed] of [[60, 1], [120, 2], [200, 3], [300, 4], [420, 5]]) for (const view of ['flow', 'down', 'spine']) {
