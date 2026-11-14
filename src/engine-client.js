@@ -165,6 +165,7 @@ var NFMEngineClient = (function () {
     '}catch(err){self.postMessage({id:d.id,ok:false,error:String(err&&err.message||err)});}};';
 
   function Client(engineSrc, onMain) {
+    this.pageSankey = 1501;   /* a Sankey of up to 1,500 items is laid out on the page, not in the helper: the same picture (same engine code), without the hand-over, 0.67 to 0.98 of the first-draw time in 3 browsers; 0 = always the helper */
     this.src = engineSrc; this.onMain = onMain; this.w = null; this.mode = 'starting'; this.seq = 0; this.pending = new Map();
     this.ver = 0; this.graph = null; this.sent = null; this.sentVer = -1; this.queue = null; this.busy = null; this.why = '';
     /* Parking (off unless the page sets parkAfter): when nothing has been asked for parkAfter ms, a big graph's worker is ended, which frees the graph copy and everything else it holds; the next job starts a fresh worker and sends the graph again. */
@@ -382,11 +383,12 @@ var NFMEngineClient = (function () {
     var job = self.queues[key]; self.queues[key] = null; self.busy = job;
     var done = function () { self.busy = null; self.pump(); if (!self.busy) self.armPark(); };
     var t0 = Date.now(), ver = self.ver, msg = Object.assign({ type: job.type, opts: job.opts, ver: ver }, job.extra);
-    if (self.mode === 'worker') {
+    if (self.mode === 'worker' && !(job.type === 'build' && job.opts && job.opts.view === 'sankey' && self.graph && self.graph.nodes.length < self.pageSankey && self.mode === 'worker' && self.onMain)) {
       self.call(msg).then(function (r) { r.total = Date.now() - t0; r.res = r.L; self.keepWarm = job.type === 'gpuPiece' || !!(r.L && r.L.rough); job.resolve(r); }, function (err) { job.reject(err); }).then(done);
     } else {
       setTimeout(function () {
         try {
+          self.pageRuns = (self.pageRuns || 0) + 1;
           var E = self.onMain(), API = { E: E, SIM: NFMSim, CHK: NFMCheck, C: NFMColumns };
           if (!self.st || self.st.ver !== ver) self.st = { G: NFMColumns.derive(self.graph), ver: ver, P: null, sim: null };
           var r = dispatch(msg, self.st, API); job.resolve({ L: r, res: r, ms: Date.now() - t0, total: Date.now() - t0 });
