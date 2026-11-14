@@ -285,8 +285,8 @@ function textMayFit(g, max) {
   return (k ? a / k * n.length : 0) + (j ? b / j * e.length : 0) < max * 1.5;
 }
 var saveGraph = debounce(function () {
-  if (NFMLinkCols.pending(S.graph)) return;   /* PROTOTYPE: autosave of a map whose links are still columns is not built yet */
   if (!S.graph.nodes.length) { PACKSAVE.n++; PACKSAVE.base = null; PACKSAVE.again = false; SAFE.del('nfm-graph'); return; }
+  if (NFMLinkCols.pending(S.graph)) { saveBig(); return; }   /* links still columns: always a big map (50,000+ links); saved packed, as columns */
   var txt = textMayFit(S.graph, 1800000) ? JSON.stringify(S.graph) : graphText(S.graph, 1800000);   /* one whole stringify when it may fit (the quickest), item by item with an early stop when it surely won't */
   if (txt !== null && txt.length < 1800000) { PACKSAVE.n++; PACKSAVE.base = null; PACKSAVE.again = false; if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else saveBig();
 }, 600);
@@ -316,12 +316,12 @@ function saveBig() {
       if (!u8 || u8.length > 48 * 1048576) throw 1;
       return SAFE.setPacked('nfm-graph', u8).then(function (seq) {
         if (!seq) throw 1;
-        if (!stale()) { PACKSAVE.base = { id: id, seq: seq, nodes: g.nodes.slice(), edges: g.edges.slice(), len: u8.length }; PACKSAVE.deltas = 0; }   /* the map as it was when this save began; a change made since is sent as a patch next */
+        if (!stale()) { PACKSAVE.base = NFMLinkCols.pending(g) ? null : { id: id, seq: seq, nodes: g.nodes.slice(), edges: g.edges.slice(), len: u8.length }; PACKSAVE.deltas = 0; }   /* the map as it was when this save began; a change made since is sent as a patch next */
       });
     });
   };
   var go = full;
-  if (bs && bs.nodes.length === g.nodes.length && bs.edges.length === g.edges.length && PACKSAVE.deltas < 20) {
+  if (bs && !NFMLinkCols.pending(g) && bs.nodes.length === g.nodes.length && bs.edges.length === g.edges.length && PACKSAVE.deltas < 20) {
     var cn = changedRows(bs.nodes, g.nodes), ce = cn && changedRows(bs.edges, g.edges);
     if (ce) go = function () {   /* a small patch against the last full save, made on the saving thread: the page sends only the changed rows */
       return savePackCall({ kind: 'delta', baseId: bs.id, meta: undoMeta(g), nodes: cn, links: ce }).then(function (r) {

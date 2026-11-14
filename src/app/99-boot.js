@@ -24,7 +24,7 @@
       .then(function (r) {
         if (r && r.packed) {   /* a big map kept as map-file bytes (src/app/00-core.js saveBig) */
           var mk = null; try { mk = JSON.parse(LS.get('nfm-graph-at') || 'null'); } catch (e) { mk = null; }
-          var whole = function (d) { var g = {}, m = d.meta || {}; Object.keys(m).forEach(function (k) { g[k] = m[k]; }); g.nodes = d.nodes; g.edges = d.links; return g; };
+          var whole = tablesToGraph;
           /* with a patch kept after the full save (src/app/00-core.js saveBig): base plus patch; any trouble with it and the full save alone comes back. Either way a full save is made soon, so the next start reads one plain file. */
           return (mk && mk.delta ? SAFE.read('nfm-graph-delta') : Promise.resolve(null)).then(function (dr) {
             if (!dr || !dr.delta || dr.baseSeq !== r.seq) return undoUnpack({ bytes: r.packed }).then(function (g) { return { g: g, patched: false }; });
@@ -36,7 +36,7 @@
   }
   else rest(savedLS, true);
   function rest(saved, fromLS, gobj) {
-  if (gobj) { try { S.graph = NFMImport.sanitizeGraph(gobj); S.gver++; } catch (e) { /* not a map: start empty */ } }
+  if (gobj) { try { S.graph = NFMLinkCols.pending(gobj) ? gobj : NFMImport.sanitizeGraph(gobj); S.gver++; } catch (e) { /* not a map: start empty */ } }
   else if (saved) { try { S.graph = NFMImport.sanitizeGraph(JSON.parse(saved)); S.gver++; } catch (e) { if (fromLS) LS.del('nfm-graph'); } }
   applyTheme(); placeChrome(); keyboardLift();
   if (window.matchMedia) ['(hover: none) and (pointer: coarse)', '(max-width:820px)'].forEach(function (q) { matchMedia(q).addEventListener('change', function () { placeChrome(); if (S.mapBuilt) renderMapUI(); }); });
