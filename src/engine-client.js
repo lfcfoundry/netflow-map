@@ -88,6 +88,12 @@ var NFMEngineClient = (function () {
       for (q = 0; q < 14; q++) { a = Math.floor(r() * 18); b = a + 1 + Math.floor(r() * 5); if (b > 23 || sseen[a + '>' + b]) continue; sseen[a + '>' + b] = 1; se.push({ from: 's' + a, to: 's' + b, label: '', kind: '', weight: 1 + Math.floor(r() * 4), attrs: {} }); }
       API.E.build(API.C.derive({ name: 'warm-sankey', start: 's0', nodes: sn, edges: se }), { view: 'sankey', colorBy: 'group', sk: { color: 'target', opacity: 0.45, labels: 'auto', nodeW: 14, pad: 12, justify: true } });
     } catch (err) { /* the warm-up is only a help */ }
+    /* and the nested views (treemap, groups nest): their first big build paid about 250 ms of cold code in the 50,000-item lab (850 ms cold, 600 after a small one) */
+    try {
+      var gn = [];
+      for (i = 0; i < n; i++) gn.push({ id: 'w' + i, label: 'w' + i, group: 'g' + Math.floor(i / per), valence: '', ghost: false, attrs: {} });
+      API.E.build(API.C.derive({ name: 'warm-nested', start: null, nodes: gn, edges: edges }), { view: 'treemap' });
+    } catch (err2) { /* the warm-up is only a help */ }
     return net;
   }
   /*
@@ -244,6 +250,11 @@ var NFMEngineClient = (function () {
     this.pending.delete(d.id);
     if (d.ok) p.resolve(d.result === true || d.result === 'pong' || d.result === 'warm' ? d.result : { L: typeof NFMPack !== 'undefined' ? NFMPack.unpackResult(d.result) : d.result, ms: d.ms }); else p.reject(new Error(d.error));
   };
+  /** A layout that left its link records unmade (L.lazyLinks) gets them made on first use, from this client's graph (the labels). */
+  Client.prototype.lazy = function (L) {
+    var self = this;
+    if (L && L.lazyLinks && typeof NFMEngine !== 'undefined' && NFMEngine.lazyLinks) NFMEngine.lazyLinks(L, function () { return self.graph && self.graph.edges; });
+  };
   Client.prototype.call = function (msg) {
     var self = this;
     if (this.parked) return this.unpark().then(function () { return self.call(msg); });
@@ -383,15 +394,16 @@ var NFMEngineClient = (function () {
     var job = self.queues[key]; self.queues[key] = null; self.busy = job;
     var done = function () { self.busy = null; self.pump(); if (!self.busy) self.armPark(); };
     var t0 = Date.now(), ver = self.ver, msg = Object.assign({ type: job.type, opts: job.opts, ver: ver }, job.extra);
+    if (job.type === 'build' && job.opts && !job.opts.lazyLinks) msg.opts = Object.assign({}, job.opts, { lazyLinks: true });   /* nested views leave the link records for the page to make if something asks */
     if (self.mode === 'worker' && !(job.type === 'build' && job.opts && job.opts.view === 'sankey' && self.graph && self.graph.nodes.length < self.pageSankey && self.mode === 'worker' && self.onMain)) {
-      self.call(msg).then(function (r) { r.total = Date.now() - t0; r.res = r.L; self.keepWarm = job.type === 'gpuPiece' || !!(r.L && r.L.rough); job.resolve(r); }, function (err) { job.reject(err); }).then(done);
+      self.call(msg).then(function (r) { r.total = Date.now() - t0; self.lazy(r.L); r.res = r.L; self.keepWarm = job.type === 'gpuPiece' || !!(r.L && r.L.rough); job.resolve(r); }, function (err) { job.reject(err); }).then(done);
     } else {
       setTimeout(function () {
         try {
           self.pageRuns = (self.pageRuns || 0) + 1;
           var E = self.onMain(), API = { E: E, SIM: NFMSim, CHK: NFMCheck, C: NFMColumns };
           if (!self.st || self.st.ver !== ver) self.st = { G: NFMColumns.derive(self.graph), ver: ver, P: null, sim: null };
-          var r = dispatch(msg, self.st, API); job.resolve({ L: r, res: r, ms: Date.now() - t0, total: Date.now() - t0 });
+          var r = dispatch(msg, self.st, API); self.lazy(r); job.resolve({ L: r, res: r, ms: Date.now() - t0, total: Date.now() - t0 });
         } catch (err) { job.reject(err); }
         done();
       }, 0);

@@ -210,6 +210,11 @@ async function open() {
     const r = await ev(() => { const m = NFM.manager().r; m.draw(NFM.state.view); const s = m.snapshot(), d = s.data;   /* drawn and read in the same task: WebKit empties a WebGL canvas once it has been shown */
     let diff = 0; for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 30) diff++; return { backend: m.name, share: diff / (d.length / 4) }; });
     say(r.share > 0.004, `${v}: drew something (${(r.share * 100).toFixed(1)}% of pixels) with ${r.backend}`);
+    if (v === 'treemap') { const q = await ev(() => { const g = NFMExamples.bigNetwork(300, 4, 3); g.nodes.forEach((x) => { x.group = 'c' + x.attrs.community; });
+        const G = NFMColumns.derive(g), full = NFMEngine.build(G, { view: 'treemap' }), L = NFMEngine.build(G, { view: 'treemap', lazyLinks: true }); NFMEngine.lazyLinks(L, () => g.edges);
+        const had = !!L.lazyLinks, getter = !!Object.getOwnPropertyDescriptor(L, 'edges').get, n = L.edges.length, made = Object.getOwnPropertyDescriptor(L, 'edges').value === L.edges;
+        return { had, getter, n, m: full.edges.length, made, same: JSON.stringify(full.edges.slice(0, 50)) === JSON.stringify(L.edges.slice(0, 50).map((e) => Object.assign({}, e))) }; });
+      say(q.had && q.getter && q.n === q.m && q.n > 0 && q.made && q.same, `treemap: the link records are left unmade and made once, the same as in the full build, when read (${q.n} of ${q.m} links)`); }
     if (v === 'flow' || v === 'sankey' || v === 'network') await D.shot(path.join(outDir, `nfm-${which}-${v}.png`));
   }
   /* The Charts tab: a few chart types draw shapes, not only labels, and the pointer finds a mark */
