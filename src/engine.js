@@ -2248,8 +2248,14 @@ var NFMEngine = (function () {
   function build(graph, o) {
     o = o || {};
     var t0 = now(), view = o.view || 'flow';
-    var P = prepare(graph, o);
-    var imp = (o.saved && restoreImp(o.saved.imp, P)) || importance(P);   /* a saved layout of the same map also keeps the importance answers */
+    /* the flat arrays and the importance answers belong to the graph and the few options prepare reads, not to the view: the caller's holder (o.cacheHolder, one for each graph it has) keeps them, so switching views or settings on a big map does not work them out again (50,000 items: about 250 ms of each build) */
+    var hold = o.cacheHolder && !o.saved ? o.cacheHolder : null, psig = hold ? JSON.stringify([o.block, o.hideKinds, o.keep, o.edgeFacets, o.edgeFacet, o.minEdge, o.state, o.onlyPresent, o.weights, o.start]) : null, P, imp;
+    if (hold && hold.piG === graph && hold.piSig === psig) { P = hold.piP; imp = hold.piImp; }
+    else {
+      P = prepare(graph, o);
+      imp = (o.saved && restoreImp(o.saved.imp, P)) || importance(P);   /* a saved layout of the same map also keeps the importance answers */
+      if (hold) { hold.piG = graph; hold.piSig = psig; hold.piP = P; hold.piImp = imp; }
+    }
     var flowing = view === 'sankey', amounts = flowing && !!o.amounts;
     var sysFlow = [o.sizeBy, o.widthBy, o.edgeColorBy, o.colorBy].some(function (c) { return c && /^sys:(flow|visits)$/.test(c); });
     var needFlow = (flowing && !amounts) || o.colorBy === 'odds' || o.colorBy === 'heat' || o.wantFlow || sysFlow;
