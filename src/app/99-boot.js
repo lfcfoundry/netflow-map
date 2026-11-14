@@ -3,6 +3,7 @@
  */
 (function boot() {
   try { var p = JSON.parse(LS.get('nfm-prefs') || '{}'); if (p.theme) S.theme = p.theme; if (p.method) S.method = p.method; } catch (e) { /* ignore */ }
+  $('btn-credits').addEventListener('click', creditsDialog);
   $('btn-theme').addEventListener('click', function () { S.theme = themeName() === 'dark' ? 'light' : 'dark'; savePrefs(); applyTheme(); });
   if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { if (S.theme === 'auto') applyTheme(); });
   TABS.forEach(function (t) { $('tabbtn-' + t).addEventListener('click', function () { showTab(t); }); });
