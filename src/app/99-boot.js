@@ -12,6 +12,7 @@
   });
   bindIntake(); bindMapping();
   client = new NFMEngineClient.Client(engineSrc, getEngine);
+  client.onImp = function (L) { if (S.L === L && typeof renderMapUI === 'function') renderMapUI(); };   /* traffic and choke points of a big nested view arrive just after its first picture */
   client.store = typeof NFMLayoutStore !== 'undefined' && LS.get(SAVE_LAYOUTS_KEY) !== '0' ? NFMLayoutStore.open() : null;   // saved pictures of big Network maps, kept in this browser only
   client.holdIf = function () { return SIM.st === 'running'; };   /* a running simulation lives in the worker, so it stays */
   client.keeper = typeof Worker !== 'undefined' && typeof DecompressionStream !== 'undefined' && typeof MessageChannel === 'function' ? LAYOUT_KEEPER : null;   /* a parked worker's graph is kept packed, so the restart needs no whole copy on the page (src/app/75-mapfile.js) */

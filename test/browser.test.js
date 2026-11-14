@@ -213,7 +213,10 @@ async function open() {
     if (v === 'treemap') { const q = await ev(() => { const g = NFMExamples.bigNetwork(300, 4, 3); g.nodes.forEach((x) => { x.group = 'c' + x.attrs.community; });
         const G = NFMColumns.derive(g), full = NFMEngine.build(G, { view: 'treemap' }), L = NFMEngine.build(G, { view: 'treemap', lazyLinks: true }); NFMEngine.lazyLinks(L, () => g.edges);
         const had = !!L.lazyLinks, getter = !!Object.getOwnPropertyDescriptor(L, 'edges').get, n = L.edges.length, made = Object.getOwnPropertyDescriptor(L, 'edges').value === L.edges;
-        return { had, getter, n, m: full.edges.length, made, same: JSON.stringify(full.edges.slice(0, 50)) === JSON.stringify(L.edges.slice(0, 50).map((e) => Object.assign({}, e))) }; });
+        const hold = {}, lt = NFMEngine.build(G, { view: 'treemap', lazyLinks: true, cacheHolder: hold }), ff = NFMEngine.impFull(hold, lt.imp.tok), fc = NFMEngine.build(G, { view: 'treemap', colorBy: 'group' }); let late = lt.imp.lite === true && !!ff && ff.imp.chokeCount === fc.imp.chokeCount && lt.imp.reached === fc.imp.reached;
+        lt.nodes.forEach((x, i) => { let tr = 0, ch = false; x.pages.forEach((pi) => { if (ff.traffic[pi] > tr) tr = ff.traffic[pi]; if (ff.choke[pi]) ch = true; }); if (tr !== fc.nodes[i].traffic || ch !== fc.nodes[i].choke) late = false; });
+        return { late, had, getter, n, m: full.edges.length, made, same: JSON.stringify(full.edges.slice(0, 50)) === JSON.stringify(L.edges.slice(0, 50).map((e) => Object.assign({}, e))) }; });
+      say(q.late, 'treemap: traffic and choke points made late are the same as in the full build');
       say(q.had && q.getter && q.n === q.m && q.n > 0 && q.made && q.same, `treemap: the link records are left unmade and made once, the same as in the full build, when read (${q.n} of ${q.m} links)`); }
     if (v === 'flow' || v === 'sankey' || v === 'network') await D.shot(path.join(outDir, `nfm-${which}-${v}.png`));
   }
