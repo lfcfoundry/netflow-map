@@ -11,6 +11,15 @@ t('rows round trip, same rows, bundle too', function () {
   var back = LC.rows(L2, s2.nodes); assert.strictEqual(back.length, s2.edges.length);
   s2.edges.forEach(function (e, i) { assert.deepStrictEqual(JSON.parse(JSON.stringify(back[i])), JSON.parse(JSON.stringify(e))); assert.strictEqual(Object.keys(back[i]).sort().join(), Object.keys(e).sort().join()); });
 });
+t('ends coded as steps or as plain numbers both read back, in sorted and shuffled order', function () {
+  var s = I.sanitizeGraph(E.bigNetwork(3000, 5, 2)), pos = posOf(s.nodes), seed = 7, rnd = function () { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  var shuf = s.edges.slice(); for (var i = shuf.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)), t0 = shuf[i]; shuf[i] = shuf[j]; shuf[j] = t0; }
+  [s.edges, shuf].forEach(function (list, k) {
+    var L = LC.fromEdges(list, pos), b = LC.toBundle(L), L2 = LC.fromBundle(JSON.parse(JSON.stringify(b)));
+    for (var q = 0; q < L.n; q++) { assert.strictEqual(L2.fi[q], L.fi[q]); assert.strictEqual(L2.ti[q], L.ti[q]); }
+    assert.strictEqual(!!b.fd, k === 0, 'sorted uses steps for the from-end, shuffled does not');
+  });
+});
 t('lazy edges build once, setter replaces', function () {
   var s = I.sanitizeGraph(E.bigNetwork(200, 4, 1)), L = LC.fromEdges(s.edges, posOf(s.nodes)), g = { name: 'x', nodes: s.nodes };
   LC.lazyEdges(g, L); assert.strictEqual(LC.pending(g), L); assert.ok(Object.keys(g).indexOf('edges') >= 0);

@@ -54,15 +54,38 @@ var NFMLinkCols = (function () {
     var bin = atob(s), o = new Uint8Array(bin.length), i; for (i = 0; i < bin.length; i++) o[i] = bin.charCodeAt(i); return o;
   }
   function bytesOf(t) { return new Uint8Array(t.buffer, t.byteOffset, t.byteLength); }
+  /* Ends are kept as plain numbers, or as steps when the steps are smaller: the from-end after a list sorted by source changes little from one link to the next (zstd then keeps almost nothing), the to-end next to the from-end when links are local. zigzag turns a step down into an odd number. */
+  function steps(a, ref, first) { var n = a.length, o = new Int32Array(n), i, d, prev = 0; for (i = 0; i < n; i++) { d = first ? a[i] - prev : a[i] - ref[i]; prev = a[i]; o[i] = (d << 1) ^ (d >> 31); } return o; }
+  function unsteps(o, ref, first) { var n = o.length, a = new Int32Array(n), i, z, prev = 0; for (i = 0; i < n; i++) { z = o[i]; z = (z >>> 1) ^ -(z & 1); a[i] = first ? (prev = prev + z) : ref[i] + z; } return a; }
+  /** true when steps would be smaller than the numbers: most steps need fewer bits than the numbers themselves */
+  function stepsWin(a, ref, first) {
+    var n = a.length, i, d, prev = 0, sd = 0, sa = 0, sample = Math.min(n, 20000), at = Math.max(1, Math.floor(n / sample));
+    for (i = 0; i < n; i += at) { d = first ? a[i] - (i ? a[i - 1] : 0) : a[i] - ref[i]; sd += 32 - Math.clz32((d << 1) ^ (d >> 31)); sa += 32 - Math.clz32(a[i]); }
+    return sd + sample < sa * 0.8;
+  }
+  function wide(t, n) { var m = 0, i; for (i = 0; i < n; i++) if (t[i] > m) m = t[i]; return m < 256 ? 1 : m < 65536 ? 2 : 4; }
+  function narrow(t, n, w) { if (w === 4) return t; var o = w === 1 ? new Uint8Array(n) : new Uint16Array(n), i; for (i = 0; i < n; i++) o[i] = t[i]; return o; }
   function toBundle(L) {
-    var b = { n: L.n, fi: b64(bytesOf(L.fi)), ti: b64(bytesOf(L.ti)), kinds: L.kinds, labels: L.labels, ak: L.ak, ac: L.ac };
-    if (L.kx) b.kx = b64(bytesOf(L.kx)); if (L.lx) b.lx = b64(bytesOf(L.lx)); if (L.w) b.w = b64(bytesOf(L.w));
+    var fd = stepsWin(L.fi, null, true), td = stepsWin(L.ti, L.fi, false);
+    var b = { n: L.n, fi: b64(bytesOf(fd ? steps(L.fi, null, true) : L.fi)), ti: b64(bytesOf(td ? steps(L.ti, L.fi, false) : L.ti)), kinds: L.kinds, labels: L.labels, ak: L.ak, ac: L.ac };
+    if (fd) b.fd = 1; if (td) b.td = 1;
+    if (L.kx) { b.kw = wide(L.kx, L.n); b.kx = b64(bytesOf(narrow(L.kx, L.n, b.kw))); }
+    if (L.lx) { b.lw = wide(L.lx, L.n); b.lx = b64(bytesOf(narrow(L.lx, L.n, b.lw))); }
+    if (L.w) b.w = b64(bytesOf(L.w));
     return b;
   }
   function i32(s, n) { var u = fromB64(s); if (u.length !== n * 4) throw new Error('link columns: wrong length'); return new Int32Array(u.buffer, u.byteOffset, n); }
+  function small(s, n, w) {
+    if (w === 4 || w === undefined) return i32(s, n);
+    var u = fromB64(s); if (w !== 1 && w !== 2) throw new Error('link columns: bad width'); if (u.length !== n * w) throw new Error('link columns: wrong length');
+    return w === 1 ? u : new Uint16Array(u.buffer, u.byteOffset, n);
+  }
   function fromBundle(b) {
     if (!b || typeof b.n !== 'number' || b.n < 0 || b.n > 4e7 || !Array.isArray(b.kinds) || !Array.isArray(b.labels) || !Array.isArray(b.ak) || !Array.isArray(b.ac) || b.ak.length !== b.ac.length) throw new Error('link columns: bad file');
-    var n = b.n, L = { n: n, fi: i32(b.fi, n), ti: i32(b.ti, n), kinds: b.kinds, labels: b.labels, kx: b.kx ? i32(b.kx, n) : null, lx: b.lx ? i32(b.lx, n) : null, w: null, ak: b.ak, ac: b.ac };
+    var n = b.n, fi = i32(b.fi, n), ti = i32(b.ti, n);
+    if (b.fd) fi = unsteps(fi, null, true);
+    if (b.td) ti = unsteps(ti, fi, false);
+    var L = { n: n, fi: fi, ti: ti, kinds: b.kinds, labels: b.labels, kx: b.kx ? small(b.kx, n, b.kw) : null, lx: b.lx ? small(b.lx, n, b.lw) : null, w: null, ak: b.ak, ac: b.ac };
     if (b.w) { var u = fromB64(b.w); if (u.length !== n * 8) throw new Error('link columns: wrong length'); L.w = new Float64Array(u.buffer, u.byteOffset, n); }
     return L;
   }
