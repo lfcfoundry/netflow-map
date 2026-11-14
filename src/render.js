@@ -292,12 +292,17 @@ var NFMRender = (function () {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.fillStyle = css(S.theme.bg); ctx.fillRect(0, 0, H.main.width, H.main.height);
         ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * view.tx, dpr * view.ty);
+        var rgbMemo = new Map(), rgb = function (c) {   /* the color text of an opaque color, made once for each color (a 50,000-tile treemap has a few dozen) */
+          var key = Math.round(c[0] * 255) * 65536 + Math.round(c[1] * 255) * 256 + Math.round(c[2] * 255), t = rgbMemo.get(key);
+          if (t === undefined) { t = css([c[0], c[1], c[2], 1]); rgbMemo.set(key, t); }
+          return t;
+        };
         var rect = function (r) {
           if (r.x > vx1 || r.y > vy1 || r.x + r.w < vx0 || r.y + r.h < vy0) return;
-          var a = r.a === undefined ? 1 : r.a;
-          ctx.beginPath(); rrect(ctx, r.x, r.y, r.w, r.h, Math.min(r.r, r.w / 2, r.h / 2));
-          ctx.globalAlpha = a * r.fill[3]; ctx.fillStyle = css([r.fill[0], r.fill[1], r.fill[2], 1]); ctx.fill();
-          if (r.sw > 0 && r.stroke[3] > 0) { ctx.globalAlpha = a * r.stroke[3]; ctx.lineWidth = r.sw; ctx.strokeStyle = css([r.stroke[0], r.stroke[1], r.stroke[2], 1]); ctx.stroke(); }
+          var a = r.a === undefined ? 1 : r.a, rad = Math.min(r.r, r.w / 2, r.h / 2), stroked = r.sw > 0 && r.stroke[3] > 0;
+          ctx.beginPath(); rrect(ctx, r.x, r.y, r.w, r.h, rad);
+          ctx.globalAlpha = a * r.fill[3]; ctx.fillStyle = rgb(r.fill); ctx.fill();
+          if (stroked) { ctx.globalAlpha = a * r.stroke[3]; ctx.lineWidth = r.sw; ctx.strokeStyle = rgb(r.stroke); ctx.stroke(); }
         };
         S.rects.forEach(function (r) { if (r.layer === 0) rect(r); });
         (S.polys || []).forEach(function (p) {
