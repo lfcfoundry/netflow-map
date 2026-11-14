@@ -25,6 +25,7 @@
   function attach(L, o) {
     var MC = root.MemoryCompression || (typeof globalThis !== "undefined" ? globalThis.MemoryCompression : null);
     if (!L || !MC || !MC.pack || L.parked) return null;
+    var dsc = Object.getOwnPropertyDescriptor(L, 'edges'); if (dsc && dsc.get) return null;   /* the link records are still unmade (L.lazyLinks): nothing to pack, and reading them here would make all of them */
     o = o || {};
     var live = { edges: L.edges }, K = null, packed = false, busy = false, refused = false, timer = 0, touchedAt = Date.now(), views = {}, cnt = {}, gone = false;
     var delay = o.delay || 4000, min = o.min || 20000;

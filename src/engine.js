@@ -58,7 +58,7 @@ var NFMEngine = (function () {
       nodes.push(nd); no.push(i);
     }
     var n = nodes.length;
-    var f = [], t = [], w = [], eo = [], rw = [], me = opts.minEdge && opts.minEdge.ch ? opts.minEdge : null, st = opts.state, stEdges = null;
+    var ME = graph.edges.length, f = new Int32Array(ME), t = new Int32Array(ME), w = new Float64Array(ME), eo = new Int32Array(ME), rw = new Float64Array(ME), m = 0, me = opts.minEdge && opts.minEdge.ch ? opts.minEdge : null, st = opts.state, stEdges = null;
     for (var k = 0; k < graph.edges.length; k++) {
       var e = graph.edges[k];
       if (hide.has(e.kind || '')) continue;
@@ -75,14 +75,14 @@ var NFMEngine = (function () {
         if (!stEdges) stEdges = graph.edges.slice();
         stEdges[k] = Object.assign({}, e, { weight: sv, absent: gone });
       }
-      f.push(a); t.push(b); eo.push(k);
-      rw.push(isFinite(wt) ? wt : 1);
-      w.push(opts.weights && isFinite(wt) && wt > 0 ? wt : 1);
+      f[m] = a; t[m] = b; eo[m] = k;
+      rw[m] = isFinite(wt) ? wt : 1;
+      w[m] = opts.weights && isFinite(wt) && wt > 0 ? wt : 1;
+      m++;
     }
-    var m = f.length;
     var P = {
-      n: n, m: m, nodes: nodes, index: index, norig: Int32Array.from(no), rw: Float64Array.from(rw),
-      from: Int32Array.from(f), to: Int32Array.from(t), w: Float64Array.from(w), eorig: Int32Array.from(eo),
+      n: n, m: m, nodes: nodes, index: index, norig: Int32Array.from(no), rw: rw.slice(0, m),
+      from: f.slice(0, m), to: t.slice(0, m), w: w.slice(0, m), eorig: eo.slice(0, m),
       outStart: new Int32Array(n + 1), outEdge: new Int32Array(m), inStart: new Int32Array(n + 1), inEdge: new Int32Array(m),
       valence: new Int8Array(n), edges: stEdges || graph.edges, stated: !!stEdges
     };
@@ -122,6 +122,7 @@ var NFMEngine = (function () {
       var d = bfs(P, cands[i], -1), c = 0;
       for (var j = 0; j < P.n; j++) if (d[j] >= 0) c++;
       if (c > bestN) { bestN = c; best = cands[i]; }
+      if (c === P.n) break;   /* reaches everything: no later one can reach more, and ties keep the first */
     }
     return best;
   }
@@ -673,19 +674,20 @@ var NFMEngine = (function () {
       node.pages.forEach(function (pg) { groupOf[pg] = node.id; groupIx[pg] = nodes.length; });
       nodes.push(node);
     }
-    var edges = [], seen = new Map(), mergeOn = !!(opts.merge || (opts.mergeIfFolded && chapters.length)), nG = nodes.length;
+    var edges = opts.lazyE ? new Array(P.m) : [], seen = new Map(), mergeOn = !!(opts.merge || (opts.mergeIfFolded && chapters.length)), nG = nodes.length;
     var eA = opts.ix ? new Int32Array(P.m) : null, eB = opts.ix ? new Int32Array(P.m) : null;   /* each link's item numbers, for the nested views (they then need no lookup by name) */
     for (e = 0; e < P.m; e++) {
       var fe = P.from[e], te = P.to[e], ga = groupIx[fe], gb = groupIx[te];
       if (ga === gb && fe !== te) continue;
       var key = ga * nG + gb;   /* a number, not text: no string made per link (the same links, merged the same way) */
       if (mergeOn) { var had = seen.get(key); if (had) { had.srcs.push(e); continue; } }
+      if (opts.lazyE) { eA[e] = ga; eB[e] = gb; continue; }   /* nested views with plain links: the link records are made later, on the page, only if something asks (lazyLinks below) */
       var ed = { from: groupOf[fe], to: groupOf[te], srcs: [e], label: '', count: 0, flow: 0, weight: 0, orig: null, absent: undefined, widthV: NaN, colorV: NaN, colorC: '', kind: undefined, pts: undefined };   /* the fields the build fills in later, made up front in the same order, so every link keeps one shape */
       if (mergeOn) seen.set(key, ed);
       if (eA) { eA[edges.length] = ga; eB[edges.length] = gb; }
       edges.push(ed);
     }
-    return { nodes: nodes, edges: edges, groupOf: groupOf, runs: runs, imp: imp, chapters: chapters, chapterInfo: found, eA: eA ? eA.subarray(0, edges.length) : null, eB: eB ? eB.subarray(0, edges.length) : null };
+    return { nodes: nodes, edges: edges, groupOf: groupOf, runs: runs, imp: imp, chapters: chapters, chapterInfo: found, eA: eA ? eA.subarray(0, opts.lazyE ? P.m : edges.length) : null, eB: eB ? eB.subarray(0, opts.lazyE ? P.m : edges.length) : null };
   }
 
   /* ---------------------------------------------------------------- 5. the layered engine (Sugiyama-style): the shared module netflow-layers (vendor/netflow-layers.js) */
@@ -2204,6 +2206,45 @@ var NFMEngine = (function () {
     if (!r || P.start < 0 || r.n !== P.n || r.startId !== P.nodes[P.start].id || !r.choke || r.choke.length !== P.n || !r.traffic || r.traffic.length !== P.n || !r.depth || r.depth.length !== P.n || !r.idom || r.idom.length !== P.n + 1 || !r.rpo || !r.goal || !r.spine) return null;
     return { choke: r.choke, traffic: r.traffic, depth: r.depth, idom: r.idom, rpo: Array.from(r.rpo), goal: Array.from(r.goal), spine: Array.from(r.spine), goalKind: r.goalKind, routesLog10: r.routesLog10, reached: r.reached };
   }
+  /* nested views whose picture and panel never read the link records (the tree lines of the tree view do, so it is not here) */
+  var LAZY_VIEWS = { treemap: true, icicle: true, sunburst: true, pack: true };
+  var NOLINKS = [];
+  /** Makes the link records a lazily-built layout stands for: the same records the build makes, one for each link, in link order. rawEdges() gives the data's own links (their labels). */
+  function makeLinks(lz, rawEdges) {
+    var m = lz.m, out = new Array(m), raw = null, k;
+    for (k = 0; k < m; k++) {
+      var oq = lz.orig[k], lab = '';
+      if (raw === null) raw = rawEdges() || false;
+      var src = raw && raw[oq]; if (src && src.label) lab = '' + src.label;
+      out[k] = { from: 'n' + lz.a[k], to: 'n' + lz.b[k], srcs: NOLINKS, label: lab, count: 1, flow: 0, weight: lz.w[k], orig: [oq], absent: undefined, widthV: NaN, colorV: NaN, colorC: '', kind: undefined, pts: undefined };
+    }
+    return out;
+  }
+  function plainEdges(L, v) { Object.defineProperty(L, 'edges', { value: v, writable: true, enumerable: true, configurable: true }); }
+  /** On the page: L.edges becomes a getter that makes the records the first time anything reads them (a 155,000-link treemap saved about 300 ms in the helper and 200 ms on the page by not making them for the first picture). */
+  function lazyLinks(L, rawEdges) {
+    var lz = L && L.lazyLinks; if (!lz) return L;
+    Object.defineProperty(L, 'edges', { configurable: true, enumerable: true, get: function () { var v = makeLinks(lz, rawEdges); plainEdges(L, v); return v; }, set: function (v) { plainEdges(L, v); } });
+    return L;
+  }
+  /* the per-link fields of the built map: label, count, flow, weight, the original links, and the channel values */
+  function fillEdges(P, edges, flow, widthV, ecV, ecT, ecNum, amountMass, amountMax) {
+    for (var gi = 0, ne = edges.length; gi < ne; gi++) {
+      var e = edges[gi], lab = '', nl = 0, fw = 0, wsum = 0, srcs = e.srcs, ns = srcs.length, origs = [];   /* plain loops: no function, label list or mapped copy made for each link */
+      for (var si = 0; si < ns; si++) {
+        var ei = srcs[si], oq = P.eorig[ei], orig = P.edges[oq];
+        origs.push(oq);
+        if (orig.label && nl < 4) { lab = nl ? lab + ' / ' + orig.label : '' + orig.label; nl++; }
+        if (flow) fw += flow.moves[ei];
+        wsum += P.w[ei];
+      }
+      e.label = lab; e.count = ns; e.flow = fw; e.weight = wsum; e.orig = origs;
+      if (P.stated) e.absent = e.srcs.every(function (q) { return P.edges[P.eorig[q]].absent === true; });
+      e.widthV = widthV ? widthV[gi] : NaN; e.colorV = ecV ? ecV[gi] : NaN;
+      e.colorC = ecT && !ecNum ? (C.catOf(P.edges[P.eorig[e.srcs[0]]], ecT) || '(none)') : '';
+      if (amountMass) { var av = widthV[gi]; e.flow = av === av && av > 0 && amountMax > 0 ? av / amountMax : 0; }
+    }
+  }
   function build(graph, o) {
     o = o || {};
     var t0 = now(), view = o.view || 'flow';
@@ -2225,9 +2266,10 @@ var NFMEngine = (function () {
         flow = { exact: ab.converged, converged: ab.converged, residual: ab.residual, note: ab.converged ? '' : NOT_SETTLED, runs: 1, visits: ab.visits, moves: ab.moves, pGood: zg, pBad: zb, pNeutral: zn, outcome: oc0, mode: 'random', c: ab.c, K: ab.K, story: classes.story, start: ab.start, classes: classes.list.map(function (cl, k) { return { id: cl.id, label: cl.label, kind: cl.kind, p: ab.start[k] }; }) };
       }
     }
+    var lazyE = !!o.lazyLinks && LAZY_VIEWS[view] === true && !flow && !flowing && !o.widthBy && !o.edgeColorBy && !P.stated && !o.merge && !o.saved;
     var foldOn = o.fold !== false && !flowing && view !== 'matrix' && view !== 'network' && view !== 'shape' && !CHART[view];
     var chOn = foldOn && o.chapters > 0 && P.n > o.chapters && (view === 'flow' || view === 'down' || view === 'spine' || view === 'lanes');
-    var G = mapGraph(P, imp, { ix: !!CHART[view], fold: foldOn, open: o.open, mergeIfFolded: chOn, chapters: chOn ? { min: o.chapterMin, cap: o.chapterCap, open: o.openCh, partsAbove: o.partsAbove === undefined ? 600 : o.partsAbove, part: o.partPages } : null, merge: !!o.merge || flowing || view === 'matrix' || view === 'arc' || view === 'network' || !!CHART[view] });
+    var G = mapGraph(P, imp, { lazyE: lazyE, ix: !!CHART[view], fold: foldOn, open: o.open, mergeIfFolded: chOn, chapters: chOn ? { min: o.chapterMin, cap: o.chapterCap, open: o.openCh, partsAbove: o.partsAbove === undefined ? 600 : o.partsAbove, part: o.partPages } : null, merge: !!o.merge || flowing || view === 'matrix' || view === 'arc' || view === 'network' || !!CHART[view] });
     var found = o.colorBy === 'found' || o.laneBy === 'found' ? communities(P) : null;
     var how = o.agg || 'sum', colCh = o.colorBy === 'sim' ? 'sys:sim' : o.colorBy, cmode = colCh && /^sys:/.test(colCh) ? { t: 'num' } : colorMode(P, colCh);
     var sizeV = o.sizeBy ? nodeChan(P, G, o.sizeBy, how, imp, flow, o) : null, sizeR = sizeV ? rangeOf(sizeV) : null;
@@ -2283,21 +2325,7 @@ var NFMEngine = (function () {
       G.edges.forEach(function (e, k) { var v = widthV[k]; if (v === v && v > 0) { outs2[gidx.get(e.from)] += v; ins2[gidx.get(e.to)] += v; } });
       for (var gk = 0; gk < amountMass.length; gk++) { amountMass[gk] = Math.max(ins2[gk], outs2[gk]); if (amountMass[gk] > amountMax) amountMax = amountMass[gk]; }
     }
-    G.edges.forEach(function (e) {
-      var gi = ei1++, lab = '', nl = 0, fw = 0, wsum = 0, srcs = e.srcs, ns = srcs.length, origs = [];   /* plain loops: no function, label list or mapped copy made for each link */
-      for (var si = 0; si < ns; si++) {
-        var ei = srcs[si], oq = P.eorig[ei], orig = P.edges[oq];
-        origs.push(oq);
-        if (orig.label && nl < 4) { lab = nl ? lab + ' / ' + orig.label : '' + orig.label; nl++; }
-        if (flow) fw += flow.moves[ei];
-        wsum += P.w[ei];
-      }
-      e.label = lab; e.count = ns; e.flow = fw; e.weight = wsum; e.orig = origs;
-      if (P.stated) e.absent = e.srcs.every(function (q) { return P.edges[P.eorig[q]].absent === true; });
-      e.widthV = widthV ? widthV[gi] : NaN; e.colorV = ecV ? ecV[gi] : NaN;
-      e.colorC = ecT && !ecNum ? (C.catOf(P.edges[P.eorig[e.srcs[0]]], ecT) || '(none)') : '';
-      if (amountMass) { var av = widthV[gi]; e.flow = av === av && av > 0 && amountMax > 0 ? av / amountMax : 0; }
-    });
+    if (!lazyE) fillEdges(P, G.edges, flow, widthV, ecV, ecT, ecNum, amountMass, amountMax);   /* a function of its own, not a callback inside build(): the browser makes it fast sooner (a 155,000-link map spent 190 ms in the callback, 25 ms once warm) */
     if (amountMass) { var gj = 0; G.nodes.forEach(function (n) { n.visits = amountMax > 0 ? amountMass[gj] / amountMax : 0; gj++; }); }
     /* a Sankey whose start item has no links out has nothing flowing: draw the link weights instead of one empty column (the page says so) */
     var weightsFallback = false;
@@ -2375,6 +2403,7 @@ var NFMEngine = (function () {
     if ((view === 'lanes' || downLanes) && laneNames.length > 1) Lr.laneNames = laneNames;
     if (Lr && Lr.saveLayout && P.start >= 0) { Lr.saveLayout.startId = P.nodes[P.start].id; Lr.saveLayout.imp = packImp(imp, P); }
     Lr.view = view;
+    if (lazyE) { Lr.edges = []; Lr.lazyLinks = { m: P.m, a: P.from, b: P.to, orig: P.eorig, w: P.w }; }
     Lr.cls = cls;
     Lr.imp = {
       goal: imp.goal.map(function (v) { return P.nodes[v].id; }), goalKind: imp.goalKind,
@@ -2429,7 +2458,7 @@ var NFMEngine = (function () {
 
   return {
     MAP_W: MAP_W, MAP_H: MAP_H, VIEWS: VIEWS, TASKS: TASKS, prepare: prepare, importance: importance, flowExact: flowExact, flowSim: flowSim, absorb: absorb, endClasses: endClasses, spread: spread, seedsOf: seedsOf,
-    layoutKey: layoutKey, separateGroups: separateGroups, mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressWasm: STRESS_WASM, separate: separate, forceWasm: FORCE_WASM, stressTuning: STRESS, pieces: PIECES, pieceRun: pieceRun, pieceJob: pieceJob, buildPieces: buildPieces, forceExt: FORCE_EXT, force3dTuning: FORCE3, force2dTuning: FORCE2,
+    lazyLinks: lazyLinks, makeLinks: makeLinks, layoutKey: layoutKey, separateGroups: separateGroups, mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressWasm: STRESS_WASM, separate: separate, forceWasm: FORCE_WASM, stressTuning: STRESS, pieces: PIECES, pieceRun: pieceRun, pieceJob: pieceJob, buildPieces: buildPieces, forceExt: FORCE_EXT, force3dTuning: FORCE3, force2dTuning: FORCE2,
     communities: communities, metrics: metrics, taskScore: taskScore, build: build, compare: compare, bfs: bfs, mapCrossPairs: mapCrossPairs, mapPlaceLine: mapPlaceLine, autoStart: autoStart
   };
 })();
