@@ -40,17 +40,17 @@ var UNDOPACK_MAIN = '\nself.onmessage=function(e){var d=e.data,fail=function(err
 function undoMeta(g) { var m = {}; Object.keys(g).forEach(function (k) { if (k !== 'nodes' && k !== 'edges' && g[k] !== undefined) m[k] = g[k]; }); return m; }   /* every other field of the map, as an undo step keeps them (src/undo.js) */
 /** The map as text for the packer, in slices of 6,000 with the page free in between (one 90,000-item stringify held the page 136 ms); the same text as stringifying it whole. */
 function undoText(g) {
-  var n = g.nodes, e = g.edges, Z = 6000, parts = ['{"meta":' + UNDOPACK.str(undoMeta(g)) + ',"nodes":['], i = 0, j = 0;
+  var lc = NFMLinkCols.pending(g), n = g.nodes, e = lc ? [] : g.edges, Z = 6000, parts = ['{"meta":' + UNDOPACK.str(undoMeta(g)) + ',"nodes":['], i = 0, j = 0;
   var ch = typeof MessageChannel === 'function' ? new MessageChannel() : null;
   var piece = function (a, k) { var t = UNDOPACK.str(a.slice(k, k + Z)); return t.slice(1, -1); };
   return new Promise(function (ok) {
     var step = function () {
-      if (i < n.length) { var t = piece(n, i); if (t) parts.push((i ? ',' : '') + t); i += Z; if (i >= n.length) parts.push('],"links":['); }
+      if (i < n.length) { var t = piece(n, i); if (t) parts.push((i ? ',' : '') + t); i += Z; if (i >= n.length) parts.push(lc ? '],"lc":' + UNDOPACK.str(NFMLinkCols.toBundle(lc)) : '],"links":['); }
       else if (j < e.length) { var u = piece(e, j); if (u) parts.push((j ? ',' : '') + u); j += Z; }
-      else { parts.push(']}'); if (ch) { ch.port1.onmessage = null; ch.port1.close(); } ok(parts.join('')); return; }
+      else { parts.push(lc ? '}' : ']}'); if (ch) { ch.port1.onmessage = null; ch.port1.close(); } ok(parts.join('')); return; }
       if (ch) ch.port2.postMessage(0); else setTimeout(step, 0);
     };
-    if (!n.length) parts.push('],"links":[');
+    if (!n.length) parts.push(lc ? '],"lc":' + UNDOPACK.str(NFMLinkCols.toBundle(lc)) : '],"links":[');
     if (ch) ch.port1.onmessage = step;
     step();
   });
@@ -107,7 +107,7 @@ function savePackCall(msg) {
 /** A step that keeps a whole map (a file was opened, or a change replaced most of it): pack it while the page is idle. Small maps stay as they are. */
 function undoPackSoon(st) {
   var g = st.graph;
-  if (!g || !g.nodes || g.nodes.length + g.edges.length < 20000 || typeof Worker === 'undefined' || typeof DecompressionStream === 'undefined') return;
+  if (!g || !g.nodes || g.nodes.length + nEdges(g) < 20000 || typeof Worker === 'undefined' || typeof DecompressionStream === 'undefined') return;
   st.packing = true;
   var later = typeof requestIdleCallback === 'function' ? function (f) { requestIdleCallback(f, { timeout: 2000 }); } : function (f) { setTimeout(f, 50); };
   new Promise(later).then(function () {
@@ -135,13 +135,19 @@ var LAYOUT_KEEPER = {
   keep: function (port, posted) { return keeperCall('keep', port, null, posted).then(function (u8) { if (!u8 || !u8.length) throw new Error('nothing kept'); return u8; }); },
   give: function (u8, port) { return keeperCall('give', port, u8); }
 };
+/** The graph of unpacked tables { meta, nodes, links } (rows) or { meta, nodes, lc } (links kept as columns: the graph is then already sanitized, with lazy link rows). */
+function tablesToGraph(d) {
+  var g = {}, m = d.meta || {}; Object.keys(m).forEach(function (k) { g[k] = m[k]; }); g.nodes = d.nodes;
+  if (d.lc && !d.links) { g.edges = []; var o = docToGraph(Object.assign({}, g, { nodes: d.nodes, lc: d.lc })); return o; }
+  g.edges = d.links; return g;
+}
 function undoUnpack(st) {
-  return lfcReady().then(function () { return LfcPack.unpackTables(st.bytes); }).then(function (d) { var g = {}, m = d.meta || {}; Object.keys(m).forEach(function (k) { g[k] = m[k]; }); g.nodes = d.nodes; g.edges = d.links; return g; });
+  return lfcReady().then(function () { return LfcPack.unpackTables(st.bytes); }).then(tablesToGraph);
 }
 /** About what a step holds, in bytes: packed bytes as they are; a map still being packed as what packing usually leaves; a difference by its item count. */
 function undoSize(st) {
   if (st.bytes) return st.bytes.length;
-  if (st.graph) { var n = (st.graph.nodes || []).length + (st.graph.edges || []).length; return st.packing ? n * 12 : n * 150; }
+  if (st.graph) { var n = (st.graph.nodes || []).length + nEdges(st.graph); return st.packing ? n * 12 : n * 150; }
   return 64 + ((st.nodes && (st.nodes.at ? st.nodes.at.length : st.nodes.mid ? st.nodes.mid.length : 0)) + (st.edges && (st.edges.at ? st.edges.at.length : st.edges.mid ? st.edges.mid.length : 0))) * 100;
 }
 /** Holds all of Undo to UNDO_CAP: the oldest steps go first; the newest step always stays. */
@@ -188,9 +194,22 @@ function layoutXY(L) {
   return xy;
 }
 /** The map as file bytes: resolves to a Uint8Array. */
+/** From this many links a map file keeps the links as number columns (version 2, src/link-cols.js): opening it builds no link objects. Older builds say it is not a map file. */
+var LINKCOLS_MIN = 50000;
+/** The links of g as { lc: bundle } for a version 2 file, or null (a small map, a link that is not a plain clean one: the file keeps links as rows). */
+function linkColsDoc(g) {
+  var L = NFMLinkCols.pending(g);
+  if (!L) {
+    if (g.edges.length < LINKCOLS_MIN) return null;
+    var pos = new Map(), i; for (i = 0; i < g.nodes.length; i++) pos.set(g.nodes[i].id, i);
+    L = NFMLinkCols.fromEdges(g.edges, pos);
+  }
+  return L ? { lc: NFMLinkCols.toBundle(L) } : null;
+}
 function mapFileBytes() {
   return Promise.all([lfcReady(), mapFileLayout()]).then(function (r) {
-    var g = S.graph, doc = { format: 'netflow-map', version: 1, name: g.name, start: g.start, flavor: g.flavor, calc: g.calc, roles: g.roles, states: g.states, nodes: g.nodes, links: g.edges, view: S.V };
+    var g = S.graph, lk = linkColsDoc(g), doc = { format: 'netflow-map', version: lk ? 2 : 1, name: g.name, start: g.start, flavor: g.flavor, calc: g.calc, roles: g.roles, states: g.states, nodes: g.nodes, view: S.V };
+    if (lk) doc.lc = lk.lc; else doc.links = g.edges;
     if (r[1]) doc.layout = r[1];
     return LfcPack.packTables(doc);
   });
@@ -209,8 +228,8 @@ function saveMapFile() {
 function openMapBytes(u8) {
   var t0 = performance.now(), tU;
   return lfcReady().then(function () { var t1 = performance.now(); var d = LfcPack.unpackTables(u8); return Promise.resolve(d).then(function (x) { tU = performance.now() - t1; return x; }); }).then(function (doc) {
-    if (!doc || doc.format !== 'netflow-map' || !Array.isArray(doc.nodes) || !Array.isArray(doc.links)) throw new Error('this is not a Netflow Map file');
-    var g = NFMImport.sanitizeGraph({ name: doc.name, start: doc.start, flavor: doc.flavor, calc: doc.calc, roles: doc.roles, states: doc.states, nodes: doc.nodes, edges: doc.links });
+    if (!doc || doc.format !== 'netflow-map' || !Array.isArray(doc.nodes) || !(Array.isArray(doc.links) || (doc.lc && typeof doc.lc === 'object'))) throw new Error('this is not a Netflow Map file');
+    var g = docToGraph(doc);
     if (doc.view && typeof doc.view === 'object') SAFE.set('nfm-v:' + g.name, JSON.stringify(doc.view)); else SAFE.del('nfm-v:' + g.name);
     var L = doc.layout, LX = L && L.key ? layoutXY(L) : null, put = LX && client.store ? client.store.put(L.key, { key: L.key, xy: LX, width: L.width, height: L.height, rough: false, startId: L.startId, imp: impFromText(L.imp) }).catch(function () { /* the layout is worked out again */ }) : Promise.resolve();
     return put.then(function () {
@@ -218,6 +237,18 @@ function openMapBytes(u8) {
       setGraph(g, true, false);
     });
   });
+}
+/** The graph of a read map file: links as rows (version 1) or kept as columns until something reads them (version 2). Sets HANDIX so the item index needs no look-ups. */
+function docToGraph(doc) {
+  var head = { name: doc.name, start: doc.start, flavor: doc.flavor, calc: doc.calc, roles: doc.roles, states: doc.states, nodes: doc.nodes };
+  if (!doc.lc) { head.edges = doc.links; return NFMImport.sanitizeGraph(head); }
+  var L = NFMLinkCols.fromBundle(doc.lc);
+  head.edges = [];
+  var g = NFMImport.sanitizeGraph(head);
+  if (g.nodes.length === doc.nodes.length && !(head.states && head.states.names) && NFMLinkCols.valid(L, g.nodes.length)) return NFMLinkCols.lazyEdges(g, L);
+  head.edges = NFMLinkCols.rows(L, doc.nodes.map(function (n) { return { id: String(n.id) }; }));   /* an item was dropped or merged by sanitizing (item numbers moved), or the file is odd: the slow way, link by link */
+  head.nodes = doc.nodes;
+  return NFMImport.sanitizeGraph(head);
 }
 function openMapFile(file) {
   busy('Opening ' + file.name + '…');

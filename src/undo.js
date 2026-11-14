@@ -53,7 +53,7 @@ var NFMUndo = (function () {
       untouched list is shared, so the step holds only the changed one (25 group changes on a 3,000-row map kept 25 steps, not 9). */
   function step(old, nu) {
     var on = old && old.nodes, oe = old && old.edges;
-    if (on && oe && nu && nu.nodes && nu.edges && on.length + oe.length > 64) {
+    if (on && oe && nu && nu.nodes && !(typeof NFMLinkCols !== 'undefined' && NFMLinkCols.pending(nu)) && nu.edges && on.length + oe.length > 64) {
       var dn = listDiff(on, nu.nodes), de = listDiff(oe, nu.edges);
       if ((held(dn) + held(de)) * 4 < on.length + oe.length || !held(dn) || !held(de)) {   // under a quarter of the old graph differs, or one list is untouched: keep the difference
         var m = {}; Object.keys(old).forEach(function (k) { if (k !== 'nodes' && k !== 'edges') m[k] = old[k]; });   /* every other field of the graph, whatever it is */
@@ -77,7 +77,7 @@ var NFMUndo = (function () {
    * the page can run it in short slices while it waits.
    */
   function textSharer(g) {
-    var D = Object.create(null), lists = [g.nodes || [], g.edges || []], li = 0, i = 0;
+    var D = Object.create(null), lists = [g.nodes || [], typeof NFMLinkCols !== 'undefined' && NFMLinkCols.pending(g) ? [] : g.edges || []], li = 0, i = 0;
     function one(v) {
       if (typeof v !== 'string' || v.length === 0 || v.length > 200) return v;
       var h = D[v];

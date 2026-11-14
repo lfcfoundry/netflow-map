@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 14
 
+- Maps with 50,000 or more links are now saved with their links as number columns, and open without building a link object for each one: opening 190,000 items and 592,086 links takes 832 to 363 ms in Chromium, 1470 to 590 ms in Firefox and 1577 to 762 ms in WebKitGTK, and the map file is smaller (2,956 to 2,106 KB). Files saved this way do not open in older builds; small maps are saved as before.
 - Opening or restoring a map no longer copies every item and link that is already clean (same values, so nothing looks different). The safety check step on 190,000 items and 592,086 links: Chromium 330 to 172 ms, Firefox 577 to 424 ms, WebKitGTK 600 to 465 ms (medians of 3). Rows with anything out of the ordinary are still rebuilt exactly as before
 
 ## November 12
