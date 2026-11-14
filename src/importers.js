@@ -1307,6 +1307,32 @@ var NFMImport = (function () {
     if (e.attrs && typeof e.attrs === 'object') Object.keys(e.attrs).slice(0, MAX_ATTRS).forEach(function (k) { if (!BAD_KEYS[k]) attrs[k] = keepAttr(e.attrs[k]); });
     return attrs;
   }
+  /** true when attrs is a plain object whose every value keepAttr would leave as it is (so a row holding it needs no copy) */
+  function cleanAttrs(a) {
+    if (!a || typeof a !== 'object' || Array.isArray(a)) return false;
+    var c = 0, k, v, t;
+    for (k in a) {
+      if (++c > MAX_ATTRS || BAD_KEYS[k]) return false;
+      v = a[k]; t = typeof v;
+      if (t === 'string') { if (v.length > 300) return false; } else if (t === 'number') { if (v !== v || v === Infinity || v === -Infinity) return false; } else if (t !== 'boolean') return false;
+    }
+    return true;
+  }
+  /** true when sanitizing this item would build an object equal to it: the six known fields, all of the right kind and size, nothing else */
+  function cleanNode(n) {
+    if (typeof n.id !== 'string' || typeof n.label !== 'string' || n.label.length > MAX_LABEL || typeof n.group !== 'string' || n.group.length > 80 || typeof n.ghost !== 'boolean') return false;
+    var v = n.valence; if (v !== '' && v !== 'good' && v !== 'bad' && v !== 'neutral') return false;
+    var c = 0, k; for (k in n) c++;
+    return c === 6 && cleanAttrs(n.attrs);
+  }
+  /** the same for a link: from, to, label, kind, attrs and (when it has one) a finite number weight */
+  function cleanEdge(e) {
+    if (typeof e.from !== 'string' || typeof e.to !== 'string' || typeof e.label !== 'string' || e.label.length > MAX_LABEL || typeof e.kind !== 'string' || e.kind.length > 40) return false;
+    var w = e.weight, c = 0, k;
+    if (w !== undefined && (typeof w !== 'number' || w !== w || w === Infinity || w === -Infinity)) return false;
+    for (k in e) c++;
+    return c === (w === undefined && 'weight' in e ? 6 : w === undefined ? 5 : 6) && cleanAttrs(e.attrs);
+  }
   /** Make sure a graph read from storage or a file of ours is safe to use. */
   function sanitizeGraph(raw) {
     if (!raw || typeof raw !== 'object' || !Array.isArray(raw.nodes) || !Array.isArray(raw.edges)) throw new Error('This is not a saved graph.');
@@ -1315,6 +1341,7 @@ var NFMImport = (function () {
       if (!n || n.id === undefined) return;
       var id = String(n.id);
       if (ids.has(id) || g.nodes.length >= MAX_NODES) return;
+      if (cleanNode(n)) { ids.set(id, n); g.nodes.push(n); return; }   /* already exactly what would be built: kept as it is (no copy) */
       var attrs = {};
       if (n.attrs && typeof n.attrs === 'object') Object.keys(n.attrs).slice(0, MAX_ATTRS).forEach(function (k) { if (!BAD_KEYS[k]) attrs[k] = keepAttr(n.attrs[k]); });
       var nn = { id: id, label: clip(n.label === undefined ? id : n.label, MAX_LABEL), group: clip(n.group || '', 80), valence: valenceOf(n.valence), ghost: !!n.ghost, attrs: attrs };
@@ -1322,6 +1349,7 @@ var NFMImport = (function () {
     });
     raw.edges.forEach(function (e) {
       if (!e || !ids.has(String(e.from)) || !ids.has(String(e.to)) || g.edges.length >= MAX_EDGES) return;
+      if (cleanEdge(e)) { g.edges.push(e); return; }
       var w = Number(e.weight);
       g.edges.push({ from: String(e.from), to: String(e.to), label: clip(e.label || '', MAX_LABEL), weight: isFinite(w) && e.weight !== null && e.weight !== '' && e.weight !== undefined ? w : undefined, kind: clip(e.kind || '', 40), attrs: edgeAttrs(e) });
     });

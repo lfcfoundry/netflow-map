@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Developer notes, in t
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 and WebKitGTK 2.52.6. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## November 14
+
+- Opening or restoring a map no longer copies every item and link that is already clean (same values, so nothing looks different). The safety check step on 190,000 items and 592,086 links: Chromium 330 to 172 ms, Firefox 577 to 424 ms, WebKitGTK 600 to 465 ms (medians of 3). Rows with anything out of the ordinary are still rebuilt exactly as before
+
 ## November 12
 
 - Module code updated: lfc-pack 0.10.1 (map files, the parked-layout store and the big-map autosave): faster equality reads, the same file format. First pack and unpack of a 2,000-item map matched 0.10.0 in Chromium, Firefox and WebKitGTK. Nothing looks different.
