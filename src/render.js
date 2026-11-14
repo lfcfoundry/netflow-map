@@ -300,6 +300,11 @@ var NFMRender = (function () {
         var rect = function (r) {
           if (r.x > vx1 || r.y > vy1 || r.x + r.w < vx0 || r.y + r.h < vy0) return;
           var a = r.a === undefined ? 1 : r.a, rad = Math.min(r.r, r.w / 2, r.h / 2), stroked = r.sw > 0 && r.stroke[3] > 0;
+          if (rad <= 0) {   /* square tiles (treemap, icicle): plain rectangles skip building a path */
+            ctx.globalAlpha = a * r.fill[3]; ctx.fillStyle = rgb(r.fill); ctx.fillRect(r.x, r.y, r.w, r.h);
+            if (stroked) { ctx.globalAlpha = a * r.stroke[3]; ctx.lineWidth = r.sw; ctx.strokeStyle = rgb(r.stroke); ctx.strokeRect(r.x, r.y, r.w, r.h); }
+            return;
+          }
           ctx.beginPath(); rrect(ctx, r.x, r.y, r.w, r.h, rad);
           ctx.globalAlpha = a * r.fill[3]; ctx.fillStyle = rgb(r.fill); ctx.fill();
           if (stroked) { ctx.globalAlpha = a * r.stroke[3]; ctx.lineWidth = r.sw; ctx.strokeStyle = rgb(r.stroke); ctx.stroke(); }
