@@ -238,6 +238,8 @@ Headlines (both browsers; `docs/BENCHMARKS.md` has every table, the losses inclu
 
 ## Credits and attributions
 
+The full list of borrowed ideas, with the original authors and a link to each paper or project, is in [docs/CREDITS.md](docs/CREDITS.md) (check it with `node tools/credits-check/check.mjs`).
+
 - The layered, arc, matrix and shape drawings, choke points, traffic and drawing scores start from the Story Editor's map (`story-editor/editor/maplayout.js`, MIT), copied and generalized here with no dependency on it.
 - Choke points use the dominator tree of Cooper, Harvey and Kennedy (2001). The Distances layout minimizes stress by stochastic gradient descent (Zheng, Pawar and Goodman, 2018) with pivot items for big maps. The Force arrangement uses Barnes-Hut repulsion. Further methods read from the literature and from the R packages graphlayouts, igraph, packcircles and ggrepel are listed in `docs/RESEARCH-layout-papers.md` and `docs/RESEARCH-r-packages.md`.
 - `vendor/` holds exact copies of pieces from [JS-modules](https://github.com/lfcfoundry/JS-modules) (netflow-layers, memory-compression, env-probes, back-close, field-report); the credits for the methods inside each are in that module's own README.
