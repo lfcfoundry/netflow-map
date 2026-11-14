@@ -3,12 +3,13 @@
  * Copyright (c) 2026 LFC Foundry. MIT License.
  */
 var ST = { frames: null, key: '', pending: null, pendingKey: '', token: 0, playing: false, pos: 0, raf: 0, last: 0, lastMake: 0, makeMs: 16, shown: null, wmax: null, building: 0 };
-function nStates() { var s = S.graph.states; return s && s.names && s.names.length > 1 && S.graph.edges.some(function (e) { return e.vals; }) ? s.names.length : 0; }
+function nStates() { var s = S.graph.states; return s && s.names && s.names.length > 1 && !NFMLinkCols.pending(S.graph) && S.graph.edges.some(function (e) { return e.vals; }) ? s.names.length : 0; }
 function hasStates() { return nStates() > 1; }
 function stateName(i) { var s = S.graph.states; return s && s.names[i] !== undefined ? s.names[i] : 'State ' + (i + 1); }
 function curState() { return hasStates() ? clamp(Math.round(S.V.state || 0), 0, nStates() - 1) : -1; }
 /** Biggest link value in any state, so line widths mean the same thing in every state. */
 function stateWidthMax() {
+  if (NFMLinkCols.pending(S.graph)) return 0;   /* columns hold no per-state values (a map with states is never kept as columns) */
   var key = S.gver + '|' + (S.graph.edges.length); if (ST.wmax && ST.wmax.key === key) return ST.wmax.v;
   var mx = 0; S.graph.edges.forEach(function (e) { if (e.vals) e.vals.forEach(function (v) { if (v > mx) mx = v; }); });
   ST.wmax = { key: key, v: mx }; return mx;
@@ -26,7 +27,7 @@ var REP = new WeakMap();   /* link lists -> whether pairs repeat; weak, so no ol
 /** The States card for new data, drawn when the page is idle (it took 19 ms of the 90,000-item open); a card asked for sooner (a tab shown, a check) is drawn at once. */
 var statesJob = 0;
 function statesCardSoon() {
-  var big = S.graph.nodes.length + S.graph.edges.length >= 20000;
+  var big = S.graph.nodes.length + nEdges(S.graph) >= 20000;
   if (!big || typeof requestIdleCallback !== 'function') { renderStatesCard(); return; }
   var my = ++statesJob;
   requestIdleCallback(function () { if (statesJob === my) { statesJob = 0; renderStatesCard(); } }, { timeout: 500 });
@@ -34,7 +35,7 @@ function statesCardSoon() {
 function renderStatesCard() {
   statesJob = 0;
   var card = $('states'); if (!card) return;
-  if (!S.graph.nodes.length || !S.graph.edges.length) { card.hidden = true; return; }
+  if (!S.graph.nodes.length || !nEdges(S.graph)) { card.hidden = true; return; }
   card.hidden = false;
   var kids = [h('h2', null, 'States (optional)')];
   if (hasStates()) {

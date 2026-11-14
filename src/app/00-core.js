@@ -90,6 +90,8 @@ function getEngine() {
 getEngine();
 
 /* ---------------------------------------------------------------- state */
+/** How many links g has, without building their rows when they are still columns. */
+function nEdges(g) { var lc = NFMLinkCols.pending(g); return lc ? lc.n : g.edges.length; }
 var EMPTY = function () { return { name: 'Untitled', start: null, nodes: [], edges: [] }; };
 var S = {
   graph: EMPTY(), dg: null, prof: null, story: false, hist: [], gver: 0, byId: new Map(), outAdj: new Map(), inAdj: new Map(), kinds: [],
@@ -284,6 +286,7 @@ function textMayFit(g, max) {
 }
 var saveGraph = debounce(function () {
   if (!S.graph.nodes.length) { PACKSAVE.n++; PACKSAVE.base = null; PACKSAVE.again = false; SAFE.del('nfm-graph'); return; }
+  if (NFMLinkCols.pending(S.graph)) { saveBig(); return; }   /* links still columns: always a big map (50,000+ links); saved packed, as columns */
   var txt = textMayFit(S.graph, 1800000) ? JSON.stringify(S.graph) : graphText(S.graph, 1800000);   /* one whole stringify when it may fit (the quickest), item by item with an early stop when it surely won't */
   if (txt !== null && txt.length < 1800000) { PACKSAVE.n++; PACKSAVE.base = null; PACKSAVE.again = false; if (!SAFE.set('nfm-graph', txt)) saveWarn('graph'); } else saveBig();
 }, 600);
@@ -313,12 +316,12 @@ function saveBig() {
       if (!u8 || u8.length > 48 * 1048576) throw 1;
       return SAFE.setPacked('nfm-graph', u8).then(function (seq) {
         if (!seq) throw 1;
-        if (!stale()) { PACKSAVE.base = { id: id, seq: seq, nodes: g.nodes.slice(), edges: g.edges.slice(), len: u8.length }; PACKSAVE.deltas = 0; }   /* the map as it was when this save began; a change made since is sent as a patch next */
+        if (!stale()) { PACKSAVE.base = NFMLinkCols.pending(g) ? null : { id: id, seq: seq, nodes: g.nodes.slice(), edges: g.edges.slice(), len: u8.length }; PACKSAVE.deltas = 0; }   /* the map as it was when this save began; a change made since is sent as a patch next */
       });
     });
   };
   var go = full;
-  if (bs && bs.nodes.length === g.nodes.length && bs.edges.length === g.edges.length && PACKSAVE.deltas < 20) {
+  if (bs && !NFMLinkCols.pending(g) && bs.nodes.length === g.nodes.length && bs.edges.length === g.edges.length && PACKSAVE.deltas < 20) {
     var cn = changedRows(bs.nodes, g.nodes), ce = cn && changedRows(bs.edges, g.edges);
     if (ce) go = function () {   /* a small patch against the last full save, made on the saving thread: the page sends only the changed rows */
       return savePackCall({ kind: 'delta', baseId: bs.id, meta: undoMeta(g), nodes: cn, links: ce }).then(function (r) {
@@ -370,15 +373,15 @@ function showTab(name) {
 
 /* ---------------------------------------------------------------- the graph: one place that changes it */
 /** The links of every item as two lists of numbers (where each item's links start, and which links they are) instead of a Map of arrays: 84% less memory on a big map, and reading them is quicker. get(id) gives the link objects in the order they were added, each(id, fn) visits them without making a list, has(id) says whether the item has any, count(id) says how many (without making a list). Links that name an item the map does not have are kept in a small side table. */
-function makeLinkLists(edges, pos, field, nNodes, pre) {
-  var M = edges.length, off = new Int32Array(nNodes + 1), ord = new Int32Array(M), i, v, loose = null, idx = pre && pre.length === M ? pre : new Int32Array(M);
+function makeLinkLists(edges, pos, field, nNodes, pre, ctx) {   /* edges null: the links are still columns (ctx: { nodes, other } with the item numbers at the other end), no link object is read */
+  var M = edges ? edges.length : pre.length, off = new Int32Array(nNodes + 1), ord = new Int32Array(M), i, v, loose = null, idx = pre && pre.length === M ? pre : new Int32Array(M);
   if (idx === pre) {   /* the worker already found where each link's end sits (-1: no such item) */
     for (i = 0; i < M; i++) { v = idx[i]; if (v < 0) { if (!loose) loose = new Map(); var key2 = edges[i][field]; if (!loose.has(key2)) loose.set(key2, []); loose.get(key2).push(edges[i]); } else off[v + 1]++; }
   } else
   for (i = 0; i < M; i++) { v = pos.get(edges[i][field]); if (v === undefined) { if (!loose) loose = new Map(); var key = edges[i][field]; if (!loose.has(key)) loose.set(key, []); loose.get(key).push(edges[i]); idx[i] = -1; } else { idx[i] = v; off[v + 1]++; } }
   for (i = 0; i < nNodes; i++) off[i + 1] += off[i];
   var cur = off.slice(0, nNodes), other = field === 'from' ? 'to' : 'from', oth = new Array(M);
-  for (i = 0; i < M; i++) if (idx[i] >= 0) { ord[cur[idx[i]]] = i; oth[cur[idx[i]]++] = edges[i][other]; }
+  for (i = 0; i < M; i++) if (idx[i] >= 0) { ord[cur[idx[i]]] = i; oth[cur[idx[i]]++] = edges ? edges[i][other] : ctx.nodes[ctx.other[i]].id; }
   return {
     off: off, ord: ord, loose: loose,
     get: function (id) { var x = pos.get(id); if (x === undefined) return loose ? loose.get(id) : undefined; var a = off[x], b = off[x + 1]; if (a === b) return undefined; var out = [], E = S.graph.edges, j; for (j = a; j < b; j++) out.push(E[ord[j]]); return out; },
@@ -421,8 +424,8 @@ function changedSlots(a, b) {
   return out;
 }
 function indexGraph() {
-  var g = S.graph, old = IDX.g, by = null, pos = null, links = false, kindsSame = false, i, k, dn = null, de = null;
-  if (old && old !== g && S.byId && IDX.pos && old.nodes && old.edges && g.nodes.length + g.edges.length >= 2000 && typeof NFMUndo !== 'undefined') {
+  var g = S.graph, old = IDX.g, by = null, pos = null, links = false, kindsSame = false, i, k, dn = null, de = null, lc = NFMLinkCols.pending(g);   /* lc: the links are still columns: nothing here may read g.edges */
+  if (!lc && old && old !== g && S.byId && IDX.pos && old.nodes && old.edges && g.nodes.length + g.edges.length >= 2000 && typeof NFMUndo !== 'undefined') {
     dn = changedSlots(g.nodes, old.nodes); var ok = !!dn;
     for (i = 0; ok && i < dn.length; i++) { k = dn[i]; ok = g.nodes[k].id === old.nodes[k].id && S.byId.get(old.nodes[k].id) === old.nodes[k]; }
     if (ok) {
@@ -437,9 +440,11 @@ function indexGraph() {
   }
   if (!by) { var gh = 0; by = new Map(); pos = new Map(); g.nodes.forEach(function (n, j) { by.set(n.id, n); pos.set(n.id, j); if (n.ghost) gh++; }); IDX.ghosts = gh; }
   var hx = HANDIX && HANDIX.g === g ? HANDIX : null; HANDIX = null;   /* link ends and kinds the worker worked out from this very graph */
-  if (!kindsSame) { if (hx) S.kinds = hx.kinds; else { var kinds = new Set(); g.edges.forEach(function (e) { if (e.kind) kinds.add(e.kind); }); S.kinds = Array.from(kinds).sort(); } }
+  if (lc) S.kinds = lc.kinds.filter(function (x) { return x; }).sort();
+  else if (!kindsSame) { if (hx) S.kinds = hx.kinds; else { var kinds = new Set(); g.edges.forEach(function (e) { if (e.kind) kinds.add(e.kind); }); S.kinds = Array.from(kinds).sort(); } }
   var wasBy = S.byId; S.byId = by;
-  if (!links) { S.outAdj = makeLinkLists(g.edges, pos, 'from', g.nodes.length, hx && hx.fi); S.inAdj = makeLinkLists(g.edges, pos, 'to', g.nodes.length, hx && hx.ti); }
+  if (lc) { S.outAdj = makeLinkLists(null, pos, 'from', g.nodes.length, lc.fi, { nodes: g.nodes, other: lc.ti }); S.inAdj = makeLinkLists(null, pos, 'to', g.nodes.length, lc.ti, { nodes: g.nodes, other: lc.fi }); }
+  else if (!links) { S.outAdj = makeLinkLists(g.edges, pos, 'from', g.nodes.length, hx && hx.fi); S.inAdj = makeLinkLists(g.edges, pos, 'to', g.nodes.length, hx && hx.ti); }
   IDX.g = g; IDX.pos = pos; IDX.why = by === wasBy && old ? (links ? 'quick+links' : 'quick') : (old === g ? 'same' : !old ? 'first' : 'full');
   /* the column profile: worked out for the changed items and links only when nothing is calculated (then S.dg is the graph itself) */
   var dg = NFMColumns.derive(g), prof = null;
@@ -501,7 +506,7 @@ function edit(fn, push) {
 /** After a file is read: repeated texts in the map are pointed at one copy (src/undo.js textSharer), in short slices while the page is idle. */
 var shareJob = null;
 function shareTextSoon() {
-  var g = S.graph; if (!g || !g.nodes || g.nodes.length + g.edges.length < 2000) return;
+  var g = S.graph; if (!g || !g.nodes || g.nodes.length + (NFMLinkCols.pending(g) ? NFMLinkCols.pending(g).n : g.edges.length) < 2000) return;
   var step = NFMUndo.textSharer(g), my = shareJob = {};
   var later = typeof requestIdleCallback === 'function' ? function (f) { requestIdleCallback(f, { timeout: 1000 }); } : function (f) { setTimeout(f, 16); };
   var go = function () { if (shareJob !== my) return; if (step(4000)) shareJob = null; else later(go); };
