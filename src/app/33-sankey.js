@@ -113,9 +113,60 @@ function skBeginDrag(q) {
 function skDragTo(p) {
   var w = worldOf(p[0], p[1]), dy = w[1] - DRAG.w0[1], k = skV(); k.fixY = Object.assign({}, k.fixY);
   DRAG.ids.forEach(function (id) { k.fixY[id] = Math.max(0, DRAG.y0[id] + dy); });
-  skRelayout(); scheduleScene();
+  skRelayout(); skShow();
 }
-function skEndDrag() { skKeepOrder(); saveView(); renderMapUI(); }
+/** After a bar moved: put the new places into the picture that is already built (the bars, the bands, the names beside the bars) instead of building the whole picture again (the look of every band and bar does not change while a bar is dragged, only where things are). The picture built at the drop is the ordinary full one. */
+function skShow() { if (skPatchScene()) { var r = mgr && mgr.r; if (r && r.setScene) r.setScene(S.scene); requestDraw(); } else scheduleScene(); }
+var SKP = null;   /* { sc, ribbon: Map("edge|x0" -> ribbon), rect: Map(item record number -> bar), names: Map(item record number -> [names]) } for the picture it was made from */
+function skPatchIndex(sc) {
+  var ribbon = new Map(), rect = new Map(), names = new Map(), loops = new Map(), i, r, l;
+  for (i = 0; i < sc.curves.length; i++) { r = sc.curves[i]; if (!r.loop || loops.has(r.edge)) return null; loops.set(r.edge, r); }   /* loops that run backwards are moved too; any other curve (a note's pointer) lets the whole picture be built */
+  for (i = 0; i < sc.ribbons.length; i++) { r = sc.ribbons[i]; var key = r.edge + '|' + r.x0; if (ribbon.has(key)) return null; ribbon.set(key, r); }
+  for (i = 0; i < sc.rects.length; i++) { r = sc.rects[i]; if (r.node >= 0) { if (rect.has(r.node)) return null; rect.set(r.node, r); } }
+  for (i = 0; i < sc.labels.length; i++) {
+    l = sc.labels[i];
+    if (l.edge !== undefined && l.edge !== null && l.edge >= 0) return null;   /* amounts written on the bands: let the whole picture be built */
+    if (l.node >= 0) { var a = names.get(l.node); if (!a) names.set(l.node, a = []); a.push(l); }
+  }
+  return { sc: sc, ribbon: ribbon, rect: rect, names: names, loops: loops };
+}
+/** Brings the built picture up to date with S.L after a relayout in which only the bars' tops moved. False (nothing relied on) when anything else changed or the picture has parts this does not know how to move; then the caller builds the whole picture. */
+function skPatchScene() {
+  var sc = S.scene, K = S.L && S.L.sk; if (!sc || !K || sc.view !== 'sankey' || sc.tagChips || sc.ruler || sc.polys.length) return false;
+  var sk = skV(); if (sk.notes && sk.notes.length) return false;
+  if (!SKP || SKP.sc !== sc) { SKP = skPatchIndex(sc); if (!SKP) return false; }
+  var i, j, n, rec, bd, r, a, dy, moved = [];
+  for (i = 0; i < sc.nodes.length; i++) {   /* only the tops may differ */
+    rec = sc.nodes[i]; n = rec.n; if (!n) return false;
+    if (n.x !== rec.x || n.w !== rec.w || n.h !== rec.h) return false;
+    if (!SKP.rect.get(rec.i)) return false;
+  }
+  var seen = 0, ribbons = SKP.ribbon;
+  for (i = 0; i < K.bands.length; i++) { bd = K.bands[i]; r = ribbons.get(bd.edge + '|' + bd.x0); if (r) seen++; }
+  if (seen !== sc.ribbons.length) return false;   /* the bands are not the ones the picture was made from */
+  var lseen = 0; for (i = 0; i < K.loops.length; i++) if (SKP.loops.get(K.loops[i].edge)) lseen++;
+  if (lseen !== sc.curves.length) return false;
+  for (i = 0; i < K.bands.length; i++) { bd = K.bands[i]; r = ribbons.get(bd.edge + '|' + bd.x0); if (r) { r.x0 = bd.x0; r.y0a = bd.y0a; r.y0b = bd.y0b; r.x1 = bd.x1; r.y1a = bd.y1a; r.y1b = bd.y1b; r.xm = bd.xm; } }
+  for (i = 0; i < K.loops.length; i++) { r = SKP.loops.get(K.loops[i].edge); if (r) { r.P = K.loops[i].P; r.w = Math.max(K.loops[i].w, 1); r.bb = undefined; } }
+  for (i = 0; i < sc.nodes.length; i++) {
+    rec = sc.nodes[i]; n = rec.n; dy = n.y - rec.y; if (dy === 0) continue;
+    rec.y = n.y; SKP.rect.get(rec.i).y = n.y;
+    a = SKP.names.get(rec.i); if (a) for (j = 0; j < a.length; j++) a[j].y += dy;
+  }
+  sc.gridStale = true; sc.eidx = null;
+  return true;
+}
+/** Puts bars at given tops the way a drag does (for tests and scripts): list = [[id, top], ...]. Returns { fast }: whether the built picture was brought up to date in place. */
+function moveBars(list) {
+  if (!skOn()) return { fast: false };
+  var k = skV(), byId = new Map(); k.fixY = Object.assign({}, k.fixY);
+  S.L.nodes.forEach(function (n) { byId.set(n.nodeId || n.id, true); });
+  list.forEach(function (m) { if (byId.has(m[0])) k.fixY[m[0]] = Math.max(0, m[1]); });
+  skRelayout(); var fast = skPatchScene();
+  if (fast) { var r = mgr && mgr.r; if (r && r.setScene) r.setScene(S.scene); requestDraw(); } else scheduleScene();
+  return { fast: fast };
+}
+function skEndDrag() { skKeepOrder(); saveView(); scheduleScene(false, true); renderMapUI(); }   /* the drop builds the ordinary whole picture once (outer box, pick grid, link hover index) */
 
 /* ---------------------------------------------------------------- menus */
 var SK_COLOR_MODES = [['target', 'Same color as where it ends'], ['source', 'Same color as where it starts'], ['gradient', 'Fade from start color to end color'], ['solid', 'One neutral color']];
