@@ -134,6 +134,20 @@ var NFMEngine = (function () {
    * every goal points to (Cooper, Harvey, Kennedy 2001). The start always counts.
    * Traffic: the share of all routes (loops dropped) through a node, kept as logs so it never overflows.
    */
+  /** Reach only (the BFS depth every view reads): no traffic, choke points, goals or spine. Big nested views draw from this first; impFull fills the rest in right after the first picture. */
+  function importanceLite(P) {
+    var n = P.n, depth = bfs(P, P.start, -1), res = { choke: new Uint8Array(n), traffic: new Float64Array(n), depth: depth, goal: [], goalKind: '', spine: [], routesLog10: 0, reached: 0, lite: true }, i;
+    for (i = 0; i < n; i++) if (depth[i] >= 0) res.reached++;
+    return res;
+  }
+  var IMPTOK = 0;
+  /** The full importance answers for the map a lite build was made from (hold is the caller's cache holder; tok names that build). Null when the graph has moved on. */
+  function impFull(hold, tok) {
+    if (!hold || !hold.piImp || !hold.piP || hold.piTok !== tok) return null;
+    var P = hold.piP, imp = hold.piImp;
+    if (imp.lite) { imp = hold.piImp = importance(P); }
+    return { traffic: imp.traffic, choke: imp.choke, imp: { goal: imp.goal.map(function (v) { return P.nodes[v].id; }), goalKind: imp.goalKind, spine: imp.spine.map(function (v) { return P.nodes[v].id; }), routesLog10: imp.routesLog10, reached: imp.reached, chokeCount: imp.spine.length } };
+  }
   function importance(P) {
     var n = P.n, start = P.start, depth = bfs(P, start, -1);
     var res = { choke: new Uint8Array(n), traffic: new Float64Array(n), depth: depth, goal: [], goalKind: '', spine: [], routesLog10: 0, reached: 0 };
@@ -2250,11 +2264,13 @@ var NFMEngine = (function () {
     var t0 = now(), view = o.view || 'flow';
     /* the flat arrays and the importance answers belong to the graph and the few options prepare reads, not to the view: the caller's holder (o.cacheHolder, one for each graph it has) keeps them, so switching views or settings on a big map does not work them out again (50,000 items: about 250 ms of each build) */
     var hold = o.cacheHolder && !o.saved ? o.cacheHolder : null, psig = hold ? JSON.stringify([o.block, o.hideKinds, o.keep, o.edgeFacets, o.edgeFacet, o.minEdge, o.state, o.onlyPresent, o.weights, o.start]) : null, P, imp;
-    if (hold && hold.piG === graph && hold.piSig === psig) { P = hold.piP; imp = hold.piImp; }
+    /* a big nested view that colors and sizes by nothing the flow analysis answers draws from the reach alone; traffic and choke points follow right after the first picture (impFull) */
+    var liteBase = !!hold && !!o.lazyLinks && LAZY_VIEWS[view] === true && !o.wantFlow && !o.merge && ![o.sizeBy, o.colorBy, o.widthBy, o.edgeColorBy].some(function (c) { return c && /traffic/.test(c); });
+    if (hold && hold.piG === graph && hold.piSig === psig) { P = hold.piP; imp = hold.piImp; if (imp.lite && !(liteBase && !P.stated)) imp = hold.piImp = importance(P); }
     else {
       P = prepare(graph, o);
-      imp = (o.saved && restoreImp(o.saved.imp, P)) || importance(P);   /* a saved layout of the same map also keeps the importance answers */
-      if (hold) { hold.piG = graph; hold.piSig = psig; hold.piP = P; hold.piImp = imp; }
+      imp = (o.saved && restoreImp(o.saved.imp, P)) || (liteBase && !P.stated ? importanceLite(P) : importance(P));   /* a saved layout of the same map also keeps the importance answers */
+      if (hold) { hold.piG = graph; hold.piSig = psig; hold.piP = P; hold.piImp = imp; hold.piTok = ++IMPTOK; }
     }
     var flowing = view === 'sankey', amounts = flowing && !!o.amounts;
     var sysFlow = [o.sizeBy, o.widthBy, o.edgeColorBy, o.colorBy].some(function (c) { return c && /^sys:(flow|visits)$/.test(c); });
@@ -2416,6 +2432,7 @@ var NFMEngine = (function () {
       spine: imp.spine.map(function (v) { return P.nodes[v].id; }), routesLog10: imp.routesLog10, reached: imp.reached,
       chokeCount: imp.spine.length
     };
+    if (imp.lite) { Lr.imp.lite = true; Lr.imp.tok = hold ? hold.piTok : 0; }
     if (chOn) {   /* which boxes every page is inside (outermost first, by the id of the page that names the box), so a search or a click on a page can open what hides it */
       var ci = G.chapterInfo, folded = G.chapters;
       Lr.chapters = { chapters: folded.filter(function (c) { return c.kind === 'chapter'; }).length, parts: folded.filter(function (c) { return c.kind === 'part'; }).length, hidden: 0, all: ci.list.length, of: {} };
@@ -2464,7 +2481,7 @@ var NFMEngine = (function () {
 
   return {
     MAP_W: MAP_W, MAP_H: MAP_H, VIEWS: VIEWS, TASKS: TASKS, prepare: prepare, importance: importance, flowExact: flowExact, flowSim: flowSim, absorb: absorb, endClasses: endClasses, spread: spread, seedsOf: seedsOf,
-    lazyLinks: lazyLinks, makeLinks: makeLinks, layoutKey: layoutKey, separateGroups: separateGroups, mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressWasm: STRESS_WASM, separate: separate, forceWasm: FORCE_WASM, stressTuning: STRESS, pieces: PIECES, pieceRun: pieceRun, pieceJob: pieceJob, buildPieces: buildPieces, forceExt: FORCE_EXT, force3dTuning: FORCE3, force2dTuning: FORCE2,
+    lazyLinks: lazyLinks, impFull: impFull, makeLinks: makeLinks, layoutKey: layoutKey, separateGroups: separateGroups, mapGraph: mapGraph, layered: layered, arcLayout: arcLayout, matrixLayout: matrixLayout, shapeLayout: shapeLayout, networkLayout: networkLayout, closeTuning: CLOSE, ARRANGE_NAMES: ARRANGE_NAMES, arrangeAdvice: arrangeAdvice, forceSim: forceSim, stressWasm: STRESS_WASM, separate: separate, forceWasm: FORCE_WASM, stressTuning: STRESS, pieces: PIECES, pieceRun: pieceRun, pieceJob: pieceJob, buildPieces: buildPieces, forceExt: FORCE_EXT, force3dTuning: FORCE3, force2dTuning: FORCE2,
     communities: communities, metrics: metrics, taskScore: taskScore, build: build, compare: compare, bfs: bfs, mapCrossPairs: mapCrossPairs, mapPlaceLine: mapPlaceLine, autoStart: autoStart
   };
 })();

@@ -36,6 +36,7 @@ var NFMEngineClient = (function () {
         return { gpuPiece: cap };
       }
       case 'compare': return E.compare(st.G, d.opts);
+      case 'impFull': return E.impFull(st, d.opts && d.opts.tok);
       case 'layoutKey': return { layoutKey: E.layoutKey(st.G, d.opts, st) };
       case 'check': return API.CHK.run(st.G, d.opts);
       case 'simStart': {
@@ -250,6 +251,27 @@ var NFMEngineClient = (function () {
     this.pending.delete(d.id);
     if (d.ok) p.resolve(d.result === true || d.result === 'pong' || d.result === 'warm' ? d.result : { L: typeof NFMPack !== 'undefined' ? NFMPack.unpackResult(d.result) : d.result, ms: d.ms }); else p.reject(new Error(d.error));
   };
+  /** A nested view drawn from the reach alone (L.imp.lite) gets its traffic and choke points a moment after its first picture: asked of the helper, then put on the nodes. */
+  Client.prototype.impLate = function (L) {
+    var self = this;
+    if (!L || !L.imp || !L.imp.lite || !L.nodes) return;
+    var tok = L.imp.tok, ver = this.ver;
+    setTimeout(function () {
+      if (self.ver !== ver) return;
+      self.run('impFull', { tok: tok }).then(function (r) {
+        var f = r && r.L; if (!f || !f.traffic || self.ver !== ver) return;
+        var stub = L.__stub && L.__stub.src === L.nodes ? L.__stub.nodes : null, i, j, n, tr, ch, pg;
+        for (i = 0; i < L.nodes.length; i++) {
+          n = L.nodes[i]; pg = n.pages; tr = 0; ch = false;
+          for (j = 0; pg && j < pg.length; j++) { if (f.traffic[pg[j]] > tr) tr = f.traffic[pg[j]]; if (f.choke[pg[j]]) ch = true; }
+          n.traffic = tr; n.choke = ch;
+          if (stub && stub[i]) { stub[i].traffic = tr; stub[i].choke = ch; }
+        }
+        L.imp = f.imp; L.impLate = true;
+        if (typeof self.onImp === 'function') self.onImp(L);
+      }).catch(function () { /* superseded or gone: the next picture asks again */ });
+    }, 0);
+  };
   /** A layout that left its link records unmade (L.lazyLinks) gets them made on first use, from this client's graph (the labels). */
   Client.prototype.lazy = function (L) {
     var self = this;
@@ -396,14 +418,14 @@ var NFMEngineClient = (function () {
     var t0 = Date.now(), ver = self.ver, msg = Object.assign({ type: job.type, opts: job.opts, ver: ver }, job.extra);
     if (job.type === 'build' && job.opts && !job.opts.lazyLinks) msg.opts = Object.assign({}, job.opts, { lazyLinks: true });   /* nested views leave the link records for the page to make if something asks */
     if (self.mode === 'worker' && !(job.type === 'build' && job.opts && job.opts.view === 'sankey' && self.graph && self.graph.nodes.length < self.pageSankey && self.mode === 'worker' && self.onMain)) {
-      self.call(msg).then(function (r) { r.total = Date.now() - t0; self.lazy(r.L); r.res = r.L; self.keepWarm = job.type === 'gpuPiece' || !!(r.L && r.L.rough); job.resolve(r); }, function (err) { job.reject(err); }).then(done);
+      self.call(msg).then(function (r) { r.total = Date.now() - t0; self.lazy(r.L); self.impLate(r.L); r.res = r.L; self.keepWarm = job.type === 'gpuPiece' || !!(r.L && r.L.rough); job.resolve(r); }, function (err) { job.reject(err); }).then(done);
     } else {
       setTimeout(function () {
         try {
           self.pageRuns = (self.pageRuns || 0) + 1;
           var E = self.onMain(), API = { E: E, SIM: NFMSim, CHK: NFMCheck, C: NFMColumns };
           if (!self.st || self.st.ver !== ver) self.st = { G: NFMColumns.derive(self.graph), ver: ver, P: null, sim: null };
-          var r = dispatch(msg, self.st, API); self.lazy(r); job.resolve({ L: r, res: r, ms: Date.now() - t0, total: Date.now() - t0 });
+          var r = dispatch(msg, self.st, API); self.lazy(r); self.impLate(r); job.resolve({ L: r, res: r, ms: Date.now() - t0, total: Date.now() - t0 });
         } catch (err) { job.reject(err); }
         done();
       }, 0);
