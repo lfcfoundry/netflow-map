@@ -378,6 +378,20 @@ async function open() {
       });
       say(r.fast && r.stayed && r.rebuilt && r.same, 'dragging bars on a built Sankey picture moves the bands, bars and names in place, and the picture equals the one built whole');
     }
+    {   /* a drag session reuses the last layout's state (netflow-sankey 2.14.0): the layout it gives equals the whole layout of the same L with the same settings */
+      const r = await ev(() => {
+        const L = NFM.state.L, sk = NFM.state.V.sk, pick = [2, 4, 6].map((i) => L.nodes[i]).filter(Boolean), mk = (fixY) => { const o = NetflowSankey.options({ nodeW: sk.nodeW, gap: sk.gap, pad: sk.pad, height: sk.height, justify: sk.justify, fixY: fixY, order: sk.order }); o.fixedOrder = L.sk.order; return o; };
+        const shape = (z) => JSON.stringify([z.nodes.map((n) => [n.id, n.x, n.y, n.w, n.h]), z.bands.map((b) => [b.edge, b.x0, b.y0a, b.y0b, b.x1, b.y1a, b.y1b, b.xm]), z.loops.map((q) => [q.edge, q.w, q.P])]);
+        const out = []; let state = NetflowSankey.layout(L, mk(Object.assign({}, sk.fixY))).state;
+        for (let step = 1; step <= 4; step++) {
+          const fix = Object.assign({}, sk.fixY); pick.forEach((n, i) => { fix[n.nodeId] = Math.max(0, n.y + 15 * step + i * 9); });
+          const o = mk(fix); o.resume = state; const resumed = NetflowSankey.layout(L, o), whole = NetflowSankey.layout(L, mk(fix));
+          out.push(shape(resumed) === shape(whole)); state = resumed.state;
+        }
+        return out;
+      });
+      say(r.length === 4 && r.every(Boolean), 'bars dragged in one session (layout state reused) land exactly where a whole layout puts them');
+    }
     await ev((id) => NFM.state.V.sk.nodes[id] = { fill: '#ff0000', labelText: 'Renamed' }, before[0]); await ev(() => NFM.refreshMap('look')); await D.wait(() => NFM.state.scene.labels.some((l) => l.t === 'Renamed'), null, 8000).catch(() => {});
     say(await ev(() => NFM.state.scene.labels.some((l) => l.t === 'Renamed') && NFM.state.scene.rects.some((r) => r.fill[0] === 1 && r.fill[1] === 0)), 'a hand-made bar color and label text show up');
     await ev(() => { NFM.state.V.sk.color = 'gradient'; NFM.refreshMap('look'); }); await settle(300);
