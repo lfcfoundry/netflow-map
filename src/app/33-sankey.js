@@ -19,10 +19,14 @@ function skV() {
 }
 function skSettings() { var k = skV(); return { nodeW: k.nodeW, gap: k.gap, pad: k.pad, height: k.height, justify: k.justify, fixY: k.fixY, order: k.order }; }
 /** Lays the picture out again right here (the order is kept; only places and sizes change). Cheap enough to do while dragging. */
-function skRelayout() {
+var SKRES = null;   /* while a bar is being dragged: the state of the last layout (the order, sizes and relaxed places are not worked out again for each move, netflow-sankey 2.14.0); null at any other time */
+function skRelayout(session) {
   if (!skOn()) return false;
   var op = NetflowSankey.options(skSettings()); op.fixedOrder = S.L.sk.order;
-  NetflowSankey.apply(S.L, NetflowSankey.layout(S.L, op));
+  if (SKRES && SKRES.L === S.L) op.resume = SKRES;
+  var r = NetflowSankey.layout(S.L, op);
+  NetflowSankey.apply(S.L, r);
+  if (session || (DRAG && DRAG.sk)) SKRES = r.state || null;
   return true;
 }
 function skKeepOrder() { var k = skV(), o = S.L && S.L.sk && S.L.sk.order; k.order = o && o.layers.reduce(function (a, l) { return a + l.length; }, 0) < 4000 ? JSON.parse(JSON.stringify(o)) : null; }
@@ -108,7 +112,7 @@ function skBeginDrag(q) {
   skPush(true);
   var y0 = {}, byId = new Map(); S.L.nodes.forEach(function (n) { byId.set(n.nodeId || n.id, n); });
   Array.from(S.sel).forEach(function (m) { var n = byId.get(m); if (n) y0[m] = n.y; });
-  DRAG = { sk: true, ids: Object.keys(y0), y0: y0, w0: worldOf(q.x, q.y) };
+  SKRES = null; DRAG = { sk: true, ids: Object.keys(y0), y0: y0, w0: worldOf(q.x, q.y) };
 }
 function skDragTo(p) {
   var w = worldOf(p[0], p[1]), dy = w[1] - DRAG.w0[1], k = skV(); k.fixY = Object.assign({}, k.fixY);
@@ -157,16 +161,18 @@ function skPatchScene() {
   return true;
 }
 /** Puts bars at given tops the way a drag does (for tests and scripts): list = [[id, top], ...]. Returns { fast }: whether the built picture was brought up to date in place. */
-function moveBars(list) {
+function moveBars(list, session) {
   if (!skOn()) return { fast: false };
+  if (!session) SKRES = null;
   var k = skV(), byId = new Map(); k.fixY = Object.assign({}, k.fixY);
   S.L.nodes.forEach(function (n) { byId.set(n.nodeId || n.id, true); });
   list.forEach(function (m) { if (byId.has(m[0])) k.fixY[m[0]] = Math.max(0, m[1]); });
-  skRelayout(); var fast = skPatchScene();
+  skRelayout(session === true); var fast = skPatchScene();
+  if (session !== true) SKRES = null;
   if (fast) { var r = mgr && mgr.r; if (r && r.setScene) r.setScene(S.scene); requestDraw(); } else scheduleScene();
   return { fast: fast };
 }
-function skEndDrag() { skKeepOrder(); saveView(); scheduleScene(false, true); renderMapUI(); }   /* the drop builds the ordinary whole picture once (outer box, pick grid, link hover index) */
+function skEndDrag() { SKRES = null; skKeepOrder(); saveView(); scheduleScene(false, true); renderMapUI(); }   /* the drop builds the ordinary whole picture once (outer box, pick grid, link hover index) */
 
 /* ---------------------------------------------------------------- menus */
 var SK_COLOR_MODES = [['target', 'Same color as where it ends'], ['source', 'Same color as where it starts'], ['gradient', 'Fade from start color to end color'], ['solid', 'One neutral color']];
