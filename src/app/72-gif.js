@@ -237,7 +237,7 @@ function reportHtml(res) {
 }
 function gifCard() {
   var mode = gifMode(), o = GX.opts, fx = NFMGifFx, card = h('div', { class: 'card', id: 'gif-card' }, [h('h2', null, 'Animation (GIF)')]);
-  if (!mode) { card.appendChild(h('p', { class: 'muted small', style: { margin: 0 } }, 'Two kinds of animation are possible. If your data has states (baseline, year 1 and so on; set them up in the Data tab), this makes a GIF that plays through them. If you pick a 3D arrangement on the Map, it makes a turn-around GIF.')); return card; }
+  if (!mode) { card.appendChild(h('p', { class: 'muted small', style: { margin: 0 } }, 'Two kinds of animation are possible. If your data has states (baseline, year 1 and so on; set them up in the Data tab), this makes a GIF that plays through them. If you pick a 3D arrangement on the Map, it makes a turn-around GIF.')); card.appendChild(h('div', { id: 'gif-out' }, gifResultKids())); return card; }   /* a notice stays visible when the new data allows no animation */
   var needMap = !S.L; if (needMap) { card.appendChild(h('p', { class: 'muted small' }, 'Open the Map tab once first.')); return card; }
   var chg = function (k, conv) { return function (v) { o[k] = conv ? conv(v) : v; saveGx(); if (k === 'small' || k === 'format' || k === 'size' || k === 'shape' || k === 'ease' || k === 'reverse' || k === 'arc' || k === 'pause' || k === 'turns' || k === 'turnSec' || k === 'fps' || k === 'trans' || k === 'hold') updateEstimate(); }; };
   /* How many pictures, and about how big, before the person waits: the sizes per picture were measured on a busy 30,000-item map (the most a GIF of a map tends to take); a simple map is much smaller. */
