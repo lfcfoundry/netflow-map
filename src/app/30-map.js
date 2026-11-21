@@ -83,8 +83,19 @@ var buildQueued = 0;
 /** What the engine's answer depends on: the settings it is given and the data it works on. While this stays the same the layout on the stage is still the right one, so a change of looks only (a color choice the engine does not use, a theme) makes a new picture from it instead of working the layout out again. */
 function buildKey() { return JSON.stringify(engineOpts()) + '|' + S.gver + '|' + JSON.stringify(S.V.pins[pinKey()] || 0); }   /* pins are put on the layout in place (applyPins), so a changed pin needs a fresh layout */
 /** Builds the map again from the data and settings. Off the Map tab it only notes that the picture is out of date (the Map builds it when shown), unless force is true (export asks for that). Returns a promise that settles when the build is over. */
+/* A map that changed while another tab is open is worked out in the background right away (a moment after the data lands, so the page can paint first), so the first Map after bringing data in skips the layout wait. Opening the Map while that runs lets it finish and show; a change meanwhile starts it again. */
+var preT = 0, prebuildGv = -1;
+function schedulePrebuild() {
+  clearTimeout(preT);
+  if (S.tab === 'map' || !S.graph.nodes.length) return;
+  preT = setTimeout(function () {
+    if (S.tab === 'map' || S.sceneOk || S.mapBusy || !client || !S.graph.nodes.length) return;
+    if (client.mode === 'starting') { schedulePrebuild(); return; }
+    prebuildGv = S.gver; refreshMap('prebuild', true);
+  }, 40);
+}
 function refreshMap(reason, force) {
-  if (S.tab !== 'map' && !force) { S.sceneOk = false; S.mapStale = -1; return Promise.resolve(); }
+  if (S.tab !== 'map' && !force) { S.sceneOk = false; S.mapStale = -1; if (S.mapBusy) { ++S.mapSeq; S.mapBusy = 0; clearTimeout(busyT); } schedulePrebuild(); return Promise.resolve(); }
   stateAbort();
   clearTimeout(busyT);
   $('stage').classList.toggle('empty', !S.graph.nodes.length);
@@ -125,6 +136,7 @@ function refreshMap(reason, force) {
   var p = client.build(engineOpts(), function (res) { if (seq !== S.mapSeq) return; S.roughShown = true; S.roughCount = (S.roughCount || 0) + 1; shown(res, true); }).then(function (res) {
     if (seq !== S.mapSeq) return;
     shown(res, false);
+    if (reason === 'prebuild' && prebuildGv === S.gver) S.mapStale = S.gver;   /* the Map will find the picture ready */
   }).catch(function (err) {
     if (err && err.message === 'superseded') return;
     if (seq !== S.mapSeq) return;
@@ -420,10 +432,12 @@ function startRenderer() {
 TAB_HOOKS.map = function () {
   if (!S.mapBuilt) { buildMapUI(); S.mapBuilt = true; }
   if (S.sel.size) { var a = Array.from(S.sel); S.sel = new Set(a); }
-  var rebuild = !S.scene || !S.sceneOk || S.mapStale !== S.gver || (S.simUsed !== S.simVer && simUsesMap());
+  var working = S.mapBusy && S.mapBusy === S.mapSeq && prebuildGv === S.gver && S.mapStale === -1;   /* the background build is still running: let it finish on this tab */
+  if (working) S.mapStale = S.gver;
+  var rebuild = !working && (!S.scene || !S.sceneOk || S.mapStale !== S.gver || (S.simUsed !== S.simVer && simUsesMap()));
   if (rebuild) { S.mapStale = S.gver; S.themeStale = false; refreshMap('shown'); }   /* the engine starts first, so the drawing-path test and the size reading below run while it works */
   startRenderer(); applySize();
-  if (rebuild) { /* started above */ } else if (freshTheme()) { if (S.needFit) { S.needFit = false; fitView(true); } } else { if (S.needFit) { S.needFit = false; fitView(true); } requestDraw(); renderMapUI(); }
+  if (rebuild || working) { /* started above */ } else if (freshTheme()) { if (S.needFit) { S.needFit = false; fitView(true); } } else { if (S.needFit) { S.needFit = false; fitView(true); } requestDraw(); renderMapUI(); }
   attachSimOverlay(); renderTimeline(); spinLoop();
 };
 new ResizeObserver(function () { if (S.tab === 'map') { var was = S.stageW; applySize(); if (S.scene && (was <= 2 || Math.abs(S.stageW - was) / was > 0.2)) fitView(true); } }).observe(stage);
