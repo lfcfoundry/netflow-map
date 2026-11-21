@@ -523,6 +523,7 @@ function graphChanged(reloadView) {
   if (client && client.mode !== 'starting') client.setGraph(S.graph);
   HOOKS.graph.forEach(function (f) { f(); });
   var u = $('b-undo'); if (u) u.disabled = !S.hist.length;
+  if (typeof schedulePrebuild === 'function') schedulePrebuild();   /* the map is worked out in the background while another tab is open */
   saveGraph(); saveView();
   var cb = $('chk-badge'); if (cb) cb.hidden = true;
   if (S.tab === 'map') refreshMap('data');
@@ -554,7 +555,7 @@ function setV(patch, how) {
   mergeDeep(S.V, patch);
   Object.keys(patch).forEach(function (k) { if (Array.isArray(patch[k]) || (patch[k] === null)) S.V[k] = patch[k]; });
   saveView();
-  if (how === 'none') { S.sceneOk = false; return; }
+  if (how === 'none') { S.sceneOk = false; if (typeof schedulePrebuild === 'function') schedulePrebuild(); return; }
   if (how === 'look') { makeScene(false); return; }
   refreshMap('options');
 }
