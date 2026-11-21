@@ -33,4 +33,23 @@ t('on a page whose policy allows only wasm-unsafe-eval, no code is built from te
     global.document = meta("script-src 'unsafe-inline' 'unsafe-eval'"); P.unpackRows(fresh()); assert.ok(made > 0, 'never used the fast path where it is allowed');
   } finally { global.Function = keepFn; global.document = keepDoc; }
 });
-process.exitCode = bad ? 1 : 0;
+const ta = (name, fn) => { const t0 = Date.now(); return fn().then(() => console.log('ok   ' + name + ' (' + (Date.now() - t0) + ' ms)'), (e) => { bad++; console.log('FAIL ' + name + ': ' + (e && e.message || e)); }); };
+(async () => {
+  const rows = []; for (let i = 0; i < 5200; i++) rows.push({ a: i, b: i % 2 === 0, c: 'Café ☕ ' + i, e: [i, i + 1], f: i / 7 });
+  const mkPacked = () => { const tr = [], pr = P.packRows(rows, tr); return structuredClone(pr, { transfer: tr }); };
+  await ta('sliced unpacking gives exactly the rows of the one-piece unpacking, in any slice size', async () => {
+    for (const ch of [256, 1500, 4096, 99999]) assert.deepStrictEqual(await P.unpackRowsSliced(mkPacked(), null, ch), rows);
+  });
+  await ta('a sliced layout result equals the one-piece result (nodes, edges, pos alias)', async () => {
+    const g = mk(2100, random(2100, 3000, 5)), L = E.build(g, { view: 'network', arrange: 'stress' }), tr1 = [], pk1 = P.packResult(L, tr1), a = P.unpackResult(structuredClone(pk1, { transfer: tr1 }));
+    const tr2 = [], pk2 = P.packResult(L, tr2), b = await P.unpackResultSliced(structuredClone(pk2, { transfer: tr2 }), null, 300);
+    assert.deepStrictEqual(b, a); const k = Object.keys(b.pos)[3]; assert.strictEqual(b.pos[k], b.nodes[Object.keys(a.pos).indexOf(k)]);
+  });
+  await ta('a newer build stops sliced unpacking between slices (superseded) and publishes nothing', async () => {
+    let calls = 0; const stale = () => ++calls > 2; let err = null;
+    await P.unpackRowsSliced(mkPacked(), stale, 500).catch((e) => { err = e; }); assert.ok(err && err.message === 'superseded', 'did not stop');
+  });
+  await ta('sliceWorth is false for small results and where code may be built from text', async () => {
+    assert.strictEqual(P.sliceWorth(null), false); assert.strictEqual(P.sliceWorth({ __nfmpack: 1, nodes: { n: 20000 } }), false);   // Node has no policy: the fast path is allowed
+  });
+})().then(() => { process.exitCode = bad ? 1 : 0; });
