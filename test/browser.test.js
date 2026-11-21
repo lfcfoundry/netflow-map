@@ -1412,6 +1412,7 @@ async function open() {
   try {
     const r = await ev(async () => {
       const c = NFM.client(); if (c.mode !== 'worker') return { skip: c.mode };
+      await new Promise((q) => { const t = () => (NFM.state.mapBusy || NFM.pending()) ? setTimeout(t, 20) : q(); setTimeout(t, 200); });   /* a background build of the open map (it starts a moment after a change) must be finished: it shares this client */
       const base = NFMExamples.bigNetwork(1500, 3, 31); base.name = 'diffs';
       const opts = { view: 'network', arrange: 'stress', colorBy: 'group' }, E = NFM.engine();
       const hash = (L) => { let h = 2166136261; for (const nd of L.nodes) { const s = nd.id + ':' + nd.cx.toFixed(3) + ',' + nd.cy.toFixed(3) + ':' + nd.label; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0; } return h; };
@@ -1441,6 +1442,7 @@ async function open() {
   try {
     const r = await ev(async () => {
       const c = NFM.client(); if (c.mode !== 'worker' || !c.keeper) return { skip: c.mode + ', keeper ' + !!c.keeper };
+      await new Promise((q) => { const t = () => (NFM.state.mapBusy || NFM.pending()) ? setTimeout(t, 20) : q(); setTimeout(t, 200); });   /* a background build of the open map (it starts a moment after a change) must be finished: it shares this client */
       const opts = { view: 'network', arrange: 'stress', colorBy: 'group' }, E = NFM.engine(), min = c.parkMin;
       const hash = (L) => { let h = 2166136261; for (const nd of L.nodes) { const s = nd.id + ':' + nd.cx.toFixed(3) + ',' + nd.cy.toFixed(3) + ':' + nd.label; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0; } return h; };
       const g0 = NFMExamples.bigNetwork(1500, 3, 41); g0.name = 'kept'; g0.start = g0.nodes[2].id;
