@@ -6,6 +6,13 @@ What changed in Netflow Map, in plain words, newest first. Developer notes, in t
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 and WebKitGTK 2.52.6. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## November 21
+
+- The map is worked out in the background as soon as data lands (Nov 21): if another tab is open, or a layout setting changes there, the layout and picture are made right away, so the first Map after bringing data in skips the layout wait. A first Sankey picture a moment after import takes 15 ms at 1,500 items and 40 ms at 5,000 in Chromium 156 (7 and 16 ms in Firefox 158), against 79 and 232 ms for d3-sankey 0.12.3 drawing on demand.
+- A big map's layout result is rebuilt in short slices and without a slow generic loop (Nov 21): the 50,000-item Network first picture is 5 percent sooner in Chromium and 10 percent sooner in Firefox, with 11 and 19 percent less time frozen over 50 ms.
+- The worker prepares the saved-layout key while the page is still receiving a file (Nov 21): a 50,000-item table starts its layout about 80 ms sooner in Chromium.
+- Charts: netflow-plot 2.21.0 (Nov 21). A 100,000-point line chart on the Charts tab draws its first picture in about 110 ms in Chromium (245 ms before). A line over 5,000 points is drawn as a filled band (97.5 percent of the pixels match; spikes are kept).
+
 ## November 14
 
 - Dragging a bar in a big Sankey moves much sooner (Nov 15): the layout keeps the order, sizes and relaxed places from the move before and only works out the dragged bars and the bands they touch (netflow-sankey 2.14.0). In a 10,000-item Sankey the time from mouse move to the next picture was 76.5 ms before and 58.3 ms after in Chromium 156 (median of 6 runs each, order alternated); the bars land exactly where a whole layout puts them.
