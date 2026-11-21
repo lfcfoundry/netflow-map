@@ -136,6 +136,13 @@ var NFMPack = (function () {
     return out;
   }
 
+  /* Row factories written out by hand for the row shapes the engine sends (src/pack-shapes.js, made by tools/gen-pack-shapes.mjs): an object literal per row is
+   * what the browser builds fastest, and it needs no code made from text. A shape that is not listed is built by the loops below, exactly the same objects. */
+  var SHAPES = new Map();
+  function shapeSig(keys, kinds) { return keys.join('\n') + '|' + kinds.map(function (k) { return k === 'b' ? 'b' : '.'; }).join(''); }   /* only true/false columns are read differently; numbers, text, lists and mixed columns are all c[i] */
+  function addShapes(list) { for (var i = 0; i < list.length; i++) SHAPES.set(list[i][0] + '|' + list[i][1], list[i][2]); }
+  function shapeOf(P) { return SHAPES.size ? SHAPES.get(shapeSig(P.keys, P.cols.map(function (x) { return x.k; }))) || null : null; }
+
   function unpackRows(P) {
     var n = P.n, keys = P.keys, K = keys.length, cols = new Array(K), c, i, out = new Array(n);
     for (c = 0; c < K; c++) {
@@ -143,6 +150,8 @@ var NFMPack = (function () {
       cols[c] = col.k === 's' ? textOf(col, n) : col.k === 'l' ? listsOf(col, n) : col.d;
     }
     var kinds = P.cols.map(function (x) { return x.k; });
+    var fac = shapeOf(P);
+    if (fac) return fac(cols, n, out);
     var make = null;
     try {   // one object literal with the fields in the engine's order: the fastest way to build a million alike objects (skipped on a page whose policy has no 'unsafe-eval': the loop below builds the same objects, about 6 times slower in Firefox, 0.5 s for a million)
       if (!evalAllowed()) throw new Error('no eval');
@@ -157,6 +166,47 @@ var NFMPack = (function () {
       out[i] = o;
     }
     return out;
+  }
+
+  /** True when rebuilding these rows on the page would hold it for a long time (no code built from text, so the plain loop below runs) and is worth slicing. */
+  var SLICE_ROWS = 10000, SLICE_CHUNK = 1500;
+  function sliceWorth(p) {
+    return !!p && p.__nfmpack === 1 && p.nodes && p.nodes.n >= SLICE_ROWS && !evalAllowed() && !(shapeOf(p.nodes) && (!p.edges || !p.edges.cols || shapeOf(p.edges)));
+  }
+  /** One turn of the event loop (a message to ourselves: no 4 ms timer floor), so input and drawing run between slices. */
+  function turn() {
+    return new Promise(function (resolve) {
+      if (typeof MessageChannel === 'function') { var ch = new MessageChannel(); ch.port1.onmessage = function () { ch.port1.onmessage = null; ch.port1.close(); resolve(); }; ch.port2.postMessage(0); }
+      else setTimeout(resolve, 0);
+    });
+  }
+  /** unpackRows in slices of SLICE_CHUNK rows with a turn between them: the same objects, the longest task about a sixtieth. `stale()` true between slices throws 'superseded'. */
+  function unpackRowsSliced(P, stale, chunk) {
+    var n = P.n, keys = P.keys, K = keys.length, cols = new Array(K), c, out = new Array(n), step = chunk || SLICE_CHUNK;
+    for (c = 0; c < K; c++) { var col = P.cols[c]; cols[c] = col.k === 's' ? textOf(col, n) : col.k === 'l' ? listsOf(col, n) : col.d; }
+    var kinds = P.cols.map(function (x) { return x.k; });
+    function run(from) {
+      var to = Math.min(n, from + step), i, o;
+      for (i = from; i < to; i++) {
+        o = {};
+        for (c = 0; c < K; c++) o[keys[c]] = kinds[c] === 'b' ? cols[c][i] === 1 : cols[c][i];
+        out[i] = o;
+      }
+      if (to >= n) return Promise.resolve(out);
+      return turn().then(function () { if (stale && stale()) throw new Error('superseded'); return run(to); });
+    }
+    return run(0);
+  }
+  function unpackResultSliced(p, stale, chunk) {
+    var out = p.rest;
+    return unpackRowsSliced(p.nodes, stale, chunk).then(function (nodes) {
+      out.nodes = nodes;
+      return p.edges && p.edges.cols ? unpackRowsSliced(p.edges, stale, chunk) : p.edges;
+    }).then(function (edges) {
+      out.edges = edges;
+      if (p.pos) { var pos = {}, nodes = out.nodes; for (var i = 0; i < p.pos.keys.length; i++) pos[p.pos.keys[i]] = nodes[p.pos.idx[i]]; out.pos = pos; }
+      return out;
+    });
   }
 
   /**
@@ -191,6 +241,6 @@ var NFMPack = (function () {
     if (p.pos) { var pos = {}; for (var i = 0; i < p.pos.keys.length; i++) pos[p.pos.keys[i]] = nodes[p.pos.idx[i]]; out.pos = pos; }
     return out;
   }
-  return { packResult: packResult, unpackResult: unpackResult, packRows: packRows, unpackRows: unpackRows };
+  return { packResult: packResult, unpackResult: unpackResult, packRows: packRows, unpackRows: unpackRows, sliceWorth: sliceWorth, addShapes: addShapes, shapeSig: shapeSig, shapeOf: shapeOf, unpackResultSliced: unpackResultSliced, unpackRowsSliced: unpackRowsSliced };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NFMPack;

@@ -249,6 +249,11 @@ var NFMEngineClient = (function () {
     var p = this.pending.get(d.id);
     if (!p) return;
     this.pending.delete(d.id);
+    if (d.ok && d.result !== true && d.result !== 'pong' && d.result !== 'warm' && p.type === 'build' && typeof NFMPack !== 'undefined' && NFMPack.sliceWorth(d.result)) {   /* a big result on a page that builds no code from text: unpacked in slices so the page keeps answering; a newer build drops it */
+      var tok = this.buildTok, self = this;
+      p.resolve(NFMPack.unpackResultSliced(d.result, function () { return self.buildTok !== tok; }).then(function (L) { return { L: L, ms: d.ms }; }));
+      return;
+    }
     if (d.ok) p.resolve(d.result === true || d.result === 'pong' || d.result === 'warm' ? d.result : { L: typeof NFMPack !== 'undefined' ? NFMPack.unpackResult(d.result) : d.result, ms: d.ms }); else p.reject(new Error(d.error));
   };
   /** A nested view drawn from the reach alone (L.imp.lite) gets its traffic and choke points a moment after its first picture: asked of the helper, then put on the nodes. */

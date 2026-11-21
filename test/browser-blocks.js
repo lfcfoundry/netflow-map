@@ -17,7 +17,7 @@ const MAP = {
   'src/gif.js': ['states', '4'], 'src/gifx.js': ['states', '4'], 'src/gifgl.js': ['states', '4'], 'src/gifkey.js': ['states', '4'], 'src/gif-worker.js': ['states', '4'], 'src/video.js': ['4'],
   'src/undo.js': ['index', 'undopack', '3', '5'], 'src/columns.js': ['data', 'index', '8'], 'src/importers.js': ['data', '1', '3'],
   'src/look.js': ['colors', '1'], 'src/sim.js': ['states', '8'], 'src/check.js': ['itself', 'states'], 'src/tune.js': ['itself', '8'],
-  'src/pack.js': ['views', 'undopack'], 'src/unpack.js': ['views', 'undopack'], 'src/field-report-start.js': ['report'], 'src/probe.js': ['itself'], 'src/gpustress.js': ['itself']
+  'src/pack.js': ['views', 'undopack'], 'src/pack-shapes.js': ['views', 'undopack'], 'src/unpack.js': ['views', 'undopack'], 'src/field-report-start.js': ['report'], 'src/probe.js': ['itself'], 'src/gpustress.js': ['itself']
 };
 /* The function map (test/fnmap.json, built by node tools/fnmap.js): which blocks run each function. It narrows a changed file to the blocks of the functions
  * the change sits in, but only when the file is the very version the map was built from (same git blob id) and every changed spot lies wholly inside one
