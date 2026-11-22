@@ -574,8 +574,9 @@ var NFMEngineClient = (function () {
     return this.run('build', Object.assign({}, opts, { previewOnly: true })).then(function (r) {
       if (!r.L || !r.L.rough) return r;   // nothing to polish later: this already is the finished picture
       if (tok !== self.buildTok) throw new Error('superseded');
-      try { onPreview(r); } catch (err) { /* a preview that cannot be shown must not stop the real build */ }
-      return self.run('build', opts);
+      var fin = self.run('build', opts);   // the finished build is sent to the worker first (on the next turn, once this job is marked done), so it runs while the page makes and draws the rough picture
+      setTimeout(function () { if (tok !== self.buildTok) return; try { onPreview(r); } catch (err) { /* a preview that cannot be shown must not stop the real build */ } }, 0);
+      return fin;
     });
   };
   /** "Distances, best quality" on a big piece: the card makes the picture, the engine finishes it. Any problem: the processor does it as before. */
