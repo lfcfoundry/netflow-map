@@ -118,12 +118,25 @@ var NFMEngine = (function () {
     if (!cands.length) for (i = 0; i < P.n; i++) cands.push(i);
     cands.sort(function (a, b) { return outdeg(P, b) - outdeg(P, a) || a - b; });
     var best = cands[0], bestN = -1;
-    for (i = 0; i < Math.min(cands.length, 40); i++) {
-      var d = bfs(P, cands[i], -1), c = 0;
-      for (var j = 0; j < P.n; j++) if (d[j] >= 0) c++;
-      if (c > bestN) { bestN = c; best = cands[i]; }
-      if (c === P.n) break;   /* reaches everything: no later one can reach more, and ties keep the first */
+    {
+      var d0 = bfs(P, cands[0], -1), c0 = 0;
+      for (var j0 = 0; j0 < P.n; j0++) if (d0[j0] >= 0) c0++;
+      if (c0 === P.n) return cands[0];   /* reaches everything: no later one can reach more, and ties keep the first */
     }
+    /* How many items each of the first 40 candidates reaches, all at once: every item keeps one bit per candidate (two 32-bit words) and bits flow along the arrows
+     * until nothing changes. The counts are the ones a search from each candidate alone gives. */
+    var nc = Math.min(cands.length, 40), lo = new Int32Array(P.n), hi = new Int32Array(P.n), inq = new Uint8Array(P.n), q = new Int32Array(P.n), qh = 0, qt = 0, qn = 0, counts = new Int32Array(nc), n = P.n;
+    for (i = 0; i < nc; i++) { var cv = cands[i]; if (i < 32) lo[cv] |= 1 << i; else hi[cv] |= 1 << (i - 32); if (!inq[cv]) { inq[cv] = 1; q[qt++] = cv; if (qt === n) qt = 0; qn++; } }
+    while (qn) {
+      var v = q[qh++]; if (qh === n) qh = 0; qn--; inq[v] = 0;
+      var vl = lo[v], vh = hi[v];
+      for (var k2 = P.outStart[v]; k2 < P.outStart[v + 1]; k2++) {
+        var w = P.to[P.outEdge[k2]], nl = lo[w] | vl, nh = hi[w] | vh;
+        if (nl !== lo[w] || nh !== hi[w]) { lo[w] = nl; hi[w] = nh; if (!inq[w]) { inq[w] = 1; q[qt++] = w; if (qt === n) qt = 0; qn++; } }
+      }
+    }
+    for (var j = 0; j < n; j++) { var bl = lo[j], bh = hi[j]; while (bl) { counts[31 - Math.clz32(bl & -bl)]++; bl &= bl - 1; } while (bh) { counts[63 - Math.clz32(bh & -bh)]++; bh &= bh - 1; } }
+    for (i = 0; i < nc; i++) if (counts[i] > bestN) { bestN = counts[i]; best = cands[i]; }
     return best;
   }
 
@@ -1446,11 +1459,21 @@ var NFMEngine = (function () {
     return true;
   }
   function fitScale(X, k, off, nbr, EDGE) {
-    var dist = new Int32Array(k), queue = new Int32Array(k), num = 0, den = 0, ns = Math.min(8, k), s, t, hs = hypSame();
+    var dist = new Int32Array(k), queue = new Int32Array(k), num = 0, den = 0, ns = Math.min(8, k), s, t, hs = hypSame(), m2 = off[k];
     for (s = 0; s < ns; s++) {
       var src = Math.floor(s * k / ns); dist.fill(-1); dist[src] = 0; queue[0] = src;
-      var h = 0, tl = 1;
-      while (h < tl) { var u = queue[h++]; for (var e = off[u]; e < off[u + 1]; e++) { var w = nbr[e]; if (dist[w] < 0) { dist[w] = dist[u] + 1; queue[tl++] = w; } } }
+      // level by level; once the newest level has more links than what is left, every item not yet reached looks for one link into it instead (the same hop counts, far fewer links read on dense maps)
+      var h = 0, tl = 1, level = 0, left = k - 1, mu = m2 - (off[src + 1] - off[src]), u, e, w, e1;
+      while (h < tl && left > 0) {
+        var end = tl, mf = 0;
+        for (var q = h; q < end; q++) { u = queue[q]; mf += off[u + 1] - off[u]; }
+        if (mf > mu) {
+          for (var v = 0; v < k; v++) if (dist[v] < 0) { for (e = off[v], e1 = off[v + 1]; e < e1; e++) if (dist[nbr[e]] === level) { dist[v] = level + 1; queue[tl++] = v; left--; mu -= e1 - off[v]; break; } }
+        } else {
+          for (q = h; q < end; q++) { u = queue[q]; for (e = off[u], e1 = off[u + 1]; e < e1; e++) { w = nbr[e]; if (dist[w] < 0) { dist[w] = level + 1; queue[tl++] = w; left--; mu -= off[w + 1] - off[w]; } } }
+        }
+        h = end; level++;
+      }
       for (t = 0; t < k; t += 3) if (t !== src && dist[t] > 0) { var dx0 = X[2 * src] - X[2 * t], dy0 = X[2 * src + 1] - X[2 * t + 1], ex = (hs ? hyp2(dx0, dy0) : Math.hypot(dx0, dy0)) / (dist[t] * EDGE); num += ex; den += ex * ex; }
     }
     return den > 0 && num > 0 ? num / den : 1;
@@ -2118,22 +2141,38 @@ var NFMEngine = (function () {
   function communities(P) {
     var n = P.n, lab = new Int32Array(n), i, k;
     for (i = 0; i < n; i++) lab[i] = i;
-    var order = [];
-    for (i = 0; i < n; i++) order.push(i);
-    order.sort(function (a, b) { return outdeg(P, b) + indeg(P, b) - outdeg(P, a) - indeg(P, a) || a - b; });
+    var order = [], dg = new Int32Array(n);
+    for (i = 0; i < n; i++) { order.push(i); dg[i] = outdeg(P, i) + indeg(P, i); }
+    var dmax = 0; for (i = 0; i < n; i++) if (dg[i] > dmax) dmax = dg[i];
+    if (dmax < 4 * n + 1000) {   // most links first, then item number: a counting sort gives the order the comparison sort gave
+      var bstart = new Int32Array(dmax + 2); for (i = 0; i < n; i++) bstart[dmax - dg[i] + 1]++;
+      for (i = 0; i <= dmax; i++) bstart[i + 1] += bstart[i];
+      for (i = 0; i < n; i++) order[bstart[dmax - dg[i]]++] = i;
+    } else order.sort(function (a, b) { return dg[b] - dg[a] || a - b; });
     // the weight seen per label is tallied in typed lists (acc by label, seenAt marks this item's labels, touched keeps them in first-seen order): the same sums in the same order as a Map gave, without building one per item
     var acc = new Float64Array(n), seenAt = new Int32Array(n), touched = new Int32Array(n), mark = 0, nt, l, t2;
+    // each item's neighbors and link weights in one row (arrows out, then arrows in: the order the sums were always made in), and a flag per item: an item is looked at
+    // again only when its own label or a neighbor's changed since its last look (nothing else can change its answer), so later sweeps touch only the items still moving
+    var cst = new Int32Array(n + 1), tot = 0;
+    for (i = 0; i < n; i++) { tot += P.outStart[i + 1] - P.outStart[i] + P.inStart[i + 1] - P.inStart[i]; cst[i + 1] = tot; }
+    var cnb = new Int32Array(tot), cw = new Float64Array(tot), cp = 0, dirty = new Uint8Array(n).fill(1);
+    for (i = 0; i < n; i++) {
+      for (k = P.outStart[i]; k < P.outStart[i + 1]; k++) { var e = P.outEdge[k]; cnb[cp] = P.to[e]; cw[cp++] = P.w[e]; }
+      for (k = P.inStart[i]; k < P.inStart[i + 1]; k++) { var e2 = P.inEdge[k]; cnb[cp] = P.from[e2]; cw[cp++] = P.w[e2]; }
+    }
     for (var sweep = 0; sweep < 20; sweep++) {
       var changed = 0;
       for (var oi = 0; oi < n; oi++) {
         var v = order[oi];
+        if (!dirty[v]) continue;
+        dirty[v] = 0;
+        var c0 = cst[v], c1 = cst[v + 1];
+        if (c0 === c1) continue;
         mark++; nt = 0;
-        for (k = P.outStart[v]; k < P.outStart[v + 1]; k++) { var e = P.outEdge[k]; l = lab[P.to[e]]; if (seenAt[l] !== mark) { seenAt[l] = mark; acc[l] = 0; touched[nt++] = l; } acc[l] += P.w[e]; }
-        for (k = P.inStart[v]; k < P.inStart[v + 1]; k++) { var e2 = P.inEdge[k]; l = lab[P.from[e2]]; if (seenAt[l] !== mark) { seenAt[l] = mark; acc[l] = 0; touched[nt++] = l; } acc[l] += P.w[e2]; }
-        if (!nt) continue;
+        for (k = c0; k < c1; k++) { l = lab[cnb[k]]; if (seenAt[l] !== mark) { seenAt[l] = mark; acc[l] = 0; touched[nt++] = l; } acc[l] += cw[k]; }
         var bestL = lab[v], bestW = seenAt[bestL] === mark ? acc[bestL] || 0 : 0;
         for (t2 = 0; t2 < nt; t2++) { l = touched[t2]; var wt = acc[l]; if (wt > bestW + 1e-12 || (Math.abs(wt - bestW) <= 1e-12 && l < bestL)) { bestW = wt; bestL = l; } }
-        if (bestL !== lab[v]) { lab[v] = bestL; changed++; }
+        if (bestL !== lab[v]) { lab[v] = bestL; changed++; dirty[v] = 1; for (k = c0; k < c1; k++) dirty[cnb[k]] = 1; }
       }
       if (!changed) break;
     }
@@ -2428,7 +2467,12 @@ var NFMEngine = (function () {
       var gi = nodeIdx++;
       var pg = P.nodes[n.pages[0]];
       n.traffic = 0; n.choke = false; n.visits = 0; n.pGood = 0; n.pBad = 0; n.pNeutral = 0;
-      n.pages.forEach(function (pi) {
+      var one = n.pages.length === 1, p0 = n.pages[0];   // most items stand for one page: no inner loops for those
+      if (one) {
+        if (imp.traffic[p0] > 0) n.traffic = imp.traffic[p0];
+        if (imp.choke[p0]) n.choke = true;
+        if (flow && flow.visits[p0] > 0) n.visits = flow.visits[p0];
+      } else n.pages.forEach(function (pi) {
         if (imp.traffic[pi] > n.traffic) n.traffic = imp.traffic[pi];
         if (imp.choke[pi]) n.choke = true;
         if (flow) { if (flow.visits[pi] > n.visits) n.visits = flow.visits[pi]; }
@@ -2449,7 +2493,8 @@ var NFMEngine = (function () {
       n.unreached = imp.depth[n.pages[0]] < 0;
       n.deg = indeg(P, n.pages[0]) + outdeg(P, n.pages[0]);
       n.inN = 0; n.outN = 0; n.inW = 0; n.outW = 0;
-      n.pages.forEach(function (pi2) { n.inN += indeg(P, pi2); n.outN += outdeg(P, pi2); var q; for (q = P.inStart[pi2]; q < P.inStart[pi2 + 1]; q++) n.inW += P.rw[P.inEdge[q]]; for (q = P.outStart[pi2]; q < P.outStart[pi2 + 1]; q++) n.outW += P.rw[P.outEdge[q]]; });
+      if (one) { var q0, iw = 0, ow = 0; for (q0 = P.inStart[p0]; q0 < P.inStart[p0 + 1]; q0++) iw += P.rw[P.inEdge[q0]]; for (q0 = P.outStart[p0]; q0 < P.outStart[p0 + 1]; q0++) ow += P.rw[P.outEdge[q0]]; n.inN = indeg(P, p0); n.outN = outdeg(P, p0); n.inW = iw; n.outW = ow; }
+      else n.pages.forEach(function (pi2) { n.inN += indeg(P, pi2); n.outN += outdeg(P, pi2); var q; for (q = P.inStart[pi2]; q < P.inStart[pi2 + 1]; q++) n.inW += P.rw[P.inEdge[q]]; for (q = P.outStart[pi2]; q < P.outStart[pi2 + 1]; q++) n.outW += P.rw[P.outEdge[q]]; });
       n.ghost = !!pg.ghost;
       var k = 1;
       if (o.traffic) k = 1 + 0.45 * n.traffic;
