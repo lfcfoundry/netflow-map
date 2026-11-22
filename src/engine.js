@@ -196,9 +196,15 @@ var NFMEngine = (function () {
     }
     var idom = new Int32Array(n + 1).fill(-1);
     idom[start] = start;
-    var preds = function (b, cb) {
-      if (b === S) { for (var q = 0; q < goal.length; q++) cb(goal[q]); return; }
-      for (var q2 = P.inStart[b]; q2 < P.inStart[b + 1]; q2++) cb(P.from[P.inEdge[q2]]);
+    var meet = function (p, ni) {   // the nearest shared dominator of p and what was found so far
+      if (!seen[p] || idom[p] < 0) return ni;
+      if (ni < 0) return p;
+      var x = p, y = ni;
+      while (x !== y) {
+        while (po[x] < po[y]) x = idom[x];
+        while (po[y] < po[x]) y = idom[y];
+      }
+      return x;
     };
     var changed = true, guard = 0;
     while (changed && guard++ < 60) {
@@ -206,17 +212,9 @@ var NFMEngine = (function () {
       for (var oi = order.length - 1; oi >= 0; oi--) {
         var b = order[oi];
         if (b === start) continue;
-        var ni = -1;
-        preds(b, function (p) {
-          if (!seen[p] || idom[p] < 0) return;
-          if (ni < 0) { ni = p; return; }
-          var x = p, y = ni;
-          while (x !== y) {
-            while (po[x] < po[y]) x = idom[x];
-            while (po[y] < po[x]) y = idom[y];
-          }
-          ni = x;
-        });
+        var ni = -1, q;   // no helper function per item: the same merges in the same order
+        if (b === S) { for (q = 0; q < goal.length; q++) ni = meet(goal[q], ni); }
+        else for (q = P.inStart[b]; q < P.inStart[b + 1]; q++) ni = meet(P.from[P.inEdge[q]], ni);
         if (ni !== idom[b]) { idom[b] = ni; changed = true; }
       }
     }
