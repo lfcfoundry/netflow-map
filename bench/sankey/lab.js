@@ -143,17 +143,17 @@
   async function runAll() {
     $('out').innerHTML = ''; sections = []; var results = [], t0 = performance.now();
     for (var i = 0; i < NETS.length; i++) {
-      $('status').textContent = 'Network ' + (i + 1) + ' of ' + NETS.length + ': ' + NETS[i].title + '…'; $('barfill').style.width = Math.round(100 * i / NETS.length) + '%'; await yieldUI();
+      $('status').textContent = 'Network ' + (i + 1) + ' of ' + NETS.length + ': ' + NETS[i].title + '…'; $('barfill').style.width = Math.round(100 * i / NETS.length) + '%'; LfcDevice.step(NETS[i].title); await yieldUI();
       var s = addSection(NETS[i].title);
       try { results.push(await runOne(NETS[i], s)); } catch (e) { s.finish('bad', 'This network stopped with an error: ' + String(e && e.message || e)); }
       await yieldUI();
     }
-    var el = performance.now() - t0; $('barfill').style.width = '100%'; $('status').textContent = 'Finished in ' + (el / 1000).toFixed(1) + ' seconds.';
+    LfcDevice.done(); var el = performance.now() - t0; $('barfill').style.width = '100%'; $('status').textContent = 'Finished in ' + (el / 1000).toFixed(1) + ' seconds.';
     var good = results.filter(function (r) { return r.improved.drawnShare >= r.now.drawnShare && r.improved.widthSpread <= r.now.widthSpread + 0.01 && r.ordGain >= 0; }).length;
     var avgGain = results.length ? results.reduce(function (s, r) { return s + r.ordGain; }, 0) / results.length : 0;
     var overall = 'The improved layout was at least as good on ' + good + ' of ' + results.length + ' networks. Weighted crossings fell by ' + Math.round(avgGain * 100) + '% on average against the old-style order on the same layout.';
     $('finalsay').textContent = overall; $('done').style.display = '';
-    var L = ['# Netflow Map sankey before and after', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + (el / 1000).toFixed(1) + ' s' + (QUICK ? ' · QUICK' : ''), '', overall, ''];
+    var L = [LfcDevice.line, '', '# Netflow Map sankey before and after', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + (el / 1000).toFixed(1) + ' s' + (QUICK ? ' · QUICK' : ''), '', overall, ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
     L.push('## Raw data', '', '```json', JSON.stringify(results, null, 1), '```', '');
     var md = L.join('\n');

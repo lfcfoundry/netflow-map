@@ -1,6 +1,8 @@
 <!doctype html>
 <html lang="en-US"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; worker-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <title>Netflow Map: first version vs now</title>
+<meta name="robots" content="noindex">
+<script>/*@@CORELINE@@*/</script>
 <style>
 :root{--bg:#fbfaf7;--fg:#201d18;--mut:#6b655a;--card:#fff;--line:#e3ded3;--acc:#b4531a;--good:#1f7a3d;--bad:#b3261e}
 @media (prefers-color-scheme:dark){:root{--bg:#17150f;--fg:#f0ece2;--mut:#a39c8c;--card:#211e17;--line:#38342a;--acc:#f0a35e;--good:#5fd08a;--bad:#ff8a80}}
@@ -254,7 +256,7 @@ async function go() {
       var order = (k + ti) % 2 ? ['now', 'old'] : ['old', 'now'];   /* take turns: never all of one version first */
       for (var oi = 0; oi < 2; oi++) {
         var which = order[oi];
-        $('state').textContent = t.name + ': ' + (which === 'old' ? 'first version' : 'now') + ', turn ' + (k + 1) + ' of ' + turns + '…';
+        LfcDevice.step(t.name + ' (' + which + ', turn ' + (k + 1) + ')'); $('state').textContent = t.name + ': ' + (which === 'old' ? 'first version' : 'now') + ', turn ' + (k + 1) + ' of ' + turns + '…';
         var r = await runOne(which, JSON.parse(JSON.stringify(g)), t.opts, k === 0); n++; $('fill').style.width = Math.round(n / total * 100) + '%';
         if (r.error) { row.error = r.error; continue; }
         if (r.packed || r.L) { try { await showRun(which, t.name, r); row[which + 'Fps'] = await playOne(which, 1300); } catch (e) { CAP.now.textContent = 'Could not draw this picture (' + (e && e.message || e) + '); the layout time is still counted.'; } }
@@ -263,7 +265,7 @@ async function go() {
     }
     results.push(row);
   }
-  report(turns); await memPart(turns, list); $('go').disabled = false; $('state').textContent = 'Done.'; idleStart();
+  LfcDevice.done(); report(turns); await memPart(turns, list); $('go').disabled = false; $('state').textContent = 'Done.'; idleStart();
 }
 function report(turns) {
   var tbl = '<thead><tr><th>Map</th><th>First version<br>typical</th><th>First version<br>best</th><th>Now<br>typical</th><th>Now<br>best</th><th>Times faster<br>(higher is better)</th></tr></thead><tbody>', lines = [], md = ['| Map | First version typical | First version best | Now typical | Now best | Times faster |', '|---|---|---|---|---|---|'], verdict = [];
@@ -290,7 +292,7 @@ function report(turns) {
   $('verdict').innerHTML = (best ? '<li>Biggest gain: ' + best.html + '</li>' : '') + verdict.slice(1).map(function (v) { return '<li>' + v.html + '</li>'; }).join('') +
     '<li class="mut">Layout is only part of what changed. Memory, the first hover on a flat map, drawing speed and the features added since are in the box at the bottom, measured in my test browsers.</li>';
   var env = 'Browser: ' + navigator.userAgent + '; cores: ' + (navigator.hardwareConcurrency || '?') + (navigator.deviceMemory ? '; memory hint: ' + navigator.deviceMemory + ' GB' : '') + '; this machine set to ' + ($('dev').value === 'mobile' ? 'phone or tablet (largest map 30,000 items)' : 'PC') + '; ' + turns + ' turn(s) each, taking turns.';
-  var txt = ['Netflow Map: first version (2026.10.14.2136) vs now (__VERSION__)', env, '', 'Layout time, lower is better; times faster, higher is better.', ''].concat(md, ['', 'Drawing speed of the finished picture, FPS, higher is better:', ''], fmd, ['', 'Verdict:'], verdict.map(function (v) { return '- ' + v.text; })).join('\n');
+  var txt = [LfcDevice.line, '', 'Netflow Map: first version (2026.10.14.2136) vs now (__VERSION__)', env, '', 'Layout time, lower is better; times faster, higher is better.', ''].concat(md, ['', 'Drawing speed of the finished picture, FPS, higher is better:', ''], fmd, ['', 'Verdict:'], verdict.map(function (v) { return '- ' + v.text; })).join('\n');
   $('txt').value = txt; $('env').textContent = env; $('out').hidden = false; $('copy').disabled = false;
 }
 $('go').addEventListener('click', function () { try { if (!URLS) URLS = { old: blobUrl('src-old-engine', 'src-old-scene'), now: blobUrl('src-new-engine', 'src-new-scene') }; go(); } catch (e) { $('state').textContent = 'Could not start: ' + e.message; $('go').disabled = false; } });

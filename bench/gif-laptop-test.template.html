@@ -1,6 +1,8 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; media-src blob:; worker-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <title>Netflow Map laptop test</title>
+<meta name="robots" content="noindex">
+<script>/*@@CORELINE@@*/</script>
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--ink:#1f2430;--mut:#667;--line:#dcd9d0;--ok:#2f7d4f;--warn:#b26a00;--bad:#b3362f;--acc:#3b6ea5}
 @media (prefers-color-scheme:dark){:root{--bg:#16181d;--card:#1f232a;--ink:#e8e8ea;--mut:#9aa0ab;--line:#343a44;--ok:#5fc08a;--warn:#e0a34a;--bad:#ef7b73;--acc:#7fb0e8}}
@@ -223,7 +225,7 @@ var LAB = (function () {
     stopFlag = false; $('run').disabled = true; $('runbig').disabled = true; $('runcard').disabled = true; $('stop').disabled = false; $('verdict').hidden = true; $('sections').innerHTML = ''; out = { results: {}, when: new Date().toLocaleString(), notes: [] };
     var i, bodies = list.map(function (t) { return section(t.title); });
     for (i = 0; i < list.length; i++) {
-      if (stopFlag) break; var t = list[i];
+      if (stopFlag) break; var t = list[i]; LfcDevice.step(t.title);
       try {
         var ctx = { quick: $('quick').checked, stopped: function () { return stopFlag; }, progress: function (f, text) { $('bar').style.width = ((i + f) / list.length * 100).toFixed(0) + '%'; $('status').textContent = text; } };
         var r = await (t.limit ? Promise.race([t.run(ctx), new Promise(function (_, rej) { setTimeout(function () { rej(new Error('this part took longer than ' + (t.limit / 1000) + ' s and was stopped')); }, t.limit); })]) : t.run(ctx));
@@ -256,7 +258,7 @@ var LAB = (function () {
     return ['Browser: ' + br[0], 'Logical cores: ' + (n.hardwareConcurrency || 'unknown'), 'Memory hint (GB): ' + (n.deviceMemory || 'unknown'), 'WebGL 2: ' + (gl2() ? 'yes' : 'no'), 'WebGPU in this browser: ' + (n.gpu ? 'yes' : 'no'), 'WebAssembly: ' + (typeof WebAssembly !== 'undefined' ? 'yes' : 'no'), 'OffscreenCanvas: ' + (typeof OffscreenCanvas !== 'undefined' ? 'yes' : 'no'), 'Screen scale: ' + (window.devicePixelRatio || 1)].join('\n');
   }
   function report(extra) {
-    var L = ['Netflow Map laptop test report', 'Run: ' + out.when + ' (local time)', '', env(), ''];
+    LfcDevice.done(); var L = [LfcDevice.line, '', 'Netflow Map laptop test report', 'Run: ' + out.when + ' (local time)', '', env(), ''];
     tests.forEach(function (t) {
       var r = out.results[t.id]; if (!r) return; L.push('## ' + t.title);
       if (t.id === 'paths') { L.push('| Picture / look | Plain (ms) | WebAssembly (ms) | Card (ms) | Match |', '|---|---:|---:|---:|---:|'); r.rows.forEach(function (x) { L.push('| ' + x.size + ' ' + x.look + ' | ' + (x.js == null ? 'skipped' : ms(x.js)) + ' | ' + (x.wasm == null ? 'n/a' : ms(x.wasm)) + ' | ' + (x.gl == null ? 'n/a' : ms(x.gl)) + ' | ' + (x.match == null ? '' : x.match.toFixed(2) + '%') + ' |'); }); r.rows.forEach(function (x) { if (x.detail) L.push('Match detail ' + x.size + ' ' + x.look + ': ' + x.detail); }); if (r.facts.floor != null) L.push('Card fixed cost (upload, 1 pass, read back): ' + ms(r.facts.floor) + ' ms'); if (r.soft) L.push('Note: WebGL runs in software in this browser.'); }

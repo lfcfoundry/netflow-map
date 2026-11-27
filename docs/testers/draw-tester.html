@@ -1,6 +1,75 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Map drawing tester</title>
+<script>/*! core-plan 0.1.0 (draft for JS-modules). Sizes worker pools from the device, and keeps a "last run" line.
+ * MIT, Copyright (c) 2026 LFC Foundry. ES5, no network, no build step. Safe to inline in a single-file tester.
+ * navigator.hardwareConcurrency counts LOGICAL threads. On most laptops and desktops with 8 or more threads,
+ * about half are real cores, so the plan assumes half. Memory (navigator.deviceMemory, GB, capped at 8 by browsers,
+ * missing in Firefox and Safari) limits the helper count too.
+ */
+(function (root) {
+  'use strict';
+  function num(x, d) { x = +x; return x > 0 && isFinite(x) ? x : d; }
+  function detect(nav) {
+    nav = nav || (typeof navigator === 'object' ? navigator : {});
+    var logical = Math.floor(num(nav.hardwareConcurrency, 4)), mem = num(nav.deviceMemory, 0);
+    var cores = logical >= 8 ? Math.ceil(logical / 2) : logical;   // assume hyper-threading from 8 threads up
+    return { logical: logical, cores: cores, memGB: mem || null, memKnown: !!mem };
+  }
+  // opts: workerMB (memory one helper needs, default 256), maxWorkers (default 8), keepFree (cores left for the page, default 1),
+  //       maxDuck (DuckDB threads cap, default 4), env (detect() result, for tests)
+  function plan(opts) {
+    opts = opts || {};
+    var d = opts.env || detect(), workerMB = num(opts.workerMB, 256), maxW = Math.floor(num(opts.maxWorkers, 8)), keep = opts.keepFree === 0 ? 0 : Math.floor(num(opts.keepFree, 1));
+    var memGB = d.memGB || 4;                                  // unknown memory: assume 4 GB (safe on phones)
+    var byMem = Math.max(1, Math.floor(memGB * 1024 * 0.5 / workerMB)); // use at most half of the reported memory
+    var byCores = Math.max(1, d.cores - keep);
+    var workers = Math.max(1, Math.min(byCores, byMem, maxW));
+    var duck = Math.max(1, Math.min(workers, Math.floor(num(opts.maxDuck, 4))));
+    var why = workers === byMem && byMem < byCores ? 'limited by memory' : workers === maxW && maxW < byCores ? 'capped at ' + maxW : 'cores minus ' + keep;
+    return {
+      logical: d.logical, cores: d.cores, memGB: d.memGB, memKnown: d.memKnown,
+      workers: workers, duckThreads: duck, why: why,
+      // sizes to sweep in a "how many helpers" test: 1, 2, 4, ... never above the plan
+      sweep: (function () { var s = [], k = 1; while (k < workers) { s.push(k); k *= 2; } s.push(workers); return s; })(),
+      label: 'This device reports ' + d.logical + ' threads (about ' + d.cores + ' real cores assumed)' + (d.memGB ? ' and ' + d.memGB + ' GB' : ', memory not reported') + '. Plan: ' + workers + ' helper' + (workers > 1 ? 's' : '') + ', ' + duck + ' DuckDB thread' + (duck > 1 ? 's' : '') + ' (' + why + ').'
+    };
+  }
+  // Last-run line: call step('name') BEFORE each risky step and done() after the run. After a crash and reload,
+  // previous() tells which step was running. Uses sessionStorage only (cleared with the tab), never localStorage.
+  var KEY = 'lfc-core-plan-last-run';
+  function store(v) { try { if (v === undefined) return sessionStorage.getItem(KEY); if (v === null) sessionStorage.removeItem(KEY); else sessionStorage.setItem(KEY, v); } catch (e) {} return null; }
+  var lastRun = {
+    previous: function () { var v = store(); if (!v) return ''; try { var o = JSON.parse(v); return o.done ? '' : 'Last run did not finish. It stopped during: ' + o.step + ' (' + o.at + ').'; } catch (e) { return ''; } },
+    step: function (name) { store(JSON.stringify({ step: String(name), at: new Date().toLocaleTimeString(), done: false })); },
+    done: function () { store(JSON.stringify({ step: 'finished', at: new Date().toLocaleTimeString(), done: true })); },
+    clear: function () { store(null); }
+  };
+  var api = { detect: detect, plan: plan, lastRun: lastRun, version: '0.1.0' };
+  if (typeof module === 'object' && module.exports) module.exports = api; else root.LfcCorePlan = api;
+})(typeof self !== 'undefined' ? self : this);
+
+/* Copyright (c) 2026 LFC Foundry. MIT License. Needs bench/core-plan.js before it.
+ * Puts "This device reports N threads (about M cores assumed) and X GB" at the top of a tester page, offers it as the first line of
+ * Copy results (LfcDevice.prefix), and keeps a "last run" line: LfcDevice.step('name') before each race, LfcDevice.done() after the run. */
+(function () {
+  'use strict';
+  var P = window.LfcCorePlan, plan = P.plan(), line = plan.label.split('. Plan:')[0] + '.', prev = P.lastRun.previous();
+  window.LfcDevice = {
+    line: line, plan: plan, previous: prev,
+    prefix: function (md) { return line + '\n\n' + md; },
+    step: function (n) { P.lastRun.step(n); },
+    done: function () { P.lastRun.done(); }
+  };
+  function show() {
+    var d = document.createElement('div');
+    d.id = 'lfc-device'; d.setAttribute('style', 'margin:0 0 12px;padding:10px 14px;border-left:4px solid #2c6fd4;background:rgba(128,128,128,.14);font:14px/1.45 system-ui,sans-serif');
+    d.textContent = line + (prev ? ' ' + prev : '');
+    var b = document.body; b.insertBefore(d, b.firstChild);
+  }
+  if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
+})();
+</script>
 <style>
 :root{color-scheme:light dark;--bg:#fff;--fg:#1b2433;--muted:#566277;--soft:#f1f4f9;--line:#dde3ee;--hero:#0f2a47;--hero-fg:#f3f7fc;--hero-muted:#a9bdd6;--accent:#1f7ae0;--us:#1f6fb5;--us-pale:#b9d3ea;--dot:#0f2a47;--rival:#8a94a6;--good:#15803d;--bad:#c62828;--font:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 @media (prefers-color-scheme:dark){:root{--bg:#0b1522;--fg:#e4ebf5;--muted:#9db0c8;--soft:#13233a;--line:#25364f;--hero:#08111d;--accent:#4c9bf5;--us:#4c9bf5;--us-pale:#23466e;--dot:#d7e8fb;--rival:#8a94a6;--good:#4ade80;--bad:#f87171}}
@@ -110,19 +179,20 @@ function draw(){
 async function run(plan,label,nominal){
  ['quick','full'].forEach(function(i){$(i).disabled=true;});$('stop').disabled=false;$('copy').disabled=true;$('copy').firstChild.nodeValue='Copy results';stopped=false;report=[];RES=[];autoName='';draw();pb.style.width='0';
  var ver='(not read)';try{var vm=/\b(20\d\d\.\d\d\.\d\d\.\d{4})\b/.exec(await (await fetch(APP)).text());if(vm)ver=vm[1];}catch(e){}
- report.push('MAP DRAWING ('+label+') | '+FACT.ua+' | cores '+FACT.cores+' | memory '+FACT.mem+' | graphics '+FACT.gpu+' | screen '+FACT.screen+' | Netflow Map '+ver);
+ report.push(LfcDevice.line);report.push('MAP DRAWING ('+label+') | '+FACT.ua+' | cores '+FACT.cores+' | memory '+FACT.mem+' | graphics '+FACT.gpu+' | screen '+FACT.screen+' | Netflow Map '+ver);
  report.push('each line: size, pair number: plain canvas total ms (drawing step ms), automatic total ms (drawing step ms), automatic used, share of plain-canvas time (under 1.00 = automatic faster)');show();
  var total=plan.length,done=0,T0=performance.now(),eta=function(){var el=(performance.now()-T0)/1000;return done<2?Math.max(0,nominal-el):el/done*(total-done);};
  try{
   for(var i=0;i<plan.length&&!stopped;i++){var N=plan[i].N,k=plan[i].k,seed=100+i*2,order=(k&1)?['auto','canvas2d']:['canvas2d','auto'],res={};
    for(var j=0;j<2&&!stopped;j++){st.textContent='Pair '+(done+1)+' of '+total+': '+fmtN(N)+' items, '+(order[j]==='auto'?'automatic':'plain canvas');sub.textContent='About '+clock(eta())+' left'+(done?' | last pair: '+RES[RES.length-1].ratio.toFixed(2)+' of plain-canvas time':'');
-    res[order[j]]=await once(order[j],N,seed+j);}
+    LfcDevice.step(fmtN(N)+' items, pair '+(k+1)+', '+order[j]);res[order[j]]=await once(order[j],N,seed+j);}
    if(stopped)break;
    var a=res.auto,c=res.canvas2d;autoName=a.used;var r={N:N,ratio:a.total/c.total,dratio:a.draw/Math.max(1,c.draw)};RES.push(r);done++;pb.style.width=(done/total*100)+'%';
    report.push(fmtN(N)+' items, pair '+(k+1)+': '+c.total.toFixed(0)+' ('+c.draw.toFixed(0)+'), '+a.total.toFixed(0)+' ('+a.draw.toFixed(0)+'), '+a.used+', '+r.ratio.toFixed(2));show();draw();}
   var sizes=[];RES.forEach(function(r){if(sizes.indexOf(r.N)<0)sizes.push(r.N);});
   var per=sizes.map(function(N){return fmtN(N)+' '+med(RES.filter(function(r){return r.N===N;}).map(function(r){return r.ratio;})).toFixed(2);});
   if(RES.length)report.push((stopped?'STOPPED EARLY, results so far. ':'')+'SUMMARY: automatic drawing ('+autoName+') share of plain-canvas first-picture time by size: '+per.join(' | ')+' | '+FACT.cores+' cores');
+  if(!stopped)LfcDevice.done();
   pb.style.width=(stopped?done/total*100:100)+'%';
  }catch(e){report.push('ERROR '+(e&&e.message||e));st.textContent='';show();$('rawd').open=true;}
  $('frame').src='about:blank';

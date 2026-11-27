@@ -242,7 +242,7 @@
   /* ------------------------------------------------------------- results */
   function mdTable(head, rows) { return '| ' + head.join(' | ') + ' |\n|' + head.map(function (_, i) { return i ? '---:' : '---'; }).join('|') + '|\n' + rows.map(function (r) { return '| ' + r.map(function (c) { return c && c.win ? '**' + c.text + '**' : c; }).join(' | ') + ' |'; }).join('\n') + '\n'; }
   function buildMd(elapsed) {
-    var out = '# Netflow Map against D3: results\n\nVersion ' + VERSION + '. Run ' + new Date().toISOString() + ' in ' + (navigator.userAgent || 'unknown browser') + '. Took ' + clockText(elapsed) + (QUICK ? ' (quick mode)' : '') + '. A bold cell is the best in its row.\n\n';
+    var out = LfcDevice.line + '\n\n# Netflow Map against D3: results\n\nVersion ' + VERSION + '. Run ' + new Date().toISOString() + ' in ' + (navigator.userAgent || 'unknown browser') + '. Took ' + clockText(elapsed) + (QUICK ? ' (quick mode)' : '') + '. A bold cell is the best in its row.\n\n';
     sections.forEach(function (s) { out += '## ' + s.title + '\n\n' + s.verdict + '\n\n'; s.tables.forEach(function (t) { out += '**' + t.caption + '**\n\n' + mdTable(t.head, t.rows) + '\n'; }); s.notes.forEach(function (n) { out += '- ' + n + '\n'; }); out += '\n'; });
     return out;
   }
@@ -258,11 +258,11 @@
     var steps = [['Network layout', layoutStep], ['Flow layout', flowStep], ['Drawing', drawStep]];
     var only = params.get('only'); if (only) steps = steps.filter(function (st) { return st[0].toLowerCase().indexOf(only.toLowerCase()) === 0; });   total = steps.length;   /* ?only=network or ?only=flow runs that step alone (drawing needs the network step's layouts) */
     for (var i = 0; i < steps.length; i++) {
-      setStatus('Step ' + (i + 1) + ' of ' + steps.length + ': ' + steps[i][0] + '…'); await yieldUI();
+      setStatus('Step ' + (i + 1) + ' of ' + steps.length + ': ' + steps[i][0] + '…'); LfcDevice.step(steps[i][0]); await yieldUI();
       try { await steps[i][1](); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(steps[i][0]); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
       doneSteps = i + 1; setBar();
     }
-    var el = now() - t0Run; clearInterval(clockTimer); $('clock').textContent = '⏱ ' + clockText(el) + ' total'; setStatus('Finished.'); offerResults(buildMd(el), el); running = false; $('go').disabled = false; $('go').textContent = 'Run again';
+    LfcDevice.done(); var el = now() - t0Run; clearInterval(clockTimer); $('clock').textContent = '⏱ ' + clockText(el) + ' total'; setStatus('Finished.'); offerResults(buildMd(el), el); running = false; $('go').disabled = false; $('go').textContent = 'Run again';
   }
   $('go').onclick = runAll;
   window.__NFM_RACE = { run: runAll };

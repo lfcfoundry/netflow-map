@@ -123,7 +123,7 @@
   /* ---- the run ---- */
   async function run() {
     $('go').disabled = true; $('log').textContent = ''; log = []; var res = { version: VERSION, when: new Date().toISOString(), cap: CAP_S, sizes: [] };
-    var dev = await G.getDevice();
+    LfcDevice.step('Force round on the card'); var dev = await G.getDevice();
     if (dev.error) { put('No WebGPU card: ' + dev.error); res.error = dev.error; return finish(res); }
     res.adapter = dev.info; res.software = dev.software; res.ua = navigator.userAgent;
     put('Card: ' + dev.info + (dev.software ? ' (a software stand-in: only the quality check is meaningful, not the speed)' : ''));
@@ -162,7 +162,7 @@
       L.push('');
     }
     L.push('Faster means engine time divided by card time for the whole layout including setup and the one read back (higher is better for the card). Truth and crossings are lower is better.', '', '```json', JSON.stringify(res), '```');
-    var text = L.join('\n'); window.__FORCE_CARD_RESULT = { md: text, res: res };
+    LfcDevice.done(); var text = LfcDevice.prefix(L.join('\n')); window.__FORCE_CARD_RESULT = { md: text, res: res };
     $('out').textContent = text; $('dl').style.display = $('cp').style.display = ''; $('go').disabled = false;
     $('dl').onclick = function () { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown' })); a.download = 'netflow-map-force-card-results.md'; a.click(); };
     $('cp').onclick = function () { if (navigator.clipboard) navigator.clipboard.writeText(text); };
