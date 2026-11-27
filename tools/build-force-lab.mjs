@@ -11,6 +11,6 @@ const version = process.env.NFM_VERSION || `${g('year')}.${+g('month')}.${+g('da
 const clean = (s) => s.replace(/if \(typeof module !== 'undefined' && module\.exports\) module\.exports = \w+;\n?/g, '');
 const files = ['src/columns.js', 'src/importers.js', 'vendor/netflow-layers.js', 'vendor/graph-walk.js', 'src/engine.js', 'bench/gen.js', 'src/gpustress.js', 'bench/force-card/lab.js'];
 const code = files.map((f) => { const s = clean(rd(f)).replace(/__VERSION__/g, version); if (/<\/script|<!--/i.test(s)) throw new Error(f + ' contains a sequence that would break the page'); return `/* ---- ${f} ---- */\n${s}`; }).join('\n');
-const html = rd('bench/force-card/template.html').replace(/__VERSION__/g, version).replace('__SCRIPTS__', () => code);
+const html = rd('bench/force-card/template.html').replace(/__VERSION__/g, version).replace('/*@@CORELINE@@*/', () => rd('bench/core-plan.js') + '\n' + rd('bench/core-line.js')).replace('__SCRIPTS__', () => code);
 writeFileSync(join(root, 'bench/netflow-map-force-card.html'), html);
 console.log(`built bench/netflow-map-force-card.html ${(html.length / 1024) | 0} KB, version ${version}`);

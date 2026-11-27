@@ -574,7 +574,7 @@
     return out;
   }
   function buildMd(elapsed) {
-    var L = ['# Netflow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), '', '**' + (ctx.gpuLine || '') + '**', ''];
+    var L = [LfcDevice.line, '', '# Netflow Map Tester results', '', 'Version ' + VERSION + ' · run ' + new Date().toISOString() + ' · took ' + fmtMs(elapsed) + (QUICK ? ' · QUICK mode' : ''), '', '**' + (ctx.gpuLine || '') + '**', ''];
     sections.forEach(function (s) { L.push('## ' + s.title, '', '**' + s.level.toUpperCase() + '** ' + s.verdict, ''); if (s.head) L.push(mdTable(s.head, s.rows)); s.notes.forEach(function (n) { L.push('_' + n + '_', ''); }); });
     var sv = steadyVerdict(); L.push('## Was the computer steady during the run?', '', '**' + sv.level.toUpperCase() + '** ' + (sv.level === 'ok' ? 'Yes. The screen refresh and a fixed bit of arithmetic gave the same readings each time, so the timings above can be compared.' : 'No. Timings from the slow parts are not reliable: close other programs, plug the laptop in, turn battery saver off, and run again.'), '');
     L.push(mdTable(['When', 'Blank screen refresh (FPS)', 'Fixed arithmetic (ms)'], steadyLog.map(function (r) { return [r.at, r.hidden ? 'in the background' : String(r.fps), r.hidden ? '-' : String(r.cpuMs)]; }))); sv.lines.forEach(function (t) { L.push('_' + t + '_', ''); });
@@ -601,13 +601,13 @@
     var steps = params.get('only') ? STEPS.filter(function (st) { return st.name.toLowerCase().indexOf(params.get('only').toLowerCase()) >= 0; }) : STEPS;   /* ?only=links runs just the step whose name has those letters (about 2 minutes instead of the whole test) */
     total = steps.length; doneSteps = 0;
     for (var i = 0; i < steps.length; i++) {
-      setStatus('Step ' + (i + 1) + ' of ' + steps.length + ': ' + steps[i].name + '…'); await yieldUI();
+      setStatus('Step ' + (i + 1) + ' of ' + steps.length + ': ' + steps[i].name + '…'); LfcDevice.step(steps[i].name); await yieldUI();
       try { await steps[i].run(); } catch (e) { var s = sections[sections.length - 1]; if (!s || s.verdict) s = addSection(steps[i].name); s.finish('bad', 'This step stopped with an error: ' + String(e && e.message || e)); }
       doneSteps = i + 1; setBar();
     }
     if (!ctx.gpuLine) setGpuLine(null, true);
     if (ctx.previewArgs) { setStatus('Starting the turning picture…'); await yieldUI(); $('show').style.display = ''; try { await addPreview($('show'), ctx.previewArgs[0], ctx.previewArgs[1], ctx.previewArgs[2]); } catch (e) { /* the picture is a bonus */ } ctx.previewArgs = null; }
-    await steadyProbe('the end'); var el = now() - t0Run; stopClock(); setStatus('Finished in ' + fmtMs(el) + '.'); offerResults(buildMd(el), el); startPreviews(); running = false;
+    LfcDevice.done(); await steadyProbe('the end'); var el = now() - t0Run; stopClock(); setStatus('Finished in ' + fmtMs(el) + '.'); offerResults(buildMd(el), el); startPreviews(); running = false;
   }
   $('again').onclick = function () { runAll(); };
   window.addEventListener('load', function () { setTimeout(runAll, 400); });

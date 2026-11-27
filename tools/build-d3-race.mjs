@@ -22,6 +22,6 @@ const licenses = used.map((p) => `${p} ${JSON.parse(readFileSync(join(d3from, p,
 const files = ['src/columns.js', 'vendor/netflow-layers.js', 'vendor/graph-walk.js', 'src/engine.js', 'bench/gen.js', 'vendor/netflow-scene.js', 'src/scene-alias.js', 'src/render.js', 'src/probe.js', 'bench/d3race/race.js'];
 const code = [`/* ---- D3 pieces (d3-force, d3-sankey, d3-selection and what they need); licenses at the bottom of the page ---- */\n${bundle}`].concat(files.map((f) => { const s = clean(rd(f)).replace(/__VERSION__/g, version); if (/<\/script|<!--/i.test(s)) throw new Error(f + ' contains a sequence that would break the page'); return `/* ---- ${f} ---- */\n${s}`; })).join('\n');
 if (/<\/script|<!--/i.test(bundle)) throw new Error('the D3 bundle contains a sequence that would break the page');
-const html = rd('bench/d3race/template.html').replace(/__VERSION__/g, version).replace('__LICENSES__', () => licenses.replace(/&/g, '&amp;').replace(/</g, '&lt;')).replace('__SCRIPTS__', () => code);
+const html = rd('bench/d3race/template.html').replace(/__VERSION__/g, version).replace('__LICENSES__', () => licenses.replace(/&/g, '&amp;').replace(/</g, '&lt;')).replace('/*@@CORELINE@@*/', () => rd('bench/core-plan.js') + '\n' + rd('bench/core-line.js')).replace('__SCRIPTS__', () => code);
 writeFileSync(join(root, 'bench/netflow-map-d3-race.html'), html);
 console.log(`built bench/netflow-map-d3-race.html ${(html.length / 1024) | 0} KB, version ${version}`);

@@ -30,6 +30,7 @@ const staticHtml = existsSync(join(root, 'bench/then-and-now/static.html')) ? rd
 let html = rd('bench/then-and-now/template.html');
 const put = (k, v) => { html = html.split(k).join(v); };
 html = html.replace('__OLD_ENGINE__', () => oldEngine).replace('__OLD_SCENE__', () => oldScene).replace('__NEW_ENGINE__', () => newEngine).replace('__NEW_SCENE__', () => newScene).replace('__MC__', () => mc).replace('__OLD_MAIN__', () => oldMain).replace('__NEW_MAIN__', () => newMain).replace('__EXAMPLES__', () => examples).replace('__STATIC__', () => staticHtml);
+html = html.replace('/*@@CORELINE@@*/', () => rd('bench/core-plan.js') + '\n' + rd('bench/core-line.js'));
 put('__VERSION__', version);
 writeFileSync(join(root, 'bench/netflow-map-then-and-now.html'), html);
 console.log(`built bench/netflow-map-then-and-now.html ${(html.length / 1024) | 0} KB, version ${version}`);
