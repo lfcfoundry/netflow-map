@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Map drawing tester</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#1b2433;--muted:#566277;--soft:#f1f4f9;--line:#dde3ee;--hero:#0f2a47;--hero-fg:#f3f7fc;--hero-muted:#a9bdd6;--accent:#1f7ae0;--us:#1f6fb5;--us-pale:#b9d3ea;--dot:#0f2a47;--rival:#8a94a6;--good:#15803d;--bad:#c62828;--font:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1522;--fg:#e4ebf5;--muted:#9db0c8;--soft:#13233a;--line:#25364f;--hero:#08111d;--accent:#4c9bf5;--us:#4c9bf5;--us-pale:#23466e;--dot:#d7e8fb;--rival:#8a94a6;--good:#4ade80;--bad:#f87171}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 var(--font)}
+header{background:var(--hero);color:var(--hero-fg);padding:22px 16px 20px}
+.in{max-width:1080px;margin:0 auto}
+header .tag{font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--hero-muted)}
+h1{font-size:clamp(24px,5vw,34px);font-weight:800;letter-spacing:-.01em;line-height:1.15;margin:6px 0 6px}
+header p{margin:0;color:var(--hero-muted);max-width:46rem}
+main{padding:16px 16px 40px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 14px}.bar button{flex:1 1 130px;max-width:220px}
+button{font:inherit;font-weight:600;min-height:48px;padding:10px 16px;border-radius:10px;border:1px solid var(--line);background:var(--soft);color:var(--fg);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button small{display:block;font-weight:400;font-size:12px;opacity:.85}
+.card{border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:0 0 14px;background:var(--bg)}
+.prog{height:12px;border-radius:6px;background:var(--soft);overflow:hidden;margin:10px 0 8px}
+.prog i{display:block;height:100%;width:0;background:var(--accent);border-radius:6px;transition:width .25s}
+#st{font-weight:600}#sub{color:var(--muted);font-size:14px;min-height:1.5em}
+.score{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 14px}
+.score div{border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.score b{display:block;font-size:28px;line-height:1.1;font-weight:800;letter-spacing:-.01em}
+.score span{color:var(--muted);font-size:13px}
+h2{font-size:20px;margin:0 0 2px;line-height:1.2}
+.note{color:var(--muted);font-size:13px;margin:0 0 10px}
+.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}.panels>div{max-width:460px}
+.panels h3{font-size:15px;margin:0 0 2px}
+svg{display:block;width:100%;height:auto}svg text{font-family:var(--font)}
+details{margin:0 0 14px}summary{cursor:pointer;font-weight:600;padding:6px 0}
+pre{white-space:pre-wrap;word-break:break-word;font:12.5px/1.45 var(--mono);padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--soft);margin:8px 0 0;max-height:60vh;overflow:auto}
+.key{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted);margin:0 0 8px}
+.key i{display:inline-block;width:22px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+#facts{font:13px/1.5 var(--mono);color:var(--muted);margin:0 0 14px;word-break:break-word}
+#frame{position:fixed;left:-4000px;top:0;width:1100px;height:760px;border:0}
+</style></head><body>
+<header><div class="in"><div class="tag">LFC Foundry tester</div><h1>Map drawing on this device</h1>
+<p>Opens the real Netflow Map on made-up networks and times the first finished picture with plain canvas and with this device's automatic drawing (the graphics card when it has one). Measure only; nothing is sent anywhere.</p></div></header>
+<main><div class="in">
+<div class="bar"><button id="quick" class="primary">Quick run<small>about 2 minutes</small></button><button id="full">Full run<small>about 6 minutes</small></button><button id="stop" disabled>Stop<small>keeps results</small></button><button id="copy" disabled>Copy results<small>plain text</small></button></div>
+<div id="facts">Reading this device...</div>
+<div class="card"><div id="st">Ready. Close other tabs and keep the screen on, then tap Quick run.</div><div class="prog"><i id="pb"></i></div><div id="sub"></div></div>
+<div class="score"><div><b id="s1">-</b><span>sizes where automatic drawing was faster</span></div><div><b id="s2">-</b><span>its typical share of plain-canvas time</span></div><div><b id="s3">-</b><span>closest size (highest share)</span></div><div><b id="s4">-</b><span>best size (lowest share)</span></div></div>
+<div class="card"><h2 id="head">First picture, share of plain-canvas time</h2><p class="note">Shorter is better. The grey line is plain canvas at 1.00. Each dot is one pair of runs; the pale bar reaches the slowest pair.</p>
+<div class="key"><span><i style="background:var(--us)"></i>middle pair</span><span><i style="background:var(--us-pale)"></i>slowest pair</span><span><i style="background:var(--rival)"></i>plain canvas</span></div>
+<div class="panels" id="panels"></div></div>
+<details><summary>What is measured</summary><p class="note">For each size, a fresh copy of the app is opened in a hidden frame with the drawing choice set (plain canvas, or automatic), a made-up network of that many items with six communities is brought in, and the clock runs from that moment until the Map has laid out the picture, made the scene and drawn two frames. Each pair takes turns with the order swapped every round, and every run uses a different made-up network so a saved layout is never reused. The "drawing step" is the picture handed to the drawing code again and drawn, three times (middle one), each until two frames have passed. The app version, cores, memory and graphics card are in the results.</p></details>
+<details id="rawd"><summary>Results as text</summary><pre id="out"></pre></details>
+</div></main>
+<iframe id="frame" title="app" aria-hidden="true"></iframe>
+<script>
+var report=[],out=document.getElementById('out'),st=document.getElementById('st'),sub=document.getElementById('sub'),pb=document.getElementById('pb');
+function $(id){return document.getElementById(id);}
+function show(){out.textContent=report.join('\n');}
+function med(a){a=a.slice().sort(function(x,y){return x-y;});return a[a.length>>1];}
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
+function fmtN(n){return n.toLocaleString('en-US');}
+function clock(s){s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+(s%60<10?'0':'')+(s%60);}
+var APP='../play/index.html',stopped=false,RES=[],FACT={},autoName='';
+/* what this device is */
+(function(){var gpu='unknown';try{var c=document.createElement('canvas'),g=c.getContext('webgl2')||c.getContext('webgl'),e=g&&g.getExtension('WEBGL_debug_renderer_info');if(g)gpu=e?g.getParameter(e.UNMASKED_RENDERER_WEBGL):g.getParameter(g.RENDERER);}catch(x){}
+FACT={cores:navigator.hardwareConcurrency||'?',mem:navigator.deviceMemory?navigator.deviceMemory+' GB':'not told',gpu:gpu,screen:screen.width+'x'+screen.height+' at '+(window.devicePixelRatio||1)+'x',ua:navigator.userAgent};
+$('facts').textContent=FACT.cores+' cores | memory '+FACT.mem+' | graphics '+FACT.gpu+' | screen '+FACT.screen;})();
+/* one run: a fresh frame, one drawing choice, one made-up network; times in ms */
+async function once(method,N,seed){
+ var f=$('frame');f.src='about:blank';await sleep(30);
+ try{localStorage.setItem('nfm-prefs',JSON.stringify({theme:'light',method:method}));}catch(e){}
+ await new Promise(function(ok,bad){f.onload=ok;f.onerror=bad;f.src=APP+'?run='+seed;});
+ var w=f.contentWindow,t=Date.now();
+ while(!(w.NFM&&w.NFM.setGraph&&w.NFMExamples)&&Date.now()-t<30000)await sleep(50);
+ if(!(w.NFM&&w.NFMExamples))throw new Error('the app did not start');
+ await sleep(1500);   /* the app settles after loading, as a person would wait */
+ var g=w.NFMExamples.bigNetwork(N,6,seed);g.nodes.forEach(function(n){n.group='c'+n.attrs.community;});
+ w.NFM.setV({view:'network'},'none');
+ var t0=performance.now();w.NFM.showTab('map');w.NFM.setGraph(g);
+ var tScene=0,t1=Date.now(),S=w.NFM.state;
+ while(Date.now()-t1<180000){await sleep(4);if(S.sceneOk&&!w.NFM.pending()&&!S.mapBusy&&S.L&&S.L.view==='network'&&S.L.nodes.length>=N*0.99){tScene=performance.now();break;}}
+ if(!tScene)throw new Error('no picture in 3 minutes');
+ await new Promise(function(r){w.requestAnimationFrame(function(){w.requestAnimationFrame(r);});});
+ var t2=performance.now(),m=w.NFM.manager(),used=m&&m.name||'?',ds=[];
+ /* the drawing step alone: the picture is handed to the renderer again and drawn, three times, each until two frames have passed */
+ try{for(var q=0;q<3;q++){var d0=performance.now();m.r.setScene(S.scene);m.r.draw(S.view);await new Promise(function(r){w.requestAnimationFrame(function(){w.requestAnimationFrame(r);});});ds.push(performance.now()-d0);}}catch(e){ds=[NaN];}
+ f.src='about:blank';
+ return {total:t2-t0,draw:med(ds),used:used};
+}
+function draw(){
+ var host=$('panels'),html='',keys=[],sizes=[];RES.forEach(function(r){if(sizes.indexOf(r.N)<0)sizes.push(r.N);});sizes.sort(function(a,b){return a-b;});
+ var all=RES.map(function(r){return r.ratio;}),top=Math.max(1.12,all.length?Math.max.apply(null,all)*1.06:0);
+ [['ratio','First picture'],['dratio','Drawing step only']].forEach(function(p){
+  var rh=34,W=360,L=100,R=46,H=sizes.length*rh+34,pw=W-L-R,X=function(v){return L+v/top*pw;},s='<div><h3>'+p[1]+'</h3><svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+p[1]+', share of plain-canvas time">';
+  [0,0.25,0.5,0.75].forEach(function(g){s+='<line x1="'+X(g)+'" y1="4" x2="'+X(g)+'" y2="'+(sizes.length*rh+4)+'" stroke="var(--line)"/><text x="'+X(g)+'" y="'+(sizes.length*rh+20)+'" font-size="10" fill="var(--muted)" text-anchor="middle">'+g.toFixed(2)+'</text>';});
+  sizes.forEach(function(N,i){var vals=RES.filter(function(r){return r.N===N;}).map(function(r){return r[p[0]];}),y=8+i*rh,so=vals.slice().sort(function(a,b){return a-b;}),mid=so[so.length>>1],hi=so[so.length-1];
+   s+='<text x="'+(L-8)+'" y="'+(y+15)+'" font-size="11.5" fill="var(--fg)" text-anchor="end">'+fmtN(N)+' items</text>';
+   s+='<rect x="'+L+'" y="'+y+'" width="'+Math.max(1,X(hi)-L)+'" height="20" rx="2" fill="var(--us-pale)"/><rect x="'+L+'" y="'+y+'" width="'+Math.max(1,X(mid)-L)+'" height="20" rx="2" fill="var(--us)"/>';
+   vals.forEach(function(q){s+='<circle cx="'+X(q)+'" cy="'+(y+10)+'" r="3" fill="var(--dot)" stroke="var(--bg)" stroke-width="1"/>';});
+   s+='<text x="'+(W-2)+'" y="'+(y+14)+'" font-size="11.5" font-weight="700" text-anchor="end" fill="'+(mid>1.005?'var(--bad)':'var(--fg)')+'">'+mid.toFixed(2)+'</text>';});
+  s+='<line x1="'+X(1)+'" y1="2" x2="'+X(1)+'" y2="'+(sizes.length*rh+4)+'" stroke="var(--rival)" stroke-width="3"/><text x="'+X(1)+'" y="'+(sizes.length*rh+20)+'" font-size="10" font-weight="700" fill="var(--muted)" text-anchor="middle">1.00</text></svg></div>';
+  html+=s;});
+ host.innerHTML=sizes.length?html:'<p class="note">The charts appear here as runs finish.</p>';
+ if(!sizes.length){['s1','s2','s3','s4'].forEach(function(k){$(k).textContent='-';});return;}
+ var per=sizes.map(function(N){return {N:N,m:med(RES.filter(function(r){return r.N===N;}).map(function(r){return r.ratio;}))};}),ahead=per.filter(function(x){return x.m<0.995;}).length,so2=per.map(function(x){return x.m;}).sort(function(a,b){return a-b;});
+ $('s1').textContent=ahead+' of '+per.length;$('s1').style.color=so2[so2.length-1]<=1.005?'var(--good)':'var(--fg)';
+ $('s2').textContent=med(per.map(function(x){return x.m;})).toFixed(2);$('s3').textContent=so2[so2.length-1].toFixed(2);$('s3').style.color=so2[so2.length-1]>1.005?'var(--bad)':'var(--fg)';$('s4').textContent=so2[0].toFixed(2);
+ $('head').textContent=autoName==='canvas2d'?'This device draws with plain canvas either way (no graphics card path): shares stay near 1.00':ahead===per.length?'Automatic drawing was faster at all '+per.length+' sizes so far':'Automatic drawing was faster at '+ahead+' of '+per.length+' sizes so far';
+}
+async function run(plan,label,nominal){
+ ['quick','full'].forEach(function(i){$(i).disabled=true;});$('stop').disabled=false;$('copy').disabled=true;$('copy').firstChild.nodeValue='Copy results';stopped=false;report=[];RES=[];autoName='';draw();pb.style.width='0';
+ var ver='(not read)';try{var vm=/\b(20\d\d\.\d\d\.\d\d\.\d{4})\b/.exec(await (await fetch(APP)).text());if(vm)ver=vm[1];}catch(e){}
+ report.push('MAP DRAWING ('+label+') | '+FACT.ua+' | cores '+FACT.cores+' | memory '+FACT.mem+' | graphics '+FACT.gpu+' | screen '+FACT.screen+' | Netflow Map '+ver);
+ report.push('each line: size, pair number: plain canvas total ms (drawing step ms), automatic total ms (drawing step ms), automatic used, share of plain-canvas time (under 1.00 = automatic faster)');show();
+ var total=plan.length,done=0,T0=performance.now(),eta=function(){var el=(performance.now()-T0)/1000;return done<2?Math.max(0,nominal-el):el/done*(total-done);};
+ try{
+  for(var i=0;i<plan.length&&!stopped;i++){var N=plan[i].N,k=plan[i].k,seed=100+i*2,order=(k&1)?['auto','canvas2d']:['canvas2d','auto'],res={};
+   for(var j=0;j<2&&!stopped;j++){st.textContent='Pair '+(done+1)+' of '+total+': '+fmtN(N)+' items, '+(order[j]==='auto'?'automatic':'plain canvas');sub.textContent='About '+clock(eta())+' left'+(done?' | last pair: '+RES[RES.length-1].ratio.toFixed(2)+' of plain-canvas time':'');
+    res[order[j]]=await once(order[j],N,seed+j);}
+   if(stopped)break;
+   var a=res.auto,c=res.canvas2d;autoName=a.used;var r={N:N,ratio:a.total/c.total,dratio:a.draw/Math.max(1,c.draw)};RES.push(r);done++;pb.style.width=(done/total*100)+'%';
+   report.push(fmtN(N)+' items, pair '+(k+1)+': '+c.total.toFixed(0)+' ('+c.draw.toFixed(0)+'), '+a.total.toFixed(0)+' ('+a.draw.toFixed(0)+'), '+a.used+', '+r.ratio.toFixed(2));show();draw();}
+  var sizes=[];RES.forEach(function(r){if(sizes.indexOf(r.N)<0)sizes.push(r.N);});
+  var per=sizes.map(function(N){return fmtN(N)+' '+med(RES.filter(function(r){return r.N===N;}).map(function(r){return r.ratio;})).toFixed(2);});
+  if(RES.length)report.push((stopped?'STOPPED EARLY, results so far. ':'')+'SUMMARY: automatic drawing ('+autoName+') share of plain-canvas first-picture time by size: '+per.join(' | ')+' | '+FACT.cores+' cores');
+  pb.style.width=(stopped?done/total*100:100)+'%';
+ }catch(e){report.push('ERROR '+(e&&e.message||e));st.textContent='';show();$('rawd').open=true;}
+ $('frame').src='about:blank';
+ st.textContent=stopped?'Stopped. Results so far are below.':'Done. Tap Copy results and paste them in the chat.';sub.textContent='';
+ ['quick','full'].forEach(function(i){$(i).disabled=false;});$('stop').disabled=true;$('copy').disabled=!RES.length;show();
+}
+function mkPlan(sizes,pairs){var p=[];sizes.forEach(function(N){for(var k=0;k<pairs;k++)p.push({N:N,k:k});});return p;}
+$('quick').onclick=function(){run(mkPlan([10000,50000],3),'quick',110);};
+$('full').onclick=function(){run(mkPlan([2000,10000,50000,100000],4),'full',360);};
+$('stop').onclick=function(){stopped=true;$('stop').disabled=true;st.textContent='Stopping after this run...';};
+$('copy').onclick=function(){var t=out.textContent,b=$('copy'),done=function(){b.firstChild.nodeValue='Copied';setTimeout(function(){b.firstChild.nodeValue='Copy results';},2000);};
+ if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t).then(done,fb);else fb();
+ function fb(){var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done();}catch(e){$('rawd').open=true;b.firstChild.nodeValue='Select the text below';}document.body.removeChild(ta);}};
+draw();
+if(/[?&]auto=quick/.test(location.search))setTimeout(function(){$('quick').click();},300);
+</script></body></html>
