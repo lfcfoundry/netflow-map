@@ -24,7 +24,7 @@ t('below 5,000 items the picture is exactly as before (2,000 items)', () => { co
 t('at 5,200 items the start is different, the same every run, and no less true (moderate and dense maps)', () => {
   let msg = '';
   for (const kind of ['moderate', 'complex']) {
-    const g = GEN.graph(kind, 5200, 7), old = withTuning({ stressMin: 0 }, () => build(g)), a = build(g), b = build(g);
+    const g = GEN.graph(kind, 5200, 7), old = withTuning({ stressMin: 0, denseHi: 0 }, () => build(g)), a = build(g), b = build(g);
     ok(diff(old, a) > 0, kind + ': picture did not change'); ok(diff(a, b) === 0, kind + ': two runs differ');
     const eo = sampled(g, old), en = sampled(g, a); ok(en <= eo * 1.03, kind + ': less true, ' + eo.toFixed(3) + ' to ' + en.toFixed(3)); msg += kind + ' ' + eo.toFixed(3) + ' to ' + en.toFixed(3) + '; ';
   }

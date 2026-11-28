@@ -6,6 +6,10 @@ What changed in Netflow Map, in plain words, newest first. Developer notes, in t
 
 Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 and WebKitGTK 2.52.6. Not tested for any build: Safari itself, any iPhone, Chrome on a phone.
 
+## November 27
+
+- The Force arrangement is more than twice as fast on maps of 1,000 to 5,000 items (Nov 27, the engine of netflow-engine 2.7.0, look approved by the owner): busy maps start from the Network (Distances) picture, items with a single link sit close to their center item, and the picture is spread a little wider. On real data (online-store customers to products, SEC filings to tags), switching a loaded map from Stress to Force took 0.42 to 0.65 of the old time at 1,000 and 3,000 items in Chromium and Firefox; the 300-item county-to-ZIP map was level within run noise, and maps with one link per item do not change. Generated 10,000-item maps are unchanged.
+
 ## November 21
 
 - The map is worked out in the background as soon as data lands (Nov 21): if another tab is open, or a layout setting changes there, the layout and picture are made right away, so the first Map after bringing data in skips the layout wait. A first Sankey picture a moment after import takes 15 ms at 1,500 items and 40 ms at 5,000 in Chromium 156 (7 and 16 ms in Firefox 158), against 79 and 232 ms for d3-sankey 0.12.3 drawing on demand.
