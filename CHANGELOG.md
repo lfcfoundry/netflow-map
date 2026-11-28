@@ -8,7 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 27
 
-- The Force arrangement is more than twice as fast on maps of 1,000 to 5,000 items (Nov 27, the engine of netflow-engine 2.7.0, look approved by the owner): busy maps start from the Network (Distances) picture, items with a single link sit close to their center item, and the picture is spread a little wider. Switching a loaded map from Stress to Force took 0.43 and 0.42 of the old time in Chromium and 0.45 and 0.37 in Firefox at 1,000 and 3,000 items; 10,000 items are unchanged.
+- The Force arrangement is more than twice as fast on maps of 1,000 to 5,000 items (Nov 27, the engine of netflow-engine 2.7.0, look approved by the owner): busy maps start from the Network (Distances) picture, items with a single link sit close to their center item, and the picture is spread a little wider. On real data (online-store customers to products, SEC filings to tags), switching a loaded map from Stress to Force took 0.42 to 0.65 of the old time at 1,000 and 3,000 items in Chromium and Firefox; the 300-item county-to-ZIP map was level within run noise, and maps with one link per item do not change. Generated 10,000-item maps are unchanged.
 
 ## November 21
 
