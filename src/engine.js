@@ -1282,7 +1282,7 @@ var NFMEngine = (function () {
   /* Tuning knobs for the flat Force arrangement (the benchmark may change them; the app never does). stressMin and stressMax: pieces of at least stressMin and under stressMax items start from the Distances picture (stressMin 0 = never; at 30,000 items the timings in the four browsers were mixed on dense maps, so bigger pieces keep the old start); polish: force rounds after it. */
   /* The graphics card may do the Force rounds of a big piece (see engine-client.js): external(X, k, pairs, mass, rounds) fills X and returns true, or returns false to let the engine do them. */
   var FORCE_EXT = { external: null };
-  var FORCE2 = { stressMin: 5000, stressMax: 20000, polish: 40, polishHi: 3, polishLo: 0.05 };
+  var FORCE2 = { stressMin: 5000, stressMax: 20000, polish: 40, polishHi: 3, polishLo: 0.05, spread: 0.6, linkPow: 0.75, linkMax: 8, linkA: 1.3, linkDense: 4, denseHi: 1, denseRounds: 40, fanTight: 0.4, fanTightDense: 1 };
   /* Tuning knobs for the closeness arrangement. */
   var CLOSE = { epochs: 150, neg: 10, a: 1, b: 1, clip: 4, fromStress: 1, alpha0: 0.25 };
 
@@ -1778,14 +1778,30 @@ var NFMEngine = (function () {
     for (var r1 = 0; r1 < order.length; r1++) { var a1 = r1 * 2.399963, rad1 = EDGE * 0.6 * Math.sqrt(r1 + 1), l1 = locArr[order[r1]]; X[l1 * 2] = rad1 * Math.cos(a1); X[l1 * 2 + 1] = rad1 * Math.sin(a1); }
     if (arr === 'force' || arr === 'radial') {
       if (arr === 'force') {
-        var lpairs = [], lmass = new Float64Array(k);
-        members.forEach(function (g, li) { lmass[li] = 1 + Math.sqrt(adj[g].length); adj[g].forEach(function (w) { var lw = loc.get(w); if (lw > li) lpairs.push(li, lw); }); });
-        if (FORCE2.stressMin && k >= FORCE2.stressMin && k < FORCE2.stressMax) {   // big maps start from the Distances picture (so far-apart items start far apart, and its multilevel start and WebAssembly do the heavy part), then a few gentle force rounds
+        var lpairs = [], lmass = new Float64Array(k), avgDeg = members.reduce(function (a, g) { return a + adj[g].length; }, 0) / k;
+        members.forEach(function (g, li) { lmass[li] = 1 + Math.sqrt(adj[g].length); adj[g].forEach(function (w) { var lw = loc.get(w); if (lw > li) { lpairs.push(li, lw); if (FORCE2.linkPow && avgDeg < FORCE2.linkDense) { for (var lr = Math.min(FORCE2.linkMax, Math.round(FORCE2.linkA * Math.pow(Math.min(adj[g].length, adj[w].length) / avgDeg, FORCE2.linkPow))); lr > 1; lr--) lpairs.push(li, lw); } } }); });
+        var dense = FORCE2.denseHi && avgDeg >= FORCE2.linkDense && k < FORCE2.stressMax;
+        if (dense || (FORCE2.stressMin && k >= FORCE2.stressMin && k < FORCE2.stressMax)) {   // big maps start from the Distances picture (so far-apart items start far apart, and its multilevel start and WebAssembly do the heavy part), then a few gentle force rounds
           stressComponent(X, k, members, adj, locArr, root, EDGE, rnd);
-          forceSim(X, k, 2, lpairs, lmass, FORCE2.polish, EDGE * 0.55, rnd, FORCE2.polishHi, FORCE2.polishLo);
+          forceSim(X, k, 2, lpairs, lmass, dense ? FORCE2.denseRounds : FORCE2.polish, EDGE * 0.55, rnd, dense ? FORCE2.denseHi : FORCE2.polishHi, FORCE2.polishLo);
         } else {
           var frounds = k <= 1000 ? 220 : k <= 5000 ? 240 : k <= 12000 ? 120 : 60;
           if (!(FORCE_EXT.external && FORCE_EXT.external(X, k, lpairs, lmass, frounds))) forceSim(X, k, 2, lpairs, lmass, frounds, EDGE * 0.55, rnd);
+        }
+        var fanT = avgDeg >= FORCE2.linkDense ? FORCE2.fanTightDense : FORCE2.fanTight;
+        if (fanT) {   // pull each fan (items with one link) in toward its center item, to fanTight x the typical center-to-center link
+          var hl = [], fp, fq;
+          for (fp = 0; fp < lpairs.length; fp += 2) { var fa0 = lpairs[fp], fb0 = lpairs[fp + 1]; if (adj[members[fa0]].length > 1 && adj[members[fb0]].length > 1) hl.push(Math.hypot(X[fa0 * 2] - X[fb0 * 2], X[fa0 * 2 + 1] - X[fb0 * 2 + 1])); }
+          if (hl.length) {
+            hl.sort(function (a, b) { return a - b; });
+            var want = fanT * hl[hl.length >> 1], kidsOf = new Map();
+            for (fq = 0; fq < k; fq++) { var fg = members[fq]; if (adj[fg].length === 1 && adj[adj[fg][0]].length > 1) { var pl = loc.get(adj[fg][0]); if (!kidsOf.has(pl)) kidsOf.set(pl, []); kidsOf.get(pl).push(fq); } }
+            kidsOf.forEach(function (ks, pl) {
+              var ds = ks.map(function (q) { return Math.hypot(X[q * 2] - X[pl * 2], X[q * 2 + 1] - X[pl * 2 + 1]); }).sort(function (a, b) { return a - b; });
+              var f = want / (ds[ds.length >> 1] || 1); if (f >= 1) return;
+              ks.forEach(function (q) { X[q * 2] = X[pl * 2] + (X[q * 2] - X[pl * 2]) * f; X[q * 2 + 1] = X[pl * 2 + 1] + (X[q * 2 + 1] - X[pl * 2 + 1]) * f; });
+            });
+          }
         }
       } else {
         var rpar = new Map([[root, -1]]), rkids = new Map(), rdep = new Map([[root, 0]]), rq = [root], rleaf = new Map(), rcount = [];
@@ -1807,10 +1823,11 @@ var NFMEngine = (function () {
     }
     var rough = STRESS.previewHit; STRESS.previewHit = false;   // this piece stopped at the early-preview stage: no clean-up, the final build does it
     /* push overlapping nodes apart (grid buckets, a few passes) */
-    if ((arr === 'stress' || arr === 'closeness') && STRESS.spread) {   // crowded pictures are first stretched so the items cover about a third of the page; then little is left to push apart
+    var spreadBy = arr === 'stress' || arr === 'closeness' ? STRESS.spread : arr === 'force' ? FORCE2.spread : 0;
+    if (spreadBy) {   // crowded pictures are first stretched so the items cover about a third of the page; then little is left to push apart
       var bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity, discs = 0, rr0;
       for (var si = 0; si < k; si++) { rr0 = sizeAt[members[si]] / 2 + 8; discs += Math.PI * rr0 * rr0; if (X[si * 2] < bx0) bx0 = X[si * 2]; if (X[si * 2] > bx1) bx1 = X[si * 2]; if (X[si * 2 + 1] < by0) by0 = X[si * 2 + 1]; if (X[si * 2 + 1] > by1) by1 = X[si * 2 + 1]; }
-      var f0 = Math.sqrt((discs / STRESS.spread) / (Math.max(1, bx1 - bx0) * Math.max(1, by1 - by0)));
+      var f0 = Math.sqrt((discs / spreadBy) / (Math.max(1, bx1 - bx0) * Math.max(1, by1 - by0)));
       if (f0 > 1) { f0 = Math.min(f0, 8); for (var sj = 0; sj < k * 2; sj++) X[sj] *= f0; }
     }
     if (!rough && ((arr !== 'stress' && arr !== 'closeness') || STRESS.sepPasses > 0)) clearOverlaps(X, k, 2, function (li) { return sizeAt[members[li]] / 2 + 8; }, arr === 'stress' || arr === 'closeness' ? (k > STRESS.sepBigMin ? STRESS.sepPassesBig : STRESS.sepPasses) : 30, STRESS.growRounds, STRESS.grow, arr === 'stress' && !!STRESS.direct);

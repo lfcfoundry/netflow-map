@@ -4,7 +4,7 @@ const E = require('../src/engine.js'), C = require('../src/columns.js'), GEN = r
 let bad = 0;
 const t = (name, fn) => { const t0 = Date.now(); try { const r = fn(); console.log('ok   ' + name + ' (' + (Date.now() - t0) + ' ms)' + (r ? ' ' + r : '')); } catch (e) { bad++; console.log('FAIL ' + name + ': ' + e.message); } };
 const ok = (c, m) => { if (!c) throw new Error(m); };
-const map = () => C.derive(JSON.parse(JSON.stringify(GEN.graph('moderate', 3000, 11))));
+const map = () => C.derive(JSON.parse(JSON.stringify(GEN.graph('simple', 3000, 11))));
 const xy = (L) => L.nodes.map((n) => n.x.toFixed(3) + ',' + n.y.toFixed(3)).join(';');
 const plain = E.build(map(), { view: 'network', arrange: 'force' });
 t('a hook that declines changes nothing', () => {
