@@ -8,6 +8,7 @@ Tested one browser at a time in Firefox 158.0, ungoogled-chromium 155.0.8059.39 
 
 ## November 27
 
+- A big map made of many small pieces is built once, not twice (Nov 28): when small pieces are most of the items, the rough first picture is skipped, because it solved every small piece and the finished build then solved them all again. The picture is identical; on a real 50,000-item map (SBA recipients linked to ZIP codes, one piece of 18,699 items and 8,174 small ones) the finished picture came in 0.73 of the time in Chromium and 0.76 in Firefox, and the first picture shows about 0.8 s later. Maps with one big piece are unchanged.
 - The Force arrangement is more than twice as fast on maps of 1,000 to 5,000 items (Nov 27, the engine of netflow-engine 2.7.0, look approved by the owner): busy maps start from the Network (Distances) picture, items with a single link sit close to their center item, and the picture is spread a little wider. On real data (online-store customers to products, SEC filings to tags), switching a loaded map from Stress to Force took 0.42 to 0.65 of the old time at 1,000 and 3,000 items in Chromium and Firefox; the 300-item county-to-ZIP map was level within run noise, and maps with one link per item do not change. Generated 10,000-item maps are unchanged.
 
 ## November 21

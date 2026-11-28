@@ -1330,7 +1330,7 @@ var NFMEngine = (function () {
   /* Tuning knobs for the stress layout (the benchmark page changes them to compare settings; the app never does). */
   var exactNow = false;
   var previewCache = null;   // the grown-back picture of the biggest piece, kept by an early-preview build so the final build skips the work that made it
-  var STRESS = { fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, sepBigMin: 50000, sepPassesBig: 10, spread: 0.35, exactMax: 20000, exactIters: 0, multi: 1, multiMin: 4000, multiCoarse: 2000, multiEta: 0.12, multiIters: 3, multiJitter: 0.05, multiPiv: 6, multiNear: 6, jumpMin: 20000, jumpFirstMin: 80000, jumpMax: 1.7, jumpPer: 0.2, previewMin: 40000, previewStop: false, previewHit: false, direct: 1, ovTarget: 0.7, ovMax: 6, ovPasses: 10, ovLeave: 0.6, dense: 1, denseMax: 4000, refitMax: 4000, refitMin: 0, refitEta: 4, refitBase: 1000, refitCost: 2e8, refitShare: 0.5 };   // exactIters 0 = by size
+  var STRESS = { previewSmall: 0.5, fullMax: 4000, pivMin: 30, pivMax: 120, pivBudget: 300000, iters: 36, fullIters: 30, near: 100, nearBig: 60, pivW: 0.3, settle: 1, growRounds: 12, grow: 1.1, reshuffle: false, sepPasses: 30, sepBigMin: 50000, sepPassesBig: 10, spread: 0.35, exactMax: 20000, exactIters: 0, multi: 1, multiMin: 4000, multiCoarse: 2000, multiEta: 0.12, multiIters: 3, multiJitter: 0.05, multiPiv: 6, multiNear: 6, jumpMin: 20000, jumpFirstMin: 80000, jumpMax: 1.7, jumpPer: 0.2, previewMin: 40000, previewStop: false, previewHit: false, direct: 1, ovTarget: 0.7, ovMax: 6, ovPasses: 10, ovLeave: 0.6, dense: 1, denseMax: 4000, refitMax: 4000, refitMin: 0, refitEta: 4, refitBase: 1000, refitCost: 2e8, refitShare: 0.5 };   // exactIters 0 = by size
 
   /**
    * "Best quality" stress for one connected piece: every pair of items is used, with the hop counts kept in one byte each (k*k bytes,
@@ -1910,6 +1910,10 @@ var NFMEngine = (function () {
       for (var h = 0; h < q.length; h++) { var aq = adj[q[h]]; for (var ai = 0; ai < aq.length; ai++) { var w0 = aq[ai]; if (comp[w0] < 0) { comp[w0] = cid; q.push(w0); } } }
       comps.push(q);
     }
+    if (STRESS.previewStop && STRESS.previewSmall) {   /* a rough picture only pays when one big piece is most of the map: when the many small pieces are most of it, they would be solved twice (once now, once in the finished build), so build the finished picture right away */
+      var smallN = 0; for (i = 0; i < comps.length; i++) if (comps[i].length <= STRESS.fullMax) smallN += comps[i].length;
+      if (smallN >= nb * STRESS.previewSmall) STRESS.previewStop = false;
+    }
     var SN = { at: new Int32Array(nb), run: 0 };   /* "already in the start order" for one piece: a stamp per item, not a new Set for each piece */
     var rnd = mulberry32(12345), EDGE = 130, locArr = new Int32Array(nb);
     var size = function (nd) { if (nd.sizeK !== undefined) return 20 + 52 * nd.sizeK; return 26 + Math.min(26, 8 * Math.sqrt((nd.traffic || 0))) + Math.min(14, Math.sqrt(adj[idxOf[nd.id]].length) * 3); };
@@ -1975,7 +1979,7 @@ var NFMEngine = (function () {
     nodes.forEach(function (nd) { pos[nd.id] = nd; });
     G.edges.forEach(function (ed) { ed.kind = ed.from === ed.to ? 'self' : 'fwd'; ed.pts = []; });
     var outL = { kind: 'network', dir: 'none', nodes: nodes, edges: G.edges, pos: pos, order: {}, width: W + 60, height: H + 60, crossings: 0, arrange: arr, is3d: false, rough: roughAny };
-    if (lk && opts.wantSave && !roughAny && !opts.previewOnly) {   // handed back so the page can keep it (typed numbers: x then y for every item, in order)
+    if (lk && opts.wantSave && !roughAny) {   // handed back so the page can keep it (typed numbers: x then y for every item, in order)
       var xy = new Float64Array(nb * 2);
       for (i = 0; i < nb; i++) { xy[i * 2] = nodes[i].x; xy[i * 2 + 1] = nodes[i].y; }
       outL.saveLayout = { key: lk, xy: xy, width: outL.width, height: outL.height, rough: false };
